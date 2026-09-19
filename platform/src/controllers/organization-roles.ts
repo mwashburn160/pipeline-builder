@@ -49,7 +49,10 @@ function assignmentActor(req: Request, admin: { isSuperAdmin: boolean; isOrgAdmi
   };
 }
 
-/** GET /organization/:id/roles — list permission Roles + their members. */
+/** Largest page of Roles one request may ask for. */
+const ROLE_PAGE_MAX = 100;
+
+/** GET /organization/:id/roles[?limit=&offset=] — list permission Roles + their members. */
 export const getOrganizationRoles = withController('Get roles', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
@@ -59,8 +62,17 @@ export const getOrganizationRoles = withController('Get roles', async (req, res)
     return sendError(res, 403, 'Forbidden: Can only view roles within your organization');
   }
 
-  const roles = await listRolesWithMembers(id);
-  sendSuccess(res, 200, { roles });
+  // Paged only when the caller names a `limit` (the management page); pickers
+  // and the CLI omit it and receive every Role. `limit` is clamped to 1..100.
+  const rawLimit = parseInt(String(req.query.limit), 10);
+  const rawOffset = parseInt(String(req.query.offset), 10);
+  const page = Number.isNaN(rawLimit)
+    ? undefined
+    : { limit: Math.min(Math.max(rawLimit, 1), ROLE_PAGE_MAX), offset: Number.isNaN(rawOffset) ? 0 : Math.max(rawOffset, 0) };
+  const { roles, total } = await listRolesWithMembers(id, page);
+  const limit = page?.limit ?? total;
+  const offset = page?.offset ?? 0;
+  sendSuccess(res, 200, { roles, pagination: { total, offset, limit, hasMore: offset + roles.length < total } });
 });
 
 /** POST /organization/:id/roles — create a custom permission Role. */

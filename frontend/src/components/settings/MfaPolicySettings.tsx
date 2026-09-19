@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Button } from '@/components/ui/Button';
@@ -10,9 +10,11 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { useToast } from '@/components/ui/Toast';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { OrgMfaPolicy } from '@/types';
@@ -44,34 +46,22 @@ function formatDate(iso: string): string {
  */
 export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const toast = useToast();
-  const [policy, setPolicy] = useState<OrgMfaPolicy | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.getMfaPolicy(orgId);
-      if (res.success && res.data) {
-        setPolicy(res.data);
-        // Edit the org's OWN setting — that is what saving changes; a parent's
-        // requirement is shown but not editable from here.
-        setDraft({
-          requireMfa: res.data.own,
-          graceDays: res.data.defaultGraceDays,
-          idpEnforcesMfa: res.data.idpEnforcesMfa,
-        });
-      }
-      setError(null);
-    } catch (e) {
-      setError(formatError(e, 'Could not load the two-factor policy'));
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
+  const read = useFetch(
+    async (signal): Promise<OrgMfaPolicy | null> => (await api.getMfaPolicy(orgId, { signal })).data ?? null,
+    [orgId],
+  );
+  const policy = read.data;
+  const loading = read.loading && !policy;
 
-  useEffect(() => { void load(); }, [load]);
+  // Edit the org's OWN setting — that is what saving changes; a parent's
+  // requirement is shown but not editable from here. Re-seeded on every read.
+  useEffect(() => {
+    if (policy) setDraft({ requireMfa: policy.own, graceDays: policy.defaultGraceDays, idpEnforcesMfa: policy.idpEnforcesMfa });
+  }, [policy]);
 
   const dirty = !!policy && !!draft
     && (draft.requireMfa !== policy.own || draft.idpEnforcesMfa !== policy.idpEnforcesMfa);
@@ -99,7 +89,7 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
         toast.success(res.message || 'Two-factor policy saved');
         // Re-read rather than adopting the write's response: the READ is what
         // carries the enrolment counts, and enrolment moves on its own anyway.
-        await load();
+        read.refetch();
       }
       setError(null);
     } catch (e) {
@@ -119,7 +109,9 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
     >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
-      {loading || !policy || !draft ? (
+      {read.error && !policy ? (
+        <RetryError message={formatError(read.error, 'Could not load the two-factor policy')} onRetry={read.refetch} />
+      ) : loading || !policy || !draft ? (
         <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
           <LoadingSpinner size="sm" /> Loading…
         </div>

@@ -4,6 +4,7 @@ import { triggerBlobDownload } from '@/lib/csv-export';
 import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -52,14 +53,24 @@ const TRASH_RESOURCES = [
 ] as const;
 type TrashResource = (typeof TRASH_RESOURCES)[number]['key'];
 
+const PAGE_TABS = [
+  { id: 'organizations', label: 'Organizations' },
+  { id: 'deleted', label: 'Deleted items' },
+] as const;
+type PageTab = (typeof PAGE_TABS)[number]['id'];
+const PAGE_TAB_IDS: readonly PageTab[] = PAGE_TABS.map((t) => t.id);
+
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requireSystemAdmin: true });
+  // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard();
 
   // Top-level view: the org list vs. the aggregated "Deleted items" (trash)
-  // restore surface. The trash tab is a System-Admin surface, gated on the same
-  // system-admin context that guards every destructive action on this page.
-  const [tab, setTab] = useState<'organizations' | 'deleted'>('organizations');
+  // restore surface — in the URL (`?tab=deleted`), so the trash view can be
+  // linked, survives a refresh, and Back returns to the list. The trash tab is
+  // a System-Admin surface, gated on the same system-admin context that guards
+  // every destructive action on this page.
+  const [tab, setTab] = useUrlTab<PageTab>('tab', PAGE_TAB_IDS, 'organizations');
   const [trashResource, setTrashResource] = useState<TrashResource>('pipeline');
 
   const list = useListPage<OrganizationListItem>({
@@ -283,14 +294,7 @@ export default function OrganizationsPage() {
     >
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
-      <TabBar
-        items={[
-          { id: 'organizations', label: 'Organizations' },
-          { id: 'deleted', label: 'Deleted items' },
-        ]}
-        activeId={tab}
-        onSelect={(id) => setTab(id as 'organizations' | 'deleted')}
-      />
+      <TabBar items={PAGE_TABS} activeId={tab} onSelect={(id) => setTab(id as PageTab)} />
 
       {tab === 'deleted' ? (
         // Aggregated trash view: pick a resource kind, then reuse the shared

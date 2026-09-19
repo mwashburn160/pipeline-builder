@@ -821,6 +821,13 @@ export interface Bundle {
   volumeTiers?: { minQuantity: number; discountPercent: number }[];
   maxQuantity?: number;
   availableForTiers: QuotaTier[];
+  /** Prerequisite bundle ids that must be held first (e.g. Advanced → Standard Compliance). */
+  requires?: string[];
+  /** Prerequisite feature flags the plan or a held add-on must provide. */
+  requiresFeatures?: string[];
+  /** Set by `GET /billing/bundles` when the account doesn't meet a prerequisite
+   *  yet — the same gate the add route 400s on, so the card can explain it. */
+  unmetRequirement?: { bundleIds: string[]; features: string[]; message: string };
 }
 
 /** A combo discount advertised in the bundle catalog: owning every member bundle

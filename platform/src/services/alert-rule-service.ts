@@ -123,14 +123,23 @@ export class AlertRuleService {
   }
 
   /** List the rules an org has authored, sorted by name for stable UI. */
-  async listForOrg(orgId: string): Promise<OrgAlertRule[]> {
-    return withTenantTx(async (tx) => tx
-      .select()
-      .from(schema.orgAlertRule)
-      .where(and( eq(schema.orgAlertRule.orgId, orgId),
-        isNull(schema.orgAlertRule.deletedAt),
-      ))
-      .orderBy(asc(schema.orgAlertRule.name)));
+  async listForOrg(
+    orgId: string,
+    page: { offset: number; limit: number },
+  ): Promise<{ rules: OrgAlertRule[]; total: number }> {
+    const live = and(eq(schema.orgAlertRule.orgId, orgId), isNull(schema.orgAlertRule.deletedAt));
+    // One tenant tx for the page + the count, so both see the same snapshot and
+    // `total` can't disagree with the page it describes.
+    // (Sequential: a transaction owns a single connection.)
+    return withTenantTx(async (tx) => {
+      const rules = await tx.select().from(schema.orgAlertRule).where(live)
+        // `id` breaks name ties so paging is deterministic.
+        .orderBy(asc(schema.orgAlertRule.name), asc(schema.orgAlertRule.id))
+        .limit(page.limit)
+        .offset(page.offset);
+      const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.orgAlertRule).where(live);
+      return { rules, total: Number(count) };
+    });
   }
 
   /** Find a single rule by id within the org's scope. */

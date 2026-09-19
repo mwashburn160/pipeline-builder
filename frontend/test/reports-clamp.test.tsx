@@ -35,7 +35,7 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 const getExecutionCount = jest.fn();
 const getSuccessRate = jest.fn();
 const getDora = jest.fn();
-const getIncidentSettings = jest.fn();
+const getReportRetention = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -43,7 +43,7 @@ jest.mock('@/lib/api', () => ({
     getSuccessRate: (...a: unknown[]) => getSuccessRate(...a),
     getDora: (...a: unknown[]) => getDora(...a),
     getDoraTrend: jest.fn().mockResolvedValue([]),
-    getIncidentSettings: (...a: unknown[]) => getIncidentSettings(...a),
+    getReportRetention: (...a: unknown[]) => getReportRetention(...a),
     listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
     getReportEnvironments: jest.fn().mockResolvedValue({ data: { environments: [] } }),
     getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
@@ -60,13 +60,8 @@ beforeEach(() => {
   getExecutionCount.mockReset().mockResolvedValue({ data: { pipelines: [] } });
   getSuccessRate.mockReset().mockResolvedValue({ data: { timeline: [] } });
   getDora.mockReset().mockResolvedValue(null);
-  getIncidentSettings.mockReset().mockResolvedValue({
-    incidentWindowHours: null,
-    defaultWindowHours: 24,
-    eventRetentionDays: 30,
-    doraRetentionDays: 180,
-    defaultEventRetentionDays: 30,
-    defaultDoraRetentionDays: 180,
+  getReportRetention.mockReset().mockResolvedValue({
+    eventRetentionDays: 30, doraRetentionDays: 180, eventMaxRangeDays: 30, doraMaxRangeDays: 180,
   });
 });
 
@@ -149,5 +144,52 @@ describe('ReportsPage — consolidated empty state per tab', () => {
     render(<ReportsPage />);
     expect(await screen.findByText('No pipeline data yet')).toBeInTheDocument();
     expect(screen.getByText(/No executions in this window/i)).toBeInTheDocument();
+  });
+});
+
+describe('ReportsPage — effective retention (GET /reports/retention)', () => {
+  it('widens the pipelines cap to a Retention Pack horizon and links "Extend retention" to retention_pack past it', async () => {
+    getReportRetention.mockResolvedValue({
+      eventRetentionDays: 120, doraRetentionDays: 180, eventMaxRangeDays: 120, doraMaxRangeDays: 180,
+    });
+    render(<ReportsPage />);
+    await waitFor(() => expect(getReportRetention).toHaveBeenCalled());
+    await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
+
+    // 90d is inside the purchased 120-day horizon — no clamp, no warning.
+    getExecutionCount.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Last 90d' }));
+    await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
+    expect(screen.queryByText(/maximum for pipeline reports/i)).not.toBeInTheDocument();
+
+    // 180d exceeds it — clamped to 120 with a buy-more link to the Retention Pack.
+    fireEvent.click(screen.getByRole('button', { name: 'Last 180d' }));
+    expect(await screen.findByText(/Showing the last 120 days/i)).toBeInTheDocument();
+    const links = screen.getAllByRole('link', { name: /extend retention/i });
+    expect(links.length).toBeGreaterThan(0);
+    for (const l of links) expect(l).toHaveAttribute('href', '/dashboard/billing?highlight=retention_pack');
+  });
+
+  it('links the DORA tab past its horizon to the DORA-History pack', async () => {
+    render(<ReportsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+    await waitFor(() => expect(getDora).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Last 365d' }));
+    expect(await screen.findByText(/maximum for DORA reports/i)).toBeInTheDocument();
+    for (const l of screen.getAllByRole('link', { name: /extend retention/i })) {
+      expect(l).toHaveAttribute('href', '/dashboard/billing?highlight=dora_history_pack');
+    }
+  });
+
+  it('offers no "Extend retention" link when retention is unlimited (the 730-day ceiling is fixed)', async () => {
+    getReportRetention.mockResolvedValue({
+      eventRetentionDays: -1, doraRetentionDays: -1, eventMaxRangeDays: 730, doraMaxRangeDays: 730,
+    });
+    render(<ReportsPage />);
+    await waitFor(() => expect(getReportRetention).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Last 365d' }));
+    await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
+    expect(screen.queryByText(/maximum for pipeline reports/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /extend retention/i })).not.toBeInTheDocument();
   });
 });

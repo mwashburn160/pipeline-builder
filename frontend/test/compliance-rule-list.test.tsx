@@ -72,3 +72,28 @@ it('keeps the filter bar and recently-deleted panel mounted while a filter chang
   // The panel never remounted (it would re-fetch its deleted list if it did).
   expect(panelMounts).toBe(1);
 });
+
+it('sends the name/tag search and scope filter to the server instead of filtering the loaded page', async () => {
+  getComplianceRules.mockResolvedValue(listOk);
+  render(<RuleList />);
+  expect(await screen.findByText('No latest tags')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search by name' }), { target: { value: 'latest' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Filter by tag' }), { target: { value: 'docker' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter rules by scope' }), { target: { value: 'published' } });
+
+  // Debounced: the typed values reach the API once typing settles.
+  await waitFor(() => expect(getComplianceRules).toHaveBeenLastCalledWith(
+    expect.objectContaining({ name: 'latest', tag: 'docker', scope: 'published', offset: 0 }),
+  ));
+  // A server-matched row is shown as-is — nothing re-filters it client-side.
+  expect(screen.getByText('No latest tags')).toBeInTheDocument();
+});
+
+it('pages through the full rule set on the server', async () => {
+  getComplianceRules.mockResolvedValue({ success: true, data: { rules: [rule], pagination: { total: 60, limit: 25, offset: 0 } } });
+  render(<RuleList />);
+  expect(await screen.findByText('Compliance Rules (60)')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await waitFor(() => expect(getComplianceRules).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25, limit: 25 })));
+});

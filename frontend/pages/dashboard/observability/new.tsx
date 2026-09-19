@@ -27,7 +27,7 @@ export default function NewDashboardPage() {
   // View on `dashboards:read`; the actual create action is a `dashboards:write`
   // capability gated via `can()`, which reports false under read-only
   // impersonation so the Create button disables (superadmins bypass).
-  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard();
   const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();

@@ -192,12 +192,6 @@ export const createOrganizationSchema = z.object({
   parentOrgId: z.string().min(1).optional(),
 });
 
-/** Organization update schema (name and/or description). */
-export const updateOrganizationSchema = z.object({
-  name: z.string().min(2).max(100).optional(),
-  description: z.string().max(500).optional(),
-});
-
 /** Reusable org slug rule: lowercase alphanumeric words joined by single
  *  hyphens (no leading/trailing/double hyphens). Mirrors the shape the
  *  Organization model auto-generates via `slugify(..., { strict: true })`. */
@@ -209,9 +203,19 @@ export const orgSlugSchema = z
   .max(100, 'Slug must be at most 100 characters')
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug may contain only lowercase letters, numbers, and single hyphens');
 
-/** Owner/admin self-serve org identity update (name and/or slug). At least one
- *  field must be present so an empty PATCH is rejected rather than silently
- *  no-op'ing. Reuses the sysadmin name bounds; adds the slug rule. */
+/** Sysadmin organization update (`PUT /organization/:id`): name, slug and/or
+ *  description. The superset of the self-serve identity edit — description is
+ *  only editable here. An empty body is refused rather than silently no-op'ing. */
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100).optional(),
+    slug: orgSlugSchema.optional(),
+    description: z.string().max(500).optional(),
+  })
+  .refine((d) => d.name !== undefined || d.slug !== undefined || d.description !== undefined, {
+    message: 'Provide a name, slug or description to update',
+  });
+
 /**
  * Update an org's impersonation policy. Either field alone is allowed; an empty
  * body is refused so a no-op PATCH can't be mistaken for a successful change.
@@ -245,6 +249,9 @@ export const updateMfaPolicySchema = z
     message: 'Provide requireMfa or idpEnforcesMfa to update',
   });
 
+/** Owner/admin self-serve org identity update (name and/or slug). At least one
+ *  field must be present so an empty PATCH is rejected rather than silently
+ *  no-op'ing. Reuses the sysadmin name bounds; adds the slug rule. */
 export const updateOrgIdentitySchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
@@ -345,14 +352,6 @@ export const createServiceAccountKeySchema = z.object({
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
-});
-
-/** Quota limits update schema (values can be numbers or 'unlimited'). */
-export const updateQuotasSchema = z.object({
-  plugins: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
-  pipelines: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
-  apiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
-  aiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
 });
 
 // Org IdP (per-org SSO) Schemas

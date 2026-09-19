@@ -80,3 +80,16 @@ describe('BillingDashboard', () => {
     expect(screen.queryByText('Cost by team')).not.toBeInTheDocument();
   });
 });
+
+describe('BillingDashboard — invoice paging', () => {
+  it('pages the invoice table through the server', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    getBillingSummary.mockResolvedValue(summary(30));
+    listBillingInvoices.mockResolvedValue({ data: { invoices: invoices.data.invoices, pagination: { total: 30, limit: 24, offset: 0 } } });
+    render(<BillingDashboard />);
+    await screen.findByText('Invoices');
+    expect(listBillingInvoices).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0, limit: 24 }), expect.anything());
+    fireEvent.click(await screen.findByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(listBillingInvoices).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 24, limit: 24 }), expect.anything()));
+  });
+});

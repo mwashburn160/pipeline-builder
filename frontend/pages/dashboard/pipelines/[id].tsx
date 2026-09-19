@@ -12,7 +12,8 @@
  * filtered out of the org-wide aggregate).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
@@ -20,6 +21,8 @@ import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, 
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -27,35 +30,31 @@ import { TabBar } from '@/components/ui/TabBar';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
-import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
-import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
-import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
+import { invalidate, queries } from '@/lib/api-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
 
-interface ExecutionRow {
-  id: string;
-  total: number;
-  succeeded: number;
-  failed: number;
-  canceled: number;
-  first_execution: string | null;
-  last_execution: string | null;
-}
+// The edit wizard and save-as-template modal load on first use.
+const EditPipelineModal = dynamic(() => import('@/components/pipeline/EditPipelineModal'), { ssr: false });
+const CreateTemplateModal = dynamic(() => import('@/components/pipeline/CreateTemplateModal').then((m) => m.CreateTemplateModal), { ssr: false });
+
+/** Registry drain page size + runaway guard (~5k rows) for the deployment lookup. */
+const REGISTRY_PAGE = 200;
+const REGISTRY_MAX_PAGES = 25;
 
 interface PipelineExecution {
   execution_id: string;
@@ -106,95 +105,67 @@ export default function PipelineDetailPage() {
     fetchPipeline,
   );
 
-  // Recent runs — filtered from the org-wide execution-count report.
-  // The report has no per-pipeline endpoint, so we fetch the aggregate
-  // and pick the row matching this pipeline. Non-blocking; absence just
-  // hides the panel.
-  const [execStats, setExecStats] = useState<ExecutionRow | null>(null);
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    runQuery(queries.executionCount())
-      .then((r) => {
-        if (cancelled) return;
-        const row = (r.data?.pipelines ?? []).find((p) => p.id === id) ?? null;
-        setExecStats(row);
-      })
-      .catch(() => { /* non-blocking — panel just won't render */ });
-    return () => { cancelled = true; };
-  }, [id]);
+  // Recent runs — filtered from the org-wide execution-count report (shared
+  // cache: Executions and the home page read the same aggregate). The report
+  // has no per-pipeline endpoint, so pick this pipeline's row. Non-blocking;
+  // absence just hides the panel.
+  const execCounts = useQuery(id ? queries.executionCount() : null);
+  const execStats = useMemo(
+    () => execCounts.data?.data?.pipelines.find((p) => p.id === id) ?? null,
+    [execCounts.data, id],
+  );
 
   // Resolve owner/creator/updater user-ids → usernames (raw ids are unfriendly).
   // Non-blocking: falls back to the id if the roster can't be loaded.
-  const [memberNames, setMemberNames] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (!user?.organizationId) return;
-    let cancelled = false;
-    runQuery(queries.orgMembers(user.organizationId, { limit: 500 }))
-      .then((r) => {
-        if (cancelled || !r.data) return;
-        const map: Record<string, string> = {};
-        for (const m of r.data.members) map[m.id] = m.username;
-        setMemberNames(map);
-      })
-      .catch(() => { /* non-blocking — fall back to raw ids */ });
-    return () => { cancelled = true; };
-  }, [user?.organizationId]);
+  const roster = useQuery(user?.organizationId ? queries.orgMembers(user.organizationId, { limit: 500 }) : null);
+  const memberNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of roster.data?.data?.members ?? []) map[m.id] = m.username;
+    return map;
+  }, [roster.data]);
 
   // Live deployment (from the registry) for this pipeline — powers the Deployment
   // card + the "View stack in AWS" link. Non-blocking; absent → card hidden.
-  const [deployment, setDeployment] = useState<PipelineDeployment | null>(null);
-  useEffect(() => {
-    // Clear FIRST: this page is reached by same-pathname navigation (⌘K jumps
-    // between pipelines push `/dashboard/pipelines/[id]`), so the component is
-    // NOT remounted and stale state survives the id change. Every path below
-    // returns without setting anything when there's no match, so without this
-    // the previous pipeline's Deployment card — and its "View stack in AWS"
-    // link — stayed on screen as if it belonged to the new one.
-    setDeployment(null);
-    if (!id) return;
-    let cancelled = false;
-    // The registry endpoint is page-limited and has no per-pipeline filter, so
-    // page through until this pipeline's row is found (early-exit) or the list is
-    // drained — a single-page fetch would miss it in orgs with >200 deployments.
-    (async () => {
-      const PAGE = 200;
-      const MAX_PAGES = 25; // safety bound (~5k rows)
-      for (let i = 0, offset = 0; i < MAX_PAGES && !cancelled; i++) {
-        const r = await api.listPipelineDeployments({ limit: PAGE, offset });
-        if (cancelled || !r.data) return;
+  // The registry endpoint is page-limited and has no per-pipeline filter, so
+  // page through until this pipeline's row is found (early-exit) or the list is
+  // drained — a single-page fetch would miss it in orgs with >200 deployments.
+  const deploymentQ = useFetch(async (signal): Promise<{ id: string; match: PipelineDeployment | null }> => {
+    if (!id) return { id, match: null };
+    try {
+      for (let i = 0, offset = 0; i < REGISTRY_MAX_PAGES; i++) {
+        const r = await api.listPipelineDeployments({ limit: REGISTRY_PAGE, offset }, { signal });
+        if (!r.data) break;
         const rows = r.data.registry;
         const match = rows.find((d) => d.pipelineId === id);
-        if (match) { setDeployment(match); return; }
-        if (!r.data.pagination.hasMore || rows.length === 0) return;
+        if (match) return { id, match };
+        if (!r.data.pagination.hasMore || rows.length === 0) break;
         offset += rows.length;
       }
-    })().catch(() => { /* non-blocking — card just won't render */ });
-    return () => { cancelled = true; };
+    } catch {
+      /* non-blocking — card just won't render */
+    }
+    return { id, match: null };
   }, [id]);
+  // Keyed on the id it was read for: this page is reached by same-pathname
+  // navigation (⌘K jumps between pipelines), so the component is NOT remounted
+  // and the previous pipeline's card — and its "View stack in AWS" link — must
+  // not linger while the new id's lookup is in flight.
+  const deployment = deploymentQ.data?.id === id ? deploymentQ.data.match : null;
 
   // Per-pipeline execution history — list of recent runs from the reporting
   // service (the events the pipeline-events Lambda persists). The read is a
   // query against already-ingested data; the trigger/cancel actions below call
   // AWS CodePipeline directly, then refetch this list to surface the change.
-  const [executions, setExecutions] = useState<PipelineExecution[] | null>(null);
-  const [execLoading, setExecLoading] = useState(false);
-  const [execError, setExecError] = useState<string | null>(null);
-  const loadExecutions = useCallback(async () => {
-    if (!id) return;
-    setExecLoading(true);
-    setExecError(null);
-    try {
-      const r = await api.listPipelineExecutions(id, { limit: 50 });
-      if (!r.success) throw new Error(r.message || 'Failed to load executions');
-      setExecutions(r.data?.executions ?? []);
-    } catch (e) {
-      setExecError(formatError(e, 'Failed to load executions'));
-    } finally {
-      setExecLoading(false);
-    }
+  const execQ = useFetch(async (signal): Promise<PipelineExecution[] | null> => {
+    if (!id) return null;
+    const r = await api.listPipelineExecutions(id, { limit: 50 }, { signal });
+    if (!r.success) throw new Error(r.message || 'Failed to load executions');
+    return r.data?.executions ?? [];
   }, [id]);
-  useEffect(() => { void loadExecutions(); }, [loadExecutions]);
+  const executions = execQ.data;
+  const execLoading = execQ.loading;
+  const execError = execQ.error ? formatError(execQ.error, 'Failed to load executions') : null;
+  const loadExecutions = execQ.refetch;
 
   // Write actions (AWS CodePipeline trigger / cancel). Ingestion of the new
   // event is asynchronous, so we refetch after a short delay to let the
@@ -212,7 +183,7 @@ export default function PipelineDetailPage() {
       const res = await api.triggerPipelineExecution(id);
       if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
       toast.success(`Started execution ${res.data?.executionId ?? ''}`.trim());
-      setTimeout(() => { void loadExecutions(); }, REFETCH_DELAY_MS);
+      setTimeout(loadExecutions, REFETCH_DELAY_MS);
     } catch (e) {
       setActionError(formatError(e, 'Failed to trigger execution'));
     } finally {
@@ -228,7 +199,7 @@ export default function PipelineDetailPage() {
       const res = await api.stopPipelineExecution(id, cancelTarget, { reason: 'Canceled from dashboard' });
       if (!res.success) throw new Error(res.message || 'Failed to cancel execution');
       toast.success('Execution canceled');
-      setTimeout(() => { void loadExecutions(); }, REFETCH_DELAY_MS);
+      setTimeout(loadExecutions, REFETCH_DELAY_MS);
     } catch (e) {
       setActionError(formatError(e, 'Failed to cancel execution'));
     } finally {
@@ -251,6 +222,9 @@ export default function PipelineDetailPage() {
     try {
       const res = await api.deletePipeline(pipeline.id);
       if (!res.success) throw new Error(res.message || 'Delete failed');
+      // Every cached pipeline list still holds the deleted row — drop them
+      // before landing on the list page.
+      invalidate.pipelines();
       toast.success('Pipeline deleted');
       router.push('/dashboard/pipelines');
     } catch (e) {
@@ -359,7 +333,9 @@ export default function PipelineDetailPage() {
         </Link>
       </div>
 
-      <ErrorAlert message={fetchError?.message} />
+      {fetchError && !pipeline && (
+        <RetryError message={formatError(fetchError, 'Failed to load pipeline')} onRetry={reloadPipeline} className="mb-4" />
+      )}
       <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
 
       {fetching && !pipeline && <LoadingSpinner />}
@@ -548,7 +524,7 @@ export default function PipelineDetailPage() {
           <Card className="lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Executions</h3>
             {execLoading && !executions && <LoadingSpinner />}
-            <ErrorAlert message={execError} />
+            {execError && <RetryError message={execError} onRetry={loadExecutions} />}
             {!execLoading && !execError && executions && executions.length === 0 && (
               <p className="text-sm text-gray-500 dark:text-gray-400">No executions recorded yet.</p>
             )}

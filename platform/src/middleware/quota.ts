@@ -61,17 +61,6 @@ export function releaseFeatureQuota(
 }
 
 /**
- * Update quota limits for an organization.
- */
-export async function updateQuotaLimits(
-  orgId: string,
-  quotaLimits: Partial<Record<QuotaType, number>>,
-  authHeader: string,
-): Promise<boolean> {
-  return quotaService.updateLimits(orgId, quotaLimits, authHeader);
-}
-
-/**
  * Get quota status for an organization, returning null if unavailable.
  * `authHeader` must authorize reading ANOTHER org's quota: a sysadmin's own
  * token, or a platform service token (the quota service refuses anything else).

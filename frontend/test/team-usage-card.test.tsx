@@ -1,13 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TeamUsageCard } from '../src/components/billing/TeamUsageCard';
 
 let mockEnabled = true;
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
-  useFeatures: () => ({ isEnabled: (f: string) => (f === 'team_usage_analytics' ? mockEnabled : true) }),
+  useFeatures: () => ({ isEnabled: (f: string) => (f === 'team_usage_analytics' ? mockEnabled : true), isLoaded: true, isSuperAdmin: false }),
 }));
 
 const getTeamUsage = jest.fn();
@@ -27,8 +27,9 @@ describe('TeamUsageCard', () => {
   it('shows the upsell when the feature is not entitled', async () => {
     mockEnabled = false;
     render(<TeamUsageCard />);
-    expect(await screen.findByText('Team Usage Analytics')).toBeInTheDocument();
-    expect(screen.getByText(/add it for \$30\/mo/i)).toBeInTheDocument();
+    // The shared lock (not hand-written price copy), linking to the billing add-on.
+    expect(await screen.findByTestId('feature-lock-team_usage_analytics')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /see it in billing/i })).toHaveAttribute('href', '/dashboard/billing?highlight=team_usage_analytics');
     expect(getTeamUsage).not.toHaveBeenCalled();
   });
 
@@ -49,5 +50,14 @@ describe('TeamUsageCard', () => {
     getTeamUsage.mockResolvedValue(teams([{ orgId: 'root', name: 'Root', seats: 6, usage: {} }]));
     render(<TeamUsageCard />);
     expect(await screen.findByText(/create teams under your organization/i)).toBeInTheDocument();
+  });
+
+  it('shows a retryable error when the load fails, and reloads on Retry', async () => {
+    getTeamUsage.mockRejectedValueOnce(new Error('boom'));
+    render(<TeamUsageCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    getTeamUsage.mockResolvedValue(teams([{ orgId: 'root', name: 'Root', seats: 6, usage: {} }]));
+    expect(await screen.findByText(/create teams under your organization/i)).toBeInTheDocument();
+    expect(getTeamUsage).toHaveBeenCalledTimes(2);
   });
 });

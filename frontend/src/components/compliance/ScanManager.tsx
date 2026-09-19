@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -27,6 +28,11 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
   const [triggering, setTriggering] = useState(false);
   const [targetFilter, setTargetFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [triggeredByFilter, setTriggeredByFilter] = useState('');
+  // A running scan awaiting the "stop it?" confirmation, and whether that stop
+  // is in flight.
+  const [cancelTarget, setCancelTarget] = useState<ComplianceScan | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const {
     items: scans,
@@ -34,11 +40,12 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
     loading,
     setOffset,
     refetch: fetchScans,
-  } = useServerPagination<ComplianceScan, { target: string; status: string }>(
+  } = useServerPagination<ComplianceScan, { target: string; status: string; triggeredBy: string }>(
     async ({ offset, limit, filters }) => {
       const params: Record<string, string | number> = { limit, offset };
       if (filters.target) params.target = filters.target;
       if (filters.status) params.status = filters.status;
+      if (filters.triggeredBy) params.triggeredBy = filters.triggeredBy;
       const res = await api.getScans(params);
       if (!res.success || !res.data) {
         return { items: [], pagination: { offset, limit, total: 0 } };
@@ -50,7 +57,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
           : { offset, limit, total: res.data.scans.length },
       };
     },
-    { target: targetFilter, status: statusFilter },
+    { target: targetFilter, status: statusFilter, triggeredBy: triggeredByFilter },
     10,
   );
 
@@ -69,12 +76,17 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
     }
   };
 
-  const handleCancel = async (id: string) => {
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
     try {
-      await api.cancelScan(id);
+      await api.cancelScan(cancelTarget.id);
+      setCancelTarget(null);
       fetchScans();
     } catch (err) {
       toast.error(formatError(err, 'Failed to cancel scan'));
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -133,7 +145,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
             </IconButton>
           )}
           {!readOnly && scan.status === 'running' && (
-            <IconButton tone="danger" onClick={() => handleCancel(scan.id)} title="Cancel scan" aria-label="Cancel scan">
+            <IconButton tone="danger" onClick={() => setCancelTarget(scan)} title="Cancel scan" aria-label="Cancel scan">
               <Square className="h-4 w-4" />
             </IconButton>
           )}
@@ -179,6 +191,13 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </FilterSelect>
+        <FilterSelect value={triggeredByFilter} onChange={e => setTriggeredByFilter(e.target.value)} aria-label="Filter scans by trigger">
+          <option value="">All triggers</option>
+          <option value="manual">Manual</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="rule-change">Rule change</option>
+          <option value="rule-dry-run">Rule dry run</option>
+        </FilterSelect>
       </div>
 
       {loading ? (
@@ -204,6 +223,23 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
             />
           )}
         </div>
+      )}
+
+      {cancelTarget && (
+        <ConfirmDialog
+          title="Cancel this scan?"
+          confirmLabel="Cancel scan"
+          cancelLabel="Keep running"
+          tone="danger"
+          loading={cancelling}
+          onConfirm={() => void confirmCancel()}
+          onCancel={() => setCancelTarget(null)}
+        >
+          <p>
+            The {cancelTarget.target} scan stops where it is ({cancelTarget.processedEntities}/{cancelTarget.totalEntities} checked).
+            Entities it hasn&apos;t reached won&apos;t be evaluated, and it can&apos;t be resumed — start a new scan to cover them.
+          </p>
+        </ConfirmDialog>
       )}
     </div>
   );

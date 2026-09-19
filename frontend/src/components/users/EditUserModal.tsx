@@ -35,9 +35,19 @@ interface EditUserModalProps {
   onSubmit: () => void;
   onClose: () => void;
   onFeatureSaved: () => void;
+  /** The fresh `GET /users/:id` read is in flight — fields hold the list row until it lands. */
+  detailLoading?: boolean;
+  /** The fresh read failed; the editor still works from the list row. */
+  detailError?: string | null;
 }
 
-/** Sysadmin edit-user modal. Only the changed fields are sent on save. */
+/**
+ * Sysadmin edit-user modal. Only the changed fields are sent on save.
+ *
+ * The page opens it on the list row and then re-reads the user
+ * (`GET /users/:id`); while that read is in flight the fields are disabled so
+ * nobody edits a value that is about to be replaced by the current one.
+ */
 export function EditUserModal({
   editingUser,
   form,
@@ -58,8 +68,11 @@ export function EditUserModal({
   onSubmit,
   onClose,
   onFeatureSaved,
+  detailLoading = false,
+  detailError = null,
 }: EditUserModalProps) {
   if (!editingUser) return null;
+  const locked = form.loading || detailLoading;
   return (
     <Modal
       title={`Edit User: ${editingUser.username}`}
@@ -71,6 +84,7 @@ export function EditUserModal({
           onConfirm={onSubmit}
           confirmLabel="Save Changes"
           loading={form.loading}
+          confirmDisabled={detailLoading}
         >
           {/* "View as user" — sysadmin impersonation (read-only). Disabled
               for sysadmin targets (you can't impersonate another sysadmin)
@@ -102,6 +116,10 @@ export function EditUserModal({
     >
       <ErrorAlert message={form.error} />
       <SuccessAlert message={form.success} />
+      {detailError && <ErrorAlert message={detailError} />}
+      {detailLoading && (
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400" role="status">Loading the latest details…</p>
+      )}
 
       <div className="space-y-4">
         <div>
@@ -112,7 +130,7 @@ export function EditUserModal({
             onChange={(e) => onEditUsernameChange(e.target.value)}
             placeholder="jane-doe"
             autoComplete="off"
-            disabled={form.loading}
+            disabled={locked}
           />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
             User ID: <CopyableId value={editingUser.id} size="sm" />
@@ -126,7 +144,7 @@ export function EditUserModal({
             onChange={(e) => onEditEmailChange(e.target.value)}
             placeholder="jane@example.com"
             autoComplete="off"
-            disabled={form.loading}
+            disabled={locked}
           />
         </div>
         <div>
@@ -134,7 +152,7 @@ export function EditUserModal({
           <Select
             value={editOrgId}
             onChange={(e) => onEditOrgIdChange(e.target.value)}
-            disabled={form.loading}
+            disabled={locked}
           >
             <option value="">— No organization —</option>
             {orgOptions.map((o) => (
@@ -144,7 +162,7 @@ export function EditUserModal({
         </div>
         <div>
           <label className="label">Role</label>
-          <Select value={editRole} onChange={(e) => onEditRoleChange(e.target.value as 'owner' | 'admin' | 'member')} disabled={form.loading || editingUser.id === currentUserId}>
+          <Select value={editRole} onChange={(e) => onEditRoleChange(e.target.value as 'owner' | 'admin' | 'member')} disabled={locked || editingUser.id === currentUserId}>
             <option value="member">Member</option>
             <option value="admin">Admin</option>
             <option value="owner">Owner</option>
@@ -162,7 +180,7 @@ export function EditUserModal({
         <form onSubmit={(e) => e.preventDefault()}>
           <label className="label">New Password (leave blank to keep current)</label>
           <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
-          <Input type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={form.loading} />
+          <Input type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={locked} />
         </form>
 
         <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />

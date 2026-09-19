@@ -19,7 +19,7 @@
  *                       and the account FEATURE entitlements
  *                       (`GET /organization/:orgId/feature-entitlements`)
  *
- * Feature entitlements (platform `org.featureEntitlements`, e.g. `sso`/`audit_log`)
+ * Feature entitlements (platform `org.featureEntitlements`, e.g. `sso`/`advanced_reporting`)
  * are compared alongside the numeric limits: the expected set is the union of
  * bundle-granted features from `effectiveEntitlements`, and the actual set is read
  * from the platform feature-entitlements endpoint (the feature sibling of

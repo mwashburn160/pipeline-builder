@@ -11,11 +11,14 @@
  * editor. Guarded sysadmin-only like the other Platform surfaces.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
+import { RetryError } from '@/components/ui/RetryError';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -25,47 +28,33 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function IdpRosterPage() {
-  const { accessDenied, isReady, user, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
+  const { accessDenied, isReady, user, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  const enabled = isAuthenticated && isSuperAdmin;
 
-  const [configs, setConfigs] = useState<OrgIdpConfigDto[]>([]);
-  // orgId → display name, resolved best-effort from the orgs list so the roster
-  // shows names instead of bare ids. Missing entries fall back to the id.
-  const [orgNames, setOrgNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The roster is the source of truth.
+  const roster = useFetch(async (signal): Promise<OrgIdpConfigDto[]> => {
+    if (!enabled) return [];
+    const res = await api.listOrgIdpConfigs({ signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load IdP roster');
+    return res.data.configs ?? [];
+  }, [enabled]);
+  const configs = roster.data ?? [];
+  const loading = roster.loading;
+  const load = roster.refetch;
 
-  const load = useCallback(async () => {
-    if (!isAuthenticated || !isSuperAdmin) return;
-    setLoading(true);
-    setError(null);
-    try {
-      // The roster is the source of truth; org-name resolution is a best-effort
-      // enrichment, so a failure there must not blank the page.
-      const [idpRes, orgsRes] = await Promise.all([
-        api.listOrgIdpConfigs(),
-        runQuery(queries.listOrganizations({ limit: 200 })).catch(() => null),
-      ]);
-      if (idpRes.success && idpRes.data) setConfigs(idpRes.data.configs ?? []);
-      else throw new Error(idpRes.message || 'Failed to load IdP roster');
-      if (orgsRes?.success && orgsRes.data) {
-        const map: Record<string, string> = {};
-        for (const o of orgsRes.data.organizations) map[o.id] = o.name;
-        setOrgNames(map);
-      }
-    } catch (e) {
-      // Fail-soft: a 403/404 renders an empty roster rather than crashing.
-      setConfigs([]);
-      setError(formatError(e, 'Failed to load IdP roster'));
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated, isSuperAdmin]);
-
-  useEffect(() => { void load(); }, [load]);
+  // orgId → display name, a best-effort enrichment through the shared org-list
+  // cache (the orgs page and audit log read the same list), so a failure there
+  // never blanks the roster. Missing entries fall back to the id.
+  const orgList = useQuery(enabled ? queries.listOrganizations({ limit: 200 }) : null);
+  const orgNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const o of orgList.data?.data?.organizations ?? []) map[o.id] = o.name;
+    return map;
+  }, [orgList.data]);
 
   const columns: Column<OrgIdpConfigDto>[] = useMemo(() => [
     {
@@ -143,11 +132,8 @@ export default function IdpRosterPage() {
       {/* On failure, show ONLY a retryable error — not the "No IdP configurations"
           empty state layered under an error banner (the old fail-soft set
           configs=[] AND error, rendering both and offering no retry). */}
-      {error ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => void load()} className="underline hover:no-underline">Retry</button>
-        </div>
+      {roster.error ? (
+        <RetryError message={formatError(roster.error, 'Failed to load IdP roster')} onRetry={load} />
       ) : (
         <>
           {!loading && configs.length > 0 && (

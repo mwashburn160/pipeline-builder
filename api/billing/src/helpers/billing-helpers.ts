@@ -392,7 +392,7 @@ export interface PruneResult {
  * Drop any PURE-FEATURE add-on bundle whose granted feature is now included in
  * the destination tier's feature set (docs/billing-bundles.md). Prevents
  * double-billing: a Pro/Team account that bought e.g. `advanced_reporting` or
- * `audit_log` and then upgrades into a tier that bundles that feature keeps
+ * `team_usage_analytics` and then upgrades into a tier that bundles that feature keeps
  * paying for the now-redundant add-on, and the tier-filtered `/bundles` catalog
  * hides it (its `availableForTiers` excludes the higher tier) so they can't
  * self-service-remove it.

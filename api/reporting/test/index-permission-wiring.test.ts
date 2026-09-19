@@ -40,6 +40,7 @@ const ROUTERS = {
   plugins: { __router: 'plugins' },
   settings: { __router: 'settings' },
   retentionSync: { __router: 'retention-sync' },
+  retention: { __router: 'retention' },
 } as const;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -75,6 +76,7 @@ jest.unstable_mockModule('../src/routes/execution-reports.js', () => ({ createEx
 jest.unstable_mockModule('../src/routes/plugin-reports.js', () => ({ createPluginReportRoutes: () => ROUTERS.plugins }));
 jest.unstable_mockModule('../src/routes/report-settings.js', () => ({ createReportSettingsRoutes: () => ROUTERS.settings }));
 jest.unstable_mockModule('../src/routes/retention-sync.js', () => ({ createRetentionSyncRoutes: () => ROUTERS.retentionSync }));
+jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => ROUTERS.retention }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: jest.fn() }) }));
 // Retention sweep (Phase 7) is wired at boot; stub it so this wiring test doesn't
 // pull in pipeline-data / start a real scheduler.
@@ -135,6 +137,18 @@ describe('src/index.ts — reports:read enforcement', () => {
     // platform's seat-limit sync). Gating it with reports:read — or any org-user
     // permission — would reject the billing service token.
     expect(readGate(mountFor(ROUTERS.retentionSync))).toBeUndefined();
+  });
+
+  it('mounts the effective-retention read behind reports:read ONLY (no advanced_reporting gate)', () => {
+    // The Retention Pack is sold to every tier, so the Reports date-range cap must
+    // be readable without the DORA entitlement: exactly the read gate + the router.
+    const mount = mountFor(ROUTERS.retention);
+    expect(mount[0]).toBe('/reports/retention');
+    const gate = readGate(mount);
+    expect(gate).toBeDefined();
+    expect(gate.__allowService).toBe(false);
+    // path, the read gate, the router — nothing else (createAuthenticatedWithOrgRoute is [] here).
+    expect(mount).toHaveLength(3);
   });
 
   it('mounts the report-settings routes behind requirePermission("reports:read")', () => {

@@ -15,9 +15,11 @@ const VERSION_COLUMNS: Column<PluginVersion>[] = [
     header: 'Default',
     headerClassName: 'text-center',
     cellClassName: 'text-center',
+    // The dot's colour alone carries the state, so each carries a text label for
+    // screen readers (and a tooltip for sighted users).
     render: (v) => (v.has_default
-      ? <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-      : <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="No default set" />),
+      ? <><span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-green-500" title="Default set" /><span className="sr-only">Default set</span></>
+      : <><span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-amber-400" title="No default set" /><span className="sr-only">No default set</span></>),
   },
 ];
 

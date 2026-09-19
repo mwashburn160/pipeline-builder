@@ -50,7 +50,6 @@ export type FeatureFlag =
   | 'custom_integrations'
   | 'ai_generation'
   | 'bulk_operations'
-  | 'audit_log'
   // Single sign-on / external IdP configs (INCLUDED in Team, add-on for others).
   | 'sso'
   // DORA / advanced delivery analytics (paid tiers only).
@@ -76,7 +75,6 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'ai_generation',
   'bulk_operations',
   'custom_integrations',
-  'audit_log',
   'sso',
   'advanced_reporting',
   'team_usage_analytics',
@@ -89,7 +87,6 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   ai_generation: { label: 'AI Generation', description: 'AI-powered pipeline and plugin generation' },
   bulk_operations: { label: 'Bulk Operations', description: 'Batch create, update, and delete for pipelines and plugins' },
   custom_integrations: { label: 'Custom Integrations', description: 'Connect to external services and custom webhook endpoints' },
-  audit_log: { label: 'Audit Log', description: 'Detailed audit trail of all user and system actions' },
   sso: { label: 'SSO / IdP', description: 'Single sign-on and external identity-provider configurations' },
   advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
   team_usage_analytics: { label: 'Team Usage Analytics', description: 'Per-team usage breakdown across the org → team subtree' },

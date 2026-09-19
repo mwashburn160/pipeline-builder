@@ -17,17 +17,17 @@
  * controls behind step-up + audit.
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Shield, KeyRound, Database, Lock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
@@ -57,29 +57,17 @@ interface SettingRow {
 }
 
 export default function PlatformSettingsPage() {
-  const { accessDenied, isReady, user } = useAuthGuard({ requireSystemAdmin: true });
-  const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getAdminSummary();
-      if (res.success && res.data) setSummary(res.data);
-      else setError(res.message || 'Failed to load platform settings');
-    } catch (err) {
-      setError(formatError(err, 'Failed to load platform settings'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isReady && user) void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
+  const { accessDenied, isReady, user } = useAuthGuard();
+  const read = useFetch(async (signal): Promise<AdminSummary | null> => {
+    if (!isReady || !user) return null;
+    const res = await api.getAdminSummary({ signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load platform settings');
+    return res.data;
   }, [isReady, user?.id]);
+  const summary = read.data;
+  const loading = read.loading;
+  const load = read.refetch;
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -139,7 +127,9 @@ export default function PlatformSettingsPage() {
         </Link>
       </div>
 
-      <ErrorAlert message={error} className="mb-4" />
+      {read.error && (
+        <RetryError className="mb-4" message={formatError(read.error, 'Failed to load platform settings')} onRetry={load} />
+      )}
 
       <Card className="mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
         <div className="flex items-start gap-2">

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { formatError } from '@/lib/constants';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -7,6 +8,8 @@ import {
   BarChart3, XCircle, Inbox,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -18,27 +21,14 @@ import type { BuilderProps, ExecutionCountRow, Visibility } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { invalidate, queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
-import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
 import { SysadminHome } from '@/components/dashboard/SysadminHome';
 import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 import { usePendingMarketplaceClaim } from '@/hooks/usePendingMarketplaceClaim';
 
-// ─── Types ──────────────────────────────────────────────
-
-interface TimelineEntry {
-  period: string;
-  succeeded: number;
-  failed: number;
-  canceled: number;
-}
-
-interface PluginSummary {
-  total: number;
-  active: number;
-}
+// The create wizard is large and only mounts once opened.
+const CreatePipelineModal = dynamic(() => import('@/components/pipeline/CreatePipelineModal'), { ssr: false });
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -72,117 +62,85 @@ export default function DashboardPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
-  // Stats
-  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   // Execution Trend window (days). Drives the getSuccessRate from/to range.
   const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
-  const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [pipelineCount, setPipelineCount] = useState<number | null>(null);
-  const [memberCount, setMemberCount] = useState<number | null>(null);
-  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingVisitedPlugins, setOnboardingVisitedPlugins] = useState(false);
-  // Set when the core stats fetch (executions / pipeline count) fails, so a 500
-  // renders a distinct load-error + retry state instead of masquerading as a
-  // brand-new org ("0 Pipelines / -- Success Rate").
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // Stats start UNKNOWN, not zero: until the first fetch resolves, a real "0
-  // Pipelines / -- Success Rate" render is indistinguishable from a brand-new
-  // org, so a slow (or hung) request reads as an empty account.
-  const [statsLoading, setStatsLoading] = useState(true);
 
-  // Request-generation guard: a rapid org-switch re-creates fetchData (it keys on
-  // organizationId) and re-runs the effect, so an earlier org's in-flight response
-  // could otherwise land last and overwrite the current org's stats. Only the most
-  // recent invocation is allowed to apply state.
-  const fetchGenRef = useRef(0);
-  /** Aborts the previous round's requests when a new one starts / on unmount. */
-  const fetchAbortRef = useRef<AbortController | null>(null);
-
-  /**
-   * Load the home's panels.
-   *
-   * Each request applies its OWN result the moment it lands. This used to be a
-   * five-way `Promise.allSettled`, which meant the slowest of the five decided
-   * when ANY of them rendered: a sluggish plugin-summary held the pipeline count,
-   * the unread badge and the member probe behind it, and the skeletons stayed up
-   * for the worst case rather than each one's own. Nothing here depends on
-   * anything else here, so nothing here should wait on anything else here.
-   *
-   * The only join left is the pair backing the headline stats, because the
-   * "is this a load failure or an empty org?" decision genuinely needs both.
+  /*
+   * The home's panels. Each read resolves (and renders) on its own — nothing
+   * here depends on anything else here, so nothing waits on anything else. The
+   * three shared reads (execution counts, the pipeline total, the member probe)
+   * go through the query cache, so the Executions page, the inbox and the
+   * org-admin card reuse them instead of re-requesting; the cache is dropped on
+   * every org switch, which is what re-reads them for the new org.
    */
-  const fetchData = useCallback(() => {
-    const gen = ++fetchGenRef.current;
-    fetchAbortRef.current?.abort();
-    const controller = new AbortController();
-    fetchAbortRef.current = controller;
-    const { signal } = controller;
-    // Discard a superseded response: a slower fetch for a previously-selected org
-    // must not overwrite the org the user has since switched to.
-    const current = () => gen === fetchGenRef.current;
-
-    const execP = runQuery(queries.executionCount(), { signal });
-    const pipelineP = runQuery(queries.listPipelines({ limit: '1' }), { signal });
-    // Org-admin/owner only: a cheap member-count probe (1-row page, read from
-    // pagination.total) so a fresh account can be distinguished from an active
-    // one — an owner who has invited a teammate has "started" and graduates to
-    // the org-admin home. Gated so member-users don't 403 on the roster.
-    const memberP = isOrgAdmin && user?.organizationId
-      ? runQuery(queries.orgMembers(user.organizationId, { limit: 1 }), { signal })
-      : Promise.resolve(null);
-
-    execP.then((res) => { if (current()) setExecutions(res.data?.pipelines || []); }, () => {});
-    pipelineP.then((res) => { if (current()) setPipelineCount(res.data?.pagination?.total ?? 0); }, () => {});
-    memberP.then((res) => {
-      if (current() && res?.success && res.data) {
-        setMemberCount(res.data.pagination?.total ?? res.data.members.length);
-      }
-    }, () => {});
-    api.getPluginSummary().then((res) => { if (current()) setPluginSummary(res.data?.summary || null); }, () => {});
-    api.getUnreadCount().then((res) => { if (current()) setUnreadMessageCount(res.data?.count ?? 0); }, () => {});
-
-    // The two fetches that back the headline stats (Pipelines / Total & Failed
-    // Executions / Success Rate). If BOTH the executions report and the pipeline
-    // count fail, the "0 / --" render is a load failure, not an empty org — surface
-    // a retryable error instead of a misleading empty dashboard.
-    void Promise.allSettled([execP, pipelineP]).then(([execRes, pipelineRes]) => {
-      if (!current() || signal.aborted) return;
-      setLoadError(execRes.status === 'rejected' && pipelineRes.status === 'rejected'
-        ? formatError(execRes.reason, 'Failed to load dashboard data.')
-        : null);
-      setStatsLoading(false);
-    });
-  }, [isOrgAdmin, user?.organizationId]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    fetchData();
-    return () => fetchAbortRef.current?.abort();
-  }, [isAuthenticated, fetchData]);
-
-  // Execution Trend timeline — its own effect so switching the 7/30/90 window
-  // re-hits only the success-rate report instead of the whole home. It starts in
-  // the SAME commit as the effect above, so the two are concurrent, not
-  // sequential. The AbortController both drops a stale response (toggling the
-  // range quickly) and cancels the superseded request on the wire.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const controller = new AbortController();
+  const orgId = user?.organizationId;
+  const execQ = useQuery(isAuthenticated ? queries.executionCount() : null);
+  // `includeTotal` is what makes `pagination.total` exist; `fields=id` keeps the
+  // one row the count needs as small as a row gets.
+  const pipelinesQ = useQuery(isAuthenticated ? queries.listPipelines({ limit: '1', includeTotal: 'true', fields: 'id' }) : null);
+  // Org-admin/owner only: a cheap member-count probe (1-row page, read from
+  // pagination.total) so a fresh account can be distinguished from an active
+  // one — an owner who has invited a teammate has "started" and graduates to
+  // the org-admin home. Gated so member-users don't 403 on the roster.
+  const memberQ = useQuery(isAuthenticated && isOrgAdmin && orgId ? queries.orgMembers(orgId, { limit: 1 }) : null);
+  const pluginSummaryQ = useFetch(async (signal) => {
+    if (!isAuthenticated) return null;
+    return (await api.getPluginSummary({ signal })).data?.summary ?? null;
+  }, [isAuthenticated, orgId]);
+  const unreadQ = useFetch(async () => {
+    if (!isAuthenticated) return 0;
+    return (await api.getUnreadCount()).data?.count ?? 0;
+  }, [isAuthenticated, orgId]);
+  // Execution Trend timeline — keyed on the 7/30/90 window, so switching it
+  // re-hits only the success-rate report. A failure leaves the previous
+  // timeline in place (best-effort panel).
+  const timelineQ = useFetch(async (signal) => {
+    if (!isAuthenticated) return [];
     const to = new Date();
     const from = new Date();
     from.setDate(from.getDate() - trendRange);
-    api.getSuccessRate({
+    const res = await api.getSuccessRate({
       interval: 'day',
       from: from.toISOString().slice(0, 10),
       to: to.toISOString().slice(0, 10),
-    }, { signal: controller.signal }).then(
-      (res) => { if (!controller.signal.aborted) setTimeline((res.data?.timeline || []).slice(-trendRange)); },
-      () => { /* best-effort — leave the previous timeline in place */ },
-    );
-    return () => controller.abort();
-  }, [isAuthenticated, trendRange]);
+    }, { signal });
+    return (res.data?.timeline || []).slice(-trendRange);
+  }, [isAuthenticated, trendRange, orgId]);
+
+  const executions: ExecutionCountRow[] = useMemo(() => execQ.data?.data?.pipelines ?? [], [execQ.data]);
+  const timeline = useMemo(() => timelineQ.data ?? [], [timelineQ.data]);
+  const pluginSummary = pluginSummaryQ.data;
+  const unreadMessageCount = unreadQ.data ?? 0;
+  const pipelineCount = pipelinesQ.data ? (pipelinesQ.data.data?.pagination?.total ?? 0) : null;
+  const memberCount = memberQ.data?.success && memberQ.data.data
+    ? (memberQ.data.data.pagination?.total ?? memberQ.data.data.members.length)
+    : null;
+
+  // Stats start UNKNOWN, not zero: until both headline reads settle, a real "0
+  // Pipelines / -- Success Rate" render is indistinguishable from a brand-new
+  // org, so a slow (or hung) request would read as an empty account.
+  const settled = (q: { data: unknown; error: Error | null }) => q.data !== null || q.error !== null;
+  const statsLoading = !(settled(execQ) && settled(pipelinesQ));
+  // If BOTH headline reads fail, the "0 / --" render is a load failure, not an
+  // empty org — surface a retryable error instead of a misleading dashboard.
+  const loadError = execQ.error && pipelinesQ.error
+    ? formatError(execQ.error, 'Failed to load dashboard data.')
+    : null;
+
+  const { refetch: refetchExec } = execQ;
+  const { refetch: refetchPipelines } = pipelinesQ;
+  const { refetch: refetchMembers } = memberQ;
+  const { refetch: refetchPluginSummary } = pluginSummaryQ;
+  const { refetch: refetchUnread } = unreadQ;
+  const fetchData = useCallback(() => {
+    refetchExec();
+    refetchPipelines();
+    refetchMembers();
+    refetchPluginSummary();
+    refetchUnread();
+  }, [refetchExec, refetchPipelines, refetchMembers, refetchPluginSummary, refetchUnread]);
 
   // Read onboarding flags from localStorage once the user/org is known.
   const orgIdForOnboarding = user?.organizationId ?? '';
@@ -300,7 +258,7 @@ export default function DashboardPage() {
             role="alert"
           >
             <span>{loadError}</span>
-            <button type="button" onClick={() => { void fetchData(); }} className="underline hover:no-underline">Retry</button>
+            <button type="button" onClick={fetchData} className="underline hover:no-underline">Retry</button>
           </motion.div>
         )}
 
@@ -478,9 +436,10 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* Create Pipeline Modal */}
+      {/* Create Pipeline Modal — mounted only while open (fresh state per open). */}
+      {showCreateModal && (
       <CreatePipelineModal
-        isOpen={showCreateModal}
+        isOpen
         onClose={() => { setShowCreateModal(false); setModalGitUrl(undefined); }}
         onSubmit={handleCreateSubmit}
         createLoading={createLoading}
@@ -489,6 +448,7 @@ export default function DashboardPage() {
         canPublish={can('pipelines:publish')}
         initialGitUrl={modalGitUrl}
       />
+      )}
     </DashboardLayout>
   );
 }

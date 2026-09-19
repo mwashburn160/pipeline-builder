@@ -1,19 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { RetryError } from '@/components/ui/RetryError';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { api } from '@/lib/api';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
-import { Download } from 'lucide-react';
+import { CheckCircle2, Download } from 'lucide-react';
 import { formatError } from '@/lib/constants';
 
 interface TriageSample {
@@ -44,14 +45,10 @@ const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: stri
 };
 
 export default function TriagePage() {
-  // Sysadmin-only — the underlying /queue/triage endpoint is gated server-side
-  // and returns 403 to anyone else; the guard avoids loading the page UI just
-  // to have it 403 mid-render.
-  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
-  const [loading, setLoading] = useState(true);
-  const [totalFailed, setTotalFailed] = useState(0);
-  const [groups, setGroups] = useState<TriageGroup[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // Sysadmin-only (declared in page-access.ts) — the underlying /queue/triage
+  // endpoint is gated server-side and returns 403 to anyone else; the guard
+  // avoids loading the page UI just to have it 403 mid-render.
+  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [replaying, setReplaying] = useState<Set<string | number>>(new Set());
   // Per-job replay outcome, keyed by job id — a single shared message would be
@@ -59,26 +56,19 @@ export default function TriagePage() {
   // bulk triage session.
   const [replayMsgs, setReplayMsgs] = useState<Map<string | number, { text: string; isError: boolean }>>(new Map());
 
-  useEffect(() => {
-    if (!isReady || !isSuperAdmin) return;
-    void load();
-  }, [isReady, isSuperAdmin]);
-
-  async function load(): Promise<void> {
-    setLoading(true);
-    setError(null);
-    try {
+  const enabled = isReady && isSuperAdmin;
+  const { data, loading, error, refetch: load } = useFetch<{ groups: TriageGroup[]; totalFailed: number } | null>(
+    async () => {
+      if (!enabled) return null;
       const res = await api.getQueueTriage({ samples: '5' });
       const payload = res.success ? res.data : null;
       if (!payload) throw new Error('Unexpected response shape');
-      setGroups(payload.groups);
-      setTotalFailed(payload.totalFailed);
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
+      return { groups: payload.groups, totalFailed: payload.totalFailed };
+    },
+    [enabled],
+  );
+  const groups = data?.groups ?? [];
+  const totalFailed = data?.totalFailed ?? 0;
 
   function toggle(category: string) {
     setExpanded(prev => {
@@ -105,7 +95,7 @@ export default function TriagePage() {
       const newJobId = res.data?.newJobId ?? '?';
       setReplayMsg(jobId, { text: `Re-enqueued as job ${newJobId}`, isError: false });
       // Refresh so the replayed sample disappears.
-      void load();
+      load();
     } catch (err) {
       setReplayMsg(jobId, { text: formatError(err), isError: true });
     } finally {
@@ -154,7 +144,7 @@ export default function TriagePage() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => void load()}
+            onClick={load}
             disabled={loading}
           >
             {loading ? 'Loading…' : 'Refresh'}
@@ -164,7 +154,7 @@ export default function TriagePage() {
     >
       <div className="max-w-6xl mx-auto px-4 py-6">
         <BuildsTabs active="failed" />
-        {error && <ErrorAlert message={`Failed to load triage data: ${error}`} className="mb-4" />}
+        {error && <RetryError message={`Failed to load triage data: ${formatError(error)}`} onRetry={load} className="mb-4" />}
 
         {loading && groups.length === 0 && !error && (
           <div className="flex justify-center py-12">
@@ -172,8 +162,8 @@ export default function TriagePage() {
           </div>
         )}
 
-        {!loading && groups.length === 0 && !error && (
-          <SuccessAlert message="✅ No failed builds. Everything's green." />
+        {!loading && data && groups.length === 0 && !error && (
+          <EmptyState icon={CheckCircle2} title="No failed builds" description="Everything's green — no failures in the build queue or the dead-letter queue." />
         )}
 
         <div className="space-y-3">

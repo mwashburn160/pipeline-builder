@@ -671,6 +671,29 @@
     "audit": []
   },
   {
+    "method": "GET",
+    "path": "/reports/retention",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "PUT",
     "path": "/reports/retention-sync/:orgId",
     "auth": true,

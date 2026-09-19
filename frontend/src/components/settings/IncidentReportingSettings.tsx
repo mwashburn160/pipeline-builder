@@ -3,7 +3,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useUrlTab } from '@/hooks/useUrlTab';
-import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive } from 'lucide-react';
+import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { TabBar } from '@/components/ui/TabBar';
 import { CodeBlock } from '@/components/ui/CodeBlock';
@@ -24,6 +24,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { IncidentSettings, IncidentListItem, IncidentTestResult } from '@/lib/api/domains/reporting';
@@ -44,12 +45,16 @@ type IncidentTab = (typeof INCIDENT_TABS)[number]['id'];
 const INCIDENT_TAB_IDS: readonly IncidentTab[] = INCIDENT_TABS.map((t) => t.id);
 
 /**
- * Billing deep-link that highlights the DORA-History pack on the add-ons grid
+ * Billing deep-links that highlight the matching pack on the add-ons grid
  * (AddonGrid keys `?highlight=` on bundle id/name as well as features). Buying a
- * retention / DORA-History pack is the ONLY way to raise the billing-owned
- * retention horizon.
+ * pack is the ONLY way to raise the billing-owned retention horizon: the
+ * Retention Pack widens standard events, the DORA-History pack widens DORA.
  */
-const RETENTION_PACK_HIGHLIGHT = '/dashboard/billing?highlight=dora_history_pack';
+const EVENT_RETENTION_PACK_HIGHLIGHT = '/dashboard/billing?highlight=retention_pack';
+const DORA_HISTORY_PACK_HIGHLIGHT = '/dashboard/billing?highlight=dora_history_pack';
+
+/** Incidents per page in the recent-incidents list. */
+const INCIDENT_PAGE_SIZE = 25;
 
 /** Format a retention day count for read-only display; `-1` → "Unlimited". */
 function fmtRetentionDays(days: number): string {
@@ -222,15 +227,21 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
     }
   };
 
-  // ── Recent incidents list ──
-  const loadIncidents = useCallback(async (): Promise<IncidentListItem[]> => {
-    const res = await api.listIncidents({ limit: 25, offset: 0 });
-    if (res.success && res.data) return res.data.incidents;
-    throw new Error('Failed to load incidents');
-  }, []);
-  const { data: incidents, loading: incidentsLoading, error: incidentsError, reload: reloadIncidents } = useLoadable<IncidentListItem[]>(
-    loadIncidents, [], 'Failed to load incidents',
+  // ── Recent incidents list (paged; the backend reports `hasMore`) ──
+  const [incidentOffset, setIncidentOffset] = useState(0);
+  const {
+    data: incidentPage, loading: incidentsLoading, error: incidentsFetchError, refetch: reloadIncidents,
+  } = useFetch(
+    async (signal) => {
+      const res = await api.listIncidents({ limit: INCIDENT_PAGE_SIZE, offset: incidentOffset }, { signal });
+      if (res.success && res.data) return res.data;
+      throw new Error('Failed to load incidents');
+    },
+    [incidentOffset],
   );
+  const incidents: IncidentListItem[] = incidentPage?.incidents ?? [];
+  const incidentsHasMore = incidentPage?.pagination.hasMore ?? false;
+  const incidentsError = incidentsFetchError ? formatError(incidentsFetchError, 'Failed to load incidents') : null;
 
   const incidentColumns: Column<IncidentListItem>[] = [
     { id: 'incidentId', header: 'Incident', cellClassName: 'font-mono text-xs text-[var(--pb-text)]', render: (i) => i.incidentId },
@@ -390,9 +401,14 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
             sub={settings?.doraRetentionDays == null ? 'plan default' : 'from your plan / packs'}
           />
         </div>
-        <LinkButton href={RETENTION_PACK_HIGHLIGHT} variant="secondary" size="sm" className="mt-3 inline-flex">
-          Extend retention
-        </LinkButton>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <LinkButton href={EVENT_RETENTION_PACK_HIGHLIGHT} variant="secondary" size="sm" className="inline-flex">
+            Extend retention
+          </LinkButton>
+          <LinkButton href={DORA_HISTORY_PACK_HIGHLIGHT} variant="secondary" size="sm" className="inline-flex">
+            Extend DORA history
+          </LinkButton>
+        </div>
       </SectionCard>
       )}
 
@@ -428,13 +444,13 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
       {/* Recent incidents */}
       <SectionCard
         title="Recent incidents"
-        actions={<Button variant="ghost" size="xs" onClick={() => void reloadIncidents()}>Refresh</Button>}
+        actions={<Button variant="ghost" size="xs" onClick={reloadIncidents}>Refresh</Button>}
         bodyClassName="p-0"
       >
         {incidentsLoading && incidents.length === 0 ? (
           <div className="space-y-2 p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
         ) : incidentsError && incidents.length === 0 ? (
-          <div className="p-5"><RetryError message={incidentsError} onRetry={() => void reloadIncidents()} /></div>
+          <div className="p-5"><RetryError message={incidentsError} onRetry={reloadIncidents} /></div>
         ) : (
           <div className="overflow-x-auto p-5">
             <DataTable
@@ -445,6 +461,37 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
               getRowKey={(i) => i.incidentId}
               emptyState={{ icon: Siren, title: 'No incidents yet', description: 'Incidents will appear here once your tooling posts them.' }}
             />
+            {/* The list has no total (the backend pages by `hasMore`), so it
+                steps page by page rather than jumping to a numbered page. */}
+            {(incidentOffset > 0 || incidentsHasMore) && (
+              <nav className="mt-3 flex items-center justify-between gap-2 text-sm" aria-label="Incident pages">
+                <span className="text-[var(--pb-text-muted)]">
+                  {incidents.length > 0
+                    ? `Showing ${incidentOffset + 1}–${incidentOffset + incidents.length}`
+                    : 'No incidents on this page'}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => setIncidentOffset((o) => Math.max(0, o - INCIDENT_PAGE_SIZE))}
+                    disabled={incidentOffset === 0 || incidentsLoading}
+                    className="gap-1"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> Newer
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => setIncidentOffset((o) => o + INCIDENT_PAGE_SIZE)}
+                    disabled={!incidentsHasMore || incidentsLoading}
+                    className="gap-1"
+                  >
+                    Older <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </nav>
+            )}
           </div>
         )}
       </SectionCard>

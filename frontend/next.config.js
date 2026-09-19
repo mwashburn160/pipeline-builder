@@ -21,10 +21,42 @@ const nextConfig = {
   },
 
   async redirects() {
-    // The "Groups" page was renamed to "Roles" (UI-facing only — the API still
-    // speaks /groups). Redirect any old bookmarks/deep links to the new route.
+    // Old addresses of pages that moved. Each is ungated at its old address —
+    // the destination page enforces its own read gate — so the forward happens
+    // here, before any page code loads, instead of in a client-side shim page.
+    // (/dashboard/settings/service-accounts is NOT here: it keeps a page so a
+    // viewer without `service_accounts:manage` is told why rather than bounced.)
+    // Destinations mirror `src/lib/security-links.ts`; `test/next-redirects.test.ts`
+    // pins them together. Rules are first-match, so the `has` rules precede the
+    // catch-all for the same source. A destination's own query wins over the
+    // incoming one, so `?tab=tokens` becomes `?tab=keys` rather than surviving.
     return [
+      // The "Groups" page was renamed to "Roles" (UI-facing only — the API still
+      // speaks /groups).
       { source: '/dashboard/groups', destination: '/dashboard/roles', permanent: true },
+      // The old "API Tokens" page is now three tabs of Security, per old tab.
+      {
+        source: '/dashboard/tokens',
+        has: [{ type: 'query', key: 'tab', value: 'sessions' }],
+        destination: '/dashboard/security?tab=sessions',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/tokens',
+        has: [{ type: 'query', key: 'tab', value: 'access' }],
+        destination: '/dashboard/security?tab=sessions#current-token',
+        permanent: true,
+      },
+      { source: '/dashboard/tokens', destination: '/dashboard/security?tab=keys', permanent: true },
+      // The sysadmin cross-tenant destinations viewer became the "All
+      // organizations" mode of the one destinations page. `?all=1` opens that
+      // mode for sysadmins and is ignored for everyone else, so one static rule
+      // serves both audiences.
+      {
+        source: '/dashboard/admin/alert-destinations',
+        destination: '/dashboard/observability/alert-destinations?all=1',
+        permanent: true,
+      },
     ];
   },
 

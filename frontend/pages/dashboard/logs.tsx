@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { Modal } from '@/components/ui/Modal';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -154,7 +155,7 @@ export default function LogsPage() {
       )}
     >
       {actionError && <ErrorAlert message={actionError} className="mb-4" />}
-      {error && <ErrorAlert message={formatError(error)} className="mb-4" />}
+      {error && <RetryError message={formatError(error)} onRetry={refresh} className="mb-4" />}
       {data?.degraded && (
         <WarningAlert
           className="mb-4"

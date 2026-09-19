@@ -268,10 +268,10 @@ describe('AWSMarketplaceProvider', () => {
 
       const result = await provider.meterAddonUsage('cust-1', [
         { bundleId: 'seat_pack', quantity: 1 },
-        { bundleId: 'audit_log', quantity: 1 }, // unmapped
+        { bundleId: 'bulk_operations', quantity: 1 }, // unmapped
       ]);
 
-      expect(result.skipped).toEqual(['audit_log']);
+      expect(result.skipped).toEqual(['bulk_operations']);
       expect(result.metered).toBe(1);
       const sent = (mockMeteringSend.mock.calls[0][0] as { input: { UsageRecords: unknown[] } }).input;
       expect(sent.UsageRecords).toHaveLength(1);
@@ -280,10 +280,10 @@ describe('AWSMarketplaceProvider', () => {
     it('does not call AWS when there are no metered records', async () => {
       const result = await provider.meterAddonUsage('cust-1', [
         { bundleId: 'seat_pack', quantity: 0 }, // zero quantity → no-op
-        { bundleId: 'audit_log', quantity: 5 }, // unmapped
+        { bundleId: 'bulk_operations', quantity: 5 }, // unmapped
       ]);
 
-      expect(result).toEqual({ metered: 0, skipped: ['audit_log'], unprocessed: 0, unprocessedDimensions: [] });
+      expect(result).toEqual({ metered: 0, skipped: ['bulk_operations'], unprocessed: 0, unprocessedDimensions: [] });
       expect(mockMeteringSend).not.toHaveBeenCalled();
     });
 

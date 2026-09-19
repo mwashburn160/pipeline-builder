@@ -19,7 +19,17 @@ import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
 import { attachmentService } from '../services/attachment-service.js';
-import { messageService } from '../services/message-service.js';
+import { messageService, type InboxFilters } from '../services/message-service.js';
+
+/** The tab-view filters from a validated query — absent keys stay absent. */
+function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: InboxFilters['priority']; channel?: string }): InboxFilters {
+  return {
+    ...(v.search && { search: v.search }),
+    ...(v.isRead !== undefined && { isRead: v.isRead }),
+    ...(v.priority && { priority: v.priority }),
+    ...(v.channel && { channel: v.channel }),
+  };
+}
 
 /**
  * Create read routes for the message service.
@@ -88,20 +98,21 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // can never fetch/cache an unbounded set).
   //
   // This is the endpoint the UI's "Announcements" tab drives. It accepts the same
-  // `search` term the `/` inbox does, so a tab is filtered SERVER-side over the
-  // whole corpus (with its own `total`/`hasMore`) instead of client-side over
-  // whichever inbox pages happened to be loaded.
+  // `search` / `isRead` / `priority` / `channel` filters the `/` inbox does, so a
+  // tab is filtered SERVER-side over the whole corpus (with its own
+  // `total`/`hasMore`) instead of client-side over whichever inbox pages
+  // happened to be loaded.
   router.get('/announcements', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     const validation = validateQuery(req, MessageFilterSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { search } = validation.value;
-    ctx.log('INFO', 'Fetching announcements', { orgId, search: search ? '(set)' : undefined });
+    const filters = inboxFiltersOf(validation.value);
+    ctx.log('INFO', 'Fetching announcements', { orgId, ...filters, search: filters.search ? '(set)' : undefined });
     const result = await messageService.findAnnouncements(orgId, {
       limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
-    }, search);
+    }, filters);
 
     ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
@@ -113,7 +124,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/conversations — List conversations (paginated + hard-capped).
-  // Drives the UI's "Conversations" tab; same server-side `search` support as
+  // Drives the UI's "Conversations" tab; same server-side filters as
   // /announcements above.
   router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
@@ -121,11 +132,11 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { search } = validation.value;
-    ctx.log('INFO', 'Fetching conversations', { orgId, search: search ? '(set)' : undefined });
+    const filters = inboxFiltersOf(validation.value);
+    ctx.log('INFO', 'Fetching conversations', { orgId, ...filters, search: filters.search ? '(set)' : undefined });
     const result = await messageService.findConversations(orgId, {
       limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
-    }, search);
+    }, filters);
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');

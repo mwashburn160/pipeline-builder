@@ -6,44 +6,56 @@
  *
  * The org-facing counterpart to the sysadmin IdP roster + per-org modal: an
  * owner/admin configures their OWN org's identity provider here, backed by
- * `GET/PUT /api/organization/:id/idp`. Guarded by the `org:idp` permission
- * (the dedicated SSO/IdP capability split out of `org:settings`; superadmins
- * bypass) and additionally gated on the `sso` feature entitlement —
- * unentitled orgs see an upsell notice instead of the form. The backend
+ * `GET/PUT/PATCH/DELETE /api/organization/:id/idp`. The page's read gate
+ * (`org:idp`, from the nav entry via page-access) is applied by `useAuthGuard`;
+ * the `sso` entitlement is a plan question, so an unentitled org sees the
+ * standard {@link FeatureLock} upsell in place of the editors. The backend
  * independently enforces both the permission (own-org only) and the entitlement.
+ *
+ * The page reads the config ONCE and hands it to both protocol editors, the
+ * group-mapping editor and the disconnect control, so they all describe the
+ * same record and a save (or a disconnect) in one is seen by the rest.
  */
 
-import { useState } from 'react';
-import { ShieldCheck, Lock } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Callout } from '@/components/ui/Callout';
+import { FeatureLock } from '@/components/ui/FeatureLock';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
+import { RetryError } from '@/components/ui/RetryError';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
 import { OrgSamlSettings } from '@/components/settings/OrgSamlSettings';
+import { SsoDisconnect } from '@/components/settings/SsoDisconnect';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
 import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
+import api from '@/lib/api';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function OrgSsoSettingsPage() {
-  const { accessDenied, isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'org:idp' });
-  const { isEnabled, isLoaded } = useFeatures();
-  // The mapping editor renders what the CONFIGURED provider supports, and only
-  // the connection form below knows which one that is.
+  const { accessDenied, isReady, user, isReadOnly, can } = useAuthGuard();
+  // Superadmins hold every entitlement; `useFeatureGate` applies that bypass,
+  // mirroring the nav, so the link and this page can't disagree.
+  const ssoGate = useFeatureGate('sso');
+  const orgId = user?.organizationId;
+  const canLoad = isReady && !!orgId && ssoGate.entitled;
+
+  const idp = useFetch(
+    async (signal) => (canLoad ? (await api.getOwnOrgIdpConfig(orgId!, { signal })).data?.config ?? null : null),
+    [canLoad, orgId],
+  );
+  // The editors write back what they saved, so the page tracks the current
+  // config locally from the last read.
   const [idpConfig, setIdpConfig] = useState<OrgIdpConfigDto | null>(null);
+  useEffect(() => { setIdpConfig(idp.data); }, [idp.data]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
-
-  // Superadmins hold every feature entitlement (mirroring `isNavItemVisible`,
-  // which bypasses `requiredFeature` for them) — so the nav link and this page
-  // agree instead of a superadmin whose own org lacks `sso` seeing the link
-  // then hitting the upsell wall.
-  const ssoEntitled = isEnabled('sso') || isSuperAdmin;
-  const orgId = user.organizationId;
 
   return (
     <DashboardLayout
@@ -57,30 +69,26 @@ export default function OrgSsoSettingsPage() {
             greyed-out forms read as a broken page. */}
         <ReadOnlyNotice show={isReadOnly} />
 
-        {!isLoaded ? (
+        {!ssoGate.isLoaded ? (
           <LoadingPage />
-        ) : !ssoEntitled ? (
-          <Callout variant="warning" icon={Lock} title="SSO is not included in your current plan.">
-            Single Sign-On is available on the Team and Enterprise tiers. Upgrade your plan or add the SSO
-            entitlement to configure an identity provider for your organization.
-          </Callout>
+        ) : !ssoGate.entitled ? (
+          <FeatureLock flag="sso" />
         ) : !orgId ? (
           <Callout variant="danger">
             Could not determine your active organization. Try reloading the page.
           </Callout>
+        ) : idp.error ? (
+          <RetryError message={idp.error.message || 'Failed to load the SSO configuration'} onRetry={idp.refetch} />
+        ) : idp.loading ? (
+          <LoadingPage />
         ) : (
           <>
-            <OrgSsoSettings orgId={orgId} readOnly={isReadOnly} onConfigChange={setIdpConfig} />
+            <OrgSsoSettings orgId={orgId} config={idpConfig} readOnly={isReadOnly} onSaved={setIdpConfig} />
             {/* SAML 2.0 (#4) — the second protocol, behind the same sign-in path
                 and the same `org:idp` + step-up gate as the OIDC connection
                 above. It owns the protocol selector, since only one of the two
                 can be live for an org at a time. */}
-            <OrgSamlSettings
-              orgId={orgId}
-              config={idpConfig}
-              readOnly={isReadOnly}
-              onConfigChange={setIdpConfig}
-            />
+            <OrgSamlSettings orgId={orgId} config={idpConfig} readOnly={isReadOnly} onSaved={setIdpConfig} />
             {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
                 it grants roles, so an org can delegate the login connection and
                 the role policy to different people. The API enforces the same. */}
@@ -98,6 +106,14 @@ export default function OrgSsoSettingsPage() {
                 `org:idp`. The API enforces the same split. */}
             {can('service_accounts:manage') && (
               <ScimProvisioning orgId={orgId} readOnly={isReadOnly} />
+            )}
+            {idpConfig && (
+              <SsoDisconnect
+                orgId={orgId}
+                config={idpConfig}
+                readOnly={isReadOnly}
+                onDisconnected={() => setIdpConfig(null)}
+              />
             )}
           </>
         )}

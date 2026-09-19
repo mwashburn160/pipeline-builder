@@ -13,7 +13,7 @@
  * pipeline detail page.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -23,6 +23,7 @@ import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import { useIngestHealth } from '@/components/reports/useReportData';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { useExecutionStatusStream } from '@/hooks/useExecutionStatusStream';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -33,14 +34,13 @@ import { FilterBar } from '@/components/ui/FilterBar';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { DateRangePicker } from '@/components/reports/ReportHelpers';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
 import type { ExecutionCountRow } from '@/types';
 
 type StatusFilter = 'all' | 'failing' | 'succeeding';
@@ -61,27 +61,27 @@ export default function ExecutionsPage() {
   // only surface the toggle when the org actually parents teams (so flat orgs
   // see no extra control). Backend independently gates the rollup to admins.
   const [includeDescendants, setIncludeDescendants] = useState(false);
-  const [hasTeams, setHasTeams] = useState(false);
   // Gate on the `reports:rollup` permission, not a hardcoded role (parity with reports.tsx).
   const canRollup = can('reports:rollup');
 
-  // Read-only fetch via the shared useFetch hook (loading/error/cancel-on-unmount
-  // handled there). Refetches whenever the rollup toggle or auth-readiness changes.
-  const { data, loading, error: fetchError, refetch } = useFetch(
-    async (signal): Promise<ExecutionCountRow[]> => {
-      if (!isReady || !user) return [];
-      const params: { from?: string; to?: string; includeDescendants?: boolean } = {};
-      if (dateFrom) params.from = dateFrom;
-      if (dateTo) params.to = dateTo;
-      if (includeDescendants) params.includeDescendants = true;
-      const res = await runQuery(queries.executionCount(Object.keys(params).length ? params : undefined), { signal });
-      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load executions');
-      return res.data.pipelines;
-    },
-    [isReady, user?.id, includeDescendants, dateFrom, dateTo],
+  // Read through the shared query cache — the same `execution/count` read the
+  // dashboard home and the inbox make, so a navigation between them is one
+  // request, and the key (range + rollup) is the refetch dependency.
+  //
+  // NOT server-paged, deliberately: this is a per-pipeline AGGREGATE (one row
+  // per pipeline, bounded by the org's pipeline count), and the posture headline
+  // and stat strip sum over every row — a page would make them lie.
+  const countParams: { from?: string; to?: string; includeDescendants?: boolean } = {};
+  if (dateFrom) countParams.from = dateFrom;
+  if (dateTo) countParams.to = dateTo;
+  if (includeDescendants) countParams.includeDescendants = true;
+  const { data, loading, error: fetchError, refetch } = useQuery(
+    isReady && user ? queries.executionCount(Object.keys(countParams).length ? countParams : undefined) : null,
   );
-  const rows = useMemo(() => data ?? [], [data]);
-  const error = fetchError ? formatError(fetchError, 'Failed to load executions') : null;
+  const rows = useMemo<ExecutionCountRow[]>(() => data?.data?.pipelines ?? [], [data]);
+  const error = fetchError
+    ? formatError(fetchError, 'Failed to load executions')
+    : data && !data.success ? (data.message || 'Failed to load executions') : null;
 
   // Live updates: the reporting service pushes an `execution-updated` SSE frame to
   // this org whenever new pipeline events are ingested — refetch on receipt so the
@@ -89,15 +89,20 @@ export default function ExecutionsPage() {
   const { connected: liveConnected } = useExecutionStatusStream(user?.organizationId ?? null, refetch);
 
   // Detect whether the active org parents any teams (subtree larger than self).
+  // Best-effort: a failure just means no rollup toggle.
   const activeOrgId = user?.organizationId;
-  useEffect(() => {
-    if (!isReady || !canRollup || !activeOrgId) return;
-    let cancelled = false;
-    void api.getOrganizationDescendants(activeOrgId)
-      .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
-      .catch(() => { /* best-effort — no toggle if it fails */ });
-    return () => { cancelled = true; };
-  }, [isReady, activeOrgId, canRollup]);
+  const { data: hasTeams } = useFetch(
+    async () => {
+      if (!isReady || !canRollup || !activeOrgId) return false;
+      try {
+        const res = await api.getOrganizationDescendants(activeOrgId);
+        return (res.data?.orgIds?.length ?? 0) > 1;
+      } catch {
+        return false;
+      }
+    },
+    [isReady, activeOrgId, canRollup],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -236,7 +241,7 @@ export default function ExecutionsPage() {
         </div>
       }
     >
-      <ErrorAlert message={error} />
+      {error && <RetryError message={error} onRetry={refetch} className="mb-4" />}
 
       {/* Ingestion freshness — this page is built entirely from forwarded
           pipeline events, so "No executions yet" is ambiguous on its own: it

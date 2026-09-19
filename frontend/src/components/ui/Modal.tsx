@@ -1,5 +1,6 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { ConfirmDialog } from './ConfirmDialog';
 
 /** Props for the Modal component. */
@@ -38,19 +39,6 @@ interface ModalProps {
   discardMessage?: string;
 }
 
-/**
- * Returns all focusable elements within a container.
- * @param container - The DOM element to search within
- * @returns Array of focusable HTML elements
- */
-function getFocusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )
-  );
-}
-
 /** Accessible modal dialog with focus trapping, Escape-to-close, and backdrop click dismissal. */
 export function Modal({
   title, titleIcon, onClose, initialFocusRef, maxWidth = 'max-w-md', tall = false,
@@ -59,7 +47,6 @@ export function Modal({
   discardMessage,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const previousActiveElement = useRef<Element | null>(null);
   // Stable id so the dialog can reference its visible title via
   // aria-labelledby — more meaningful to screen readers than the
   // duplicated aria-label that was here before.
@@ -76,15 +63,12 @@ export function Modal({
   useEffect(() => setMounted(true), []);
 
   // Dismissal guard: with unsaved edits, Escape/backdrop/X open a discard prompt
-  // instead of closing. Held in a ref for the keydown handler, whose identity is
-  // deliberately stable (see the focus-effect note below).
+  // instead of closing.
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const requestClose = useCallback(() => {
     if (dirty) setConfirmingDiscard(true);
     else onClose();
   }, [dirty, onClose]);
-  const requestCloseRef = useRef(requestClose);
-  requestCloseRef.current = requestClose;
 
   const panelClasses = [
     'modal-panel', maxWidth,
@@ -96,132 +80,12 @@ export function Modal({
     tall && 'flex-1 overflow-y-auto',
   ].filter(Boolean).join(' ');
 
-  // Close on Escape — but ONLY the dialog that actually contains focus. With
-  // stacked dialogs every instance binds its own `document` keydown listener;
-  // `stopPropagation()` does not stop other listeners on the *same* target, so
-  // it can't prevent a parent dialog from also closing — `stopImmediate...`
-  // does. Gating the close on `focusInside` (the focus trap keeps focus in the
-  // topmost dialog) means only the topmost closes, and stopping immediate
-  // propagation keeps the parents' listeners from firing.
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      const focusInside = panelRef.current?.contains(document.activeElement);
-      if (focusInside) {
-        e.stopImmediatePropagation();
-        requestCloseRef.current();
-      }
-      return;
-    }
-
-    // Focus trap. Three cases on Tab:
-    //  - Focus is outside the panel (e.g. dev tools stole it, parent
-    //    refocused something): pull it back to the first focusable.
-    //  - Focus is on the last element + Tab forward: wrap to first.
-    //  - Focus is on the first element + Shift+Tab: wrap to last.
-    if (e.key === 'Tab' && panelRef.current) {
-      const panel = panelRef.current;
-      const focusable = getFocusableElements(panel);
-      if (focusable.length === 0) {
-        // Nothing focusable; keep the panel itself focused so Tab doesn't
-        // escape into the background.
-        e.preventDefault();
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const inside = active instanceof Node && panel.contains(active);
-
-      if (!inside) {
-        e.preventDefault();
-        first.focus();
-        return;
-      }
-      if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }, [onClose]);
-
-  // What we auto-focused on open, and whether the caller's preferred element
-  // ever got it. A dialog whose body is still loading (StepUpModal renders a
-  // spinner until the account's factors come back) has `initialFocusRef.current
-  // === null` at mount, so the fallback below wins and nothing ever corrects it
-  // — every step-up opened focused on "Close". The second effect fixes that.
-  const autoFocused = useRef<HTMLElement | null>(null);
-  const focusedInitial = useRef(false);
-
-  // Focus management + scroll lock — runs ONCE when the modal mounts (keyed on
-  // `mounted`, not `handleKeyDown`). Keeping focus-on-open out of the keydown
-  // effect is critical: callers pass an inline `onClose`, so `handleKeyDown`'s
-  // identity changes every render; if focusing lived here it would re-fire on
-  // every keystroke and yank focus to the close button (input loses focus after
-  // one letter).
-  useEffect(() => {
-    if (!mounted) return;
-    previousActiveElement.current = document.activeElement;
-
-    // Focus the caller-specified element (e.g. a form's primary input) if given,
-    // else the first focusable element on open.
-    if (panelRef.current) {
-      const focusable = getFocusableElements(panelRef.current);
-      const preferred = initialFocusRef?.current ?? null;
-      const target = preferred ?? focusable[0];
-      target?.focus();
-      autoFocused.current = target ?? null;
-      focusedInitial.current = !!preferred;
-    }
-
-    // Prevent background scrolling. Capture the prior value so we restore
-    // whatever the host page had set (mirrors CommandPalette); blindly
-    // resetting to '' would clobber a parent's intentional `hidden`.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      // Restore focus to the element that opened the modal — but only if it's
-      // still in the document (a parent re-render may have replaced the trigger;
-      // .focus() on a detached node is a no-op but can throw under test runners).
-      const prev = previousActiveElement.current;
-      if (prev instanceof HTMLElement && prev.isConnected) prev.focus();
-    };
-  }, [mounted]);
-
-  // Late focus: the caller's preferred element arrived after mount (its content
-  // was still loading). Deliberately NOT keyed on a dependency array — it has to
-  // notice a ref, which no dependency can describe — but it acts at most once,
-  // and only while focus is still sitting on the element we auto-focused (or on
-  // nothing). If the user has already tabbed or clicked somewhere, their focus
-  // is theirs; yanking it would be worse than the wrong initial target. The
-  // focus trap and the restore-on-close in the mount effect are untouched.
-  useEffect(() => {
-    if (!mounted || focusedInitial.current) return;
-    const target = initialFocusRef?.current;
-    if (!target || !target.isConnected) return;
-    const active = document.activeElement;
-    const undisturbed = active === autoFocused.current || active === document.body || active === null;
-    if (undisturbed) {
-      target.focus();
-      autoFocused.current = target;
-    }
-    // Either way the one-shot is spent: the content has rendered, so a later
-    // steal would be a surprise rather than a correction.
-    focusedInitial.current = true;
-  });
-
-  // Keydown listener (Escape + focus trap) — re-binds when `handleKeyDown`
-  // changes. No focus side effects here, so re-binding per render is harmless.
-  useEffect(() => {
-    if (!mounted) return;
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mounted, handleKeyDown]);
+  // Escape, the Tab trap, focus-in (including the late correction for a body
+  // that is still loading), scroll lock and focus-restore all come from the
+  // shared overlay hook — the same code SideDrawer runs. Escape goes through
+  // `requestClose`, so a dirty form asks before discarding. `active: mounted`
+  // holds everything until the portal (and so the panel) exists.
+  useDialogBehavior({ panelRef, onClose: requestClose, initialFocusRef, active: mounted });
 
   if (!mounted) return null;
 

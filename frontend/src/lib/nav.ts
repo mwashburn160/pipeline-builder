@@ -33,6 +33,13 @@ import {
   Inbox,
   Siren,
   ScrollText,
+  BellRing,
+  ListChecks,
+  Send,
+  LineChart,
+  Wrench,
+  Percent,
+  Megaphone,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -74,6 +81,15 @@ export interface NavItem {
   /** Extra path prefixes that should also mark this item active (e.g. a sibling
    *  route folded into the same nav entry, like /triage under "Builds"). */
   extraActivePaths?: string[];
+  /**
+   * Reachable from the command palette (⌘K) but NOT listed in the sidebar.
+   * For sub-pages of an existing sidebar entry — the alert views under
+   * Observability, triage under Builds, discounts/promotions under Billing
+   * Admin — that need to be findable by name without a second sidebar row that
+   * would light up alongside its parent. Gating is identical either way, and
+   * the entry still declares the route's read gate for `page-access.ts`.
+   */
+  paletteOnly?: boolean;
 }
 
 export interface NavSection {
@@ -146,6 +162,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
       // moved out of the Platform admin group to sit with the other run views.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
+      // The failed-build (DLQ) tab of Builds, by name in ⌘K.
+      { title: 'Build Triage', href: '/dashboard/triage', icon: Wrench, systemAdminOnly: true, paletteOnly: true },
       // Application logs (Loki). Rides `observability:read` — already in the
       // member bundle — so logs appear for existing roles with no migration;
       // DOWNLOADING them additionally needs `logs:export`, checked on the page.
@@ -161,6 +179,13 @@ export const NAV_SECTIONS: NavSection[] = [
       // every built-in role keeps it. Server-side $ORG substitution still scopes
       // the metrics inside a dashboard to the viewer's own org.
       { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, requiredPermission: 'dashboards:read' },
+      // The alert views live under /dashboard/observability, so the sidebar's
+      // Observability entry already highlights for them (prefix match); listing
+      // them there too would light up two rows. In ⌘K they're findable by name.
+      // All three read GET /observability/* (`observability:read`).
+      { title: 'Alerts', href: '/dashboard/observability/alerts', icon: BellRing, requiredPermission: 'observability:read', paletteOnly: true },
+      { title: 'Alert Rules', href: '/dashboard/observability/alert-rules', icon: ListChecks, requiredPermission: 'observability:read', paletteOnly: true },
+      { title: 'Alert Destinations', href: '/dashboard/observability/alert-destinations', icon: Send, requiredPermission: 'observability:read', paletteOnly: true },
     ],
   },
   {
@@ -169,6 +194,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
       // Security audit trail.
       { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
+      // Org-wide audit activity charts — same audience as the Audit Log. Its
+      // route sits under /observability, so it's palette-only rather than a
+      // second Govern row.
+      { title: 'Audit Activity', href: '/dashboard/observability/audit-activity', icon: LineChart, adminOnly: true, paletteOnly: true },
     ],
   },
   {
@@ -207,6 +236,9 @@ export const NAV_SECTIONS: NavSection[] = [
         requiresBillingEnabled: true,
         extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions'],
       },
+      // The Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
+      { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, systemAdminOnly: true, requiresBillingEnabled: true, paletteOnly: true },
+      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, systemAdminOnly: true, requiresBillingEnabled: true, paletteOnly: true },
       // Sysadmin roster of which orgs have SSO/IdP configured.
       { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
       // "Settings", not "Platform Settings" — this item lives under the
@@ -226,12 +258,13 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Profile & Organization', href: '/dashboard/settings', icon: Settings },
       // ONE home for sign-in factors, sessions, access keys and the org's
       // service accounts. `extraActivePaths` keeps it highlighted on the old
-      // addresses while they forward.
+      // service-accounts address while it forwards (the old /dashboard/tokens
+      // address is a server redirect in next.config.js and never renders).
       {
         title: 'Security',
         href: '/dashboard/security',
         icon: ShieldCheck,
-        extraActivePaths: ['/dashboard/tokens', '/dashboard/settings/service-accounts'],
+        extraActivePaths: ['/dashboard/settings/service-accounts'],
       },
       // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;

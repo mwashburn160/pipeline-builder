@@ -10,10 +10,12 @@ interface PipelineFailuresProps {
   stageFailures: StageFailure[];
   actionFailures: ActionFailure[];
   errors: ErrorEntry[];
+  /** Render the Top Errors card — the error-pattern report is sysadmin-only. */
+  showErrors?: boolean;
 }
 
 /** Pipelines → Failures tab: stage failures, action failures, and top errors. */
-export function PipelineFailures({ loading, stageFailures, actionFailures, errors }: PipelineFailuresProps) {
+export function PipelineFailures({ loading, stageFailures, actionFailures, errors, showErrors = true }: PipelineFailuresProps) {
   const hasFailData = stageFailures.length > 0 || actionFailures.length > 0 || errors.length > 0;
 
   if (loading && !hasFailData) return <TwoColumnSkeleton />;
@@ -39,6 +41,7 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
           <div className="space-y-2.5">{actionFailures.slice(0, MAX_LIST_ROWS).map((a) => (<div key={a.action_name}><div className="flex justify-between text-sm mb-1"><span className="text-gray-700 dark:text-gray-300 truncate font-mono text-xs">{a.action_name}</span><span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">{a.failures}/{a.total} ({a.failure_pct}%)</span></div><div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} /></div></div>))}</div>
         </Card>
       )}
+      {showErrors && (
       <Card>
         <div className="flex items-center justify-between mb-3">
           <SectionHeading>Top Errors</SectionHeading>
@@ -48,6 +51,7 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">{errors.slice(0, MAX_LIST_ROWS).map((e) => (<div key={e.error_pattern} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-1">{e.error_pattern}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{e.occurrences}x &middot; {e.affected_pipelines} pipeline{e.affected_pipelines !== 1 ? 's' : ''} &middot; {fmtDate(e.last_seen)}</p></div>))}</div>
         ) : <ReportEmpty text="No errors recorded" />}
       </Card>
+      )}
     </>
   );
 }

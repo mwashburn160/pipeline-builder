@@ -75,27 +75,17 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
   '/dashboard/onboarding': OPEN,
   // Pipeline detail reads GET /pipelines/:id.
   '/dashboard/pipelines/[id]': { permission: 'pipelines:read' },
-  // Custom dashboards read GET /dashboards[/:id] (`dashboards:read`); the alert
-  // surfaces read GET /observability/* (`observability:read`).
+  // Custom dashboards read GET /dashboards[/:id] (`dashboards:read`). The alert
+  // views, audit activity, triage, discounts and promotions have palette-only
+  // nav entries (`NavItem.paletteOnly`), so their gates derive from nav above.
   '/dashboard/observability/new': { permission: 'dashboards:read' },
   '/dashboard/observability/[id]': { permission: 'dashboards:read' },
   '/dashboard/observability/[id]/edit': { permission: 'dashboards:read' },
-  '/dashboard/observability/alerts': { permission: 'observability:read' },
-  '/dashboard/observability/alert-rules': { permission: 'observability:read' },
-  '/dashboard/observability/alert-destinations': { permission: 'observability:read' },
-  // Org-wide audit activity charts — same audience as the Audit Log nav item.
-  '/dashboard/observability/audit-activity': { adminOnly: true },
-  // Redirect shim onto /dashboard/observability/alert-destinations. Deliberately
-  // OPEN: gating it stranded non-sysadmins on a page that only ever redirects.
-  '/dashboard/admin/alert-destinations': OPEN,
   // Sysadmin per-org drill-down.
   '/dashboard/admin/orgs/[orgId]': { systemAdminOnly: true },
-  // Sibling routes folded into another nav item via `extraActivePaths`. They
-  // carry their OWN gate, which is why the derivation above ignores that field.
-  '/dashboard/triage': { systemAdminOnly: true },          // under "Builds"
-  '/dashboard/discounts': { systemAdminOnly: true },       // under "Billing Admin"
-  '/dashboard/promotions': { systemAdminOnly: true },      // under "Billing Admin"
-  '/dashboard/tokens': OPEN,                               // under "Security" — own tokens
+  // Forwards to Security → Service accounts. Keeps its own gate (it is NOT a
+  // next.config redirect) so a viewer without the permission is told why here
+  // instead of landing on a tab that won't render.
   '/dashboard/settings/service-accounts': { permission: 'service_accounts:manage' },
 };
 

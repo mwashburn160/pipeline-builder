@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback } from 'react';
-import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
+import { Plus, GitBranch, Search, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
@@ -12,52 +12,37 @@ import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { TabBar } from '@/components/ui/TabBar';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Checkbox } from '@/components/ui/Checkbox';
-import { Textarea } from '@/components/ui/Textarea';
-import { IconButton } from '@/components/ui/IconButton';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { Modal } from '@/components/ui/Modal';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DataTable } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
-import { RelativeTime } from '@/components/ui/RelativeTime';
-import { AccessCell } from '@/components/ui/AccessCell';
-import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
-import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
-import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import { usePipelineColumns, PIPELINE_SORT_FIELD } from '@/components/pipeline/usePipelineColumns';
+import { BulkActionBar, BulkActionBarSpacer, useRowSelection } from '@/components/dashboard/BulkActionBar';
 import api from '@/lib/api';
 // Every refresh below follows a write, so the shared pipeline cache the command
 // palette / dashboard home / deployment-drift view read from must be dropped too.
 import { invalidate } from '@/lib/api-cache';
-import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
+import { PIPELINE_LIST_FIELDS, type PipelineSummary } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
-import type { Pipeline, BuilderProps, Visibility } from '@/types';
+import type { BuilderProps, Visibility } from '@/types';
 
-// Maps a DataTable column id to the server-side sort field the pipelines list
-// endpoint honors (via parsePaginationParams → sortBy). Columns absent here
-// fall back to their own id.
-const PIPELINE_SORT_FIELD: Record<string, string> = {
-  name: 'pipelineName',
-  pipelineId: 'id',
-  project: 'project',
-  organization: 'organization',
-  visibility: 'visibility',
-  status: 'isActive',
-  default: 'isDefault',
-  createdBy: 'createdBy',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
-};
+// Modals and the recently-deleted panel load on first use — none of them is
+// part of the list's first paint, and the create/edit wizards are large.
+const CreatePipelineModal = dynamic(() => import('@/components/pipeline/CreatePipelineModal'), { ssr: false });
+const EditPipelineModal = dynamic(() => import('@/components/pipeline/EditPipelineModal'), { ssr: false });
+const BulkImportPipelinesModal = dynamic(() => import('@/components/pipeline/BulkImportPipelinesModal'), { ssr: false });
+const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
+
+/** `fields` for the list request — every rendered column, never `props`. */
+const LIST_FIELDS = PIPELINE_LIST_FIELDS.join(',');
 
 // ─── Page ───────────────────────────────────────────────
 
@@ -81,7 +66,10 @@ export default function PipelinesPage() {
 
   // ── Data ──
 
-  const list = useListPage<Pipeline>({
+  // Offset-paged (page numbers, page size and a URL-synced offset), so the
+  // keyset `cursor` the endpoint also offers doesn't fit here; `fields` does —
+  // the list never renders `props`, the heaviest column by far.
+  const list = useListPage<PipelineSummary>({
     fields: [
       { key: 'name', type: 'text', defaultValue: '', primary: true },
       { key: 'id', type: 'text', defaultValue: '' },
@@ -102,6 +90,7 @@ export default function PipelinesPage() {
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',
+        fields: LIST_FIELDS,
       };
       if (params.name) p.pipelineName = params.name;
       if (params.id) p.id = params.id;
@@ -118,9 +107,13 @@ export default function PipelinesPage() {
     urlSync: true,
   });
 
-  const del = useDelete<Pipeline>(
+  // Any write here invalidates the shared pipeline cache AND re-reads this page.
+  const { refresh: refreshList } = list;
+  const afterWrite = useCallback(() => { invalidate.pipelines(); refreshList(); }, [refreshList]);
+
+  const del = useDelete<PipelineSummary>(
     (p) => api.deletePipeline(p.id),
-    () => { invalidate.pipelines(); list.refresh(); toast.success('Pipeline deleted'); },
+    () => { afterWrite(); toast.success('Pipeline deleted'); },
     (err) => list.setError(formatError(err, 'Failed to delete pipeline')),
   );
 
@@ -151,11 +144,14 @@ export default function PipelinesPage() {
   const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
-  const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
+  const [editPipeline, setEditPipeline] = useState<PipelineSummary | null>(null);
+  const [showBulkCreate, setShowBulkCreate] = useState(false);
 
   // Open the create modal when arrived via the sidebar "Create Pipeline"
   // shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
+
+  const openCreate = () => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); };
 
   const handleCreatePipeline = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
@@ -172,7 +168,7 @@ export default function PipelinesPage() {
     );
     if (result?.success) {
       setCreateSuccess('Pipeline created successfully!');
-      invalidate.pipelines(); list.refresh();
+      afterWrite();
       toast.success('Pipeline created');
       setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
     }
@@ -180,21 +176,12 @@ export default function PipelinesPage() {
 
   // ── Bulk Operations ──
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selection = useRowSelection();
+  const { selectedIds, clear: clearSelection } = selection;
   const [bulkLoading, setBulkLoading] = useState(false);
   // Gate bulk delete behind a confirmation modal (mirrors single-row delete's
   // DeleteConfirmModal), since the bulk action is destructive and irreversible.
   const [showBulkDelete, setShowBulkDelete] = useState(false);
-
-  const toggleSelect = useCallback((id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -204,7 +191,7 @@ export default function PipelinesPage() {
       await api.bulkDeletePipelines(Array.from(selectedIds));
       clearSelection();
       setShowBulkDelete(false);
-      invalidate.pipelines(); list.refresh();
+      afterWrite();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete pipelines'));
@@ -220,69 +207,12 @@ export default function PipelinesPage() {
       const count = selectedIds.size;
       await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
       clearSelection();
-      invalidate.pipelines(); list.refresh();
+      afterWrite();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} pipelines`));
     } finally {
       setBulkLoading(false);
-    }
-  };
-
-  // ── Bulk Create (import) ──
-
-  const [showBulkCreate, setShowBulkCreate] = useState(false);
-  const [bulkText, setBulkText] = useState('');
-  const [bulkCreating, setBulkCreating] = useState(false);
-  const [bulkCreateError, setBulkCreateError] = useState<string | null>(null);
-  const [bulkCreateResult, setBulkCreateResult] = useState<BulkCreateResult | null>(null);
-
-  const openBulkCreate = () => {
-    setBulkText('');
-    setBulkCreateError(null);
-    setBulkCreateResult(null);
-    setShowBulkCreate(true);
-  };
-
-  const handleBulkCreate = async () => {
-    setBulkCreateError(null);
-    setBulkCreateResult(null);
-
-    let specs: BulkPipelineSpec[];
-    try {
-      const parsed = JSON.parse(bulkText);
-      // Accept either a bare array or a { pipelines: [...] } envelope so users
-      // can paste whichever shape they exported.
-      const arr = Array.isArray(parsed) ? parsed : (parsed?.pipelines ?? null);
-      if (!Array.isArray(arr) || arr.length === 0) {
-        setBulkCreateError('Provide a non-empty JSON array of pipeline specs (or a { "pipelines": [...] } object).');
-        return;
-      }
-      specs = arr as BulkPipelineSpec[];
-    } catch {
-      setBulkCreateError('Invalid JSON. Paste a valid JSON array of pipeline specs.');
-      return;
-    }
-
-    setBulkCreating(true);
-    try {
-      const res = await api.bulkCreatePipelines(specs);
-      if (res.success && res.data) {
-        setBulkCreateResult(res.data);
-        invalidate.pipelines(); list.refresh();
-        const { created, updated, failed } = res.data;
-        if (failed === 0) {
-          toast.success(`${created} created${updated > 0 ? `, ${updated} updated` : ''}`);
-        } else {
-          toast.error(`${created} created, ${failed} failed`);
-        }
-      } else {
-        setBulkCreateError(formatError(res, 'Bulk create failed'));
-      }
-    } catch (err) {
-      setBulkCreateError(formatError(err, 'Bulk create failed'));
-    } finally {
-      setBulkCreating(false);
     }
   };
 
@@ -299,147 +229,19 @@ export default function PipelinesPage() {
 
   // ── Columns ──
 
-  const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
-    ...(canBulk ? [{
-      id: 'select',
-      header: '',
-      locked: true,
-      render: (pipeline: Pipeline) => (
-        canWritePipeline(can, isSuperAdmin, pipeline, user?.id) ? (
-          <Checkbox
-            checked={selectedIds.has(pipeline.id)}
-            onChange={(e) => {
-              e.stopPropagation();
-              toggleSelect(pipeline.id);
-            }}
-          />
-        ) : null
-      ),
-    } as Column<Pipeline>] : []),
-    {
-      id: 'name',
-      header: 'Name',
-      sortValue: (p) => p.pipelineName || '',
-      render: (p) => (
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {/* Name links to the pipeline detail; project folds in as a mono chip
-                so the standalone Project column can stay hidden (see below). */}
-            <Link
-              href={`/dashboard/pipelines/${encodeURIComponent(p.id)}`}
-              className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline truncate"
-            >
-              {p.pipelineName}
-            </Link>
-            {p.project && (
-              <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{p.project}</span>
-            )}
-          </div>
-          {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
-        </div>
-      ),
-    },
-    {
-      id: 'pipelineId',
-      header: 'Pipeline ID',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
-      sortValue: (p) => p.id,
-      render: (p) => <>{p.id}</>,
-    },
-    {
-      id: 'project',
-      header: 'Project',
-      // Hidden by default: the project now shows as a chip in the Name cell, so
-      // a standalone column is redundant. Re-enable via the column toggle.
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.project,
-      render: (p) => <>{p.project}</>,
-    },
-    {
-      id: 'organization',
-      header: 'Organization',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.organization,
-      render: (p) => <>{p.organization}</>,
-    },
-    {
-      id: 'visibility',
-      header: 'Visibility',
-      sortValue: (p) => p.visibility,
-      render: (p) => <AccessCell visibility={p.visibility} />,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      sortValue: (p) => p.isActive,
-      // Active (common) → subtle dot; Inactive (exception) → loud red badge.
-      render: (p) => (
-        p.isActive
-          ? <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"><span className="h-1.5 w-1.5 rounded-full bg-green-500" />Active</span>
-          : <Badge color="red">Inactive</Badge>
-      ),
-    },
-    {
-      id: 'default',
-      header: 'Default',
-      hidden: true,
-      sortValue: (p) => p.isDefault,
-      render: (p) => p.isDefault ? <Badge color="blue">Default</Badge> : null,
-    },
-    {
-      id: 'createdBy',
-      header: 'Created By',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.createdBy,
-      render: (p) => <>{p.createdBy}</>,
-    },
-    {
-      id: 'createdAt',
-      header: 'Created',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.createdAt,
-      render: (p) => <RelativeTime value={p.createdAt} />,
-    },
-    {
-      id: 'updatedAt',
-      header: 'Updated',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.updatedAt,
-      render: (p) => <RelativeTime value={p.updatedAt} />,
-    },
-    {
-      id: 'keywords',
-      header: 'Keywords',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      render: (p) => <>{(p.keywords || []).join(', ')}</>,
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      cellClassName: 'text-sm',
-      render: (pipeline) => (
-        canWritePipeline(can, isSuperAdmin, pipeline, user?.id) ? (
-          <div className="flex items-center gap-1">
-            <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
-            {/* Delete as a muted icon (red only on hover, guarded by a confirm
-                modal) so it doesn't sit as loud red text a click from Edit. */}
-            <IconButton tone="danger" title="Delete pipeline" aria-label="Delete pipeline" onClick={() => del.open(pipeline)}>
-              <Trash2 className="h-4 w-4" />
-            </IconButton>
-          </div>
-        ) : (
-          <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
-        )
-      ),
-    },
-  ], [isSuperAdmin, canWrite, canBulk, can, selectedIds, toggleSelect]);
+  const canWriteRow = useCallback(
+    (pipeline: PipelineSummary) => canWritePipeline(can, isSuperAdmin, pipeline, user?.id),
+    [can, isSuperAdmin, user?.id],
+  );
+  const openDelete = del.open;
+  const pipelineColumns = usePipelineColumns({
+    selectable: canBulk,
+    selectedIds,
+    onToggleSelect: selection.toggle,
+    canWriteRow,
+    onEdit: setEditPipeline,
+    onDelete: openDelete,
+  });
 
   // ── Render ──
 
@@ -458,14 +260,14 @@ export default function PipelinesPage() {
                 when entitled, otherwise muted + lock-marked with the reason, so
                 the capability is discoverable instead of silently absent. */}
             {canBulk ? (
-              <Button variant="secondary" onClick={openBulkCreate}>
+              <Button variant="secondary" onClick={() => setShowBulkCreate(true)}>
                 <Upload className="w-4 h-4 mr-2" />
                 Bulk import
               </Button>
             ) : (
               <FeatureLockedAction flag="bulk_operations" label="Bulk import" icon={Upload} />
             )}
-            <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
+            <Button onClick={openCreate}>
               <Plus className="w-4 h-4 mr-2" />
               Create Pipeline
             </Button>
@@ -487,7 +289,7 @@ export default function PipelinesPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.visibility, createdBy: r.createdBy }, user?.id)} />
+          <RecentlyDeletedPanel resource="pipeline" onRestored={afterWrite} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.visibility, createdBy: r.createdBy }, user?.id)} />
         ) : (
         <>
         <DeployedPipelinesPanel canWrite={canWrite} />
@@ -535,7 +337,7 @@ export default function PipelinesPage() {
         />
 
         {/* Spacer when sticky bulk bar is visible */}
-        {canBulk && selectedIds.size > 0 && <div className="h-16" />}
+        {canBulk && <BulkActionBarSpacer count={selectedIds.size} />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -544,7 +346,7 @@ export default function PipelinesPage() {
             filters are active because ResourceList's built-in
             `filteredEmptyState` keys off the filter input it renders itself,
             and our filter input lives in FilterBar above. */}
-        <ResourceList<Pipeline>
+        <ResourceList<PipelineSummary>
           loading={list.isLoading}
           error={list.error}
           onRefresh={list.refresh}
@@ -587,8 +389,9 @@ export default function PipelinesPage() {
         )}
       </div>
 
+      {showCreateModal && (
       <CreatePipelineModal
-        isOpen={showCreateModal}
+        isOpen
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreatePipeline}
         createLoading={createForm.loading}
@@ -596,59 +399,10 @@ export default function PipelinesPage() {
         createSuccess={createSuccess}
         canPublish={can('pipelines:publish')}
       />
+      )}
 
       {showBulkCreate && (
-        <Modal
-          title="Bulk import pipelines"
-          onClose={() => bulkCreating ? undefined : setShowBulkCreate(false)}
-          maxWidth="max-w-2xl"
-          footer={
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={() => setShowBulkCreate(false)} disabled={bulkCreating}>
-                Close
-              </Button>
-              <Button onClick={handleBulkCreate} disabled={bulkCreating || !bulkText.trim()}>
-                {bulkCreating ? 'Importing…' : 'Import'}
-              </Button>
-            </div>
-          }
-        >
-          <div className="space-y-3 text-sm">
-            <p className="text-gray-600 dark:text-gray-400">
-              Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">visibility</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
-            </p>
-            <Textarea
-              value={bulkText}
-              onChange={(e) => { setBulkText(e.target.value); setBulkCreateError(null); }}
-              placeholder={'[\n  { "project": "web", "organization": "acme", "props": { /* BuilderProps */ } }\n]'}
-              rows={12}
-              className="font-mono text-xs w-full"
-              disabled={bulkCreating}
-              spellCheck={false}
-            />
-            {bulkCreateError && (
-              <ErrorAlert message={bulkCreateError} />
-            )}
-            {bulkCreateResult && (
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-3 space-y-2">
-                <div className="flex flex-wrap gap-2">
-                  <Badge color="green">{bulkCreateResult.created} created</Badge>
-                  {bulkCreateResult.updated > 0 && <Badge color="blue">{bulkCreateResult.updated} updated</Badge>}
-                  {bulkCreateResult.failed > 0 && <Badge color="red">{bulkCreateResult.failed} failed</Badge>}
-                </div>
-                {bulkCreateResult.errors.length > 0 && (
-                  <ul className="text-xs text-red-700 dark:text-red-300 space-y-1 max-h-40 overflow-y-auto">
-                    {bulkCreateResult.errors.map((e) => (
-                      <li key={e.index}>
-                        <span className="font-mono">#{e.index}</span>: {e.error}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        </Modal>
+        <BulkImportPipelinesModal onClose={() => setShowBulkCreate(false)} onImported={refreshList} />
       )}
 
       {del.target && (
@@ -666,33 +420,18 @@ export default function PipelinesPage() {
       )}
 
       {editPipeline && (
-        <EditPipelineModal pipeline={editPipeline} canPublish={can('pipelines:publish')} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
+        <EditPipelineModal pipeline={editPipeline} canPublish={can('pipelines:publish')} onClose={() => setEditPipeline(null)} onSaved={refreshList} />
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {canBulk && selectedIds.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
-          <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {selectedIds.size} selected
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(true)} disabled={bulkLoading}>
-                Activate
-              </Button>
-              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
-                Deactivate
-              </Button>
-              <Button variant="danger" size="xs" onClick={() => setShowBulkDelete(true)} disabled={bulkLoading}>
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete
-              </Button>
-              <IconButton onClick={clearSelection} title="Clear selection" aria-label="Clear selection">
-                <X className="w-4 h-4" />
-              </IconButton>
-            </div>
-          </div>
-        </div>
+      {canBulk && (
+        <BulkActionBar
+          count={selectedIds.size}
+          busy={bulkLoading}
+          onActivate={(isActive) => void handleBulkActivate(isActive)}
+          onDelete={() => setShowBulkDelete(true)}
+          onClear={clearSelection}
+        />
       )}
     </DashboardLayout>
   );

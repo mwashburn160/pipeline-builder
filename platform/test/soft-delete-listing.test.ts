@@ -69,8 +69,13 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: mockAudit })
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     observability: {
-      dashboardMaxName: 150, dashboardMaxDescription: 1000, dashboardMaxPanelTitle: 200, dashboardMaxPanels: 50,
-      alertDestinationMaxLabel: 100, alertDestinationMaxTarget: 500, alertDeliveryTimeoutMs: 5000,
+      dashboardMaxName: 150,
+      dashboardMaxDescription: 1000,
+      dashboardMaxPanelTitle: 200,
+      dashboardMaxPanels: 50,
+      alertDestinationMaxLabel: 100,
+      alertDestinationMaxTarget: 500,
+      alertDeliveryTimeoutMs: 5000,
     },
   },
 }));

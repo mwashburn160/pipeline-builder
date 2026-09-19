@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LayoutTemplate, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useIsDirty } from '@/hooks/useIsDirty';
@@ -17,7 +17,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
+import { useQuery } from '@/hooks/useQuery';
 import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
@@ -92,6 +92,9 @@ interface CreateTemplateModalProps {
   onCreated: () => void;
 }
 
+/** Columns the source-pipeline picker renders. */
+const PICKER_FIELDS = ['pipelineName', 'project'] as const;
+
 /**
  * Create a golden-path pipeline template from an existing pipeline's config.
  * A template = the pipeline's `props` (BuilderProps) + metadata; instantiating it
@@ -104,9 +107,12 @@ interface CreateTemplateModalProps {
 export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }: CreateTemplateModalProps) {
   const preselected = !!pipeline;
 
-  // Pipeline picker (New-template flow).
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [pipelinesLoading, setPipelinesLoading] = useState(false);
+  // Pipeline picker (New-template flow): EVERY pipeline, id/name/project only —
+  // the chosen one's props are fetched by id on selection. A capped page used to
+  // leave pipelines past the cap unpickable.
+  const pickerQ = useQuery(preselected ? null : queries.allPipelines(PICKER_FIELDS));
+  const pipelines = pickerQ.data ?? [];
+  const pipelinesLoading = pickerQ.loading;
   const [selectedId, setSelectedId] = useState(pipeline?.id ?? '');
   // The pipeline whose `props` will back the template (fetched full to guarantee props).
   const [source, setSource] = useState<Pipeline | null>(pipeline ?? null);
@@ -152,22 +158,10 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   // doesn't get undone, while selecting a DIFFERENT pipeline re-triggers.
   const autoRepoRef = useRef<string | null>(null);
 
-  // Load the pipeline list for the picker (New-template flow only).
-  const loadPipelines = useCallback(async () => {
-    setPipelinesLoading(true);
-    try {
-      const res = await runQuery(queries.listPipelines({ limit: '200', includeTotal: 'false' }));
-      if (res.success && res.data) setPipelines(res.data.pipelines || []);
-    } catch (err) {
-      setError(formatError(err, 'Failed to load pipelines'));
-    } finally {
-      setPipelinesLoading(false);
-    }
-  }, []);
-
+  const pickerError = pickerQ.error;
   useEffect(() => {
-    if (!preselected) void loadPipelines();
-  }, [preselected, loadPipelines]);
+    if (pickerError) setError(formatError(pickerError, 'Failed to load pipelines'));
+  }, [pickerError]);
 
   // Preselected (Save-as-template): guarantee we have the full config (props),
   // even if the caller passed a list-trimmed pipeline row.

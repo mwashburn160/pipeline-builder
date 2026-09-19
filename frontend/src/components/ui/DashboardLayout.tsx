@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Menu, X, Bell, Search, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFeatures } from '@/hooks/useFeatures';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
@@ -19,10 +21,9 @@ import { AuthErrorBanner } from './AuthErrorBanner';
 import { MfaRequiredBanner } from './MfaRequiredBanner';
 import { MfaRequiredDialog } from './MfaRequiredDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
-import { StepUpModal } from '@/components/admin/StepUpModal';
+import { FeatureLockedAction } from './FeatureLock';
 import { useToast } from './Toast';
 import { formatError } from '@/lib/constants';
-import { AskPanel } from '@/components/ask/AskPanel';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 import { usePolling } from '@/hooks/usePolling';
 import { pollUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
@@ -37,6 +38,21 @@ interface DashboardLayoutProps {
   breadcrumbs?: BreadcrumbItem[];
   subtitle?: React.ReactNode;
 }
+
+// The global step-up dialog and the Ask panel are ~400 lines each and only ever
+// open on demand, so they load as their own chunks the first time they're needed
+// instead of riding along on every dashboard route. Nothing can be lost while a
+// chunk loads: the step-up REQUEST lives in this layout's state (set by the
+// always-mounted `step-up-required` listener below) and the dialog renders from
+// that state as soon as its code arrives, `retry` and all.
+const StepUpModal = dynamic(
+  () => import('@/components/admin/StepUpModal').then((m) => m.StepUpModal),
+  { ssr: false, loading: () => null },
+);
+const AskPanel = dynamic(
+  () => import('@/components/ask/AskPanel').then((m) => m.AskPanel),
+  { ssr: false, loading: () => null },
+);
 
 const maxWidthClasses = {
   '3xl': 'max-w-3xl',
@@ -56,7 +72,9 @@ export function DashboardLayout({
 }: DashboardLayoutProps) {
   const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
   const toast = useToast();
-  const { isLoaded: featuresLoaded, isEnabled } = useFeatures();
+  // Ask rides the ai_generation entitlement (the ask service enforces it too).
+  const askGate = useFeatureGate('ai_generation');
+  const featuresLoaded = askGate.isLoaded;
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();
@@ -137,58 +155,11 @@ export function DashboardLayout({
 
   usePolling(pollUnreadCount, POLL_INTERVAL, { enabled: !hasLiveSource });
 
-  // Mobile drawer focus management: when the drawer opens, move focus into it,
-  // keep Tab cycling within it, close on Escape, lock background scroll, and
-  // hand focus back to whatever opened it. The drawer is a fixed overlay with no
-  // native dialog semantics, so this has to be wired by hand (Modal/SideDrawer
-  // do the same thing for their panels).
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const drawer = mobileDrawerRef.current;
-    // Remember the trigger (the hamburger) so focus returns there on close —
-    // otherwise focus falls back to <body> and keyboard users restart the page.
-    const previouslyFocused = document.activeElement;
-    const getFocusable = () =>
-      drawer
-        ? Array.from(
-            drawer.querySelectorAll<HTMLElement>(
-              'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
-            ),
-          )
-        : [];
-    getFocusable()[0]?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeMobile();
-        return;
-      }
-      if (e.key === 'Tab') {
-        const els = getFocusable();
-        if (els.length === 0) return;
-        const first = els[0];
-        const last = els[els.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    // The page behind a full-screen overlay must not scroll under the user's
-    // finger. Capture the prior value rather than resetting to '' so a parent's
-    // intentional `hidden` survives (mirrors Modal).
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
-    };
-  }, [mobileOpen, closeMobile]);
+  // Mobile drawer: a fixed overlay with no native dialog semantics, so it gets
+  // the same shared overlay behaviour as Modal/SideDrawer — focus moves in, Tab
+  // stays inside, Escape closes, the page behind can't scroll, and focus returns
+  // to the hamburger on close.
+  useDialogBehavior({ panelRef: mobileDrawerRef, onClose: closeMobile, active: mobileOpen });
 
   if (!isReady || !user || !featuresLoaded) return <LoadingPage />;
 
@@ -321,8 +292,10 @@ export function DashboardLayout({
                     full help reference is one click away inside the panel. The one
                     colored (brand-blue) call-to-action in the otherwise-neutral
                     topbar. Gated on the ai_generation entitlement (the ask service
-                    enforces it too); shown once features have loaded. */}
-                {featuresLoaded && isEnabled('ai_generation') && (
+                    enforces it too). Without it the entry stays visible but
+                    locked, leading to the plan that includes it — hiding it left
+                    people unaware the assistant exists. */}
+                {askGate.entitled ? (
                   <button
                     onClick={() => setAskOpen(true)}
                     aria-label="Ask"
@@ -332,6 +305,8 @@ export function DashboardLayout({
                   >
                     <Sparkles className="w-5 h-5" />
                   </button>
+                ) : (
+                  <FeatureLockedAction flag="ai_generation" label="Ask" icon={Sparkles} iconOnly />
                 )}
                 {actions}
               </div>

@@ -3,7 +3,6 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockUpdateLimits = jest.fn();
 const mockCheck = jest.fn();
 const mockReserveQuota = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockDecrementQuota = jest.fn();
@@ -12,7 +11,6 @@ const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: 
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createQuotaService: jest.fn(() => ({
-    updateLimits: mockUpdateLimits,
     check: mockCheck,
   })),
   getServiceAuthHeader: (...a: unknown[]) => mockGetServiceAuthHeader(...a),
@@ -34,33 +32,9 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveOrgLineage: (...a: unknown[]) => mockResolveOrgLineage(...a),
 }));
 
-const { updateQuotaLimits, getOrganizationQuotaStatus, reserveFeatureQuota, releaseFeatureQuota } =
+const { getOrganizationQuotaStatus, reserveFeatureQuota, releaseFeatureQuota } =
   await import('../src/middleware/quota.js');
 
-
-describe('updateQuotaLimits', () => {
-  beforeEach(() => {
-    mockUpdateLimits.mockReset();
-  });
-
-  it('should delegate to quotaService.updateLimits', async () => {
-    mockUpdateLimits.mockResolvedValue(true);
-    const result = await updateQuotaLimits('org-1', { plugins: 50 }, 'Bearer tok');
-    expect(result).toBe(true);
-    expect(mockUpdateLimits).toHaveBeenCalledWith('org-1', { plugins: 50 }, 'Bearer tok');
-  });
-
-  it('should return false when quota service returns false', async () => {
-    mockUpdateLimits.mockResolvedValue(false);
-    const result = await updateQuotaLimits('org-1', {}, 'Bearer tok');
-    expect(result).toBe(false);
-  });
-
-  it('should propagate errors from quota service', async () => {
-    mockUpdateLimits.mockRejectedValue(new Error('upstream'));
-    await expect(updateQuotaLimits('org-1', {}, 'Bearer tok')).rejects.toThrow('upstream');
-  });
-});
 
 describe('getOrganizationQuotaStatus', () => {
   beforeEach(() => {

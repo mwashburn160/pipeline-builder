@@ -447,8 +447,9 @@ paths:
             schema:
               type: object
               properties:
-                name: { type: string }
-                description: { type: string }
+                name: { type: string, minLength: 2, maxLength: 100 }
+                slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
+                description: { type: string, maxLength: 500 }
               minProperties: 1
       responses:
         '200':
@@ -477,65 +478,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /organization/{id}/quotas:
-    get:
-      summary: Get organization quotas (system admin)
-      operationId: getOrganizationQuotas
-      tags: [Organization]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/orgId'
-      responses:
-        '200':
-          description: Quotas retrieved
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
-                    properties:
-                      quotas:
-                        type: object
-                        properties:
-                          plugins: { $ref: '#/components/schemas/QuotaStatus' }
-                          pipelines: { $ref: '#/components/schemas/QuotaStatus' }
-                          apiCalls: { $ref: '#/components/schemas/QuotaStatus' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-    put:
-      summary: Update organization quotas (system admin)
-      operationId: updateOrganizationQuotas
-      tags: [Organization]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/orgId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                plugins: { type: integer, minimum: -1 }
-                pipelines: { type: integer, minimum: -1 }
-                apiCalls: { type: integer, minimum: -1 }
-              minProperties: 1
-      responses:
-        '200':
-          description: Quotas updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1588,16 +1530,6 @@ components:
         isOwner: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-
-    QuotaStatus:
-      type: object
-      properties:
-        used: { type: integer }
-        limit: { type: integer, description: '-1 for unlimited' }
-        remaining: { type: integer, description: '-1 for unlimited' }
-        resetAt: { type: string, format: date-time }
-        resetPeriod: { type: string }
-        unlimited: { type: boolean }
 
     SendInvitationRequest:
       type: object

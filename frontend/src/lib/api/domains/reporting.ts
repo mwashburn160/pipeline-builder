@@ -148,6 +148,23 @@ export interface IncidentSettings {
 }
 
 /**
+ * `GET /reports/retention` — the org's EFFECTIVE report retention (override ??
+ * env default), readable with `reports:read` alone. The Retention Pack is sold
+ * to every tier, so this is what the Reports date-range cap reads (the
+ * incident settings above carry the same numbers but need `advanced_reporting`).
+ */
+export interface ReportRetention {
+  /** Standard-event retention horizon in days (`-1` = unlimited). */
+  eventRetentionDays: number;
+  /** DORA-source retention horizon in days (`-1` = unlimited). */
+  doraRetentionDays: number;
+  /** Widest Pipelines/Plugins window the backend serves (horizon ∧ 730-day ceiling). */
+  eventMaxRangeDays: number;
+  /** Widest DORA window the backend serves (horizon ∧ 730-day ceiling). */
+  doraMaxRangeDays: number;
+}
+
+/**
  * A partial reporting-settings write. Only the incident correlation window is
  * admin-writable — retention is BILLING-OWNED (synced from the retention/DORA-
  * History packs), so it is NOT part of this patch and is shown read-only.
@@ -186,8 +203,8 @@ export function reportingApi(core: ApiCore) {
     // ============================================
 
     /** Distinct deploy environments observed in the window (for the DORA env datalist). */
-    getReportEnvironments: async (params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ environments: string[] }>>(`/api/reports/execution/environments${buildQuery(params)}`);
+    getReportEnvironments: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ environments: string[] }>>(`/api/reports/execution/environments${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Exchange the JWT for a single-use, org-bound ticket to open the live execution-status SSE stream. */
@@ -203,8 +220,8 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Per-pipeline execution history — recent runs for a single pipeline, newest first. */
-    listPipelineExecutions: async (pipelineId: string, params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ executions: Array<{ execution_id: string; status: string; started_at: string | null; ended_at: string | null; duration_ms: number | null; failing_stage: string | null; failing_action: string | null }> }>>(`/api/reports/execution/list${buildQuery({ pipelineId, ...params })}`);
+    listPipelineExecutions: async (pipelineId: string, params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ executions: Array<{ execution_id: string; status: string; started_at: string | null; ended_at: string | null; duration_ms: number | null; failing_stage: string | null; failing_action: string | null }> }>>(`/api/reports/execution/list${buildQuery({ pipelineId, ...params })}`, { signal: opts?.signal });
     },
 
     /** Pipeline success rate over time. */
@@ -213,39 +230,39 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Average pipeline duration stats. */
-    getPipelineDuration: async (params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; pipeline_name: string | null; avg_ms: number; min_ms: number; max_ms: number; p95_ms: number; executions: number }> }>>(`/api/reports/execution/duration${buildQuery(params)}`);
+    getPipelineDuration: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; pipeline_name: string | null; avg_ms: number; min_ms: number; max_ms: number; p95_ms: number; executions: number }> }>>(`/api/reports/execution/duration${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Stage failure heatmap. */
-    getStageFailures: async (params?: { from?: string; to?: string }) => {
-      return core.request<ApiResponse<{ stages: Array<{ stage_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/stage-failures${buildQuery(params)}`);
+    getStageFailures: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ stages: Array<{ stage_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/stage-failures${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Stage bottlenecks — slowest stages. */
-    getStageBottlenecks: async (params?: { from?: string; to?: string }) => {
-      return core.request<ApiResponse<{ stages: Array<{ id: string; pipeline_name: string | null; stage_name: string; avg_ms: number; max_ms: number }> }>>(`/api/reports/execution/stage-bottlenecks${buildQuery(params)}`);
+    getStageBottlenecks: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ stages: Array<{ id: string; pipeline_name: string | null; stage_name: string; avg_ms: number; max_ms: number }> }>>(`/api/reports/execution/stage-bottlenecks${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Action failure rate. */
-    getActionFailures: async (params?: { from?: string; to?: string }) => {
-      return core.request<ApiResponse<{ actions: Array<{ action_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/action-failures${buildQuery(params)}`);
+    getActionFailures: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ actions: Array<{ action_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/action-failures${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** Error categorization. */
-    getExecutionErrors: async (params?: { from?: string; to?: string; limit?: number }) => {
-      return core.request<ApiResponse<{ errors: Array<{ error_pattern: string; occurrences: number; affected_pipelines: number; last_seen: string }> }>>(`/api/reports/execution/errors${buildQuery(params)}`);
+    /** Error categorization. System-admin only on the backend. */
+    getExecutionErrors: async (params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ errors: Array<{ error_pattern: string; occurrences: number; affected_pipelines: number; last_seen: string }> }>>(`/api/reports/execution/errors${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** DORA metrics (deployment frequency, change failure rate, MTTR, lead time). Deploy-basis. */
-    getDora: async (params?: { from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }) => {
-      const res = await core.request<ApiResponse<{ dora: DoraMetrics }>>(`/api/reports/execution/dora${buildQuery(params)}`);
+    getDora: async (params?: { from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }, opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<{ dora: DoraMetrics }>>(`/api/reports/execution/dora${buildQuery(params)}`, { signal: opts?.signal });
       return res.data?.dora;
     },
 
     /** DORA change-failure trend over time (deployments / failures per bucket). Deploy-basis. */
-    getDoraTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }) => {
-      const res = await core.request<ApiResponse<{ trend: DoraTrendPoint[] }>>(`/api/reports/execution/dora/trend${buildQuery(params)}`);
+    getDoraTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }, opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<{ trend: DoraTrendPoint[] }>>(`/api/reports/execution/dora/trend${buildQuery(params)}`, { signal: opts?.signal });
       return res.data?.trend ?? [];
     },
 
@@ -280,6 +297,12 @@ export function reportingApi(core: ApiCore) {
       return res.data;
     },
 
+    /** The org's effective retention windows + servable range caps (`reports:read`). */
+    getReportRetention: async (opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<{ retention: ReportRetention }>>('/api/reports/retention', { signal: opts?.signal });
+      return res.data?.retention;
+    },
+
     // ============================================
     // Incident reporting config + surfaces (Phase 5b)
     // ============================================
@@ -304,9 +327,9 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Recent incidents + their deploy correlation + resolved state (org-admin), paginated. */
-    listIncidents: async (params?: { limit?: number; offset?: number }) => {
+    listIncidents: async (params?: { limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ incidents: IncidentListItem[]; pagination: { limit: number; offset: number; hasMore: boolean } }>>(
-        `/api/reports/incidents${buildQuery(params)}`,
+        `/api/reports/incidents${buildQuery(params)}`, { signal: opts?.signal },
       );
     },
 
@@ -323,39 +346,39 @@ export function reportingApi(core: ApiCore) {
      * over a [from,to] window. Standard reporting (every tier); `reports:read`
      * only (NOT `advanced_reporting`). `pipelineId` is required.
      */
-    getBuildHealth: async (pipelineId: string, params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
-      const res = await core.request<ApiResponse<{ buildHealth: BuildHealth }>>(`/api/reports/execution/build-health${buildQuery({ pipelineId, ...params })}`);
+    getBuildHealth: async (pipelineId: string, params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<{ buildHealth: BuildHealth }>>(`/api/reports/execution/build-health${buildQuery({ pipelineId, ...params })}`, { signal: opts?.signal });
       return res.data?.buildHealth;
     },
 
     /** Plugin inventory summary. */
-    getPluginSummary: async () => {
-      return core.request<ApiResponse<{ summary: { total: number; active: number; inactive: number; public: number; private: number; unique_names: number } }>>('/api/reports/plugins/summary');
+    getPluginSummary: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ summary: { total: number; active: number; inactive: number; public: number; private: number; unique_names: number } }>>('/api/reports/plugins/summary', { signal: opts?.signal });
     },
 
     /** Plugin type & compute distribution. */
-    getPluginDistribution: async () => {
-      return core.request<ApiResponse<{ distribution: Array<{ plugin_type: string; compute_type: string; count: number }> }>>('/api/reports/plugins/distribution');
+    getPluginDistribution: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ distribution: Array<{ plugin_type: string; compute_type: string; count: number }> }>>('/api/reports/plugins/distribution', { signal: opts?.signal });
     },
 
     /** Plugin version counts. */
-    getPluginVersions: async () => {
-      return core.request<ApiResponse<{ plugins: Array<{ name: string; version_count: number; latest_version: string; has_default: boolean }> }>>('/api/reports/plugins/versions');
+    getPluginVersions: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plugins: Array<{ name: string; version_count: number; latest_version: string; has_default: boolean }> }>>('/api/reports/plugins/versions', { signal: opts?.signal });
     },
 
     /** Plugin build success rate over time. */
-    getBuildSuccessRate: async (params?: { interval?: string; from?: string; to?: string }) => {
-      return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; success_pct: number }> }>>(`/api/reports/plugins/build-success-rate${buildQuery(params)}`);
+    getBuildSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; success_pct: number }> }>>(`/api/reports/plugins/build-success-rate${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Plugin build duration stats. */
-    getBuildDuration: async (params?: { from?: string; to?: string }) => {
-      return core.request<ApiResponse<{ plugins: Array<{ plugin_name: string; avg_ms: number; max_ms: number; builds: number }> }>>(`/api/reports/plugins/build-duration${buildQuery(params)}`);
+    getBuildDuration: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plugins: Array<{ plugin_name: string; avg_ms: number; max_ms: number; builds: number }> }>>(`/api/reports/plugins/build-duration${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** Plugin build failures. */
-    getBuildFailures: async (params?: { from?: string; to?: string; limit?: number }) => {
-      return core.request<ApiResponse<{ failures: Array<{ plugin_name: string; error_message: string; occurrences: number; last_seen: string }> }>>(`/api/reports/plugins/build-failures${buildQuery(params)}`);
+    /** Plugin build failures. System-admin only on the backend. */
+    getBuildFailures: async (params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ failures: Array<{ plugin_name: string; error_message: string; occurrences: number; last_seen: string }> }>>(`/api/reports/plugins/build-failures${buildQuery(params)}`, { signal: opts?.signal });
     },
   };
 }

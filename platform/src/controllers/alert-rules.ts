@@ -4,7 +4,7 @@
 /**
  * Controllers for per-org alert rule authoring.
  *
- * GET /api/observability/alert-rules  list this org's rules
+ * GET /api/observability/alert-rules  list this org's rules (paginated)
  * GET /api/observability/alert-rules/deleted  this org's restorable tombstones
  * POST /api/observability/alert-rules  create (org-admin)
  * PUT /api/observability/alert-rules/:id  update (org-admin)
@@ -18,7 +18,7 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, getParam, parsePaginationParams, sendError, sendQuotaReserveDenied, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
@@ -64,13 +64,18 @@ function parseRuleBody(
 // CRUD
 // ---------------------------------------------------------------------------
 
-/** GET /api/observability/alert-rules  list this org's rules. */
+/** GET /api/observability/alert-rules?offset=&limit=  one page of this org's
+ *  rules (sorted by name), plus the pagination envelope the list pages share. */
 export const listAlertRules = withController('List alert rules', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  const rules = await alertRuleService.listForOrg(orgId);
-  sendSuccess(res, 200, { rules });
+  const { offset, limit } = parsePaginationParams(req.query as Record<string, unknown>);
+  const { rules, total } = await alertRuleService.listForOrg(orgId, { offset, limit });
+  sendSuccess(res, 200, {
+    rules,
+    pagination: { total, offset, limit, hasMore: offset + limit < total },
+  });
 });
 
 /** GET /api/observability/alert-rules/deleted  this org's restorable tombstones

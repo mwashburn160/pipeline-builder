@@ -17,6 +17,28 @@ function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Server-side narrowing shared by all three inbox lists (`/messages`,
+ * `/messages/announcements`, `/messages/conversations`). `isRead` is the
+ * REQUESTING org's read state.
+ */
+export type MessageListFilters = {
+  search?: string;
+  isRead?: boolean;
+  priority?: MessagePriority;
+  channel?: string;
+};
+
+/** Paging + sort for the inbox lists. */
+export type MessageListPaging = {
+  limit?: number;
+  offset?: number;
+  sortBy?: string;
+  sortOrder?: string;
+};
+
+type MessagePage = ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>;
+
 export function messagesApi(core: ApiCore) {
   return {
     // ============================================
@@ -39,24 +61,34 @@ export function messagesApi(core: ApiCore) {
       return res.data.ticket;
     },
 
-    /** List inbox messages (root messages only), optionally filtered by type or a free-text search */
-    getMessages: async (params?: { messageType?: MessageType; search?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
-      return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${buildQuery(params)}`);
+    /** List inbox messages (root messages only), optionally narrowed by type,
+     *  read state, priority, channel or a free-text search — all server-side. */
+    getMessages: async (params?: MessageListFilters & MessageListPaging & { messageType?: MessageType }) => {
+      return core.request<MessagePage>(`/api/messages${buildQuery(params)}`);
     },
 
     /**
      * List ANNOUNCEMENTS only — the dedicated, server-filtered endpoint behind
      * the inbox's "Announcements" tab. Paginated in its own right (its own
      * `total`/`hasMore`), so a tab is never limited to whatever the mixed inbox
-     * happened to have loaded. Accepts the same free-text `search`.
+     * happened to have loaded. Accepts the same filters as {@link getMessages}.
      */
-    getAnnouncements: async (params?: { search?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
-      return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages/announcements${buildQuery(params)}`);
+    getAnnouncements: async (params?: MessageListFilters & MessageListPaging) => {
+      return core.request<MessagePage>(`/api/messages/announcements${buildQuery(params)}`);
     },
 
     /** List CONVERSATIONS only — the counterpart of {@link getAnnouncements}. */
-    getConversations: async (params?: { search?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
-      return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages/conversations${buildQuery(params)}`);
+    getConversations: async (params?: MessageListFilters & MessageListPaging) => {
+      return core.request<MessagePage>(`/api/messages/conversations${buildQuery(params)}`);
+    },
+
+    /**
+     * One message by id (viewer-scoped server-side — a per-user targeted message
+     * is visible only to its target). Backs the `?message=<id>` deep link, which
+     * must open a message that isn't on the loaded inbox page.
+     */
+    getMessage: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ message: Message }>>(`/api/messages/${encodeURIComponent(id)}`, { signal: opts?.signal });
     },
 
     /** Get unread message count */

@@ -10,6 +10,8 @@
  *     connection exists (otherwise configuring the IdP is a deadlock);
  *   - the protocol selector, and that saving here never sends the OIDC fields —
  *     the two editors share one config and must not wipe each other;
+ *   - CREATE with PUT when no connection exists, otherwise PATCH only what
+ *     changed (and nothing at all when nothing did);
  *   - splitting a pasted certificate blob into certificates, and saying so when
  *     more than one is trusted (a rotation window is open);
  *   - refusing to submit a SAML config that could not sign anyone in.
@@ -20,10 +22,29 @@ import { OrgSamlSettings } from '../src/components/settings/OrgSamlSettings';
 import type { OrgIdpConfigDto } from '../src/types';
 
 const putOwnOrgIdpConfig = jest.fn();
+const patchOwnOrgIdpConfig = jest.fn();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { putOwnOrgIdpConfig: (...a: unknown[]) => putOwnOrgIdpConfig(...a) },
+  default: {
+    putOwnOrgIdpConfig: (...a: unknown[]) => putOwnOrgIdpConfig(...a),
+    patchOwnOrgIdpConfig: (...a: unknown[]) => patchOwnOrgIdpConfig(...a),
+  },
+}));
+
+// The step-up dialog is exercised in its own suite; here it confirms with a
+// fixed token (and renders what it was given, so the consequences are visible).
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ onConfirmed, onClose, details, requireStrongFactor }: {
+    onConfirmed: (t: string) => void; onClose: () => void; details?: React.ReactNode; requireStrongFactor?: boolean;
+  }) => (
+    <div data-testid="stepup-modal" data-strong={String(!!requireStrongFactor)}>
+      {details}
+      <button type="button" onClick={() => onConfirmed('tok')}>Verify</button>
+      <button type="button" onClick={onClose}>Cancel</button>
+    </div>
+  ),
 }));
 
 const CERT_A = `-----BEGIN CERTIFICATE-----\n${'A'.repeat(64)}\n${'B'.repeat(64)}\n-----END CERTIFICATE-----`;
@@ -50,11 +71,14 @@ const samlConfig: OrgIdpConfigDto = {
 beforeEach(() => {
   jest.clearAllMocks();
   putOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: samlConfig } });
+  patchOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: samlConfig } });
 });
+
+const noop = () => undefined;
 
 describe('OrgSamlSettings', () => {
   it('shows the service-provider values before any config exists', () => {
-    render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={noop} />);
     // Derived from the page origin when the server has nothing stored yet — an
     // admin needs these to create the application at the IdP in the first place.
     expect(screen.getByText(/\/api\/auth\/sso\/org-1\/saml\/acs/)).toBeInTheDocument();
@@ -62,22 +86,27 @@ describe('OrgSamlSettings', () => {
   });
 
   it('says the SAML fields are unused while the org is on OIDC', () => {
-    render(<OrgSamlSettings orgId="org-1" config={{ ...samlConfig, protocol: 'oidc' }} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={{ ...samlConfig, protocol: 'oidc' }} readOnly={false} onSaved={noop} />);
     expect(screen.getByText(/signs in over OIDC/i)).toBeInTheDocument();
   });
 
   it('mirrors a stored SAML config into the form', () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
     expect(screen.getByLabelText(/Identity provider entity ID/i)).toHaveValue('https://idp.example.com/saml/metadata');
     expect(screen.getByLabelText(/Identity provider SSO URL/i)).toHaveValue('https://idp.example.com/sso/saml');
     expect(screen.getByLabelText(/Email attribute/i)).toHaveValue('email');
   });
 
-  it('saves the protocol and the SAML fields, and never the OIDC ones', async () => {
-    const onConfigChange = jest.fn();
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onConfigChange={onConfigChange} />);
+  it('creates a new connection with PUT: the protocol and the SAML fields, never the OIDC ones', async () => {
+    const onSaved = jest.fn();
+    render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText(/Protocol/i), { target: { value: 'saml' } });
+    fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: 'https://idp.example.com/saml/metadata' } });
+    fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), { target: { value: 'https://idp.example.com/sso/saml' } });
+    fireEvent.change(screen.getByLabelText(/Signing certificate/i), { target: { value: CERT_A } });
 
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(putOwnOrgIdpConfig).toHaveBeenCalled());
 
     const [, payload] = putOwnOrgIdpConfig.mock.calls[0] as [string, Record<string, unknown>];
@@ -88,11 +117,35 @@ describe('OrgSamlSettings', () => {
     expect(payload).not.toHaveProperty('clientId');
     expect(payload).not.toHaveProperty('clientSecret');
     expect(payload).not.toHaveProperty('provider');
-    expect(onConfigChange).toHaveBeenCalledWith(samlConfig);
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalledWith(samlConfig);
+  });
+
+  it('edits an existing connection with PATCH, sending only what changed', async () => {
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    fireEvent.change(screen.getByLabelText(/Name attribute/i), { target: { value: 'displayName' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalled());
+
+    const [, patch, token] = patchOwnOrgIdpConfig.mock.calls[0] as [string, Record<string, unknown>, string];
+    expect(patch).toEqual({ samlAttributes: { email: 'email', name: 'displayName', groups: 'groups' } });
+    expect(token).toBe('tok');
+    expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when nothing changed', async () => {
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+
+    expect(await screen.findByText(/No changes to save/i)).toBeInTheDocument();
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
+    expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
   it('splits a pasted blob into two certificates and warns that a rotation window is open', async () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
     fireEvent.change(screen.getByLabelText(/Signing certificate/i), {
       target: { value: `${CERT_B}\n\n${CERT_A}` },
     });
@@ -100,23 +153,25 @@ describe('OrgSamlSettings', () => {
     expect(await screen.findByText(/rotation window is open/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
-    await waitFor(() => expect(putOwnOrgIdpConfig).toHaveBeenCalled());
-    const [, payload] = putOwnOrgIdpConfig.mock.calls[0] as [string, Record<string, unknown>];
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalled());
+    const [, payload] = patchOwnOrgIdpConfig.mock.calls[0] as [string, Record<string, unknown>];
     // New first, outgoing second — both trusted until the IdP has cut over.
     expect(payload.samlCertificates).toEqual([CERT_B, CERT_A]);
   });
 
   it('refuses to save a SAML config with no certificate', async () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
     fireEvent.change(screen.getByLabelText(/Signing certificate/i), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
 
     expect(await screen.findByText(/At least one signing certificate is required/i)).toBeInTheDocument();
     expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
   it('refuses an SSO URL that is not https', async () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
     fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), {
       target: { value: 'http://idp.example.com/sso/saml' },
     });
@@ -125,15 +180,16 @@ describe('OrgSamlSettings', () => {
     // The field's own hint also says "must use https", so match the error text.
     expect(await screen.findByText(/^The SSO URL must use https$/i)).toBeInTheDocument();
     expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
   it('states that single logout is not supported', () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
     expect(screen.getByText(/Single logout is not supported/i)).toBeInTheDocument();
   });
 
   it('disables every control for a read-only (impersonated) session', () => {
-    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly />);
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly onSaved={noop} />);
     expect(screen.getByLabelText(/Identity provider entity ID/i)).toBeDisabled();
     expect(screen.getByRole('button', { name: /Save SAML settings/i })).toBeDisabled();
   });

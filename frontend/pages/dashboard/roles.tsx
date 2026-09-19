@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
@@ -20,6 +21,8 @@ import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { Pagination } from '@/components/ui/Pagination';
+import { RetryError } from '@/components/ui/RetryError';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel } from '@pipeline-builder/api-core/permissions';
 import { roleDisplayName } from '@/lib/role-display';
@@ -62,16 +65,30 @@ function summarizePermissions(perms: string[]): { category: string; count: numbe
 }
 
 export default function RolesPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'roles:manage' });
+  // The read gate (`roles:manage`) comes from the nav entry via page-access.
+  const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   // Capability to manage Roles — role admins/owners (via their bundle) and
-  // custom-role members granted `roles:manage`. The page is guarded on it.
+  // custom-role members granted `roles:manage`. False during a read-only
+  // impersonation, which still READS the roles (the page gate allowed it).
   const canManageRoles = can('roles:manage');
   const toast = useToast();
   const orgId = user?.organizationId;
 
-  const [roles, setRoles] = useState<OrganizationRole[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Roles are paged server-side; each role carries its full member list.
+  const [limit, setLimit] = useState(20);
+  const [offset, setOffset] = useState(0);
+  const rolesQ = useFetch(
+    async (signal) => {
+      if (!isReady || !orgId) return null;
+      const res = await api.getOrganizationRoles(orgId, { limit, offset }, { signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load roles');
+      return res.data;
+    },
+    [isReady, orgId, limit, offset],
+  );
+  const roles: OrganizationRole[] = rolesQ.data?.roles ?? [];
+  const total = rolesQ.data?.pagination.total ?? 0;
+  const fetchRoles = rolesQ.refetch;
 
   // Roles whose full permission chip list is expanded (collapsed by default —
   // each role shows a compact category-count summary until toggled open).
@@ -92,24 +109,6 @@ export default function RolesPage() {
   // the exact consequence (revokes org-admin / platform-admin).
   const [removeTarget, setRemoveTarget] = useState<{ role: OrganizationRole; member: OrganizationRole['members'][number] } | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
-
-  const fetchRoles = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      setIsLoading(true);
-      const res = await api.getOrganizationRoles(orgId);
-      setRoles(res.data?.roles ?? []);
-      setError(null);
-    } catch {
-      setError('Failed to load roles');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    if (isAuthenticated && canManageRoles && orgId) fetchRoles();
-  }, [isAuthenticated, canManageRoles, orgId, fetchRoles]);
 
   // Role-based UI: a Role that grants platform admin (Superadmins) can only be
   // managed by an existing platform admin; org admins manage the rest.
@@ -255,9 +254,9 @@ export default function RolesPage() {
         grants platform-wide admin. The organization <strong>owner</strong> always keeps owner access regardless of Roles.
       </Callout>
 
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
-
-      {isLoading ? (
+      {rolesQ.error ? (
+        <RetryError message={rolesQ.error.message || 'Failed to load roles'} onRetry={fetchRoles} />
+      ) : rolesQ.loading && !rolesQ.data ? (
         <div className="space-y-4">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
         </div>
@@ -394,6 +393,14 @@ export default function RolesPage() {
               </SectionCard>
             );
           })}
+          {total > limit && (
+            <Pagination
+              pagination={{ limit, offset, total }}
+              onPageChange={setOffset}
+              onPageSizeChange={(next) => { setLimit(next); setOffset(0); }}
+              pageSizeOptions={[10, 20, 50, 100]}
+            />
+          )}
         </div>
       )}
 

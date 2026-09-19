@@ -9,6 +9,7 @@ import { SideDrawer } from '@/components/ui/SideDrawer';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
 import type { BuilderProps } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -217,6 +218,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           props: bp,
           visibility: 'private',
         });
+        // Every cached pipeline list (the Pipelines page, palette, home) is stale now.
+        invalidate.pipelines();
       } else if (p.kind === 'plugin') {
         if (!p.config || !p.dockerfile) throw new Error('Draft is incomplete (missing config or Dockerfile).');
         await api.deployGeneratedPlugin({

@@ -71,7 +71,6 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: je
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   getOrganizationQuotaStatus: jest.fn(),
-  updateQuotaLimits: jest.fn(),
   QuotaType: {},
 }));
 
@@ -100,7 +99,7 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUsersRevocation: mockPublishUsersRevocation,
 }));
 
-const { setTier, setSeatLimit, updateQuotas } = await import('../src/services/organization-quota.js');
+const { setTier, setSeatLimit } = await import('../src/services/organization-quota.js');
 
 /** A Mongoose-shaped org doc for setTier (awaited directly by findById). */
 function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string; quotas?: unknown }) {
@@ -195,8 +194,8 @@ describe('setTier — tier downgrade invalidation', () => {
 
     const result = await setTier('root-1', 'pro');
 
-    // team → pro loses audit_log + sso (team-only tier features); order-independent.
-    expect(result?.featuresRemoved?.slice().sort()).toEqual(['audit_log', 'sso']);
+    // team → pro loses sso (the team-only tier feature); order-independent.
+    expect(result?.featuresRemoved?.slice().sort()).toEqual(['sso']);
   });
 
   it('does NOT set featuresRemoved on an UPGRADE (pro → team)', async () => {
@@ -208,7 +207,7 @@ describe('setTier — tier downgrade invalidation', () => {
   });
 
   it('omits featuresRemoved on a downgrade that loses no tier features (enterprise-only extras absent)', async () => {
-    // team → developer drops audit_log+sso+the pro base — so featuresRemoved is
+    // team → developer drops sso+the pro base — so featuresRemoved is
     // non-empty; but a same-feature-set downgrade must omit it. developer has [],
     // so any downgrade FROM a higher tier removes something. Assert the developer
     // floor: pro → developer removes exactly pro's base features.
@@ -458,18 +457,5 @@ describe('quota reseed — billing-owned retention dims are EXCLUDED', () => {
     expect((doc.quotas as any).plugins).toBe(100);
     expect((doc.quotas as any).eventRetentionDays).toBeUndefined();
     expect((doc.quotas as any).doraRetentionDays).toBeUndefined();
-  });
-
-  it('updateQuotas seeding a missing quotas doc excludes the retention dims', async () => {
-    // Fresh org with no quotas yet → the service seeds from the tier preset.
-    const doc = makeOrgDoc({ _id: 'root-1', tier: 'pro', quotas: undefined });
-    mockOrgFindById.mockResolvedValue(doc);
-
-    await updateQuotas('root-1', { plugins: 42 } as any, 'Bearer t');
-
-    expect((doc.quotas as any).eventRetentionDays).toBeUndefined();
-    expect((doc.quotas as any).doraRetentionDays).toBeUndefined();
-    // The applied override still landed.
-    expect((doc.quotas as any).plugins).toBe(42);
   });
 });

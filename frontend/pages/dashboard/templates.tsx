@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -21,12 +23,18 @@ import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { TabBar } from '@/components/ui/TabBar';
-import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
-import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
-import EditTemplateModal from '@/components/pipeline/EditTemplateModal';
-import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import type { PipelineTemplate, TemplateInput, Visibility } from '@/types';
+
+// Authoring modals and the recently-deleted panel load on first use.
+const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
+const CreateTemplateModal = dynamic(() => import('@/components/pipeline/CreateTemplateModal').then((m) => m.CreateTemplateModal), { ssr: false });
+const EditTemplateModal = dynamic(() => import('@/components/pipeline/EditTemplateModal'), { ssr: false });
+const ImportTemplateModal = dynamic(() => import('@/components/pipeline/ImportTemplateModal').then((m) => m.ImportTemplateModal), { ssr: false });
+
+/** Gallery page size (the server pages the catalog; this is the first page's size). */
+export const TEMPLATE_PAGE_SIZE = 24;
 
 /** Badge tint per visibility rung — widest reach is the most prominent. */
 const VISIBILITY_BADGE: Record<string, string> = {
@@ -95,11 +103,25 @@ export default function TemplatesPage() {
     [canPublish, canWrite, user?.id, user?.isSuperAdmin],
   );
 
-  const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
-  // Starts true: the fetch is kicked off from an effect, so a `false` first
-  // paint flashed the "No templates yet" empty state before every load.
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Server-paged gallery: one limit/offset window at a time, with the server's
+  // total — no silent cap on how much of the catalog is reachable.
+  const [page, setPage] = useState({ offset: 0, limit: TEMPLATE_PAGE_SIZE });
+  const { data, loading, error: fetchError, refetch: fetchAll } = useFetch(async () => {
+    if (!isReady) return null;
+    const res = await api.listPipelineTemplates({ limit: String(page.limit), offset: String(page.offset), includeTotal: 'true' });
+    if (!res.success || !res.data) throw new Error('Failed to load templates');
+    return res.data;
+  }, [isReady, page.offset, page.limit]);
+  const templates: PipelineTemplate[] = data?.templates ?? [];
+  const total = data?.pagination?.total ?? templates.length;
+  const error = fetchError ? formatError(fetchError, 'Failed to load templates') : null;
+  // A delete that emptied the last page steps back one page instead of
+  // stranding the viewer on an empty one.
+  useEffect(() => {
+    if (data && data.templates.length === 0 && page.offset > 0) {
+      setPage((p) => ({ ...p, offset: Math.max(0, p.offset - p.limit) }));
+    }
+  }, [data, page.offset]);
 
   // Instantiate modal state
   const [selected, setSelected] = useState<PipelineTemplate | null>(null);
@@ -109,24 +131,6 @@ export default function TemplatesPage() {
   const [pipelineVisibility, setPipelineVisibility] = useState<Visibility>('org');
   const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
   const [submitting, setSubmitting] = useState(false);
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.listPipelineTemplates({ limit: '200' });
-      if (res.success && res.data) setTemplates(res.data.templates || []);
-      else setError('Failed to load templates');
-    } catch (err) {
-      setError(formatError(err, 'Failed to load templates'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isReady) void fetchAll();
-  }, [isReady, fetchAll]);
 
   const openInstantiate = (t: PipelineTemplate) => {
     setSelected(t);
@@ -188,6 +192,8 @@ export default function TemplatesPage() {
         props: inst.data.props,
       });
       if (created.success && created.data) {
+        // The new pipeline must show up in every cached pipeline list.
+        invalidate.pipelines();
         toast.success('Pipeline created from template');
         setSelected(null);
         void router.push(`/dashboard/pipelines/${created.data.pipeline.id}`);
@@ -210,7 +216,7 @@ export default function TemplatesPage() {
       if (res.success) {
         toast.success('Template deleted');
         setDeleteTarget(null);
-        void fetchAll();
+        fetchAll();
       } else {
         // Surface the real reason (permission / not found), not a generic message.
         toast.error((res as { message?: string }).message || 'Failed to delete template');
@@ -229,7 +235,7 @@ export default function TemplatesPage() {
     </div>
   );
 
-  const gallery = useMemo(() => templates, [templates]);
+  const gallery = templates;
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -281,6 +287,9 @@ export default function TemplatesPage() {
           error={error}
           onRefresh={fetchAll}
           isEmpty={gallery.length === 0}
+          pagination={{ ...page, total }}
+          onPageChange={(offset) => setPage((p) => ({ ...p, offset }))}
+          onPageSizeChange={(limit) => setPage({ offset: 0, limit })}
           errorTitle="Failed to load templates"
           emptyState={{
             icon: LayoutTemplate,

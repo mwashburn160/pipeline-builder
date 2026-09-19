@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -54,7 +54,7 @@ function channelColor(channel: AlertDestination['channel']): 'purple' | 'blue' |
  * cross-tenant view below stays reachable.
  */
 export default function AlertDestinationsPage() {
-  const { accessDenied, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const { accessDenied, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard();
   const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
@@ -65,7 +65,8 @@ export default function AlertDestinationsPage() {
   const [allOrgs, setAllOrgs] = useState(false);
   const viewingAll = allOrgs && isSuperAdmin;
   // Deep-link: `?all=1` opens the cross-tenant view for sysadmins (used by the
-  // sysadmin home and the old /admin/alert-destinations redirect).
+  // sysadmin home and the /dashboard/admin/alert-destinations redirect in
+  // next.config.js).
   const router = useRouter();
   useEffect(() => {
     if (router.isReady && router.query.all === '1' && isSuperAdmin) setAllOrgs(true);
@@ -74,11 +75,9 @@ export default function AlertDestinationsPage() {
   const [channelFilter, setChannelFilter] = useState<'all' | 'slack' | 'webhook' | 'in-app' | 'email'>('all');
 
   const { data, loading, error, refetch } = useFetch(
-    async () => {
+    async (signal) => {
       if (!ready) return [] as AlertDestination[];
-      const res = viewingAll
-        ? await api.listAlertDestinations({ all: true })
-        : await api.listAlertDestinations();
+      const res = await api.listAlertDestinations({ all: viewingAll, signal });
       return res.data?.destinations ?? [];
     },
     [ready, viewingAll],
@@ -221,7 +220,7 @@ export default function AlertDestinationsPage() {
         See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
       </div>
 
-      <ErrorAlert message={error?.message} className="mb-4" />
+      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
 
       {viewingAll ? (
         /* ───── Sysadmin cross-tenant view (read-only, grouped by org) ───── */

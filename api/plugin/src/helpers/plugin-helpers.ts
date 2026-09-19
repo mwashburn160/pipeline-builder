@@ -44,7 +44,7 @@ interface PluginRow {
   commands?: unknown;
 }
 const PLUGIN_ARRAY_FIELDS = ['keywords', 'installCommands', 'commands'] as const;
-export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri: string } {
+export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri?: string } {
   // normalizeArrayFields requires an index signature; the cast is the single
   // type-system seam between Drizzle's strict row types and the helper's
   // generic Record<string, unknown> contract. A future `shapeEntity` helper
@@ -53,7 +53,10 @@ export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri: string }
     plugin as unknown as Record<string, unknown>,
     [...PLUGIN_ARRAY_FIELDS],
   ) as unknown as P;
-  return { ...normalized, uri: pluginUri(plugin) };
+  // A sparse-fieldset list row (`?fields=`) may omit the columns the URI is
+  // derived from; omit `uri` then rather than emit "org-undefined/…:undefined".
+  const hasUriParts = [plugin.orgId, plugin.name, plugin.version].every((v) => typeof v === 'string' && v !== '');
+  return hasUriParts ? { ...normalized, uri: pluginUri(plugin) } : normalized;
 }
 
 // Build job types & factory

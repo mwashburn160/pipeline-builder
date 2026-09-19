@@ -74,6 +74,7 @@ export function observabilityApi(core: ApiCore) {
       if (opts.limit !== undefined) params.limit = opts.limit;
       if (opts.event) params.event = opts.event;
       if (opts.actor) params.actor = opts.actor;
+      if (opts.requestId) params.requestId = opts.requestId;
       return core.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
         `/api/observability/audit-query${buildQuery(params)}`,
         { signal },
@@ -387,12 +388,30 @@ export function observabilityApi(core: ApiCore) {
     // the frontend passes raw PromQL and surfaces the returned error message.
     // ==========================================================================
 
-    /** List this org's alert rules (sorted by name server-side). */
-    listAlertRules: async (signal?: AbortSignal) => {
-      return core.request<ApiResponse<import('@/types/observability').AlertRulesResponse>>(
-        '/api/observability/alert-rules',
+    /** One page of this org's alert rules (sorted by name server-side), with
+     *  the `{ total, offset, limit, hasMore }` pagination envelope. */
+    listAlertRules: async (page: { offset: number; limit: number }, signal?: AbortSignal) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertRulesPageResponse>>(
+        `/api/observability/alert-rules${buildQuery(page)}`,
         { signal },
       );
+    },
+
+    /**
+     * The Prometheus `rule_files` YAML the materializer renders from every org's
+     * enabled rules — the exact document Prometheus loads. System-admin only
+     * (cross-tenant). Returned as text: the endpoint serves `application/yaml`,
+     * not the JSON envelope, so it bypasses `core.request` like `logRaw`.
+     */
+    getMaterializedAlertRules: async (signal?: AbortSignal): Promise<string> => {
+      await core.ensureFreshToken();
+      const res = await fetch(`${API_URL}/api/observability/alert-rules/materialized.yml`, {
+        headers: core.authHeaders() as Record<string, string>,
+        credentials: 'same-origin',
+        signal,
+      });
+      if (!res.ok) throw new ApiError('Failed to load the rendered alert rules', res.status);
+      return res.text();
     },
 
     /** Create an alert rule. `name`, `expr`, and `summary` are required

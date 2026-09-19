@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { TabBar } from '@/components/ui/TabBar';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
 import { redactString, redactDetails } from '@/lib/redact';
@@ -35,6 +36,10 @@ interface ManifestDetailProps {
 }
 
 type Tab = 'summary' | 'json';
+
+/** Local state, not URL state: the registry page already encodes repo/tag/
+ *  platform in the query, and which view of ONE manifest is open is transient. */
+const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'json', label: 'JSON' }] as const;
 
 /**
  * Right-pane manifest detail. Branches on the discriminated `kind`:
@@ -109,23 +114,7 @@ export function ManifestDetail({
       </div>
 
       {kind.kind !== 'unknown' && (
-        <div role="tablist" className="border-b border-gray-200 dark:border-gray-700 flex">
-          {(['summary', 'json'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={effectiveTab === t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 ${
-                effectiveTab === t
-                  ? 'border-blue-600 text-blue-700 dark:text-blue-300'
-                  : 'border-transparent text-gray-600 dark:text-gray-400'
-              }`}
-            >
-              {t === 'summary' ? 'Summary' : 'JSON'}
-            </button>
-          ))}
-        </div>
+        <TabBar className="!mb-0 px-3" items={TABS} activeId={effectiveTab} onSelect={(id) => setTab(id as Tab)} />
       )}
 
       <div className="flex-1 overflow-auto">

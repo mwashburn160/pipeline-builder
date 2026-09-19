@@ -35,7 +35,7 @@ const HANDLERS = [
   'listSessions', 'revokeSession',
   'getMyOrganization', 'createOrganization', 'getOrgAIConfig', 'updateOrgAIConfig', 'getOrganizationById',
   'getOrganizationDescendants', 'getOrganizationNames', 'getOrganizationParent', 'updateOrganization',
-  'updateOrganizationIdentity', 'updateOrganizationTier', 'getOrganizationQuotas', 'updateOrganizationQuotas',
+  'updateOrganizationIdentity', 'updateOrganizationTier',
   'updateOrganizationSeatLimit', 'getOrganizationSeatUsage', 'getOrganizationFeatureEntitlements',
   'getOrganizationMembers', 'checkOrganizationMembership', 'getOrganizationTeams', 'getMemberTeams',
   'addMemberToOrganization', 'bulkAddMemberToTeams', 'removeMemberFromOrganization', 'transferOrganizationOwnership',

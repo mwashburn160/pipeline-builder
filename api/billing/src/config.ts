@@ -264,7 +264,6 @@ export const config: AppConfig = {
         api_pack: 'api_pack',
         ai_pack: 'ai_pack',
         storage_pack: 'storage_pack',
-        audit_log: 'audit_log',
         sso: 'sso',
         // Feature add-ons that are INCLUDED in Enterprise/Unlimited but sold to
         // lower tiers — metered "packs purchased" (quantity 1) for Marketplace.

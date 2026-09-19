@@ -249,7 +249,9 @@ const CONTROLS: Control[] = [
     permissions: ['reports:read'],
     // The DORA reads under /reports/execution/* additionally require the
     // `advanced_reporting` entitlement, so they get their own row below.
-    routes: ['reporting GET /reports/execution/list'],
+    // `/reports/retention` is the effective date-range cap the Reports page reads
+    // — deliberately reports:read ONLY (the Retention Pack is sold to every tier).
+    routes: ['reporting GET /reports/execution/list', 'reporting GET /reports/retention'],
     via: 'nav',
   },
   {
@@ -347,6 +349,54 @@ const CONTROLS: Control[] = [
     stepUp: true,
     routes: ['platform PATCH /organization/:id/impersonation-policy'],
   },
+  {
+    control: 'Connect / edit / disconnect the org\'s own SSO (OIDC or SAML)',
+    file: 'pages/dashboard/settings/sso.tsx',
+    gateFiles: [
+      'src/components/settings/OrgSsoSettings.tsx',
+      'src/components/settings/OrgSamlSettings.tsx',
+      'src/components/settings/SsoDisconnect.tsx',
+    ],
+    // The page's read gate IS `org:idp` (nav → page-access), and every control
+    // here lives on that page.
+    permissions: [],
+    pagePermissions: ['org:idp'],
+    page: '/dashboard/settings/sso',
+    // Enforced inside the handlers (`requireOwnOrgSso`), not the route table —
+    // the page renders the `sso` FeatureLock in place of the editors.
+    features: ['sso'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'platform PUT /organization/:id/idp',
+      'platform PATCH /organization/:id/idp',
+      'platform DELETE /organization/:id/idp',
+    ],
+  },
+  {
+    control: 'View / edit / enable-disable / delete a service account',
+    file: 'pages/dashboard/security.tsx',
+    gateFiles: [
+      'src/components/settings/ServiceAccountsSection.tsx',
+      'src/components/settings/ServiceAccountDrawer.tsx',
+    ],
+    permissions: ['service_accounts:manage'],
+    stepUp: true,
+    routes: [
+      'platform GET /organization/:id/service-accounts/:accountId',
+      'platform PATCH /organization/:id/service-accounts/:accountId',
+      'platform DELETE /organization/:id/service-accounts/:accountId',
+    ],
+  },
+  {
+    control: 'Edit an org\'s name / slug / description (sysadmin drill-down)',
+    file: 'src/components/admin/org-detail/OrgIdentityCard.tsx',
+    // Sysadmin-only route (`systemAdmin` in the table) on a sysadmin-only page
+    // (`/dashboard/admin/orgs/[orgId]` is `systemAdminOnly` in page-access).
+    permissions: [],
+    stepUp: true,
+    routes: ['platform PUT /organization/:id'],
+  },
   // ── Entitlement-gated controls ─────────────────────────────────────────────
   // Every route below carries a `requireFeature(...)` gate, so the control has to
   // render a lock (not hide, and not 403 on click). `features` here must cover
@@ -362,7 +412,7 @@ const CONTROLS: Control[] = [
         + 'that can open the dashboard already satisfies it — there is nothing to pre-check.',
     }],
     features: ['ai_generation'],
-    routes: ['ask POST /ask', 'ask POST /ask/stream', 'ask POST /ask/agent/stream', 'ask GET /ask/providers'],
+    routes: ['ask POST /ask/agent/stream', 'ask GET /ask/providers'],
   },
   {
     control: 'Generate a pipeline with AI (Git URL / prompt tabs)',
@@ -499,6 +549,11 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
     'POST /reports/events', 'POST /reports/incidents', 'POST /reports/incidents/alertmanager', 'POST /reports/ingest-health',
   ].map((r) => [`reporting ${r}`, 'Ingest endpoint — called by CI / Alertmanager with a `reporting:ingest`-scoped token, never by a browser session.'])),
 
+  // ── Ask service: the non-agent answer endpoints are API/CLI surfaces ──────
+  // The dashboard's Ask launcher drives only /ask/agent/stream (mapped above).
+  'ask POST /ask': 'Non-streaming grounded answer for API / CLI callers; the dashboard Ask panel only drives /ask/agent/stream.',
+  'ask POST /ask/stream': 'Tool-less streaming answer for API / CLI callers; the dashboard Ask panel only drives /ask/agent/stream.',
+
   // ── Soft-delete restore / purge (step-up), driven by RecentlyDeletedPanel ──
   // The pipelines pair IS mapped above; the rest are the same panel on their own
   // page, gated by that page's `:write` permission plus the global step-up resume.
@@ -534,16 +589,10 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   'platform POST /auth/device/approve': 'CLI device-approval page; step-up only (the approval IS the authorization).',
 
   // ── Org administration (step-up), gated by permissions already mapped ─────
-  'platform PUT /organization/:id': 'Org settings — rename/update; `org:settings` (mapped for the identity/domains routes) + step-up.',
-  'platform DELETE /organization/:id': 'Org settings — delete organization; owner-gated + step-up.',
+  'platform DELETE /organization/:id': 'Sysadmin org drill-down / All Organizations — soft-delete an org; systemAdmin + step-up.',
   'platform PATCH /organization/:id/transfer-owner': 'Org settings — transfer ownership; owner-gated + step-up.',
   'platform PATCH /organization/:id/mfa-policy': 'Org settings → MFA policy section; `org:settings` + step-up.',
   'platform PUT /organization/ai-config': 'Org settings → AI provider config; `org:settings` + step-up.',
-  'platform PUT /organization/:id/idp': 'SSO page → SAML/OIDC connection form; `org:idp` + step-up + strong factor.',
-  'platform PATCH /organization/:id/idp': 'SSO page → SAML/OIDC connection form; `org:idp` + step-up + strong factor.',
-  'platform DELETE /organization/:id/idp': 'SSO page → disconnect IdP; `org:idp` + step-up + strong factor.',
-  'platform PATCH /organization/:id/service-accounts/:accountId': 'Service-accounts page → rename/disable an account; `service_accounts:manage` + step-up.',
-  'platform DELETE /organization/:id/service-accounts/:accountId': 'Service-accounts page → delete an account; `service_accounts:manage` + step-up.',
 
   // ── Sysadmin-only surfaces (systemAdmin + step-up, some strong-factor) ────
   'platform POST /admin/impersonate/:userId': 'Sysadmin impersonation start; systemAdmin + consent + step-up with a strong factor.',
@@ -562,7 +611,6 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   'platform POST /users/bulk-delete': 'Sysadmin users page — bulk delete; systemAdmin + step-up.',
   'platform PUT /users/:id/features': 'Sysadmin per-user feature-override editor; systemAdmin + step-up.',
   'platform PATCH /organization/:id/tier': 'Sysadmin change-tier dialog; systemAdmin + step-up.',
-  'platform PUT /organization/:id/quotas': 'Sysadmin quota editor; systemAdmin + step-up.',
   'quota DELETE /quotas/:orgId': 'Sysadmin quota admin — delete an org\'s quota row; systemAdmin + step-up.',
   'quota POST /quotas/:orgId/reset': 'Sysadmin quota admin — reset a period; systemAdmin + step-up.',
   'billing PUT /billing/admin/subscriptions/:id': 'Billing-admin page — fleet-wide subscription edit; systemAdmin + step-up.',

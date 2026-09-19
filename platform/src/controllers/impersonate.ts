@@ -564,7 +564,7 @@ const LIST_VIEWS = ['to-decide', 'mine', 'sessions'] as const;
 type ListView = typeof LIST_VIEWS[number];
 
 /**
- * GET /admin/impersonate/requests?view=to-decide|mine|sessions
+ * GET /admin/impersonate/requests?view=to-decide|mine|sessions[&limit=&offset=]
  *
  * What a person can act on. Open to every authenticated user — the impersonated
  * user must be able to see a request to view their own account, and they are
@@ -585,9 +585,15 @@ export const listImpersonationRequests = withController('List impersonation requ
   const activeOrgId = req.user.organizationId;
   const adminOrgIds = isOrgAdmin(req) && activeOrgId ? await expandOrgScope(activeOrgId) : [];
 
-  const requests = await impersonationService.listForCaller(
+  const limit = parseInt(String(req.query.limit), 10);
+  const offset = parseInt(String(req.query.offset), 10);
+  const page = await impersonationService.listForCaller(
     { userId: req.user.sub, isSysadmin: isSystemAdmin(req), adminOrgIds },
     view,
+    { limit: Number.isNaN(limit) ? undefined : limit, offset: Number.isNaN(offset) ? undefined : offset },
   );
-  sendSuccess(res, 200, { requests });
+  sendSuccess(res, 200, {
+    requests: page.requests,
+    pagination: { total: page.total, offset: page.offset, limit: page.limit, hasMore: page.offset + page.limit < page.total },
+  });
 });

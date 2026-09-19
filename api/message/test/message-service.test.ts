@@ -555,8 +555,8 @@ describe('MessageService', () => {
       // entry (that would serve one search's page as another's).
       mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
 
-      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, 'outage');
-      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, 'release');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { search: 'outage' });
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { search: 'release' });
       await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
 
       const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
@@ -572,6 +572,29 @@ describe('MessageService', () => {
       );
       // No term ⇒ no `search` key at all (an empty filter, not `search: ''`).
       expect(mockFindPaginated.mock.calls[2][0]).not.toHaveProperty('search');
+    });
+
+    it('applies read-state / priority / channel to the tab query and keys the cache on each', async () => {
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+      await service.findConversations('org-1', { limit: 25, offset: 0 }, { isRead: false });
+      await service.findConversations('org-1', { limit: 25, offset: 0 }, { isRead: true });
+      await service.findConversations('org-1', { limit: 25, offset: 0 }, { priority: 'urgent' });
+      await service.findConversations('org-1', { limit: 25, offset: 0 }, { channel: 'support' });
+      await service.findConversations('org-1', { limit: 25, offset: 0 });
+
+      // Five distinct filter sets ⇒ five distinct cache entries (an "unread"
+      // page must never be served as the "read" one, or as the unfiltered one).
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(new Set(keys).size).toBe(5);
+
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(1, expect.objectContaining({ messageType: 'conversation', isRead: false }), 'org-1', expect.any(Object));
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(3, expect.objectContaining({ priority: 'urgent' }), 'org-1', expect.any(Object));
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(4, expect.objectContaining({ channel: 'support' }), 'org-1', expect.any(Object));
+      const unfiltered = mockFindPaginated.mock.calls[4][0];
+      expect(unfiltered).not.toHaveProperty('isRead');
+      expect(unfiltered).not.toHaveProperty('priority');
+      expect(unfiltered).not.toHaveProperty('channel');
     });
   });
 

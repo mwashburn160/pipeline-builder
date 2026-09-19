@@ -27,11 +27,11 @@ export function adminApi(core: ApiCore) {
       to?: string;
       offset?: number;
       limit?: number;
-    }) => {
+    }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{
         events: AuditLogEvent[];
         pagination: { total: number; offset: number; limit: number; hasMore: boolean };
-      }>>(`/api/audit${buildQuery(params)}`);
+      }>>(`/api/audit${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /**
@@ -48,22 +48,22 @@ export function adminApi(core: ApiCore) {
     // ============================================
     // Sysadmin admin-home summary
     // ============================================
-    getAdminSummary: async () => {
+    getAdminSummary: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{
         orgs: { total: number; perOrgKms: number; ssoEnabled: number };
         users: { total: number; sysadmins: number };
         encryption: { perOrgKmsEnabled: boolean };
         rls: { contextMode: 'warn' | 'strict' | 'silent' };
-      }>>('/api/admin/summary');
+      }>>('/api/admin/summary', { signal: opts?.signal });
     },
 
     // ============================================
     // Per-org IdP config (sysadmin only)
     // ============================================
-    getOrgIdpConfig: async (orgId: string) => {
+    getOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       // `config` is null when the org has no IdP configured (a normal state; the
       // endpoint returns 200, not 404).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${orgId}`);
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${orgId}`, { signal: opts?.signal });
     },
 
     putOrgIdpConfig: async (orgId: string, data: OrgIdpConfigCreate) => {
@@ -91,9 +91,10 @@ export function adminApi(core: ApiCore) {
     // ============================================
     /** Get the org's KMS config status. Returns only the keyId — ciphertext
      *  is intentionally elided server-side. */
-    getOrgKmsConfig: async (orgId: string) => {
+    getOrgKmsConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ configured: boolean; keyId?: string }>>(
         `/api/admin/orgs/${orgId}/kms-config`,
+        { signal: opts?.signal },
       );
     },
 
@@ -168,6 +169,13 @@ export function adminApi(core: ApiCore) {
     // ============================================
     // User management endpoints (Admin)
     // ============================================
+    /** GET /users/:id — one user's current record (members:manage; an org-admin
+     *  only for a user sharing their org). Opening a user reads this rather than
+     *  trusting the list row, which may be stale. */
+    getUser: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, { signal: opts?.signal });
+    },
+
     listUsers: async (params?: { organizationId?: string; role?: string; search?: string; offset?: number; limit?: number }) => {
       return core.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
     },
@@ -234,10 +242,15 @@ export function adminApi(core: ApiCore) {
 
     /** Requests the caller can act on — filtered server-side by the same rules as
      *  decide and revoke, so it never shows what you couldn't act on. */
-    listImpersonationRequests: async (view: ImpersonationListView) => {
-      return core.request<ApiResponse<{ requests: ImpersonationRequestDto[] }>>(
-        `/api/admin/impersonate/requests?view=${view}`,
-      );
+    listImpersonationRequests: async (
+      view: ImpersonationListView,
+      page?: { limit?: number; offset?: number },
+      opts?: { signal?: AbortSignal },
+    ) => {
+      return core.request<ApiResponse<{
+        requests: ImpersonationRequestDto[];
+        pagination: { total: number; offset: number; limit: number; hasMore: boolean };
+      }>>(`/api/admin/impersonate/requests${buildQuery({ view, ...page })}`, { signal: opts?.signal });
     },
 
     /** Approve or deny a pending request. */
@@ -316,8 +329,8 @@ export function adminApi(core: ApiCore) {
     },
 
     /** Get quotas for a specific org. */
-    getOrgQuotas: async (orgId: string) => {
-      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`);
+    getOrgQuotas: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, { signal: opts?.signal });
     },
 
     /** Update org name, slug, and/or quotas (system admin only). */

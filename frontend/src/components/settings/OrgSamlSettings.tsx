@@ -15,9 +15,11 @@ import { CopyButton } from '@/components/ui/CopyButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import type { IdpProtocol, OrgIdpConfigCreate, OrgIdpConfigDto } from '@/types';
+import { changedIdpFields } from './idp-diff';
 
 /**
  * SAML 2.0 connection editor (#4), on the org SSO settings page.
@@ -46,6 +48,8 @@ import type { IdpProtocol, OrgIdpConfigCreate, OrgIdpConfigDto } from '@/types';
  *
  * Gated on `org:idp` plus a step-up confirmation (the same gate the OIDC
  * connection uses) and on the `sso` entitlement — all enforced server-side.
+ * Like the OIDC editor, it CREATES with `PUT` when the org has no connection yet
+ * and otherwise `PATCH`es only the fields that changed.
  * Single Logout is out of scope for this release: signing out of Pipeline
  * Builder does not sign the person out of their identity provider.
  */
@@ -53,16 +57,16 @@ export function OrgSamlSettings({
   orgId,
   config,
   readOnly,
-  onConfigChange,
+  onSaved,
 }: {
   orgId: string;
   /** The org's stored config, or null when none exists yet. Supplied by the
-   *  page, which already loads it for the OIDC form beside this one. */
+   *  page, which loads it once for both editors. */
   config: OrgIdpConfigDto | null;
   readOnly: boolean;
   /** Fired with the saved config so the page (and the group-mapping editor
    *  below it) sees the new protocol without a reload. */
-  onConfigChange?: (config: OrgIdpConfigDto) => void;
+  onSaved: (config: OrgIdpConfigDto) => void;
 }) {
   const form = useFormState();
   const [protocol, setProtocol] = useState<IdpProtocol>('oidc');
@@ -75,17 +79,19 @@ export function OrgSamlSettings({
   const [emailAttr, setEmailAttr] = useState('');
   const [nameAttr, setNameAttr] = useState('');
   const [groupsAttr, setGroupsAttr] = useState('');
+  // The validated write, held while the step-up dialog is open.
+  const [pendingWrite, setPendingWrite] = useState<((stepUpToken: string) => ReturnType<typeof api.putOwnOrgIdpConfig>) | null>(null);
 
-  // Mirror the stored config whenever the page (re)loads it.
+  // Mirror the stored config whenever the page (re)loads it — including back to
+  // the empty form after a disconnect.
   useEffect(() => {
-    if (!config) return;
-    setProtocol(config.protocol);
-    setEntityId(config.samlEntityId ?? '');
-    setSsoUrl(config.samlSsoUrl ?? '');
-    setCertsText((config.samlCertificates ?? []).join('\n\n'));
-    setEmailAttr(config.samlAttributes?.email ?? '');
-    setNameAttr(config.samlAttributes?.name ?? '');
-    setGroupsAttr(config.samlAttributes?.groups ?? '');
+    setProtocol(config?.protocol ?? 'oidc');
+    setEntityId(config?.samlEntityId ?? '');
+    setSsoUrl(config?.samlSsoUrl ?? '');
+    setCertsText((config?.samlCertificates ?? []).join('\n\n'));
+    setEmailAttr(config?.samlAttributes?.email ?? '');
+    setNameAttr(config?.samlAttributes?.name ?? '');
+    setGroupsAttr(config?.samlAttributes?.groups ?? '');
   }, [config]);
 
   // The SP values are derived server-side; before the first save there is no
@@ -131,7 +137,7 @@ export function OrgSamlSettings({
     // Send the protocol together with the SAML fields. The server preserves the
     // OIDC fields it isn't given, so saving here never disturbs the connection
     // form above — and switching back to OIDC finds it intact.
-    const payload: Partial<OrgIdpConfigCreate> = {
+    const desired: Partial<OrgIdpConfigCreate> = {
       protocol,
       ...(samlSelected || certificates.length > 0
         ? {
@@ -147,12 +153,23 @@ export function OrgSamlSettings({
         : {}),
     };
 
-    const res = await form.run(
-      () => api.putOwnOrgIdpConfig(orgId, payload),
-      { successMessage: 'SAML configuration saved.' },
-    );
+    form.reset();
+    if (config) {
+      const patch = changedIdpFields(config, desired);
+      if (Object.keys(patch).length === 0) { form.setSuccess('No changes to save.'); return; }
+      setPendingWrite(() => (token: string) => api.patchOwnOrgIdpConfig(orgId, patch, token));
+    } else {
+      setPendingWrite(() => (token: string) => api.putOwnOrgIdpConfig(orgId, desired, token));
+    }
+  };
+
+  const executeWrite = async (stepUpToken: string) => {
+    const write = pendingWrite;
+    setPendingWrite(null);
+    if (!write) return;
+    const res = await form.run(() => write(stepUpToken), { successMessage: 'SAML configuration saved.' });
     const saved = res?.data?.config;
-    if (saved) onConfigChange?.(saved);
+    if (saved) onSaved(saved);
   };
 
   return (
@@ -323,6 +340,15 @@ export function OrgSamlSettings({
           </Button>
         </fieldset>
       </form>
+
+      {pendingWrite && (
+        <StepUpModal
+          action="Change your organization's SAML connection"
+          requireStrongFactor
+          onConfirmed={executeWrite}
+          onClose={() => setPendingWrite(null)}
+        />
+      )}
     </SectionCard>
   );
 }

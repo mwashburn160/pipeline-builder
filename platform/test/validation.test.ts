@@ -20,7 +20,6 @@ const {
   updateOrganizationSchema,
   addMemberSchema,
   transferOwnershipSchema,
-  updateQuotasSchema,
   orgIdpCreateSchema,
   orgIdpPatchSchema,
   orgKmsConfigSchema,
@@ -206,8 +205,22 @@ describe('updateOrganizationSchema', () => {
     expect(updateOrganizationSchema.safeParse({ description: 'A description' }).success).toBe(true);
   });
 
-  it('should accept empty body', () => {
-    expect(updateOrganizationSchema.safeParse({}).success).toBe(true);
+  it('should accept a slug update, normalised to lowercase', () => {
+    const parsed = updateOrganizationSchema.safeParse({ slug: 'Acme-Corp' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.slug).toBe('acme-corp');
+  });
+
+  it('should accept name, slug and description together', () => {
+    expect(updateOrganizationSchema.safeParse({ name: 'Acme', slug: 'acme', description: 'd' }).success).toBe(true);
+  });
+
+  it('should reject a malformed slug', () => {
+    expect(updateOrganizationSchema.safeParse({ slug: 'bad--slug' }).success).toBe(false);
+  });
+
+  it('should reject an empty body', () => {
+    expect(updateOrganizationSchema.safeParse({}).success).toBe(false);
   });
 
   it('should reject short name', () => {
@@ -236,32 +249,6 @@ describe('transferOwnershipSchema', () => {
 
   it('should reject empty newOwnerId', () => {
     expect(transferOwnershipSchema.safeParse({ newOwnerId: '' }).success).toBe(false);
-  });
-});
-
-describe('updateQuotasSchema', () => {
-  it('should accept numeric quota values', () => {
-    expect(updateQuotasSchema.safeParse({ plugins: 100, pipelines: 50 }).success).toBe(true);
-  });
-
-  it('should accept unlimited string', () => {
-    expect(updateQuotasSchema.safeParse({ plugins: 'unlimited' }).success).toBe(true);
-  });
-
-  it('should accept -1 for unlimited', () => {
-    expect(updateQuotasSchema.safeParse({ apiCalls: -1 }).success).toBe(true);
-  });
-
-  it('should accept empty object', () => {
-    expect(updateQuotasSchema.safeParse({}).success).toBe(true);
-  });
-
-  it('should reject non-integer numbers', () => {
-    expect(updateQuotasSchema.safeParse({ plugins: 1.5 }).success).toBe(false);
-  });
-
-  it('should reject values below -1', () => {
-    expect(updateQuotasSchema.safeParse({ pipelines: -5 }).success).toBe(false);
   });
 });
 

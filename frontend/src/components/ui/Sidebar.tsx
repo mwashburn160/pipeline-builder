@@ -80,8 +80,10 @@ export function Sidebar({
       ? currentPath === '/dashboard'
       : currentPath.startsWith(href);
 
+  // `paletteOnly` entries are sub-pages of a listed item: ⌘K finds them by
+  // name, the sidebar leaves them to their parent's row.
   const isItemVisible = (item: NavItem) =>
-    isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), billingEnabled, isFeatureEnabled });
+    !item.paletteOnly && isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), billingEnabled, isFeatureEnabled });
 
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>
@@ -171,15 +173,24 @@ export function Sidebar({
                     {active && (
                       <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-500/80 dark:bg-blue-400/80" />
                     )}
-                    <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-                    {!collapsed && <span className="flex-1">{item.title}</span>}
+                    <Icon className="w-[18px] h-[18px] flex-shrink-0" aria-hidden="true" />
+                    {/* Icon-only rail: the tooltip is hover-only (and describes,
+                        not names), so the link carries its title as hidden text. */}
+                    <span className={collapsed ? 'sr-only' : 'flex-1'}>{item.title}</span>
                     {!collapsed && item.title === 'Messages' && unreadCount > 0 && (
                       <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-red-500 rounded-full">
                         {unreadCount > 99 ? '99+' : unreadCount}
+                        <span className="sr-only"> unread</span>
                       </span>
                     )}
+                    {/* The collapsed rail's unread marker is a bare red dot — colour
+                        alone says nothing to a screen reader (or to someone who
+                        can't tell the red apart), so it carries the count as text. */}
                     {collapsed && item.title === 'Messages' && unreadCount > 0 && (
-                      <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full" />
+                      <>
+                        <span aria-hidden="true" className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full" />
+                        <span className="sr-only">{`${unreadCount > 99 ? '99+' : unreadCount} unread`}</span>
+                      </>
                     )}
                   </Link>
                 );

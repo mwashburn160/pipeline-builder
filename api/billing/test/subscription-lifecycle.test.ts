@@ -759,8 +759,8 @@ describe('Subscription Lifecycle Checker', () => {
 
     it('FEATURE match is order-independent: same set, different order → no drift', async () => {
       onlyDriftReturns(driftSub());
-      mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: ['sso', 'audit_log'] });
-      mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: ['audit_log', 'sso'] } } }));
+      mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: ['sso', 'bulk_operations'] });
+      mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: ['bulk_operations', 'sso'] } } }));
 
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));

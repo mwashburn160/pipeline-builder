@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { Card } from '@/components/ui/Card';
+import { RetryError } from '@/components/ui/RetryError';
 import { formatError } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import { QuotaCard } from './QuotaCard';
@@ -46,7 +47,7 @@ export function QuotasAdmin({
   handleSave,
   handleEditChange,
   handleTierChange,
-  fetchOrg,
+  onRetryOrg,
   fetchAtRisk,
   onResetUsage,
 }: {
@@ -83,7 +84,8 @@ export function QuotasAdmin({
   handleSave: () => void;
   handleEditChange: (key: DisplayedQuotaType, value: number) => void;
   handleTierChange: (tier: QuotaTier) => void;
-  fetchOrg: (orgId: string) => void;
+  /** Re-read the selected org's quotas (the load-error Retry). */
+  onRetryOrg: () => void;
   fetchAtRisk: () => void;
   /** Zero the selected org's usage counters mid-period. Rejects on failure so
    *  the confirm modal can surface the error and stay open. */
@@ -186,15 +188,7 @@ export function QuotasAdmin({
         <div className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-4xl">
             {loadError && !loading && (
-              <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-                <span>{loadError}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { const o = isSuperAdmin ? selectedOrgId : user?.organizationId; if (o) fetchOrg(o); }}
-                  className="underline hover:no-underline"
-                >Retry</Button>
-              </div>
+              <RetryError message={loadError} onRetry={onRetryOrg} className="mb-6" />
             )}
             {/* At-risk orgs banner — sysadmin only. Click an entry to jump
                 to that org in the sidebar. Hidden when no orgs are at risk. */}

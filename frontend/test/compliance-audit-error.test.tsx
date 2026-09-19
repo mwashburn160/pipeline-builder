@@ -63,4 +63,11 @@ describe('ComplianceDashboard — audit fetch error', () => {
     await waitFor(() => expect(screen.queryByText(/failed to load audit log/i)).not.toBeInTheDocument());
     expect(screen.getByText(/no check results recorded yet/i)).toBeInTheDocument();
   });
+
+  it('forwards the action filter to the audit-log query', async () => {
+    render(<ComplianceDashboard />);
+    await screen.findByText(/no check results recorded yet/i);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter audit log by action' }), { target: { value: 'scan' } });
+    await waitFor(() => expect(getComplianceAuditLog).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'scan', offset: 0 })));
+  });
 });

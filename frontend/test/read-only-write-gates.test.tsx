@@ -13,7 +13,6 @@ import { OrgSsoSettings } from '../src/components/settings/OrgSsoSettings';
 import { AccessKeysSection } from '../src/components/settings/AccessKeysSection';
 import { ScimProvisioning } from '../src/components/settings/ScimProvisioning';
 
-const getOwnOrgIdpConfig = jest.fn();
 const putOwnOrgIdpConfig = jest.fn();
 const listAccessKeys = jest.fn();
 const listServiceAccounts = jest.fn();
@@ -22,7 +21,6 @@ jest.mock('@/lib/api', () => ({
   __esModule: true,
   ApiError: class ApiError extends Error { statusCode = 0; },
   default: {
-    getOwnOrgIdpConfig: (...a: unknown[]) => getOwnOrgIdpConfig(...a),
     putOwnOrgIdpConfig: (...a: unknown[]) => putOwnOrgIdpConfig(...a),
     listAccessKeys: (...a: unknown[]) => listAccessKeys(...a),
     listServiceAccounts: (...a: unknown[]) => listServiceAccounts(...a),
@@ -46,17 +44,18 @@ jest.mock('@/hooks/useAuthGuard', () => ({
 
 describe('read-only write gates', () => {
   beforeEach(() => {
-    getOwnOrgIdpConfig.mockResolvedValue({
-      success: true,
-      data: { config: { provider: 'google', clientId: 'cid', allowedEmailDomains: [], enabled: true, hasClientSecret: true, updatedAt: '2026-09-01T00:00:00Z' } },
-    });
     listAccessKeys.mockResolvedValue({ success: true, data: { keys: [] } });
     listServiceAccounts.mockResolvedValue({ success: true, data: { serviceAccounts: [], billing: null } });
   });
 
+  // The page loads the config and hands it to the editor.
+  const ssoConfig = {
+    orgId: 'org-1', protocol: 'oidc' as const, provider: 'google' as const, clientId: 'cid', samlCertificates: [],
+    allowedEmailDomains: [], enabled: true, hasClientSecret: true, updatedAt: '2026-09-01T00:00:00Z',
+  };
+
   it('SSO: the whole form is disabled and explained, and submit sends nothing', async () => {
-    render(<OrgSsoSettings orgId="org-1" readOnly />);
-    await waitFor(() => expect(getOwnOrgIdpConfig).toHaveBeenCalled());
+    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly onSaved={jest.fn()} />);
     const save = await screen.findByRole('button', { name: /save sso settings/i });
     expect(save).toBeDisabled();
     expect(screen.getByText('Read-only session')).toBeInTheDocument();
@@ -66,7 +65,7 @@ describe('read-only write gates', () => {
   });
 
   it('SSO: stays editable outside impersonation', async () => {
-    render(<OrgSsoSettings orgId="org-1" readOnly={false} />);
+    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly={false} onSaved={jest.fn()} />);
     expect(await screen.findByRole('button', { name: /save sso settings/i })).not.toBeDisabled();
   });
 

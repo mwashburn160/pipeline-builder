@@ -72,7 +72,6 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   createOrganizationSchema: {},
   updateOrganizationSchema: {},
   updateOrgIdentitySchema: {},
-  updateQuotasSchema: {},
 }));
 
 const { deleteOrganization, restoreOrganization } = await import('../src/controllers/organization.js');

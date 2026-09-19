@@ -1,25 +1,29 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useAuth } from '@/hooks/useAuth';
 import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
+import { useQuery } from '@/hooks/useQuery';
+import { useFetch } from '@/hooks/useFetch';
 import { TIER_KEYS } from '@/lib/tiers';
 import { tierAvailabilityText } from '@/lib/addon-tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Button } from '@/components/ui/Button';
-import ReportTabs from '@/components/reports/ReportTabs';
+import { TabBar } from '@/components/ui/TabBar';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { RetryError } from '@/components/ui/RetryError';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { CreditCard } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
-import type { Plan, Subscription, Bundle, ComboDiscount, BillingInterval, UsageRollup } from '@/types';
+import type { Plan, Bundle, BillingInterval } from '@/types';
 import api from '@/lib/api';
-import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
+import { queries, invalidate } from '@/lib/api-cache';
+import { formatDate } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
@@ -73,7 +77,8 @@ function isPlanDowngrade(fromPlanId: string, toPlanId: string): boolean {
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'billing:read' });
+  // The page's `billing:read` gate comes from its nav entry (page-access.ts).
+  const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard();
   const { organizations } = useAuth();
   // Whether the billing SERVICE is enabled in this deployment (`/api/billing/config`
   // probe). Replaces the old `features.isEnabled('billing')` gate — `'billing'` is
@@ -98,29 +103,43 @@ export default function BillingPage() {
   // controls enabled, each of which the backend then 403s.
   const canChangePlan = (isAdmin || can('billing:manage')) && !isReadOnly && (isSuperAdmin || !activeOrgIsTeam);
 
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [bundles, setBundles] = useState<Bundle[]>([]);
+  // Reads start once the viewer and the billing-enabled probe have resolved.
+  const canRead = !!user && billingEnabled === true;
+  // Plan catalog + subscription come through the shared query cache (the signup
+  // and onboarding pickers and OrgAdminHome read the same keys). Every mutation
+  // on this page invalidates the subscription, which re-reads it here in place.
+  const plansQ = useQuery(canRead ? queries.plans() : null);
+  const subQ = useQuery(canRead ? queries.subscription() : null);
+  const plans: Plan[] = plansQ.data?.data?.plans ?? [];
+  const subscription = subQ.data?.data?.subscription ?? null;
+
+  // Add-on catalog: page-local, and re-read after any add-on/plan change (each
+  // bundle's `unmetRequirement` depends on what the account holds).
+  const bundlesQ = useFetch(
+    async (signal) => (canRead ? (await api.getBundles({ signal })).data ?? null : null),
+    [canRead, user?.organizationId],
+  );
+  const bundles: Bundle[] = bundlesQ.data?.bundles ?? [];
   // false for Marketplace-billed accounts: add-ons are managed in AWS, so the
   // catalog renders read-only with a note instead of purchase controls.
-  const [bundleSelfService, setBundleSelfService] = useState(false);
-  const [comboDiscounts, setComboDiscounts] = useState<ComboDiscount[]>([]);
-  const [usage, setUsage] = useState<UsageRollup | null>(null);
+  const bundleSelfService = bundlesQ.data?.selfService ?? false;
+  const comboDiscounts = bundlesQ.data?.comboDiscounts ?? [];
+
   // Editable "Usage this period" window. Empty = derived (subscription/fallback).
-  // A ref mirrors it so full-page reloads (`fetchData`) honour an active override
-  // without `fetchData` taking `usagePeriod` as a dependency (which would double-fetch).
   const [usagePeriod, setUsagePeriod] = useState<{ periodStart?: string; periodEnd?: string }>({});
-  const usagePeriodRef = useRef(usagePeriod);
-  usagePeriodRef.current = usagePeriod;
-  const [loading, setLoading] = useState(true);
-  // Set after the first successful load. Later reloads (after a plan/add-on
-  // change) refresh in place instead of swapping the page for a spinner, which
-  // would unmount open dialogs and reset the tab's scroll.
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const usageQ = useFetch(
+    async (signal) => (canRead ? (await api.getBillingUsage(usagePeriod, { signal })).data ?? null : null),
+    [canRead, user?.organizationId, usagePeriod.periodStart, usagePeriod.periodEnd],
+  );
+  const usage = usageQ.data;
+  const handleUsagePeriodChange = (periodStart?: string, periodEnd?: string) => setUsagePeriod({ periodStart, periodEnd });
+
   const [actionLoading, setActionLoading] = useState(false);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
-  const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
-  const [showEvents, setShowEvents] = useState(false);
+  // The toggle starts on the subscription's own cadence once it's known.
+  useEffect(() => {
+    if (subscription?.interval) setBillingInterval(subscription.interval);
+  }, [subscription?.interval]);
 
   // Active tab lives in `?tab=` (shareable, back/forward-friendly). Tab changes
   // keep the rest of the query, so a `?highlight=` deep-link survives them.
@@ -175,88 +194,23 @@ export default function BillingPage() {
   // feel broken (and, while the probe was undefined, could spin forever); the
   // explicit card tells the user what's happening.
 
-  // Set when the primary billing fetch (plans + subscription) fails, so a paying
-  // customer sees an error + retry instead of an empty "no subscription" page.
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // The primary billing reads (plans + subscription) failing is an error +
+  // retry, so a paying customer isn't shown an empty "no subscription" page.
+  const loadError = plansQ.error ?? subQ.error;
+  const initialLoading = (plansQ.loading && !plansQ.data) || (subQ.loading && !subQ.data);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      // Usage rolls into the same fetch so the page renders the full picture
-      // in one network round-trip. A usage-endpoint failure must not gate the
-      // whole page  billing data is the primary surface; usage degrades.
-      const [plansRes, subRes, usageRes, bundlesRes] = await Promise.all([
-        // The plan catalog is shared with the signup/onboarding pickers via the
-        // query cache; the subscription is FORCED, because this page is the one
-        // that mutates it and must never render a pre-mutation copy. The fresh
-        // answer still fills the cache the read-only consumers (OrgAdminHome)
-        // pick up.
-        runQuery(queries.plans()),
-        runQuery(queries.subscription(), { force: true }),
-        api.getBillingUsage(usagePeriodRef.current).catch(() => null),
-        api.getBundles().catch(() => null),
-      ]);
-
-      if (plansRes.success && plansRes.data?.plans) {
-        setPlans(plansRes.data.plans);
-      }
-      if (bundlesRes?.success && bundlesRes.data?.bundles) {
-        setBundles(bundlesRes.data.bundles);
-        setBundleSelfService(bundlesRes.data.selfService ?? false);
-        setComboDiscounts(bundlesRes.data.comboDiscounts ?? []);
-      }
-      if (subRes.success) {
-        setSubscription(subRes.data?.subscription ?? null);
-        if (subRes.data?.subscription?.interval) {
-          setBillingInterval(subRes.data.subscription.interval);
-        }
-      }
-      if (usageRes?.success && usageRes.data) {
-        setUsage(usageRes.data);
-      }
-      setHasLoaded(true);
-    } catch (err) {
-      setLoadError(formatError(err, 'Failed to load billing data'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Re-fetch ONLY the usage rollup for a chosen display window (no full-page
-  // reload). `undefined` values clear the override → derived period.
-  const handleUsagePeriodChange = useCallback(async (periodStart?: string, periodEnd?: string) => {
-    setUsagePeriod({ periodStart, periodEnd });
-    const res = await api.getBillingUsage({ periodStart, periodEnd }).catch(() => null);
-    if (res?.success && res.data) setUsage(res.data);
-  }, []);
-
-  const fetchEvents = useCallback(async () => {
-    try {
-      // Sysadmins see the fleet-wide feed (/admin/events, with the org column);
-      // everyone else sees their OWN account's credit/discount/combo events
-      // (/events, billing:read) rather than getting 403 off the admin route.
-      const res = isSuperAdmin
-        ? await api.listBillingEvents({ limit: 50 })
-        : await api.listOwnBillingEvents({ limit: 50 });
-      setBillingEvents(res.data?.events || []);
-      setShowEvents(true);
-    } catch { /* ignore */ }
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    // Skip the plain mount fetch on a checkout-success return — the checkout effect
-    // below drives a POLLED refetch instead (avoids two concurrent loads racing).
-    // Wait for `router.isReady`: until then `router.query` is `{}`, so the
-    // `checkout` param reads as undefined and this fetch would fire anyway,
-    // racing the polling effect it exists to defer to.
-    if (user && router.isReady && router.query.checkout !== 'success') fetchData();
-  }, [user?.id, user?.organizationId, router.isReady, fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** After any billing mutation: re-read everything it can have changed. The
+   *  page refreshes in place (open dialogs, tab and scroll survive). */
+  const reloadAll = () => {
+    invalidate.subscription();
+    bundlesQ.refetch();
+    usageQ.refetch();
+  };
 
   // Returning from hosted Checkout: poll until the webhook provisions the
   // subscription, then reload and resume any add-on the buyer came for.
-  useCheckoutReturn(async () => {
-    await fetchData();
+  useCheckoutReturn(() => {
+    reloadAll();
     finishAddonIntent();
   });
 
@@ -284,7 +238,7 @@ export default function BillingPage() {
         if (res.success) {
           toast.success('Plan changed successfully');
           setPendingPlan(null);
-          await fetchData();
+          reloadAll();
           finishAddonIntent();
         }
       } else {
@@ -314,7 +268,7 @@ export default function BillingPage() {
         const res = await api.createSubscription(planId, billingInterval);
         if (res.success) {
           toast.success('Subscription created successfully');
-          await fetchData();
+          reloadAll();
           finishAddonIntent();
         }
       }
@@ -330,7 +284,7 @@ export default function BillingPage() {
     subscription?.addons?.find((a) => a.bundleId === bundleId)?.quantity ?? 0;
 
   // Add-on change: preview the price, then confirm (see useAddonChange).
-  const addon = useAddonChange(subscription, fetchData);
+  const addon = useAddonChange(subscription, reloadAll);
   const [portalLoading, setPortalLoading] = useState(false);
   // Any billing mutation in flight disables the other purchase controls.
   const busy = actionLoading || addon.committing;
@@ -353,6 +307,8 @@ export default function BillingPage() {
     }
   };
 
+  // Cancelling is confirmed first — it's a step-up-gated, account-wide change.
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const handleCancel = async () => {
     if (!subscription) return;
     setActionLoading(true);
@@ -360,7 +316,8 @@ export default function BillingPage() {
       const res = await api.cancelSubscription(subscription.id);
       if (res.success) {
         toast.success('Subscription will be canceled at end of billing period');
-        await fetchData();
+        setConfirmCancel(false);
+        reloadAll();
       }
     } catch (err) {
       toast.error(formatError(err, 'Failed to cancel'));
@@ -376,7 +333,7 @@ export default function BillingPage() {
       const res = await api.reactivateSubscription(subscription.id);
       if (res.success) {
         toast.success('Subscription reactivated');
-        await fetchData();
+        reloadAll();
       }
     } catch (err) {
       toast.error(formatError(err, 'Failed to reactivate'));
@@ -402,23 +359,22 @@ export default function BillingPage() {
     );
   }
 
-  if (loading && !hasLoaded) return <LoadingPage />;
-
   // Primary billing fetch failed → error + retry, so a paying customer isn't shown
   // an empty "no subscription" page that looks like a downgrade to free.
   if (loadError) {
     return (
       <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
         <div className="page-section">
-          <Card className="flex flex-col items-center text-center py-14">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Couldn&apos;t load your billing details</h3>
-            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">{loadError}</p>
-            <Button variant="secondary" onClick={() => void fetchData()} className="mt-4">Retry</Button>
-          </Card>
+          <RetryError
+            message={`Couldn't load your billing details: ${formatError(loadError, 'Failed to load billing data')}`}
+            onRetry={() => { plansQ.refetch(); subQ.refetch(); }}
+          />
         </div>
       </DashboardLayout>
     );
   }
+
+  if (initialLoading) return <LoadingPage />;
 
   // Monthly/annual toggle — shared by the Plans and Add-ons tabs (both price per
   // interval), so it's defined once and rendered on each.
@@ -452,7 +408,7 @@ export default function BillingPage() {
 
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
       <div className="page-section space-y-8">
-        <ReportTabs tabs={[...BILLING_TABS]} activeTab={activeTab} onTabChange={changeTab} />
+        <TabBar items={BILLING_TABS} activeId={activeTab} onSelect={changeTab} ariaLabel="Billing sections" />
 
         {activeTab === 'overview' && (
           <div className="space-y-8">
@@ -490,14 +446,19 @@ export default function BillingPage() {
                 actionLoading={busy}
                 portalLoading={portalLoading}
                 onReactivate={handleReactivate}
-                onCancel={handleCancel}
+                onCancel={() => setConfirmCancel(true)}
                 onManageBilling={openBillingPortal}
               />
             )}
 
             {/* Cost & usage rollup. Renders even without an active subscription
                 (developer-tier defaults still produce useful data). */}
-            {usage && (
+            {usageQ.error ? (
+              <RetryError
+                message={`Couldn't load usage for this period: ${formatError(usageQ.error, 'Failed to load usage')}`}
+                onRetry={usageQ.refetch}
+              />
+            ) : usage && (
               <UsageCard
                 rollup={usage}
                 onPeriodChange={handleUsagePeriodChange}
@@ -560,7 +521,12 @@ export default function BillingPage() {
                 pools across the account's teams. Shown to plan managers even without
                 an active subscription (read-only preview via `subscribed={false}`);
                 purchase controls unlock once subscribed. */}
-            {canChangePlan && bundles.length > 0 ? (
+            {bundlesQ.error ? (
+              <RetryError
+                message={`Couldn't load the add-on catalog: ${formatError(bundlesQ.error, 'Failed to load add-ons')}`}
+                onRetry={bundlesQ.refetch}
+              />
+            ) : canChangePlan && bundles.length > 0 ? (
               <AddonGrid
                 bundles={bundles}
                 billingInterval={billingInterval}
@@ -593,7 +559,7 @@ export default function BillingPage() {
               <DiscountRedeem
                 subscription={subscription}
                 canManage={canChangePlan}
-                onApplied={fetchData}
+                onApplied={reloadAll}
               />
             )}
           </div>
@@ -606,15 +572,8 @@ export default function BillingPage() {
             <BillingDashboard />
 
             {/* Billing history events (credit applied/consumed/exhausted, discounts,
-                combos). Sysadmins see the fleet-wide feed via /admin/events (with the
-                org column); everyone else sees their own account via /events
-                (billing:read). Quietly degrades to an empty section on rejection. */}
-            <BillingHistory
-              isSuperAdmin={isSuperAdmin}
-              showEvents={showEvents}
-              billingEvents={billingEvents}
-              onViewEvents={fetchEvents}
-            />
+                combos), paged on the server. Self-fetching on demand. */}
+            <BillingHistory isSuperAdmin={isSuperAdmin} />
           </div>
         )}
 
@@ -629,6 +588,25 @@ export default function BillingPage() {
             onConfirm={() => void doSubscribe(pendingPlan.id)}
             onClose={() => { if (!actionLoading) setPendingPlan(null); }}
           />
+        )}
+
+        {confirmCancel && subscription && (
+          <ConfirmDialog
+            title="Cancel your subscription?"
+            confirmLabel="Cancel subscription"
+            cancelLabel="Keep subscription"
+            tone="danger"
+            loading={actionLoading}
+            onConfirm={() => void handleCancel()}
+            onCancel={() => setConfirmCancel(false)}
+          >
+            <p>
+              Your {subscription.planName || subscription.planId} plan stays active until the end of the current
+              billing period, <strong>{formatDate(subscription.currentPeriodEnd)}</strong>. After that it isn&apos;t
+              renewed, and the plan&apos;s limits and any add-ons stop with it.
+            </p>
+            <p>You can reactivate at any time before then.</p>
+          </ConfirmDialog>
         )}
 
         {addon.pendingAddon && (

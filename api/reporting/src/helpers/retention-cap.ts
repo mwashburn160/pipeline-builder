@@ -15,7 +15,7 @@ export type RetentionKind = 'event' | 'dora';
  * `getIncidentSettings` returns both the per-org override (null when unset) and
  * the env default for each window — the override wins when present.
  */
-interface RetentionSettings {
+export interface RetentionSettings {
   eventRetentionDays: number | null;
   doraRetentionDays: number | null;
   defaultEventRetentionDays: number;
@@ -39,6 +39,26 @@ export interface RetentionWindow {
 }
 
 /**
+ * The org's effective retention (days) for `kind`: the per-org override
+ * (billing-synced tier baseline + retention bundles) falling back to the env
+ * default. `-1` = unlimited.
+ */
+export function effectiveRetentionDays(s: RetentionSettings, kind: RetentionKind): number {
+  return kind === 'dora'
+    ? (s.doraRetentionDays ?? s.defaultDoraRetentionDays)
+    : (s.eventRetentionDays ?? s.defaultEventRetentionDays);
+}
+
+/**
+ * The widest `[from,to]` span (days) a report may cover under an effective
+ * retention of `effDays`: the retention itself, clamped to the absolute
+ * {@link MAX_REPORT_RANGE_DAYS} ceiling (unlimited `-1` ⇒ the ceiling).
+ */
+export function maxRangeDaysFor(effDays: number): number {
+  return effDays === -1 ? MAX_REPORT_RANGE_DAYS : Math.min(MAX_REPORT_RANGE_DAYS, effDays);
+}
+
+/**
  * Compute the retention window (width cap + `from` floor) for the requested
  * `kind` from an ALREADY-FETCHED settings row. The effective retention is the
  * per-org override (billing-synced tier baseline + retention bundles, or a
@@ -55,11 +75,8 @@ export function orgRetentionWindowFromSettings(
   kind: RetentionKind,
   now: number = Date.now(),
 ): RetentionWindow {
-  const eff = kind === 'dora'
-    ? (s.doraRetentionDays ?? s.defaultDoraRetentionDays)
-    : (s.eventRetentionDays ?? s.defaultEventRetentionDays);
-  const capDays = eff === -1 ? MAX_REPORT_RANGE_DAYS : Math.min(MAX_REPORT_RANGE_DAYS, eff);
-  const maxRangeMs = capDays * MS_PER_DAY;
+  const eff = effectiveRetentionDays(s, kind);
+  const maxRangeMs = maxRangeDaysFor(eff) * MS_PER_DAY;
   const minFromMs = eff === -1 ? 0 : Math.max(0, now - eff * MS_PER_DAY);
   return { maxRangeMs, minFromMs };
 }

@@ -7,10 +7,12 @@
  * they issue and the personal credentials they are constantly confused with.
  *
  * This file forwards the old address (a page moving, not a compatibility shim:
- * nothing of the old page runs behind it). The permission gate stays HERE as
- * well as on the destination, so someone without `service_accounts:manage` is
- * told why rather than bounced to a tab that won't render — and the API
- * enforces it regardless.
+ * nothing of the old page runs behind it). Unlike the other moved addresses it
+ * is NOT a `next.config.js` redirect: the permission gate stays HERE as well as
+ * on the destination, so someone without `service_accounts:manage` is told why
+ * rather than bounced to a tab that won't render — and the API enforces it
+ * regardless. The gate comes from `src/lib/page-access.ts`, so the guard takes
+ * no options.
  */
 
 import { useEffect } from 'react';
@@ -22,7 +24,7 @@ import { SERVICE_ACCOUNTS_HREF } from '@/lib/security-links';
 
 export default function ServiceAccountsPageMoved() {
   const router = useRouter();
-  const { accessDenied, isReady, user } = useAuthGuard({ requirePermission: 'service_accounts:manage' });
+  const { accessDenied, isReady, user } = useAuthGuard();
 
   useEffect(() => {
     if (!router.isReady || !isReady || !user || accessDenied) return;

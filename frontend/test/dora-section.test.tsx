@@ -32,8 +32,6 @@ jest.mock('next/router', () => ({
   useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
 }));
 
-jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
-
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const getDora = jest.fn();
@@ -225,8 +223,8 @@ describe('ReportsPage — DORA section', () => {
     fireEvent.change(screen.getByLabelText(/filter dora by pipeline/i), { target: { value: 'p1' } });
 
     await screen.findByText('DORA Metrics');
-    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }));
-    expect(getDoraTrend).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }));
+    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }), expect.anything());
+    expect(getDoraTrend).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }), expect.anything());
   });
 
   it('lists registry pipelines in the picker even with zero execution history', async () => {
@@ -280,7 +278,7 @@ describe('ReportsPage — DORA section', () => {
     fireEvent.click(stagingPill);
     // Clicking a pill commits the env → the DORA fetch re-scopes to it.
     await screen.findByText('Deployment Frequency');
-    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'staging' }));
+    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'staging' }), expect.anything());
   });
 
   it('shows the deployment-scoped indicator with the active environment filter', async () => {
@@ -338,8 +336,8 @@ describe('ReportsPage — DORA section', () => {
     fireEvent.blur(input, { target: { value: 'prod' } });
     await screen.findByText('DORA Metrics');
     expect(getDora).toHaveBeenCalledTimes(1);
-    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod' }));
-    expect(getDoraTrend).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod' }));
+    expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod' }), expect.anything());
+    expect(getDoraTrend).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod' }), expect.anything());
   });
 });
 

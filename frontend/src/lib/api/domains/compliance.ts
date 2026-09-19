@@ -215,13 +215,6 @@ export function complianceApi(core: ApiCore) {
       });
     },
 
-    /** Auto-subscribe org to all published rules (inactive by default) */
-    autoSubscribe: async () => {
-      return core.request<ApiResponse<{ subscribed: number; skipped: number }>>('/api/compliance/subscriptions/auto-subscribe', {
-        method: 'POST',
-      });
-    },
-
     /** Clone a published rule into org scope (one-shot copy, no upstream tracking). */
     cloneRule: async (ruleId: string) => {
       return core.request<ApiResponse<{ rule: ComplianceRule }>>('/api/compliance/subscriptions/clone', {

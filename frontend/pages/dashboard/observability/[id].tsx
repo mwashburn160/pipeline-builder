@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Edit2, Copy, Trash2 } from 'lucide-react';
+import { Edit2, Copy, Trash2, LayoutDashboard } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
@@ -14,8 +14,10 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { Input } from '@/components/ui/Input';
 import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ObservabilityHealthProvider, useObservabilityHealth } from '@/hooks/useObservabilityHealth';
@@ -54,8 +56,58 @@ function asSpan(n: number): 3 | 4 | 6 | 8 | 9 | 12 {
 /** URL-param filters that log-mode TablePanels forward to the audit-trail query.
  * These are read from the page's router query so a deep-link from
  * the registry-audit helper preserves its filter context across the
- * redirect from /audit-activity to /<dashboard-id>. */
-interface LogUrlFilters { event?: string; actor?: string }
+ * redirect from /audit-activity to /<dashboard-id>. `requestId` pulls every
+ * audited action one HTTP request made (the catalog allows all three). */
+interface LogUrlFilters { event?: string; actor?: string; requestId?: string }
+
+const LOG_FILTER_KEYS = ['event', 'actor', 'requestId'] as const;
+
+/** Log-mode table panels are the `*_recent_*` catalog keys (see PanelRenderer). */
+function isLogsPanel(panel: DashboardPanel): boolean {
+  return panel.vizKind === 'table' && /recent_/i.test(panel.queryKey);
+}
+
+/**
+ * Filter form for dashboards with an audit recent-events panel. Writes the
+ * values into the URL (shallow), which is what the panels read — so a filtered
+ * view is shareable and survives reload, exactly like a deep link.
+ */
+function LogFilterForm({ value, onApply }: { value: LogUrlFilters; onApply: (next: LogUrlFilters) => void }) {
+  const [draft, setDraft] = useState<LogUrlFilters>(value);
+  // Follow the URL when it changes underneath (Clear, back/forward).
+  const valueKey = JSON.stringify(value);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setDraft(value); }, [valueKey]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const next: LogUrlFilters = {};
+    for (const k of LOG_FILTER_KEYS) {
+      const v = draft[k]?.trim();
+      if (v) next[k] = v;
+    }
+    onApply(next);
+  };
+
+  const field = (key: (typeof LOG_FILTER_KEYS)[number], label: string, placeholder: string) => (
+    <Input
+      aria-label={label}
+      placeholder={placeholder}
+      value={draft[key] ?? ''}
+      onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+      className="font-mono text-xs w-48"
+    />
+  );
+
+  return (
+    <form onSubmit={submit} className="mb-4 flex flex-wrap items-center gap-2" aria-label="Filter audit events">
+      {field('event', 'Event', 'event (e.g. pipeline.delete)')}
+      {field('actor', 'Actor', 'actor id or email')}
+      {field('requestId', 'Request ID', 'request id')}
+      <Button type="submit" variant="secondary" size="xs">Apply filters</Button>
+    </form>
+  );
+}
 
 /** Render a single panel by its `vizKind`. Unknown kinds fall through to
  * LinePanel — keeps a misconfigured dashboard partially-functional instead
@@ -73,7 +125,7 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
       // dedicated DB field: catalog keys ending in `_recent_*` are logs;
       // everything else is treated as a topk aggregate.
       {
-        const isLogsMode = /recent_/i.test(panel.queryKey);
+        const isLogsMode = isLogsPanel(panel);
         return (
           <TablePanel
             title={panel.title}
@@ -85,7 +137,7 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
             // forward URL filters to log-mode panels only.
             // The audit-activity deep-link helper uses these to pre-filter
             // a recent-events log query to a single event / actor.
-            logOpts={isLogsMode && (urlFilters.event || urlFilters.actor)
+            logOpts={isLogsMode && (urlFilters.event || urlFilters.actor || urlFilters.requestId)
               ? { ...urlFilters, limit: 50 }
               : undefined}
           />
@@ -138,8 +190,14 @@ export default function DashboardPage() {
   const urlFilters: LogUrlFilters = {
     event: typeof router.query.event === 'string' ? router.query.event : undefined,
     actor: typeof router.query.actor === 'string' ? router.query.actor : undefined,
+    requestId: typeof router.query.requestId === 'string' ? router.query.requestId : undefined,
   };
-  const hasFilter = !!(urlFilters.event || urlFilters.actor);
+  const hasFilter = !!(urlFilters.event || urlFilters.actor || urlFilters.requestId);
+
+  /** Replace the log filters in the URL (shallow), keeping id + range. */
+  const applyLogFilters = useCallback((next: LogUrlFilters) => {
+    void router.replace({ pathname: router.pathname, query: { id: router.query.id, range, ...next } }, undefined, { shallow: true });
+  }, [router, range]);
 
   const ready = isReady && isAuthenticated && !!id;
   // Measure container width for the grid driver. ResizeObserver follows
@@ -150,8 +208,8 @@ export default function DashboardPage() {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const { data: dashboard, loading, error } = useFetch<DashboardWithPanels | null>(
-    async () => (ready ? (await api.getDashboard(id)).data?.dashboard ?? null : null),
+  const { data: dashboard, loading, error, refetch } = useFetch<DashboardWithPanels | null>(
+    async (signal) => (ready ? (await api.getDashboard(id, signal)).data?.dashboard ?? null : null),
     [ready, id],
   );
 
@@ -206,7 +264,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <DashboardLayout title="Dashboard" subtitle="">
-        <ErrorAlert message={error.message} />
+        <RetryError message={error.message} onRetry={refetch} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
@@ -214,7 +272,8 @@ export default function DashboardPage() {
   if (!dashboard) {
     return (
       <DashboardLayout title="Dashboard not found" subtitle="">
-        <Link href="/dashboard/observability" className="text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
+        <EmptyState icon={LayoutDashboard} title="Dashboard not found" description="It may have been deleted, or you no longer have access to it." />
+        <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
   }
@@ -286,19 +345,26 @@ export default function DashboardPage() {
           <span className="text-blue-700 dark:text-blue-300 font-medium">Filtered by:</span>
           {urlFilters.event && <span className="font-mono text-blue-700 dark:text-blue-300">event={urlFilters.event}</span>}
           {urlFilters.actor && <span className="font-mono text-blue-700 dark:text-blue-300">actor={urlFilters.actor}</span>}
+          {urlFilters.requestId && <span className="font-mono text-blue-700 dark:text-blue-300">requestId={urlFilters.requestId}</span>}
           <Button
             variant="link"
-            onClick={() => void router.replace({ pathname: router.pathname, query: { id: router.query.id, range } }, undefined, { shallow: true })}
+            onClick={() => applyLogFilters({})}
             className="ml-auto text-blue-700 dark:text-blue-300"
           >
             Clear
           </Button>
         </div>
       )}
+      {dashboard.panels.some(isLogsPanel) && (
+        <LogFilterForm value={urlFilters} onApply={applyLogFilters} />
+      )}
       {dashboard.panels.length === 0 ? (
-        <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          No panels in this dashboard yet. {mightEdit && <Link href={`/dashboard/observability/${dashboard.id}/edit`} className="text-blue-600 hover:underline">Add some.</Link>}
-        </div>
+        <EmptyState
+          icon={LayoutDashboard}
+          title="No panels yet"
+          description="This dashboard has no panels."
+          action={mightEdit ? <LinkButton href={`/dashboard/observability/${dashboard.id}/edit`} variant="secondary" size="sm">Add panels</LinkButton> : undefined}
+        />
       ) : (
         // Read-side: panel positions come from saved layoutJson when
         // present; dashboards without saved coords fall back to

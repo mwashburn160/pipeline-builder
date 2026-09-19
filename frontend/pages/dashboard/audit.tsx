@@ -2,32 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Sysadmin audit log surface.
+ * Audit log surface (org admins see their own org; sysadmins the fleet).
  *
  * The `Audit Activity` DB-stored dashboard remains for richer query-builder
  * UX (under /dashboard/observability/audit-activity). This focused page
- * supports the three new sysadmin filters operators reach for most:
- *   - `action`      — exact or partial match against the AuditAction vocab
- *   - `actorId`     — "what did user X do"
- *   - `affectedOrgId` — "what was done TO org X" (independent of who did it)
+ * filters on every field `GET /audit` accepts:
+ *   - `action`        — exact or partial match against the AuditAction vocab
+ *   - `actorId`       — "what did user X do"
+ *   - `impersonatorId` — "what was done while operator X was viewing as someone"
+ *   - `targetType` / `targetId` — "what happened to this pipeline / user / …"
+ *   - `groupId`       — every event of one grouped operation (a bulk action)
+ *   - `requestId`, `outcome`, `from` / `to`
+ *   - sysadmin only: `orgId` ("what org X's people did") and `affectedOrgId`
+ *     ("what was done TO org X"). The backend pins an org admin to their own
+ *     org, so those two are never offered to one.
  *
- * URL params drive the initial filter state, so deep-links from other
- * admin surfaces (org-detail "View audit log" button) land here with the
- * right scope.
+ * Every filter is a URL param, so deep-links from other surfaces (org-detail
+ * "View audit log") land with the right scope, and the ids on each row are
+ * buttons that narrow the list to that actor / impersonator / target / group.
  */
 
 import { Select } from '@/components/ui/Select';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { Activity, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
@@ -41,7 +50,6 @@ import { redactDetails } from '@/lib/redact';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
 import { formatDateTime } from '@/lib/format';
 
 const DEFAULT_LIMIT = 50;
@@ -49,9 +57,32 @@ const DEFAULT_LIMIT = 50;
 /** The action string for a denied-authorization audit event. */
 const DENIED_ACTION = 'authz.denied';
 
+/** A row id rendered as a button that narrows the list to it. */
+function FilterChip({ label, value, onFilter, title, children }: {
+  label: string;
+  value: string;
+  onFilter: () => void;
+  title: string;
+  children?: ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onFilter(); }}
+        className="hover:underline hover:text-gray-600 dark:hover:text-gray-300"
+        title={title}
+      >
+        {label}
+      </button>
+      {children ?? <CopyableId value={value} size="sm" />}
+    </span>
+  );
+}
+
 export default function AuditPage() {
   const router = useRouter();
-  const { accessDenied, isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
+  const { accessDenied, isReady, user, isSuperAdmin } = useAuthGuard();
   const [selected, setSelected] = useState<AuditLogEvent | null>(null);
 
   // Hydrate filters from URL on first render. `action`, `actorId`,
@@ -63,6 +94,11 @@ export default function AuditPage() {
   const [outcome, setOutcome] = useState<'' | 'success' | 'failure'>('');
   // Target-type scope (e.g. pipeline / plugin / user). Empty = any target.
   const [targetType, setTargetType] = useState<string>('');
+  const [targetId, setTargetId] = useState<string>('');
+  const [impersonatorId, setImpersonatorId] = useState<string>('');
+  const [groupId, setGroupId] = useState<string>('');
+  // "What org X's people did" — sysadmin only (org admins are pinned server-side).
+  const [orgId, setOrgId] = useState<string>('');
   // createdAt range bounds (ISO date strings from <input type="date">, or empty).
   const [from, setFrom] = useState<string>('');
   const [to, setTo] = useState<string>('');
@@ -86,39 +122,29 @@ export default function AuditPage() {
     if (typeof router.query.requestId === 'string') setRequestId(router.query.requestId);
     if (router.query.outcome === 'success' || router.query.outcome === 'failure') setOutcome(router.query.outcome);
     if (typeof router.query.targetType === 'string') setTargetType(router.query.targetType);
+    if (typeof router.query.targetId === 'string') setTargetId(router.query.targetId);
+    if (typeof router.query.impersonatorId === 'string') setImpersonatorId(router.query.impersonatorId);
+    if (typeof router.query.groupId === 'string') setGroupId(router.query.groupId);
+    // Same reasoning as affectedOrgId: only a sysadmin's `orgId` takes effect.
+    if (isSuperAdmin && typeof router.query.orgId === 'string') setOrgId(router.query.orgId);
     // createdAt range deep-links (e.g. "events since <incident time>").
     if (typeof router.query.from === 'string') setFrom(router.query.from);
     if (typeof router.query.to === 'string') setTo(router.query.to);
   }, [router.isReady, router.query, isSuperAdmin]);
 
-  const [events, setEvents] = useState<AuditLogEvent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   // Org id → display name lookup, so org references render as `name (id)`
-  // instead of a bare ObjectId. Fetched once on mount (sysadmin only — the
-  // org-list endpoint is sysadmin-scoped; org-admins only ever see their own
-  // org's events and degrade to bare ids). Failure is non-fatal: an empty map
-  // just falls back to showing the id alone.
-  const [orgNames, setOrgNames] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    if (!isReady || !isSuperAdmin) return;
-    // Guard against api surfaces that don't stub the org list (e.g. tests).
-    if (typeof api.listOrganizations !== 'function') return;
-    let cancelled = false;
-    runQuery(queries.listOrganizations({ limit: 200 })).then((res) => {
-      if (cancelled) return;
-      if (res.success && res.data?.organizations) {
-        const map = new Map<string, string>();
-        for (const org of res.data.organizations) {
-          if (org.id && org.name) map.set(org.id, org.name);
-        }
-        setOrgNames(map);
-      }
-    }).catch(() => { /* degrade gracefully — show bare ids, no error spam */ });
-    return () => { cancelled = true; };
-  }, [isReady, isSuperAdmin]);
+  // instead of a bare ObjectId. Read through the shared query cache (the orgs
+  // page asks for the same list) and sysadmin only — the org-list endpoint is
+  // sysadmin-scoped; org-admins only ever see their own org's events and
+  // degrade to bare ids. Failure is non-fatal: an empty map falls back to ids.
+  const orgList = useQuery(isReady && isSuperAdmin ? queries.listOrganizations({ limit: 200 }) : null);
+  const orgNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const org of orgList.data?.data?.organizations ?? []) {
+      if (org.id && org.name) map.set(org.id, org.name);
+    }
+    return map;
+  }, [orgList.data]);
 
   // Render an org reference as `name (id)`, keeping the id copyable via
   // CopyableId. Unknown/unresolved orgs fall back to the bare id (no
@@ -169,8 +195,8 @@ export default function AuditPage() {
   // Count of applied filter fields — surfaced as a badge on the (collapsed)
   // filter toggle so users know a scope is in effect without expanding it.
   const activeFilterCount = [
-    action, actorId, requestId, outcome, targetType, from, to,
-    isSuperAdmin && affectedOrgId,
+    action, actorId, requestId, outcome, targetType, targetId, impersonatorId, groupId, from, to,
+    isSuperAdmin && affectedOrgId, isSuperAdmin && orgId,
   ].filter(Boolean).length;
 
   const clearFilters = () => {
@@ -179,9 +205,19 @@ export default function AuditPage() {
     setRequestId('');
     setOutcome('');
     setTargetType('');
+    setTargetId('');
+    setImpersonatorId('');
+    setGroupId('');
     setFrom('');
     setTo('');
     setAffectedOrgId('');
+    setOrgId('');
+    setOffset(0);
+  };
+
+  /** Narrow to one value from a row (actor, impersonator, target, group, org). */
+  const narrow = (set: (v: string) => void, value: string) => {
+    set(value);
     setOffset(0);
   };
 
@@ -191,32 +227,31 @@ export default function AuditPage() {
     ...(requestId && { requestId }),
     ...(outcome && { outcome }),
     ...(targetType && { targetType }),
+    ...(targetId && { targetId }),
+    ...(impersonatorId && { impersonatorId }),
+    ...(groupId && { groupId }),
     ...(from && { from }),
     ...(to && { to }),
-    // Org admins are forced to their own org by the backend; this filter
-    // is sysadmin-only. UI still sends it, server ignores for non-sysadmins.
+    // Org admins are pinned to their own org by the backend; these two are
+    // sysadmin-only and never sent for anyone else.
     ...(isSuperAdmin && affectedOrgId && { affectedOrgId }),
+    ...(isSuperAdmin && orgId && { orgId }),
     offset,
     limit,
-  }), [action, actorId, requestId, outcome, targetType, from, to, affectedOrgId, isSuperAdmin, offset, limit]);
+  }), [action, actorId, requestId, outcome, targetType, targetId, impersonatorId, groupId, from, to, affectedOrgId, orgId, isSuperAdmin, offset, limit]);
 
-  useEffect(() => {
-    if (!isReady) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    api.listAuditEvents(filters).then((res) => {
-      if (cancelled) return;
-      if (res.success && res.data) {
-        setEvents(res.data.events);
-        setTotal(res.data.pagination.total);
-      } else {
-        setError(res.message || 'Failed to load audit events');
-      }
-    }).catch((e) => !cancelled && setError(formatError(e, 'Failed to load audit events')))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [isReady, filters]);
+  const list = useFetch(
+    async (signal) => {
+      if (!isReady) return null;
+      const res = await api.listAuditEvents(filters, { signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load audit events');
+      return res.data;
+    },
+    [isReady, filters],
+  );
+  const events: AuditLogEvent[] = list.data?.events ?? [];
+  const total = list.data?.pagination.total ?? 0;
+  const loading = list.loading;
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -284,7 +319,7 @@ export default function AuditPage() {
         </div>
       )}
 
-      <ErrorAlert message={error} className="mb-4" />
+      <ErrorAlert message={list.error ? formatError(list.error, 'Failed to load audit events') : null} className="mb-4" />
 
       {/* Toolbar: collapsible-filter toggle + quick filters. Keeps the tall
           input grid out of the way until the user reaches for it. */}
@@ -371,6 +406,27 @@ export default function AuditPage() {
           <option value="success">Success</option>
           <option value="failure">Failure</option>
         </Select>
+        <FilterInput
+          type="text"
+          placeholder="Impersonator user id"
+          aria-label="Filter by impersonator user id"
+          value={impersonatorId}
+          onChange={(e) => { setImpersonatorId(e.target.value); setOffset(0); }}
+        />
+        <FilterInput
+          type="text"
+          placeholder="Target id"
+          aria-label="Filter by target id"
+          value={targetId}
+          onChange={(e) => { setTargetId(e.target.value); setOffset(0); }}
+        />
+        <FilterInput
+          type="text"
+          placeholder="Group id (one grouped operation)"
+          aria-label="Filter by group id"
+          value={groupId}
+          onChange={(e) => { setGroupId(e.target.value); setOffset(0); }}
+        />
         <Select
           aria-label="Filter by target type"
           value={targetType}
@@ -409,18 +465,27 @@ export default function AuditPage() {
           />
         </label>
         {isSuperAdmin && (
-          <FilterInput
-            type="text"
-            placeholder="Affected org id (sysadmin filter)"
-            aria-label="Filter by affected org id"
-            value={affectedOrgId}
-            onChange={(e) => { setAffectedOrgId(e.target.value); setOffset(0); }}
-          />
+          <>
+            <FilterInput
+              type="text"
+              placeholder="Org id — events by its members (sysadmin)"
+              aria-label="Filter by org id"
+              value={orgId}
+              onChange={(e) => { setOrgId(e.target.value); setOffset(0); }}
+            />
+            <FilterInput
+              type="text"
+              placeholder="Affected org id (sysadmin filter)"
+              aria-label="Filter by affected org id"
+              value={affectedOrgId}
+              onChange={(e) => { setAffectedOrgId(e.target.value); setOffset(0); }}
+            />
+          </>
         )}
       </div>
       )}
 
-      {loading && (
+      {loading && !list.data && (
         <Card className="mt-2 overflow-hidden">
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -489,10 +554,12 @@ export default function AuditPage() {
       {/* Results */}
       <Card className="mt-2 overflow-hidden">
         {events.length === 0 && !loading ? (
-          <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-            <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            No matching audit events.
-          </div>
+          <EmptyState
+            icon={Activity}
+            title="No matching audit events"
+            description={activeFilterCount > 0 ? 'Nothing matches these filters. Clear some to widen the search.' : 'No events have been recorded yet.'}
+            action={activeFilterCount > 0 ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> : undefined}
+          />
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {events.map((event) => (
@@ -525,21 +592,30 @@ export default function AuditPage() {
                     and offers one compact copy affordance apiece. Org id is
                     suppressed when it's just the org already in scope. */}
                 <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                  <span className="inline-flex items-center gap-1">actor <CopyableId value={event.actorId} size="sm" /></span>
+                  <FilterChip label="actor" value={event.actorId} title="Show only this actor's events" onFilter={() => narrow(setActorId, event.actorId)} />
                   {event.impersonatorId && (
-                    <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} size="sm" /></span>
+                    <FilterChip label="via" value={event.impersonatorId} title="Show everything done while this operator was impersonating" onFilter={() => narrow(setImpersonatorId, event.impersonatorId!)} />
                   )}
                   {event.orgId && event.orgId !== user.organizationId && (
-                    <span className="inline-flex items-center gap-1">org {renderOrgRef(event.orgId)}</span>
+                    isSuperAdmin
+                      ? <FilterChip label="org" value={event.orgId} title="Show only events by this org's members" onFilter={() => narrow(setOrgId, event.orgId!)}>{renderOrgRef(event.orgId)}</FilterChip>
+                      : <span className="inline-flex items-center gap-1">org {renderOrgRef(event.orgId)}</span>
                   )}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
                     <span className="inline-flex items-center gap-1">affected {renderOrgRef(event.affectedOrgId)}</span>
                   )}
                   {event.targetType && (
-                    <span className="inline-flex items-center gap-1">
-                      <code>{event.targetType}</code>
-                      {event.targetId && <>: <CopyableId value={event.targetId} size="sm" /></>}
-                    </span>
+                    event.targetId ? (
+                      <FilterChip
+                        label={event.targetType}
+                        value={event.targetId}
+                        title="Show only events on this target"
+                        onFilter={() => { setTargetType(event.targetType!); narrow(setTargetId, event.targetId!); }}
+                      />
+                    ) : <code>{event.targetType}</code>
+                  )}
+                  {event.groupId && (
+                    <FilterChip label="group" value={event.groupId} title="Show every event of this grouped operation" onFilter={() => narrow(setGroupId, event.groupId!)} />
                   )}
                   {event.requestId && (
                     <button
@@ -598,7 +674,17 @@ export default function AuditPage() {
               {selected.actorRole && <span className="text-gray-400 dark:text-gray-500">({selected.actorRole})</span>}
               <CopyableId value={selected.actorId} size="sm" />
             </dd>
-            {selected.impersonatorId && (<><dt className="text-gray-500 dark:text-gray-400">Impersonator</dt><dd><CopyableId value={selected.impersonatorId} size="sm" /></dd></>)}
+            {selected.impersonatorId && (
+              <>
+                <dt className="text-gray-500 dark:text-gray-400">Impersonator</dt>
+                <dd className="inline-flex items-center gap-2">
+                  <CopyableId value={selected.impersonatorId} size="sm" />
+                  <button type="button" className="action-link text-xs" onClick={() => { narrow(setImpersonatorId, selected.impersonatorId!); setSelected(null); }}>
+                    All their impersonated actions
+                  </button>
+                </dd>
+              </>
+            )}
             {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd>{renderOrgRef(selected.orgId)}</dd></>)}
             {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd>{renderOrgRef(selected.affectedOrgId)}</dd></>)}
             {selected.targetType && (
@@ -607,7 +693,17 @@ export default function AuditPage() {
                 <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} size="sm" /></>}</dd>
               </>
             )}
-            {selected.groupId && (<><dt className="text-gray-500 dark:text-gray-400">Group</dt><dd><CopyableId value={selected.groupId} size="sm" /></dd></>)}
+            {selected.groupId && (
+              <>
+                <dt className="text-gray-500 dark:text-gray-400">Group</dt>
+                <dd className="inline-flex items-center gap-2">
+                  <CopyableId value={selected.groupId} size="sm" />
+                  <button type="button" className="action-link text-xs" onClick={() => { narrow(setGroupId, selected.groupId!); setSelected(null); }}>
+                    Whole operation
+                  </button>
+                </dd>
+              </>
+            )}
             {selected.ip && (<><dt className="text-gray-500 dark:text-gray-400">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
             {selected.userAgent && (<><dt className="text-gray-500 dark:text-gray-400">User agent</dt><dd className="text-xs text-gray-700 dark:text-gray-300 break-all">{selected.userAgent}</dd></>)}
             {selected.requestId && (<><dt className="text-gray-500 dark:text-gray-400">Request id</dt><dd><CopyableId value={selected.requestId} size="sm" /></dd></>)}

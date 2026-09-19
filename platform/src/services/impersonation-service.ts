@@ -44,8 +44,10 @@ export const BREAKGLASS_CAP = 5;
 /** Why a break-glass request needs a second sysadmin. */
 export type FourEyesReason = 'policy_denied' | 'rate_limit';
 
-/** Cap on rows per list view. */
-const LIST_LIMIT = 100;
+/** Default page size for a list view when the caller names none. */
+const LIST_DEFAULT_LIMIT = 20;
+/** Hard ceiling on one page of a list view. */
+const LIST_MAX_LIMIT = 100;
 
 /** A request as shown to a person — display names resolved, session token id omitted. */
 export interface ImpersonationRequestSummary {
@@ -345,11 +347,17 @@ class ImpersonationService {
    *
    * Never returns `jti`: it identifies a live session token, and revocation works
    * by request id.
+   *
+   * Paged newest-first: `page.limit` is clamped to 1..{@link LIST_MAX_LIMIT}
+   * (default {@link LIST_DEFAULT_LIMIT}) and `total` counts every row the view
+   * matches, so a long history is reachable page by page instead of silently
+   * truncated.
    */
   async listForCaller(
     caller: { userId: string; isSysadmin: boolean; adminOrgIds: string[] },
     view: 'to-decide' | 'mine' | 'sessions',
-  ): Promise<ImpersonationRequestSummary[]> {
+    page: { limit?: number; offset?: number } = {},
+  ): Promise<{ requests: ImpersonationRequestSummary[]; total: number; limit: number; offset: number }> {
     const now = new Date();
     let filter: Record<string, unknown>;
 
@@ -386,11 +394,17 @@ class ImpersonationService {
       };
     }
 
-    const docs = await ImpersonationRequest.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(LIST_LIMIT)
-      .select('-jti')
-      .lean();
+    const limit = Math.min(Math.max(Math.trunc(page.limit ?? LIST_DEFAULT_LIMIT), 1), LIST_MAX_LIMIT);
+    const offset = Math.max(Math.trunc(page.offset ?? 0), 0);
+    const [docs, total] = await Promise.all([
+      ImpersonationRequest.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(offset)
+        .limit(limit)
+        .select('-jti')
+        .lean(),
+      ImpersonationRequest.countDocuments(filter),
+    ]);
 
     // Resolve display names in one query rather than one per row.
     const userIds = [...new Set(docs.flatMap((d) => [String(d.requesterId), String(d.targetUserId)]))];
@@ -402,7 +416,7 @@ class ImpersonationService {
       (u as { username?: string }).username ?? (u as { email?: string }).email ?? 'unknown',
     ]));
 
-    return docs.map((d) => ({
+    const requests = docs.map((d) => ({
       id: String(d._id),
       // Report a request whose window has passed as `expired` NOW, rather than
       // waiting for the reaper to rewrite the row. Otherwise the requester sees
@@ -421,6 +435,7 @@ class ImpersonationService {
       consumedAt: d.consumedAt,
       decidedAt: d.decidedAt,
     }));
+    return { requests, total, limit, offset };
   }
 
   /**

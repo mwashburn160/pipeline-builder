@@ -137,6 +137,9 @@ interface DateRangePickerProps {
   /** Effective cap on the selectable span in days (default 730 — the report
    *  hard-cap). A span past this warns the user (the backend also floors it). */
   maxRangeDays?: number;
+  /** Where to buy a longer window when the cap is the org's retention (a
+   *  billing add-on deep link). Omitted when the cap is the fixed ceiling. */
+  extendHref?: string;
 }
 
 /** Local `YYYY-MM-DD` for today, used as the `max` on both date inputs. */
@@ -145,7 +148,7 @@ function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDays = 730 }: DateRangePickerProps) {
+export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDays = 730, extendHref }: DateRangePickerProps) {
   const today = todayIso();
   // Warn (don't block) when the chosen span exceeds the effective cap — the
   // backend floors the window at the retention horizon, so a wider pick silently
@@ -161,7 +164,7 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDa
         max={to || today}
         onChange={(e) => onFromChange(e.target.value)}
         className="filter-select text-xs tabular-nums"
-        title="From date"
+        aria-label="From date"
       />
       <span className="text-xs text-gray-400">→</span>
       <input
@@ -171,11 +174,14 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDa
         max={today}
         onChange={(e) => onToChange(e.target.value)}
         className="filter-select text-xs tabular-nums"
-        title="To date"
+        aria-label="To date"
       />
       {overCap && (
         <span className="text-xs text-amber-600 dark:text-amber-400" title={`Reports cap at ${maxRangeDays} days`}>
           &gt;{maxRangeDays}d — will be capped
+          {extendHref && (
+            <>{' · '}<Link href={extendHref} className="underline hover:no-underline">Extend retention</Link></>
+          )}
         </span>
       )}
     </div>

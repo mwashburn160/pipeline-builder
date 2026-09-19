@@ -12,7 +12,10 @@
  *   - the billing rule is STATED (no seat, own token budget), not implied;
  *   - an optional IP allowlist reaches the API as a list, not a raw string;
  *   - ONE dialog per decision: the step-up dialog is also the confirmation, and
- *     role edits are a BATCH saved once rather than a step-up per checkbox.
+ *     role edits are a BATCH saved once rather than a step-up per checkbox;
+ *   - every field the API takes is settable: the token budget at create and,
+ *     with the description, through Edit (only changed fields are sent);
+ *   - Details reads the one account fresh (GET …/service-accounts/:accountId).
  */
 
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -25,6 +28,7 @@ const updateServiceAccount = jest.fn();
 const deleteServiceAccount = jest.fn();
 const createServiceAccountKey = jest.fn();
 const revokeServiceAccountKey = jest.fn();
+const getServiceAccount = jest.fn();
 const toastError = jest.fn();
 
 jest.mock('@/lib/api', () => ({
@@ -38,6 +42,7 @@ jest.mock('@/lib/api', () => ({
     deleteServiceAccount: (...a: unknown[]) => deleteServiceAccount(...a),
     createServiceAccountKey: (...a: unknown[]) => createServiceAccountKey(...a),
     revokeServiceAccountKey: (...a: unknown[]) => revokeServiceAccountKey(...a),
+    getServiceAccount: (...a: unknown[]) => getServiceAccount(...a),
   },
 }));
 jest.mock('@/components/ui/Toast', () => ({
@@ -149,9 +154,97 @@ describe('ServiceAccountsSection', () => {
 
     await waitFor(() => expect(createServiceAccount).toHaveBeenCalledWith(
       'org-1',
-      { name: 'reporting-bot', description: 'Pushes DORA events', roleIds: ['role-1'] },
+      // Empty budget = unlimited, stated explicitly rather than left to a default.
+      { name: 'reporting-bot', description: 'Pushes DORA events', roleIds: ['role-1'], tokenBudget: -1 },
       'step-up-token',
     ));
+  });
+
+  it('sets a token budget at create', async () => {
+    createServiceAccount.mockResolvedValue({ success: true, data: { serviceAccount: account({ id: 'sa-2' }) } });
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+    await waitFor(() => expect(listServiceAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'reporting-bot' } });
+    fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: /create/i }));
+    expect(await screen.findByTestId('stepup-details')).toHaveTextContent(/at most 500 tokens per period/i);
+    fireEvent.click(screen.getByTestId('stepup-modal'));
+
+    await waitFor(() => expect(createServiceAccount).toHaveBeenCalledWith(
+      'org-1', expect.objectContaining({ tokenBudget: 500 }), 'step-up-token',
+    ));
+  });
+
+  it('refuses a token budget the API would reject, before step-up', async () => {
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+    await waitFor(() => expect(listServiceAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'reporting-bot' } });
+    fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/token budget/i));
+    expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
+  });
+
+  it('edits the description and budget, sending only what changed', async () => {
+    updateServiceAccount.mockResolvedValue({ success: true, data: { serviceAccount: account() } });
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+    expect(screen.getByLabelText('Token budget for ci-deploy')).toHaveValue('1000');
+    fireEvent.change(screen.getByLabelText('Token budget for ci-deploy'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(lastStepUpTitle).toMatch(/update this service account/i);
+    expect(screen.getByTestId('stepup-details')).toHaveTextContent(/unlimited/i);
+    fireEvent.click(screen.getByTestId('stepup-modal'));
+
+    await waitFor(() => expect(updateServiceAccount).toHaveBeenCalledWith(
+      'org-1', 'sa-1', { tokenBudget: -1 }, 'step-up-token',
+    ));
+  });
+
+  it('clears a description with null', async () => {
+    updateServiceAccount.mockResolvedValue({ success: true, data: { serviceAccount: account() } });
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText('Description for ci-deploy'), { target: { value: '  ' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    fireEvent.click(screen.getByTestId('stepup-modal'));
+
+    await waitFor(() => expect(updateServiceAccount).toHaveBeenCalledWith(
+      'org-1', 'sa-1', { description: null }, 'step-up-token',
+    ));
+  });
+
+  it('an unchanged edit closes without a step-up or a write', async () => {
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
+    expect(updateServiceAccount).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Token budget for ci-deploy')).not.toBeInTheDocument();
+  });
+
+  it('opens a detail drawer read fresh from the single-account endpoint', async () => {
+    getServiceAccount.mockResolvedValue({
+      success: true,
+      data: { serviceAccount: account({ permissions: ['pipelines:write', 'plugins:read'], description: 'Fresh description' }) },
+    });
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /details/i }));
+
+    await waitFor(() => expect(getServiceAccount).toHaveBeenCalledWith('org-1', 'sa-1', expect.anything()));
+    const drawer = await screen.findByRole('dialog', { name: /service account details/i });
+    expect(await within(drawer).findByText('Fresh description')).toBeInTheDocument();
+    expect(within(drawer).getByText(/Effective permissions \(2\)/)).toBeInTheDocument();
+    expect(within(drawer).getByText(/Keys \(1\)/)).toBeInTheDocument();
   });
 
   it('rejects a name that is not a machine identifier, without calling the API', async () => {

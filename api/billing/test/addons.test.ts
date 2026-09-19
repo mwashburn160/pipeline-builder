@@ -94,7 +94,7 @@ const mockVolumeCredits = jest.fn<(...args: unknown[]) => unknown[]>().mockRetur
 // feature bundle (team+), and an inactive pack (must never surface).
 const CATALOG = [
   { id: 'seat_pack', name: 'Seat Pack', description: '+5 seats', isActive: true, stackable: true, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 1000, annual: 10000 }, grants: { seats: 5 }, features: [] },
-  { id: 'audit_log', name: 'Audit Log', description: 'Audit logging', isActive: true, stackable: false, availableForTiers: ['team', 'enterprise'], prices: { monthly: 2000, annual: 20000 }, grants: {}, features: ['audit_log'] },
+  { id: 'bulk_operations', name: 'Bulk Operations', description: 'Bulk operations', isActive: true, stackable: false, availableForTiers: ['team', 'enterprise'], prices: { monthly: 2000, annual: 20000 }, grants: {}, features: ['bulk_operations'] },
   { id: 'legacy_pack', name: 'Legacy', description: 'retired', isActive: false, stackable: true, availableForTiers: ['pro'], prices: { monthly: 500, annual: 5000 }, grants: {}, features: [] },
   { id: 'free_feature', name: 'Free Feature', description: 'no charge', isActive: true, stackable: false, availableForTiers: ['pro'], prices: { monthly: 0, annual: 0 }, grants: {}, features: ['free_feature'] },
   // D7: a stackable retention pack capped at maxQuantity (30 + 7×90 = 660 ≤ 730).
@@ -103,6 +103,10 @@ const CATALOG = [
   // gate + cascade-cancel tests). Pure-feature, non-stackable.
   { id: 'compliance_standard', name: 'Standard Compliance', description: 'CI/CD best-practice rules', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 2990, annual: 29900 }, grants: {}, features: ['compliance_standard'] },
   { id: 'compliance_advanced', name: 'Advanced Compliance', description: 'Framework libraries', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 9990, annual: 99900 }, grants: {}, features: ['compliance_advanced'], requires: ['compliance_standard'] },
+  // Feature prerequisite: the DORA History Pack `requiresFeatures` advanced_reporting,
+  // which pro/team buy as an add-on and enterprise includes (TIER_FEATURES).
+  { id: 'advanced_reporting', name: 'Advanced Reporting (DORA)', description: 'DORA', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 3000, annual: 30000 }, grants: {}, features: ['advanced_reporting'] },
+  { id: 'dora_history_pack', name: 'DORA History Pack (+365d)', description: '+365d', isActive: true, stackable: true, maxQuantity: 1, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 3000, annual: 30000 }, grants: { doraRetentionDays: 365 }, features: [], requiresFeatures: ['advanced_reporting'] },
 ];
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
@@ -255,9 +259,9 @@ describe('GET /bundles', () => {
 
   it('omits a combo when a member is not offered on the account tier', async () => {
     withActiveSub();
-    // audit_log is team+, so on pro it is filtered out of the catalog → the combo drops.
+    // bulk_operations is team+, so on pro it is filtered out of the catalog → the combo drops.
     mockGetComboDiscounts.mockReturnValue([
-      { id: 'nope', name: 'Nope', bundleIds: ['seat_pack', 'audit_log'], prices: { monthly: 100, annual: 1000 }, isActive: true },
+      { id: 'nope', name: 'Nope', bundleIds: ['seat_pack', 'bulk_operations'], prices: { monthly: 100, annual: 1000 }, isActive: true },
     ]);
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
@@ -281,9 +285,38 @@ describe('GET /bundles', () => {
     withActiveSub();
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
-    // pro tier → seat_pack + free_feature (audit_log is team+, legacy_pack is inactive)
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced']);
+    // pro tier → seat_pack + free_feature (bulk_operations is team+, legacy_pack is inactive)
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack']);
     expect(payload.selfService).toBe(true);
+  });
+
+  it('annotates bundles whose prerequisites the account does not meet (bundle + feature kinds)', async () => {
+    withActiveSub(); // pro, nothing held
+    await handler(mockReq(), mockRes());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    const byId = new Map(payload.bundles.map((b: any) => [b.id, b]));
+    expect((byId.get('dora_history_pack') as any).unmetRequirement).toEqual({
+      bundleIds: [],
+      features: ['advanced_reporting'],
+      message: expect.stringContaining('requires Advanced Reporting'),
+    });
+    expect((byId.get('compliance_advanced') as any).unmetRequirement).toEqual(expect.objectContaining({ bundleIds: ['compliance_standard'], features: [] }));
+    // Bundles with no (or satisfied) prerequisites carry no annotation.
+    expect((byId.get('seat_pack') as any).unmetRequirement).toBeUndefined();
+  });
+
+  it('clears the feature annotation once a held add-on grants the feature', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'advanced_reporting', quantity: 1 }] }));
+    await handler(mockReq(), mockRes());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.bundles.find((b: any) => b.id === 'dora_history_pack').unmetRequirement).toBeUndefined();
+  });
+
+  it('clears the feature annotation when the tier itself includes the feature (enterprise)', async () => {
+    withActiveSub(makeSubscription({ planId: 'enterprise' }), { name: 'Enterprise', tier: 'enterprise', prices: { monthly: 59900, annual: 599000 } });
+    await handler(mockReq(), mockRes());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.bundles.find((b: any) => b.id === 'dora_history_pack').unmetRequirement).toBeUndefined();
   });
 
   it('marks selfService=false for Marketplace accounts but still returns the catalog', async () => {
@@ -291,7 +324,7 @@ describe('GET /bundles', () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack']);
     expect(payload.selfService).toBe(false);
   });
 });
@@ -360,7 +393,7 @@ describe('POST /subscriptions/:id/addons (add)', () => {
 
   it('400s when the bundle is not available on the account tier', async () => {
     withActiveSub(); // pro tier
-    await handler(mockReq({ body: { bundleId: 'audit_log' } }), mockRes()); // team+
+    await handler(mockReq({ body: { bundleId: 'bulk_operations' } }), mockRes()); // team+
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('not available'), 'VALIDATION_ERROR');
   });
 
@@ -508,6 +541,32 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
   });
 
+  it('400s the DORA History Pack without Advanced Reporting (feature prerequisite) and does not sync', async () => {
+    withActiveSub();
+    await handler(mockReq({ body: { bundleId: 'dora_history_pack', quantity: 1 } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(), 400,
+      expect.stringContaining('DORA History Pack (+365d) requires Advanced Reporting'),
+      'VALIDATION_ERROR',
+    );
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it('allows the DORA History Pack when the Advanced Reporting add-on is held', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'advanced_reporting', quantity: 1 }] }));
+    await handler(mockReq({ body: { bundleId: 'dora_history_pack', quantity: 1 } }), mockRes());
+    expect(mockSendError).not.toHaveBeenCalled();
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'advanced_reporting', quantity: 1 }, { bundleId: 'dora_history_pack', quantity: 1 }]);
+  });
+
+  it('allows the DORA History Pack on a tier that includes Advanced Reporting (enterprise)', async () => {
+    withActiveSub(makeSubscription({ planId: 'enterprise' }), { name: 'Enterprise', tier: 'enterprise', prices: { monthly: 59900, annual: 599000 } });
+    await handler(mockReq({ body: { bundleId: 'dora_history_pack', quantity: 1 } }), mockRes());
+    expect(mockSendError).not.toHaveBeenCalled();
+    expect(mockSubscriptionFindOneAndUpdate).toHaveBeenCalled();
+  });
+
   it('allows Advanced when Standard is already held (prerequisite satisfied by the effective set)', async () => {
     withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }] }));
     await handler(mockReq({ body: { bundleId: 'compliance_advanced', quantity: 1 } }), mockRes());
@@ -550,11 +609,11 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
   });
 
   it('removes the bundle, syncs, and returns 200', async () => {
-    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }, { bundleId: 'audit_log', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }, { bundleId: 'bulk_operations', quantity: 1 }] }));
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
     const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
-    expect(update.$set.addons).toEqual([{ bundleId: 'audit_log', quantity: 1 }]);
-    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'audit_log', quantity: 1 }]);
+    expect(update.$set.addons).toEqual([{ bundleId: 'bulk_operations', quantity: 1 }]);
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'bulk_operations', quantity: 1 }]);
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.anything());
   });
 
@@ -612,6 +671,21 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
       'org-1', 'subscription_updated',
       { reason: 'addon_removed', bundleId: 'compliance_advanced', cascadedFrom: 'compliance_standard' },
       'sub-1', 'user-1',
+    );
+  });
+
+  it('cascade-removes a pack whose FEATURE prerequisite was granted by the removed add-on', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'advanced_reporting', quantity: 1 }, { bundleId: 'dora_history_pack', quantity: 1 }] }));
+    await handler(mockReq({ params: { bundleId: 'advanced_reporting' } }), mockRes());
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([]);
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.addon.remove',
+        targetId: 'dora_history_pack',
+        details: expect.objectContaining({ cascadedFrom: 'advanced_reporting' }),
+      }),
+      'billing',
     );
   });
 

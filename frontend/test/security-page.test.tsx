@@ -14,13 +14,14 @@
  *     accounts only exist for someone who may manage them;
  *   - `?tab=…#section` lands on the right tab, and a bare `#section` opens the
  *     tab that owns it;
- *   - the old addresses (/dashboard/tokens, /dashboard/settings/service-accounts,
- *     /dashboard/settings?tab=security) forward here, per old tab;
+ *   - the old addresses (/dashboard/settings/service-accounts,
+ *     /dashboard/settings?tab=security) forward here, per old tab (the old
+ *     /dashboard/tokens tabs are server redirects — see next-redirects.test.ts);
  *   - the nav names it honestly and no longer advertises the moved pages;
  *   - impersonation is disclosed on every tab.
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import {
   PASSKEY_ENROLMENT_HREF,
@@ -44,9 +45,15 @@ jest.mock('@/components/settings/AccessKeysSection', () => ({ AccessKeysSection:
 jest.mock('@/components/settings/ServiceAccountsSection', () => ({ ServiceAccountsSection: () => <div>service-accounts-section</div> }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
 
+const generateNewToken = jest.fn();
+const listTokenHistory = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { getAccessToken: () => null, generateNewToken: jest.fn() },
+  default: {
+    getAccessToken: () => null,
+    generateNewToken: (...a: unknown[]) => generateNewToken(...a),
+    listTokenHistory: (...a: unknown[]) => listTokenHistory(...a),
+  },
 }));
 
 const replace = jest.fn();
@@ -57,7 +64,6 @@ jest.mock('next/router', () => ({
 }));
 
 import SecurityPage from '../pages/dashboard/security';
-import TokensPageMoved from '../pages/dashboard/tokens';
 import ServiceAccountsPageMoved from '../pages/dashboard/settings/service-accounts';
 import SettingsPage from '../pages/dashboard/settings';
 
@@ -66,6 +72,7 @@ beforeEach(() => {
   query = {};
   window.location.hash = '';
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' } });
+  listTokenHistory.mockResolvedValue({ success: true, data: { tokens: [] } });
 });
 
 afterEach(() => { window.location.hash = ''; });
@@ -90,6 +97,62 @@ describe('Security — one page, four answers', () => {
     render(<SecurityPage />);
     expect(screen.getByText('access-keys-section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /generate token/i })).toBeInTheDocument();
+  });
+
+  it('mints a machine token with the chosen lifetime and capability scope', async () => {
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 'tok.en.value', expiresIn: 7 * 86400 } });
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+
+    fireEvent.change(screen.getByLabelText('Expires after'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('Capability'), { target: { value: 'reporting:ingest' } });
+    fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 7 * 86400, scope: 'reporting:ingest' }));
+    expect(await screen.findByText(/Valid for 7 days/)).toBeInTheDocument();
+    // The history re-reads so the new issuance shows up.
+    await waitFor(() => expect(listTokenHistory).toHaveBeenCalledTimes(2));
+  });
+
+  it('sends no scope for a full-permission token, only the lifetime', async () => {
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', expiresIn: 30 * 86400 } });
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+    fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }));
+  });
+
+  it('offers only lifetimes the API accepts (1–365 days)', () => {
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+    const values = Array.from((screen.getByLabelText('Expires after') as HTMLSelectElement).options).map((o) => Number(o.value));
+    expect(Math.min(...values)).toBeGreaterThanOrEqual(1);
+    expect(Math.max(...values)).toBeLessThanOrEqual(365);
+  });
+
+  it('lists the token history with each token\'s status', async () => {
+    listTokenHistory.mockResolvedValue({
+      success: true,
+      data: { tokens: [
+        { id: 't1', createdAt: '2026-09-01T00:00:00Z', expiresAt: '2026-10-01T00:00:00Z', status: 'active' },
+        { id: 't2', createdAt: '2026-08-01T00:00:00Z', expiresAt: '2026-08-02T00:00:00Z', status: 'revoked' },
+      ] },
+    });
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+    expect(await screen.findByText('active')).toBeInTheDocument();
+    expect(screen.getByText('revoked')).toBeInTheDocument();
+  });
+
+  it('says so when no token has been issued, and offers a retry on failure', async () => {
+    query = { tab: 'keys' };
+    const { unmount } = render(<SecurityPage />);
+    expect(await screen.findByText('No tokens issued yet')).toBeInTheDocument();
+    unmount();
+
+    listTokenHistory.mockRejectedValue(new Error('boom'));
+    render(<SecurityPage />);
+    expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
   it('hides the org service accounts from someone who cannot manage them', () => {
@@ -158,24 +221,6 @@ describe('enrolment deep links land', () => {
 });
 
 describe('the pages that moved still forward', () => {
-  it('sends the old access-keys tab to Security → Access keys', async () => {
-    query = { tab: 'tokens' };
-    render(<TokensPageMoved />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/security?tab=keys'));
-  });
-
-  it('sends the old sessions view to the ONE sessions view', async () => {
-    query = { tab: 'sessions' };
-    render(<TokensPageMoved />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/security?tab=sessions'));
-  });
-
-  it('sends the decoded-token tab to the section that now holds it', async () => {
-    query = { tab: 'access' };
-    render(<TokensPageMoved />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/security?tab=sessions#current-token'));
-  });
-
   it('sends the service-accounts page to its tab', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
     render(<ServiceAccountsPageMoved />);
@@ -214,11 +259,11 @@ describe('the nav says what is there', () => {
     expect(items.map((i) => i.href)).not.toContain('/dashboard/settings/service-accounts');
   });
 
-  it('stays highlighted on the old addresses while they forward', () => {
+  it('stays highlighted on the old service-accounts address while it forwards', () => {
     const security = items.find((i) => i.href === '/dashboard/security');
-    expect(security?.extraActivePaths).toEqual(
-      expect.arrayContaining(['/dashboard/tokens', '/dashboard/settings/service-accounts']),
-    );
+    // /dashboard/tokens is a server redirect now — it never renders, so it
+    // needs no highlight rule.
+    expect(security?.extraActivePaths).toEqual(['/dashboard/settings/service-accounts']);
   });
 
   it('is visible to an ordinary member — everyone has credentials', () => {

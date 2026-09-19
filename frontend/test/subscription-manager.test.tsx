@@ -7,7 +7,9 @@
  * a locked "Requires <Set>" affordance deep-linking to billing instead of a
  * Subscribe button (server gates subscribe/activate, so we avoid a 403 round
  * trip). A set badge renders on any set-tagged row; a held set stays Subscribe.
- * Auto-subscribe surfaces its {subscribed, skipped} counts in a toast.
+ * There is no bulk auto-subscribe control: that route is platform-internal (a
+ * member can't mint subscriptions around the add-on gate), so the UI never
+ * offers it. The sub-view lives in `?subs=` (deep-linkable).
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -34,6 +36,15 @@ jest.mock('@/components/ui/Toast', () => ({
   useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() }),
 }));
 
+// useUrlTab reads/writes the query string; a replace() updates it in place.
+const mockRouter = {
+  query: {} as Record<string, string>,
+  pathname: '/dashboard/compliance',
+  isReady: true,
+  replace: jest.fn((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
+};
+jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+
 // next/link → plain anchor so we can assert the href.
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -45,7 +56,6 @@ jest.mock('next/link', () => ({
 const getComplianceSubscriptions = jest.fn();
 const getPublishedRules = jest.fn();
 const subscribeToRule = jest.fn();
-const autoSubscribe = jest.fn();
 const unsubscribeFromRule = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -54,7 +64,6 @@ jest.mock('@/lib/api', () => ({
     getComplianceSubscriptions: (...a: unknown[]) => getComplianceSubscriptions(...a),
     getPublishedRules: (...a: unknown[]) => getPublishedRules(...a),
     subscribeToRule: (...a: unknown[]) => subscribeToRule(...a),
-    autoSubscribe: (...a: unknown[]) => autoSubscribe(...a),
   },
 }));
 
@@ -76,12 +85,13 @@ function mockCatalog(rules: PublishedRuleCatalogEntry[]) {
 
 async function openCatalog() {
   render(<SubscriptionManager />);
-  fireEvent.click(await screen.findByRole('button', { name: /browse catalog/i }));
+  fireEvent.click(await screen.findByRole('tab', { name: /browse catalog/i }));
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockEnabled = new Set();
+  mockRouter.query = {};
   getComplianceSubscriptions.mockResolvedValue({
     success: true,
     data: { subscriptions: [], pagination: { total: 0, limit: 10, offset: 0, hasMore: false } },
@@ -130,14 +140,21 @@ describe('SubscriptionManager catalog set-gating', () => {
     expect(screen.queryByRole('link', { name: /requires/i })).not.toBeInTheDocument();
   });
 
-  it('surfaces auto-subscribe {subscribed, skipped} counts in a success toast', async () => {
-    autoSubscribe.mockResolvedValue({ success: true, data: { subscribed: 3, skipped: 2 } });
+  it('offers no bulk auto-subscribe; the empty state points at the catalog instead', async () => {
+    mockCatalog([rule({ id: 'base-1', name: 'Baseline rule', tags: [] })]);
     render(<SubscriptionManager />);
-    // Empty subscriptions tab → the "Auto-Subscribe to All" CTA is shown.
-    fireEvent.click(await screen.findByRole('button', { name: /auto-subscribe to all/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /browse the catalog/i }));
+    expect(screen.queryByRole('button', { name: /auto-subscribe/i })).not.toBeInTheDocument();
+    expect(await screen.findByText('Baseline rule')).toBeInTheDocument();
+    expect(mockRouter.query.subs).toBe('catalog');
+  });
 
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
-    expect(toastSuccess.mock.calls[0][0]).toMatch(/subscribed to 3 rules.*skipped 2/i);
+  it('opens straight on the catalog from a ?subs=catalog deep link', async () => {
+    mockRouter.query = { subs: 'catalog' };
+    mockCatalog([rule({ id: 'base-1', name: 'Baseline rule', tags: [] })]);
+    render(<SubscriptionManager />);
+    expect(await screen.findByText('Baseline rule')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /browse catalog/i })).toHaveAttribute('aria-selected', 'true');
   });
 });
 

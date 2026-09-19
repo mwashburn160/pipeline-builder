@@ -26,7 +26,9 @@ const FAILURE_ACTION = /\.(failed|timeout)$/;
 
 /**
  * GET /audit - List audit events (admin only, org-scoped for org admins)
- * Query: action, targetType, targetId, page, limit
+ * Query: action, actorId, targetType, targetId, groupId, impersonatorId,
+ * requestId, outcome, from, to, offset, limit — plus orgId / affectedOrgId for
+ * sysadmins (an org admin is always pinned to their own org).
  */
 export const listAuditEvents = withController('List audit events', async (req, res) => {
   const admin = requireAdminContext(req, res);
@@ -65,8 +67,11 @@ export const listAuditEvents = withController('List audit events', async (req, r
   } else {
     if (orgIdQuery) filter.orgId = orgIdQuery;
     if (affectedOrgId) filter.affectedOrgId = affectedOrgId;
-    if (actorId) filter.actorId = actorId;
   }
+
+  // "What did user X do" narrows WITHIN the scope above — for an org admin it
+  // stays inside their own org, so it reveals nothing they couldn't page to.
+  if (actorId) filter.actorId = actorId;
 
   if (action) filter.action = action;
   if (targetType) filter.targetType = targetType;

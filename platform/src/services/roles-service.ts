@@ -331,11 +331,28 @@ export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: bo
   return result;
 }
 
-/** List an org's Roles, each with its current members (for the management UI). */
-export async function listRolesWithMembers(orgId: string): Promise<RoleWithMembers[]> {
+/**
+ * List an org's Roles, each with its current members (for the management UI).
+ *
+ * `page` pages the ROLES (stable order: built-in grant level, then name) and
+ * only the members of that page's Roles are loaded. Without `page` every Role
+ * is returned — the pickers (service-account roles, group mappings, member
+ * role editors) need the whole set to offer a choice. `total` always counts
+ * every Role in the org.
+ */
+export async function listRolesWithMembers(
+  orgId: string,
+  page?: { limit: number; offset: number },
+): Promise<{ roles: RoleWithMembers[]; total: number }> {
   const oid = toOrgId(orgId);
-  const roles = await Role.find({ organizationId: oid }).sort({ grantsRole: 1, name: 1 }).lean();
-  const assignments = await RoleAssignment.find({ organizationId: oid })
+  let query = Role.find({ organizationId: oid }).sort({ grantsRole: 1, name: 1 });
+  if (page) query = query.skip(page.offset).limit(page.limit);
+  const [roles, total] = await Promise.all([
+    query.lean(),
+    Role.countDocuments({ organizationId: oid }),
+  ]);
+  if (roles.length === 0) return { roles: [], total };
+  const assignments = await RoleAssignment.find({ organizationId: oid, roleId: { $in: roles.map((r) => r._id) } })
     .populate<{ userId: { _id: mongoose.Types.ObjectId; username: string; email: string } }>(
       { path: 'userId', select: '_id username email' },
     )
@@ -351,15 +368,18 @@ export async function listRolesWithMembers(orgId: string): Promise<RoleWithMembe
     byRole.set(key, list);
   }
 
-  return roles.map((g) => ({
-    id: String(g._id),
-    name: g.name,
-    ...(g.description ? { description: g.description as string } : {}),
-    grantsRole: g.grantsRole as RoleGrant,
-    permissions: (g.permissions as string[]) ?? [],
-    system: !!g.system,
-    members: byRole.get(String(g._id)) ?? [],
-  }));
+  return {
+    roles: roles.map((g) => ({
+      id: String(g._id),
+      name: g.name,
+      ...(g.description ? { description: g.description as string } : {}),
+      grantsRole: g.grantsRole as RoleGrant,
+      permissions: (g.permissions as string[]) ?? [],
+      system: !!g.system,
+      members: byRole.get(String(g._id)) ?? [],
+    })),
+    total,
+  };
 }
 
 /**

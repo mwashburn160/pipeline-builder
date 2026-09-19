@@ -13,13 +13,12 @@ export type FeatureFlag =
   // plan) and not currently `requireFeature`-gated on any route (they surface in
   // plan marketing + the entitlement set; enforcement is a future hook). This is
   // by design, not dead code — do not "fix" by wiring a bundle without a pricing
-  // decision. Contrast `audit_log`/`sso`/`advanced_reporting`, which ARE sold as
+  // decision. Contrast `sso`/`advanced_reporting`, which ARE sold as
   // add-on bundles and gated (see billing-config `loadBundles` + `requireFeature`).
   | 'priority_support'
   | 'custom_integrations'
   | 'ai_generation'
   | 'bulk_operations'
-  | 'audit_log'
   | 'sso'
   // DORA / advanced delivery analytics (paid tiers only).
   | 'advanced_reporting'
@@ -40,7 +39,6 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'ai_generation',
   'bulk_operations',
   'custom_integrations',
-  'audit_log',
   'sso',
   'advanced_reporting',
   'team_usage_analytics',
@@ -59,11 +57,11 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
   pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-  // Team adds audit_log (collaboration/governance) and sso (SSO/IdP is INCLUDED
-  // in Team, not an add-on). advanced_reporting (DORA) is NOT a Team tier feature —
-  // it's INCLUDED only in Enterprise and sold as an add-on bundle to every other
-  // tier (see billing-config `advanced_reporting`). Enterprise unlocks all.
-  team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
+  // Team adds sso (SSO/IdP is INCLUDED in Team, not an add-on). advanced_reporting
+  // (DORA) is NOT a Team tier feature — it's INCLUDED only in Enterprise and sold
+  // as an add-on bundle to every other tier (see billing-config
+  // `advanced_reporting`). Enterprise unlocks all.
+  team: ['priority_support', 'ai_generation', 'bulk_operations', 'sso'],
   enterprise: [...ALL_FEATURE_FLAGS],
   // Unlimited includes every feature / add-on bundle (billing-disabled default).
   unlimited: [...ALL_FEATURE_FLAGS],
@@ -88,10 +86,6 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   custom_integrations: {
     label: 'Custom Integrations',
     description: 'Connect to external services and custom webhook endpoints',
-  },
-  audit_log: {
-    label: 'Audit Log',
-    description: 'Detailed audit trail of all user and system actions',
   },
   sso: {
     label: 'SSO / IdP',

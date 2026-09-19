@@ -1,12 +1,26 @@
 import { type LucideIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Button } from './Button';
 
 interface EmptyStateProps {
-  icon: LucideIcon;
+  /** Glyph in the illustration circle. Omit for a text-only state. */
+  icon?: LucideIcon;
   title: string;
-  description: React.ReactNode;
+  description?: React.ReactNode;
+  /** Arbitrary call-to-action (a `LinkButton`, a pair of buttons, …). */
   action?: React.ReactNode;
+  /** Shorthand for the common single-button CTA: renders a primary `Button`
+   *  labelled `actionLabel` that calls `onAction`. Ignored when `action` is set. */
+  actionLabel?: string;
+  onAction?: () => void;
   illustration?: IllustrationType;
+  /**
+   * Smaller, unanimated form for an empty panel INSIDE a card or tab (a list
+   * with no rows, a chart with no data) — where the full-page hero with its
+   * glow and 64px of padding would dwarf the surface around it.
+   */
+  compact?: boolean;
+  className?: string;
 }
 
 type IllustrationType = 'default' | 'pipelines' | 'plugins' | 'messages' | 'search';
@@ -51,15 +65,36 @@ export function TextEmptyState({ children }: { children: React.ReactNode }) {
   return <div className="text-center py-8 text-gray-500 dark:text-gray-400">{children}</div>;
 }
 
-export function EmptyState({ icon: Icon, title, description, action, illustration = 'default' }: EmptyStateProps) {
+export function EmptyState({
+  icon: Icon, title, description, action, actionLabel, onAction,
+  illustration = 'default', compact = false, className = '',
+}: EmptyStateProps) {
   const colors = illustrationColors[illustration];
+  const cta = action ?? (actionLabel && onAction ? (
+    <Button size={compact ? 'sm' : 'md'} onClick={onAction}>{actionLabel}</Button>
+  ) : null);
+
+  if (compact) {
+    return (
+      <div className={`text-center py-8 px-4 ${className}`}>
+        {Icon && (
+          <div className={`mx-auto w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center mb-3`}>
+            <Icon className={`w-5 h-5 ${colors.icon}`} aria-hidden="true" />
+          </div>
+        )}
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{description}</p>}
+        {cta && <div className="mt-4">{cta}</div>}
+      </div>
+    );
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="relative text-center py-16 overflow-hidden"
+      className={`relative text-center py-16 overflow-hidden ${className}`}
     >
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div
@@ -71,17 +106,19 @@ export function EmptyState({ icon: Icon, title, description, action, illustratio
           style={{ background: 'radial-gradient(circle, rgba(239,182,76,0.3) 0%, rgba(239,182,76,0) 70%)' }}
         />
       </div>
-      <motion.div
-        initial={{ scale: 0.96 }}
-        animate={{ scale: 1 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-        className={`mx-auto w-20 h-20 rounded-full ${colors.bg} ${colors.ring} flex items-center justify-center mb-5 transition-colors`}
-      >
-        <Icon className={`w-9 h-9 ${colors.icon}`} />
-      </motion.div>
+      {Icon && (
+        <motion.div
+          initial={{ scale: 0.96 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+          className={`mx-auto w-20 h-20 rounded-full ${colors.bg} ${colors.ring} flex items-center justify-center mb-5 transition-colors`}
+        >
+          <Icon className={`w-9 h-9 ${colors.icon}`} aria-hidden="true" />
+        </motion.div>
+      )}
       <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
-      <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{description}</p>
-      {action && <div className="mt-5">{action}</div>}
+      {description && <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{description}</p>}
+      {cta && <div className="mt-5">{cta}</div>}
     </motion.div>
   );
 }

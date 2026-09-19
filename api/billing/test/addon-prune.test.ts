@@ -26,10 +26,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const CATALOG = [
   { id: 'seat_pack', name: 'Seat Pack', description: '', grants: { seats: 5 }, features: [], prices: { monthly: 2500, annual: 25000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 0 },
   { id: 'pipeline_pack', name: 'Pipeline Pack', description: '', grants: { pipelines: 10 }, features: [], prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 1 },
-  { id: 'audit_log', name: 'Audit Log', description: '', grants: {}, features: ['audit_log'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
+  { id: 'bulk_operations', name: 'Bulk Operations', description: '', grants: {}, features: ['bulk_operations'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
   // HYBRID: SSO grants a quota (idpConfigs) in ADDITION to its feature flag.
   { id: 'sso', name: 'SSO / IdP', description: '', grants: { idpConfigs: 5 }, features: ['sso'], prices: { monthly: 4000, annual: 40000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 3 },
   { id: 'advanced_reporting', name: 'Advanced Reporting', description: '', grants: {}, features: ['advanced_reporting'], prices: { monthly: 3000, annual: 30000 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], isActive: true, sortOrder: 4 },
+  // A capacity pack with a FEATURE prerequisite (tier-included on enterprise).
+  { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, features: [], requiresFeatures: ['advanced_reporting'], prices: { monthly: 3000, annual: 30000 }, stackable: true, maxQuantity: 1, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 5 },
 ];
 
 // The prune helper never issues a request, but applyPlanTierChange drives
@@ -88,35 +90,35 @@ const { applyTierIncludedAddonPrune, applyPlanTierChange, finalizePrunedAddons }
 describe('pruneTierIncludedFeatureAddons', () => {
   const catalog = getBundleCatalog();
 
-  it('drops pure-feature add-ons (advanced_reporting + audit_log) the new tier now includes, keeping quota packs', () => {
+  it('drops pure-feature add-ons (advanced_reporting + bulk_operations) the new tier now includes, keeping quota packs', () => {
     const addons = [
       { bundleId: 'advanced_reporting', quantity: 1 },
-      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'bulk_operations', quantity: 1 },
       { bundleId: 'seat_pack', quantity: 2 },
     ];
-    // enterprise includes advanced_reporting AND audit_log.
+    // enterprise includes advanced_reporting AND bulk_operations.
     const { addons: kept, pruned } = pruneTierIncludedFeatureAddons(addons, 'enterprise', catalog);
 
     // Reduced list (what routes persist + sync) keeps only the quota pack.
     expect(kept).toEqual([{ bundleId: 'seat_pack', quantity: 2 }]);
-    expect(pruned.map((p) => p.bundleId).sort()).toEqual(['advanced_reporting', 'audit_log']);
+    expect(pruned.map((p) => p.bundleId).sort()).toEqual(['advanced_reporting', 'bulk_operations']);
     // Each pruned entry carries id + the feature(s) it granted (for the INFO log).
-    expect(pruned.find((p) => p.bundleId === 'audit_log')?.features).toEqual(['audit_log']);
+    expect(pruned.find((p) => p.bundleId === 'bulk_operations')?.features).toEqual(['bulk_operations']);
     expect(pruned.find((p) => p.bundleId === 'advanced_reporting')?.features).toEqual(['advanced_reporting']);
   });
 
   it('does NOT prune a HYBRID bundle (sso grants idpConfigs) even when the new tier includes its feature', () => {
     const addons = [
-      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'bulk_operations', quantity: 1 },
       { bundleId: 'sso', quantity: 1 },
     ];
-    // team includes BOTH audit_log and sso — but sso also grants a quota.
+    // team includes BOTH bulk_operations and sso — but sso also grants a quota.
     const { addons: kept, pruned } = pruneTierIncludedFeatureAddons(addons, 'team', catalog);
 
-    // audit_log (pure feature) is pruned; sso (hybrid) is retained so its
+    // bulk_operations (pure feature) is pruned; sso (hybrid) is retained so its
     // idpConfigs quota isn't stripped.
     expect(kept).toEqual([{ bundleId: 'sso', quantity: 1 }]);
-    expect(pruned.map((p) => p.bundleId)).toEqual(['audit_log']);
+    expect(pruned.map((p) => p.bundleId)).toEqual(['bulk_operations']);
   });
 
   it('never prunes a quota pack (seat_pack) even into the all-inclusive enterprise tier', () => {
@@ -138,7 +140,7 @@ describe('pruneTierIncludedFeatureAddons', () => {
 
   it('keeps an unknown bundle (not in the catalog) and never prunes on the developer tier', () => {
     const addons = [
-      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'bulk_operations', quantity: 1 },
       { bundleId: 'mystery_bundle', quantity: 1 },
     ];
     // developer includes no features → nothing is pruned.
@@ -156,6 +158,32 @@ describe('applyTierIncludedAddonPrune', () => {
     const pruned = applyTierIncludedAddonPrune(sub, 'enterprise', { orgId: 'org-1', subscriptionId: 'sub-1', source: 'plan_change' });
 
     expect(sub.addons).toEqual([{ bundleId: 'seat_pack', quantity: 2 }]);
+    expect(pruned).toEqual([{ bundleId: 'advanced_reporting', features: ['advanced_reporting'] }]);
+  });
+
+  it('drops a pack whose feature prerequisite the new tier no longer provides (enterprise → team)', () => {
+    // On enterprise the DORA History Pack rides the tier-included advanced_reporting;
+    // team doesn't include it and the account holds no Advanced Reporting add-on.
+    const sub = { addons: [{ bundleId: 'dora_history_pack', quantity: 1 }, { bundleId: 'seat_pack', quantity: 2 }] };
+    const pruned = applyTierIncludedAddonPrune(sub, 'team', { orgId: 'org-1', subscriptionId: 'sub-1', source: 'plan_change' });
+
+    expect(sub.addons).toEqual([{ bundleId: 'seat_pack', quantity: 2 }]);
+    expect(pruned).toEqual([{ bundleId: 'dora_history_pack', features: [] }]);
+  });
+
+  it('keeps a feature-prerequisite pack when a held add-on still grants the feature', () => {
+    const sub = { addons: [{ bundleId: 'dora_history_pack', quantity: 1 }, { bundleId: 'advanced_reporting', quantity: 1 }] };
+    const pruned = applyTierIncludedAddonPrune(sub, 'team', { orgId: 'org-1', subscriptionId: 'sub-1', source: 'plan_change' });
+
+    expect(sub.addons).toEqual([{ bundleId: 'dora_history_pack', quantity: 1 }, { bundleId: 'advanced_reporting', quantity: 1 }]);
+    expect(pruned).toEqual([]);
+  });
+
+  it('keeps the pack on an upgrade that includes the feature, while pruning the now-redundant add-on', () => {
+    const sub = { addons: [{ bundleId: 'dora_history_pack', quantity: 1 }, { bundleId: 'advanced_reporting', quantity: 1 }] };
+    const pruned = applyTierIncludedAddonPrune(sub, 'enterprise', { orgId: 'org-1', subscriptionId: 'sub-1', source: 'plan_change' });
+
+    expect(sub.addons).toEqual([{ bundleId: 'dora_history_pack', quantity: 1 }]);
     expect(pruned).toEqual([{ bundleId: 'advanced_reporting', features: ['advanced_reporting'] }]);
   });
 

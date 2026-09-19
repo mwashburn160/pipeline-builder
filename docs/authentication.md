@@ -770,6 +770,16 @@ and only lets an admin touch their own org (or a team they manage). Every
 create / update / delete is recorded in the [audit trail](audit-events.md)
 (`admin.org-idp.upsert` / `admin.org-idp.delete`).
 
+On the self-service page a new connection is **created** with `PUT` (the full
+body its protocol needs); every later save is a `PATCH` carrying only the fields
+that changed, so saving the SAML side never re-sends the OIDC side or its
+secret. **Disconnect SSO** (`DELETE`) removes the connection outright — members
+fall back to their other sign-in methods (password, passkey, a linked social
+login); anyone who has only ever signed in through SSO has none until an
+administrator sets one. Each of the three is confirmed in one step-up dialog that
+takes a passkey or authenticator code. To pause SSO without losing the settings,
+untick **Enabled** instead.
+
 ---
 
 ## Step-up re-authentication (every account)
@@ -1924,6 +1934,14 @@ Sessions come in two kinds:
   > session was still a *person's* credential, and that is the thing #12 / #N2
   > removed. A machine session is what remains for a person who deliberately wants
   > a long-lived token of their own.
+
+**Dashboard → Security → Access keys → Generate machine token** mints one: the
+person picks its lifetime (1 day to 365 days — the API's ceiling) and,
+optionally, one capability scope (`reporting:ingest`, `registry:push`, `scim`),
+in which case the token carries none of their permissions. **Token history**
+beneath it (`GET /user/tokens`) lists every token issued to the account with its
+issue and expiry time and whether it is still active, expired, or revoked by a
+sign-out-everywhere.
 
 `generate-token` from a person (an interactive session, or a PAT with no session
 at all) opens a **new** machine session holding the requested scope, leaving the

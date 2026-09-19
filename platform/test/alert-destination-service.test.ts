@@ -39,6 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
+  desc: (col: unknown) => ({ desc: col }),
   eq: (col: unknown, v: unknown) => ({ eq: [col, v] }),
   isNull: (col: unknown) => ({ isNull: col }),
   sql: (() => undefined) as unknown,

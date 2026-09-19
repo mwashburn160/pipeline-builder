@@ -6,6 +6,34 @@ import { buildQuery, API_URL } from '../util';
 import { ApiError } from '../errors';
 import type { ApiResponse, Plugin, QueueStatus , Visibility } from '@/types';
 
+/**
+ * Page envelope of the build-queue listings (`/plugins/queue/failed`, `/dlq`).
+ * `total` is exact for system admins only — a tenant-scoped caller's total would
+ * need a scan of every tenant's jobs, so the server omits it and `hasMore`
+ * drives paging instead.
+ */
+export interface QueuePagination {
+  total?: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+/**
+ * Columns the plugins LIST view renders (table, detail modal, row gating) —
+ * everything except the build spec (`dockerfile`, `commands`,
+ * `installCommands`, `env`, `buildArgs`, `metadata`, `secrets`, …), which only
+ * the edit modal needs and reads by id. `orgId`/`name`/`version` keep the
+ * server-derived `uri` in the response. Sent as `fields`.
+ */
+export const PLUGIN_LIST_FIELDS = [
+  'id', 'orgId', 'name', 'description', 'keywords', 'category', 'version', 'pluginType', 'computeType',
+  'timeout', 'failureBehavior', 'visibility', 'isDefault', 'isActive', 'createdBy', 'createdAt', 'updatedAt',
+] as const satisfies ReadonlyArray<keyof Plugin>;
+
+/** A plugin row as the list view receives it (see {@link PLUGIN_LIST_FIELDS}). */
+export type PluginSummary = Pick<Plugin, typeof PLUGIN_LIST_FIELDS[number] | 'uri'>;
+
 export function pluginsApi(core: ApiCore) {
   return {
     // ============================================
@@ -32,8 +60,12 @@ export function pluginsApi(core: ApiCore) {
       return res.data.ticket;
     },
 
-    listPlugins: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins${buildQuery(params)}`);
+    /** `params.fields` (comma-separated columns) trims each row to a sparse
+     *  fieldset — `id` is always returned, and the server derives `uri` from
+     *  `orgId`/`name`/`version`, so a list view that renders the URI must ask for
+     *  those three. `nextCursor` is present when `hasMore` (keyset paging). */
+    listPlugins: async (params?: Record<string, string>, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean; nextCursor?: string } }>>(`/api/plugins${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     getPluginById: async (id: string) => {
@@ -79,14 +111,14 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<QueueStatus>>('/api/plugin/queue/status');
     },
 
-    /** Get failed jobs from the plugin build queue */
-    getQueueFailed: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; error?: string; attemptsMade?: number; maxAttempts?: number; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/failed${buildQuery(params)}`);
+    /** One newest-first page of failed jobs from the plugin build queue (limit ≤ 200). */
+    getQueueFailed: async (params: { limit: number; offset: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; error?: string; attemptsMade?: number; maxAttempts?: number; failedAt?: string }[]; pagination: QueuePagination }>>(`/api/plugins/queue/failed${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** Get dead letter queue jobs */
-    getQueueDlq: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; failureCategory?: string; lastError?: string; error?: string; attemptsMade?: number; maxAttempts?: number; createdAt?: string; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/dlq${buildQuery(params)}`);
+    /** One newest-first page of dead-letter-queue jobs (limit ≤ 200). */
+    getQueueDlq: async (params: { limit: number; offset: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; failureCategory?: string; lastError?: string; error?: string; attemptsMade?: number; maxAttempts?: number; createdAt?: string; failedAt?: string }[]; pagination: QueuePagination }>>(`/api/plugins/queue/dlq${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /**

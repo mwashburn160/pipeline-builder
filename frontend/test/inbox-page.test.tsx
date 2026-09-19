@@ -14,14 +14,14 @@ import InboxPage from '../pages/dashboard/inbox';
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
-const listPipelines = jest.fn();
+const listAllPipelines = jest.fn();
 const getExecutionCount = jest.fn();
 const getExemptions = jest.fn();
 const getUnreadCount = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
-    listPipelines: (...a: unknown[]) => listPipelines(...a),
+    listAllPipelines: (...a: unknown[]) => listAllPipelines(...a),
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
     getExemptions: (...a: unknown[]) => getExemptions(...a),
     getUnreadCount: (...a: unknown[]) => getUnreadCount(...a),
@@ -44,7 +44,7 @@ describe('InboxPage', () => {
     const pipelines = deferred<unknown>();
     const exemptions = deferred<unknown>();
     const unread = deferred<unknown>();
-    listPipelines.mockReturnValue(pipelines.promise);
+    listAllPipelines.mockReturnValue(pipelines.promise);
     getExecutionCount.mockReturnValue(new Promise(() => {}));
     getExemptions.mockReturnValue(exemptions.promise);
     getUnreadCount.mockReturnValue(unread.promise);
@@ -53,12 +53,12 @@ describe('InboxPage', () => {
 
     // Nothing has resolved yet, and all three sources are already in flight.
     await waitFor(() => expect(getUnreadCount).toHaveBeenCalled());
-    expect(listPipelines).toHaveBeenCalled();
+    expect(listAllPipelines).toHaveBeenCalled();
     expect(getExemptions).toHaveBeenCalled();
   });
 
   it('shows the sources that loaded when another one fails', async () => {
-    listPipelines.mockRejectedValue(new Error('pipeline service down'));
+    listAllPipelines.mockRejectedValue(new Error('pipeline service down'));
     getExecutionCount.mockResolvedValue({ success: true, data: { pipelines: [] } });
     getExemptions.mockResolvedValue({
       success: true,
@@ -74,7 +74,7 @@ describe('InboxPage', () => {
   });
 
   it('reports an error (not "Inbox zero") when every source fails', async () => {
-    listPipelines.mockRejectedValue(new Error('down'));
+    listAllPipelines.mockRejectedValue(new Error('down'));
     getExecutionCount.mockRejectedValue(new Error('down'));
     getExemptions.mockResolvedValue({ success: false });
     getUnreadCount.mockRejectedValue(new Error('down'));
@@ -84,5 +84,39 @@ describe('InboxPage', () => {
     expect(await screen.findByText(/could not load your action items/i)).toBeInTheDocument();
     expect(screen.queryByText('Inbox zero')).not.toBeInTheDocument();
     await act(async () => {});
+  });
+
+  it('joins failures against EVERY owned pipeline (drained, ids only), not a capped page', async () => {
+    listAllPipelines.mockResolvedValue([{ id: 'p-late' }]);
+    getExecutionCount.mockResolvedValue({
+      success: true,
+      data: { pipelines: [{ id: 'p-late', pipeline_name: 'late', project: 'x', failed: 2, succeeded: 1, total: 3 }] },
+    });
+    getExemptions.mockResolvedValue({ success: true, data: { exemptions: [] } });
+    getUnreadCount.mockResolvedValue({ success: true, data: { count: 0 } });
+
+    render(<InboxPage />);
+
+    expect(await screen.findByText('late has 2 failed runs')).toBeInTheDocument();
+    expect(listAllPipelines).toHaveBeenCalledWith(['id'], { ownerId: 'me' }, expect.anything());
+  });
+
+  it('says how many pending exemptions it did not list', async () => {
+    listAllPipelines.mockResolvedValue([]);
+    getExecutionCount.mockResolvedValue({ success: true, data: { pipelines: [] } });
+    getExemptions.mockResolvedValue({
+      success: true,
+      data: {
+        exemptions: [{ id: 'ex1', entityType: 'plugin', reason: 'r' }],
+        pagination: { total: 31, limit: 20, offset: 0, hasMore: true },
+      },
+    });
+    getUnreadCount.mockResolvedValue({ success: true, data: { count: 0 } });
+
+    render(<InboxPage />);
+
+    const more = await screen.findByText('30 more exemption requests pending review');
+    expect(more.closest('a')).toHaveAttribute('href', '/dashboard/compliance?view=exemptions');
+    expect(getExemptions).toHaveBeenCalledWith({ status: 'pending', limit: 20, offset: 0 });
   });
 });

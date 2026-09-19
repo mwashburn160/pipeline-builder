@@ -7,8 +7,9 @@
  * The page that USED to live here was the static replacement for Grafana's
  * Explore audit-log surface. That functionality migrated to the DB-stored
  * `Audit Activity` dashboard (seeded under org_id='system'), and the
- * DB-stored renderer honours the URL-param filters (`?event=`, `?actor=`) that
- * deep-links such as `buildAuditLogLink` produce.
+ * DB-stored renderer honours the URL-param filters (`?event=`, `?actor=`,
+ * `?requestId=`) that deep-links such as `buildAuditLogLink` produce, and offers
+ * a filter form for them on the dashboard itself.
  *
  * Keeping this file as a shim — rather than deleting it outright — preserves
  * existing deep-links (registry-audit-link, bookmarks) without requiring the
@@ -16,13 +17,14 @@
  * per click is cheap; rewriting every helper isn't.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { api } from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -32,53 +34,45 @@ import { formatError } from '@/lib/constants';
 const TARGET_DASHBOARD_NAME = 'Audit Activity';
 
 export default function AuditActivityRedirect() {
-  // Admin-only, matching the audit-log viewer at /dashboard/audit. The Audit
-  // Activity panels read the MongoDB audit trail scoped to the caller's org (a
-  // sysadmin sees every org), and the observability API gates them `adminOnly`
-  // exactly like GET /audit — so a plain member gets the access-denied state.
-  const { accessDenied, isReady, isAuthenticated } = useAuthGuard({ requireAdmin: true });
+  // Admin-only (declared in page-access), matching the audit-log viewer at
+  // /dashboard/audit. The Audit Activity panels read the MongoDB audit trail
+  // scoped to the caller's org (a sysadmin sees every org), and the
+  // observability API gates them `adminOnly` exactly like GET /audit — so a
+  // plain member gets the access-denied state.
+  const { accessDenied, isReady, isAuthenticated } = useAuthGuard();
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const ready = isReady && isAuthenticated;
+
+  const { data: targetId, error, refetch } = useFetch(
+    async (signal) => {
+      if (!ready) return null;
+      const res = await api.listDashboards(signal);
+      const match = res.data?.dashboards.find((d) => d.name === TARGET_DASHBOARD_NAME);
+      if (!match) {
+        throw new Error(`Could not find the seeded "${TARGET_DASHBOARD_NAME}" dashboard. Has the platform service finished its cold-start seed? Check Postgres.`);
+      }
+      return match.id;
+    },
+    [ready],
+  );
 
   useEffect(() => {
-    if (!router.isReady) return;
-    if (!isReady || !isAuthenticated) return;
-    let cancelled = false;
-    // Capture query inside the effect so we don't depend on the unstable
-    // `router` object — re-renders shouldn't re-trigger the redirect.
-    const query = router.query;
-    (async () => {
-      try {
-        const res = await api.listDashboards();
-        const match = res.data?.dashboards.find((d) => d.name === TARGET_DASHBOARD_NAME);
-        if (cancelled) return;
-        if (!match) {
-          setError(`Could not find the seeded "${TARGET_DASHBOARD_NAME}" dashboard. Has the platform service finished its cold-start seed? Check Postgres.`);
-          return;
-        }
-        // Preserve every URL param except `id` (which would conflict with
-        // the dashboard route). The DB-stored renderer reads `range`,
-        // `event`, `actor` directly.
-        const { id: _ignored, ...passThrough } = query;
-        void router.replace(
-          { pathname: `/dashboard/observability/${match.id}`, query: passThrough },
-        );
-      } catch (err) {
-        if (!cancelled) {
-          setError(formatError(err));
-        }
-      }
-    })();
-    return () => { cancelled = true; };
+    if (!router.isReady || !targetId) return;
+    // Preserve every URL param except `id` (which would conflict with the
+    // dashboard route). The DB-stored renderer reads `range` and the audit
+    // filters (`event`, `actor`, `requestId`) directly.
+    const { id: _ignored, ...passThrough } = router.query;
+    void router.replace({ pathname: `/dashboard/observability/${targetId}`, query: passThrough });
+    // Capture the query at redirect time; re-renders shouldn't re-trigger it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady, isReady, isAuthenticated]);
+  }, [router.isReady, targetId]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
-  if (!isReady || !isAuthenticated) return <LoadingPage />;
+  if (!ready) return <LoadingPage />;
   if (error) {
     return (
       <DashboardLayout title="Audit Activity" subtitle="">
-        <ErrorAlert message={error} />
+        <RetryError message={formatError(error)} onRetry={refetch} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );

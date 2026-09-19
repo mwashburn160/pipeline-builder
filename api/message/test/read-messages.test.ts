@@ -122,7 +122,7 @@ describe('GET /messages/announcements', () => {
     expect(mockFindAnnouncements).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
-      undefined, // no `search` term on this request
+      {}, // no filters on this request
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -160,12 +160,12 @@ describe('GET /messages/conversations', () => {
     // Viewer is NOT passed positionally any more — per-user scoping (and the
     // viewer segment of the inbox cache key) both read the request's tenant
     // context, so the predicate and the cache key can't disagree about who is
-    // asking. The third arg is the optional free-text `search` (absent here) —
-    // never a viewer, which pins that the parameter stays gone.
+    // asking. The third arg is the optional filter set (empty here) — never a
+    // viewer, which pins that the parameter stays gone.
     expect(mockFindConversations).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
-      undefined,
+      {},
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -216,7 +216,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
     expect(mockFindConversations).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ offset: 50 }),
-      undefined,
+      {},
     );
     // Never routed through the mixed-inbox query — that is what limited a tab
     // to the pages the inbox had loaded.
@@ -229,7 +229,20 @@ describe('tab endpoints are independently filtered + paginated', () => {
 
     await announcements(mockReq(), mockRes());
 
-    expect(mockFindAnnouncements).toHaveBeenCalledWith('org-1', expect.any(Object), 'outage');
+    expect(mockFindAnnouncements).toHaveBeenCalledWith('org-1', expect.any(Object), { search: 'outage' });
+  });
+
+  it('forwards read-state, priority and channel filters to the tab query', async () => {
+    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: true, value: { isRead: false, priority: 'urgent', channel: 'support' } });
+    mockFindConversations.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+    await conversations(mockReq(), mockRes());
+
+    expect(mockFindConversations).toHaveBeenCalledWith(
+      'org-1',
+      expect.any(Object),
+      { isRead: false, priority: 'urgent', channel: 'support' },
+    );
   });
 
   it('rejects an invalid query with a 400 instead of silently ignoring it', async () => {

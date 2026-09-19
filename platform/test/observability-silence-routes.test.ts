@@ -65,20 +65,24 @@ const handler = (name: string) => Object.assign((_req: unknown, res: any) => res
 jest.unstable_mockModule('../src/controllers/alert-destinations.js', () => ({
   listAlertDestinations: handler('listAlertDestinations'),
   listAllAlertDestinations: handler('listAllAlertDestinations'),
+  listDeletedAlertDestinations: handler('listDeletedAlertDestinations'),
   createAlertDestination: handler('createAlertDestination'),
   updateAlertDestination: handler('updateAlertDestination'),
   deleteAlertDestination: handler('deleteAlertDestination'),
   restoreAlertDestination: handler('restoreAlertDestination'),
+  purgeAlertDestination: handler('purgeAlertDestination'),
   testAlertDestination: handler('testAlertDestination'),
   alertWebhook: handler('alertWebhook'),
 }));
 
 jest.unstable_mockModule('../src/controllers/alert-rules.js', () => ({
   listAlertRules: handler('listAlertRules'),
+  listDeletedAlertRules: handler('listDeletedAlertRules'),
   createAlertRule: handler('createAlertRule'),
   updateAlertRule: handler('updateAlertRule'),
   deleteAlertRule: handler('deleteAlertRule'),
   restoreAlertRule: handler('restoreAlertRule'),
+  purgeAlertRule: handler('purgeAlertRule'),
   materializeAlertRules: handler('materializeAlertRules'),
 }));
 

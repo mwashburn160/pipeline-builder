@@ -12,6 +12,11 @@ import { AskPanel } from '../src/components/ask/AskPanel';
 
 const askAgentStream = jest.fn();
 const createPipeline = jest.fn();
+const invalidatePipelines = jest.fn();
+jest.mock('@/lib/api-cache', () => ({
+  __esModule: true,
+  invalidate: { pipelines: () => invalidatePipelines() },
+}));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -109,6 +114,8 @@ describe('AskPanel', () => {
       project: 'proj', organization: 'org', pipelineName: 'lint-deploy', props, visibility: 'private',
     })));
     await waitFor(() => expect(screen.getByText(/Created/i)).toBeInTheDocument());
+    // Every cached pipeline list must re-read so the new pipeline shows up.
+    expect(invalidatePipelines).toHaveBeenCalledTimes(1);
   });
 
   it('shows the full drafted spec (config + Dockerfile) for a plugin proposal', async () => {

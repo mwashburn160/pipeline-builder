@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Render tests for the audit-log page's new affordances:
+ * Render tests for the audit-log page's affordances:
  *   - the hash-chain "Verify integrity" button is sysadmin-only
  *   - the "Denied attempts" quick-filter toggles the action filter to
  *     `authz.denied` and clears cleanly
+ *   - impersonator / target / group (and, for a sysadmin, org) filters reach
+ *     the API — from the URL, and from the ids on a row
  */
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AuditPage from '../pages/dashboard/audit';
 import { mockAuthGuard } from './helpers/pageMocks';
 
@@ -18,9 +20,10 @@ const authGuard = mockAuthGuard();
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 // The page reads router.query for deep-link hydration only.
+let routerQuery: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {} }),
+  useRouter: () => ({ isReady: true, query: routerQuery }),
 }));
 
 // DashboardLayout drags in providers — reduce it to a passthrough wrapper.
@@ -43,7 +46,11 @@ beforeEach(() => {
   });
   verifyAuditChain.mockReset();
   authGuard.isSuperAdmin = false;
+  routerQuery = {};
 });
+
+/** The filter object of the most recent list call. */
+const lastFilters = () => listAuditEvents.mock.calls[listAuditEvents.mock.calls.length - 1][0] as Record<string, unknown>;
 
 describe('AuditPage — verify integrity gating', () => {
   it('shows the Verify integrity button for a sysadmin', async () => {
@@ -96,5 +103,64 @@ describe('AuditPage — denied-attempts quick filter', () => {
     fireEvent.click(chip);
     expect(actionInput.value).toBe('');
     expect(chip).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+describe('AuditPage — identity filters', () => {
+  const event = {
+    _id: 'e1',
+    action: 'pipeline.update',
+    actorId: 'user-aaaaaaaa',
+    impersonatorId: 'op-bbbbbbbb',
+    orgId: 'org-9',
+    targetType: 'pipeline',
+    targetId: 'pl-cccccccc',
+    groupId: 'grp-dddddddd',
+    createdAt: '2026-09-01T00:00:00Z',
+  };
+
+  it('hydrates impersonator, target, group and org from the URL for a sysadmin', async () => {
+    authGuard.isSuperAdmin = true;
+    routerQuery = { impersonatorId: 'op-1', targetId: 'pl-1', groupId: 'grp-1', orgId: 'org-7' };
+    render(<AuditPage />);
+    await waitFor(() => expect(lastFilters()).toMatchObject({
+      impersonatorId: 'op-1', targetId: 'pl-1', groupId: 'grp-1', orgId: 'org-7',
+    }));
+  });
+
+  it('never sends an org filter for an org admin (the backend pins them)', async () => {
+    routerQuery = { orgId: 'org-7', impersonatorId: 'op-1' };
+    render(<AuditPage />);
+    await waitFor(() => expect(lastFilters()).toMatchObject({ impersonatorId: 'op-1' }));
+    expect(lastFilters()).not.toHaveProperty('orgId');
+  });
+
+  it('narrows the list from the ids on a row', async () => {
+    authGuard.isSuperAdmin = true;
+    listAuditEvents.mockResolvedValue({
+      success: true,
+      data: { events: [event], pagination: { total: 1, offset: 0, limit: 50, hasMore: false } },
+    });
+    render(<AuditPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'via' }));
+    await waitFor(() => expect(lastFilters()).toMatchObject({ impersonatorId: 'op-bbbbbbbb', offset: 0 }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'pipeline' }));
+    await waitFor(() => expect(lastFilters()).toMatchObject({ targetType: 'pipeline', targetId: 'pl-cccccccc' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'group' }));
+    await waitFor(() => expect(lastFilters()).toMatchObject({ groupId: 'grp-dddddddd' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'org' }));
+    await waitFor(() => expect(lastFilters()).toMatchObject({ orgId: 'org-9' }));
+  });
+
+  it('offers to clear filters from the empty state', async () => {
+    routerQuery = { groupId: 'grp-1' };
+    render(<AuditPage />);
+    expect(await screen.findByText(/no matching audit events/i)).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: /clear filters/i })[0]);
+    await waitFor(() => expect(lastFilters()).not.toHaveProperty('groupId'));
   });
 });

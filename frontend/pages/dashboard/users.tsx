@@ -4,6 +4,7 @@ import { Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
+import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -25,13 +26,29 @@ import { buildUserColumns } from '@/components/users/userColumns';
 import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
 import api from '@/lib/api';
 import { interpretImpersonationStart } from '@/lib/impersonation-start';
+import type { User } from '@/types';
+
+/** The fresh `GET /users/:id` record, in the row shape the editor works on. */
+function toListItem(u: User): UserListItem {
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    role: u.role,
+    isSuperAdmin: u.isSuperAdmin,
+    isEmailVerified: u.isEmailVerified,
+    organizationId: u.organizationId,
+    organizationName: u.organizationName,
+    createdAt: u.createdAt,
+    featureOverrides: u.featureOverrides,
+  };
+}
 
 /** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
-  // All /users routes are sysadmin-only server-side (platform/src/routes/users.ts).
-  // The previous `requireAdmin: true` let org admins reach the page and fail
-  // every API call with 403 — gate matches backend now.
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // Fleet-wide user administration is a sysadmin surface; the gate comes from
+  // the nav entry (`systemAdminOnly`) via page-access.
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
 
   const list = useListPage<UserListItem>({
     fields: [
@@ -94,6 +111,13 @@ export default function UsersPage() {
   );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
+  // The editor opens on the list row (no flash), then re-reads the user so it
+  // shows — and diffs against — their CURRENT record, not a possibly stale row.
+  const editingId = editingUser?.id ?? null;
+  const detail = useFetch(
+    async (signal) => (editingId ? (await api.getUser(editingId, { signal })).data?.user ?? null : null),
+    [editingId],
+  );
   // Delayed auto-close after a successful create/edit (so the success message is
   // readable). Tracked so it can't fire after unmount, and so a close scheduled
   // for one user's editor never closes a different user's editor opened since.
@@ -298,19 +322,31 @@ export default function UsersPage() {
     }
   }, [selectedIds, list]);
 
-  const handleEditUser = (userItem: UserListItem) => {
-    if (editCloseTimer.current) { clearTimeout(editCloseTimer.current); editCloseTimer.current = null; }
+  /** Load a user record into the editor's fields. */
+  const fillEditor = useCallback((userItem: UserListItem) => {
     setEditingUser(userItem);
     setEditUsername(userItem.username);
     setEditEmail(userItem.email);
     setEditOrgId(userItem.organizationId || '');
     setEditRole(userItem.role);
+  }, []);
+
+  const handleEditUser = (userItem: UserListItem) => {
+    if (editCloseTimer.current) { clearTimeout(editCloseTimer.current); editCloseTimer.current = null; }
+    fillEditor(userItem);
     setNewPassword('');
     editForm.reset();
     // Populate the org picker (shared with the create modal). Best-effort —
     // a failure just leaves the current org selectable via its own value.
     loadOrgOptions();
   };
+
+  // Swap the row for the fresh record once it arrives (only for the user still
+  // open — a late answer for a closed editor is dropped by the key change).
+  useEffect(() => {
+    if (detail.data && detail.data.id === editingId) fillEditor(toListItem(detail.data));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the fetched record
+  }, [detail.data]);
 
   const handleSaveUser = async () => {
     if (!editingUser) return;
@@ -364,6 +400,7 @@ export default function UsersPage() {
 
     if (result !== null) {
       list.refresh();
+      detail.refetch();
       setNewPassword('');
       const savedId = editingUser.id;
       if (editCloseTimer.current) clearTimeout(editCloseTimer.current);
@@ -624,7 +661,9 @@ export default function UsersPage() {
         onBreakglass={() => setBreakglassTarget(editingUser)}
         onSubmit={handleSaveUser}
         onClose={() => setEditingUser(null)}
-        onFeatureSaved={() => list.refresh()}
+        onFeatureSaved={() => { list.refresh(); detail.refetch(); }}
+        detailLoading={detail.loading}
+        detailError={detail.error ? formatError(detail.error, 'Could not load this user\'s latest details — showing the list row.') : null}
       />
     </DashboardLayout>
   );

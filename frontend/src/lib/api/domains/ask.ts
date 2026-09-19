@@ -38,20 +38,6 @@ export function askApi(core: ApiCore) {
     },
 
     /**
-     * Stream a grounded how-to answer (the lighter RAG endpoint, no tools). Yields a
-     * `sources` event first, then `token` events, then `done`.
-     */
-    askStream: async function* (query: string, opts: AskStreamOptions = {}) {
-      yield* core.streamRequest('/api/ask/stream', {
-        query,
-        ...(opts.provider ? { provider: opts.provider } : {}),
-        ...(opts.model ? { model: opts.model } : {}),
-        ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
-        ...(opts.history ? { history: opts.history } : {}),
-      });
-    },
-
-    /**
      * Stream a tool-calling agent turn — the assistant can answer how-to questions
      * AND draft resources (pipelines). Yields `token`, `sources`, `tool-call`, and
      * `proposal` events (a proposal is a DRAFT the user confirms; nothing is created

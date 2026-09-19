@@ -51,6 +51,13 @@ describe('plugin-helpers', () => {
       expect(result.version).toBe('1.0.0');
       expect((result as Record<string, unknown>).extra).toBe(42);
     });
+
+    it('omits the uri for a sparse-fieldset row that lacks its source columns', () => {
+      // `GET /plugins?fields=id,name` projects no orgId/version — the uri would be a lie.
+      const result = shapePlugin({ id: 'p1', name: 'foo' } as unknown as { orgId: string; name: string; version: string });
+      expect(result).not.toHaveProperty('uri');
+      expect(result.name).toBe('foo');
+    });
   });
 
   describe('createBuildJobData', () => {

@@ -6,16 +6,23 @@ import { Inbox } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Pagination } from '@/components/ui/Pagination';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { SortHeader } from './SortHeader';
 import type { DlqJob, FailedJob, SortDir, SortField } from './types';
 
-const DEFAULT_PAGE_SIZE = 10;
-
 export interface FailedJobsTableProps {
+  /** The CURRENT server page of jobs (the queue listings are paged server-side). */
   jobs: FailedJob[];
+  /** Server pagination for the listing — offset/limit the page was read with,
+   *  plus the server's total. */
+  pagination: PaginationState;
+  onPageChange: (offset: number) => void;
+  /** Omit for a fixed page size (the size picker then offers only the current one). */
+  onPageSizeChange?: (limit: number) => void;
+  /** True while a page is in flight — dims the rows instead of blanking them. */
+  loading?: boolean;
   title: string;
   showCategory?: boolean;
   /** When provided, renders a per-row action button (DLQ Replay / failed-build Retry). */
@@ -29,14 +36,20 @@ export interface FailedJobsTableProps {
   actionTitle?: string;
 }
 
-/** Sortable, searchable, paginated table of failed (or DLQ) build jobs with an optional per-row action. */
-export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle }: FailedJobsTableProps) {
+/**
+ * Server-paged table of failed (or DLQ) build jobs with an optional per-row
+ * action. The server returns one newest-first page at a time; the sort headers,
+ * plugin-name search and category chips refine THAT page only (and say so), so
+ * they never pretend to cover jobs that haven't been fetched.
+ */
+export function FailedJobsTable({
+  jobs, pagination, onPageChange, onPageSizeChange, loading, title, showCategory,
+  onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle,
+}: FailedJobsTableProps) {
   const [sortBy, setSortBy] = useState<SortField>('failedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  // Client-side triage over the already-fetched rows (≤200): plugin-name
-  // search + a failure-category quick-chip (DLQ tables only).
+  // Page-local triage: plugin-name search + a failure-category quick-chip
+  // (DLQ tables only), over the rows on screen.
   const [nameQuery, setNameQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 
@@ -47,7 +60,6 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
       setSortBy(field);
       setSortDir('desc');
     }
-    setPage(0);
   };
 
   // Distinct failure categories present in the DLQ rows, for the quick-chips.
@@ -79,12 +91,7 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
     return copy;
   }, [filtered, sortBy, sortDir]);
 
-  const paginated = useMemo(
-    () => sorted.slice(page, page + pageSize),
-    [sorted, page, pageSize],
-  );
-
-  if (jobs.length === 0) {
+  if (pagination.total === 0 && !loading) {
     return (
       <Card className="p-8 text-center">
         <Inbox className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
@@ -102,15 +109,15 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
         <SearchInput
           containerClassName="min-w-[200px]"
           value={nameQuery}
-          onChange={(v) => { setNameQuery(v); setPage(0); }}
-          placeholder="Search plugin name..."
-          aria-label="Search by plugin name"
+          onChange={setNameQuery}
+          placeholder="Filter this page by plugin..."
+          aria-label="Filter this page by plugin name"
         />
         {showCategory && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={() => { setCategoryFilter(null); setPage(0); }}
+              onClick={() => setCategoryFilter(null)}
               aria-pressed={categoryFilter === null}
               className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                 categoryFilter === null
@@ -124,7 +131,7 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
               <button
                 key={cat}
                 type="button"
-                onClick={() => { setCategoryFilter((prev) => (prev === cat ? null : cat)); setPage(0); }}
+                onClick={() => setCategoryFilter((prev) => (prev === cat ? null : cat))}
                 aria-pressed={categoryFilter === cat}
                 className={`px-3 py-1.5 text-xs font-medium rounded-full border capitalize transition-colors ${
                   categoryFilter === cat
@@ -140,7 +147,7 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
           </div>
         )}
       </div>
-      <Card className="overflow-hidden">
+      <Card className={`overflow-hidden transition-opacity ${loading ? 'opacity-60' : ''}`} aria-busy={loading || undefined}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -162,11 +169,11 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                    No jobs match your search.
+                    No jobs on this page match your filter.
                   </td>
                 </tr>
               )}
-              {paginated.map((job) => (
+              {sorted.map((job) => (
                 <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {job.id?.slice(0, 12)}
@@ -209,13 +216,13 @@ export function FailedJobsTable({ jobs, title, showCategory, onAction, actionPen
           </table>
         </div>
       </Card>
-      {filtered.length > pageSize && (
+      {pagination.total > pagination.limit && (
         <div className="mt-3">
           <Pagination
-            pagination={{ limit: pageSize, offset: page, total: filtered.length }}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => { setPageSize(size); setPage(0); }}
-            pageSizeOptions={[10, 25, 50]}
+            pagination={pagination}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange ?? (() => undefined)}
+            pageSizeOptions={onPageSizeChange ? [10, 25, 50] : [pagination.limit]}
           />
         </div>
       )}

@@ -13,10 +13,12 @@ import type { PipelineScorecard } from '../src/types';
 
 // Toggle the advanced_reporting entitlement per-test.
 let mockEnabled = true;
+let mockSuperAdmin = false;
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
   useFeatures: () => ({
     isEnabled: (f: string) => (f === 'advanced_reporting' ? mockEnabled : true),
+    isSuperAdmin: mockSuperAdmin,
     features: [],
     isLoaded: true,
     supportAlias: 'support@pipeline-builder',
@@ -49,16 +51,25 @@ const baseScorecard: PipelineScorecard = {
 
 beforeEach(() => {
   mockEnabled = true;
+  mockSuperAdmin = false;
   getPipelineScorecard.mockReset().mockResolvedValue({ success: true, data: { scorecard: baseScorecard } });
 });
 
 describe('ScorecardCard', () => {
-  it('renders nothing (null) when advanced_reporting is disabled', () => {
+  it('shows the plan lock (not a silent gap) when advanced_reporting is off', () => {
     mockEnabled = false;
-    const { container } = render(<ScorecardCard pipelineId="p1" />);
-    expect(container).toBeEmptyDOMElement();
+    render(<ScorecardCard pipelineId="p1" />);
+    expect(screen.getByTestId('feature-lock-advanced_reporting')).toBeInTheDocument();
     // Gated: the scorecard is never fetched.
     expect(getPipelineScorecard).not.toHaveBeenCalled();
+  });
+
+  it('lets a superadmin through without the entitlement (useFeatureGate bypass)', async () => {
+    mockEnabled = false;
+    mockSuperAdmin = true;
+    render(<ScorecardCard pipelineId="p1" />);
+    await waitFor(() => expect(getPipelineScorecard).toHaveBeenCalledWith('p1'));
+    expect(screen.queryByTestId('feature-lock-advanced_reporting')).not.toBeInTheDocument();
   });
 
   it('renders the graded scorecard with the grade badge styled by grade', async () => {

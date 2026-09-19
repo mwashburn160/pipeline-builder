@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Receipt, Users } from 'lucide-react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
+import { useFetch } from '@/hooks/useFetch';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
@@ -12,6 +14,8 @@ import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib
 type AllocationRow = BillingAllocation['rows'][number];
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+const INVOICE_PAGE_SIZE = 24;
 
 const STATUS_COLOR: Record<string, string> = {
   paid: 'text-green-600 dark:text-green-400',
@@ -37,10 +41,6 @@ const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [
  * invisible for brand-new accounts with no billing history yet.
  */
 export function BillingDashboard() {
-  const [summary, setSummary] = useState<BillingSummary | null>(null);
-  const [invoices, setInvoices] = useState<BillingInvoiceRow[]>([]);
-  const [allocation, setAllocation] = useState<BillingAllocation | null>(null);
-  const [loading, setLoading] = useState(true);
   // Latch: once we've seen ANY billing history, keep the section (and its range
   // picker) mounted — so a range filter that yields nothing can still be widened
   // again. Brand-new accounts with no history ever stay invisible (return null).
@@ -48,37 +48,38 @@ export function BillingDashboard() {
   // Applied historical range (ISO `yyyy-mm-dd`); empty string = unbounded on that side.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [invoicePage, setInvoicePage] = useState({ offset: 0, limit: INVOICE_PAGE_SIZE });
+  const range = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
 
-  // Monotonic token: a rapid range change (or unmount) must not let an older
-  // in-flight load's response overwrite the latest one (last-write-wins /
-  // setState-after-unmount). Only the newest request applies its results.
-  const loadGenRef = useRef(0);
-
-  const load = useCallback(async (f: string, t: string) => {
-    const gen = ++loadGenRef.current;
-    setLoading(true);
-    const range = { ...(f ? { from: f } : {}), ...(t ? { to: t } : {}) };
-    const [s, inv, alloc] = await Promise.all([
-      api.getBillingSummary(range).catch(() => null),
-      api.listBillingInvoices({ ...range, limit: 24 }).catch(() => null),
+  // Summary + cost-by-team for the range. useFetch drops a superseded range's
+  // late answer, so a rapid range change can't paint stale totals.
+  const { data: overview, loading } = useFetch(async (signal) => {
+    const [s, alloc] = await Promise.all([
+      api.getBillingSummary(range, { signal }).catch(() => null),
       // Cost-by-team showback — only meaningful for a rollup-capable admin of a
       // parent org with teams; 400s / single-org silently yield nothing.
-      api.getBillingAllocation({ ...range, includeDescendants: true }).catch(() => null),
+      api.getBillingAllocation({ ...range, includeDescendants: true }, { signal }).catch(() => null),
     ]);
-    if (loadGenRef.current !== gen) return; // superseded by a newer range / unmounted
-    setSummary(s?.data ?? null);
-    setInvoices(inv?.data?.invoices ?? []);
-    setAllocation(alloc?.data ?? null);
-    if ((s?.data?.invoiceCount ?? 0) > 0) setHasHistory(true);
-    setLoading(false);
-  }, []);
+    return { summary: s?.data ?? null, allocation: alloc?.data ?? null };
+  }, [from, to]);
+  const summary: BillingSummary | null = overview?.summary ?? null;
+  const allocation: BillingAllocation | null = overview?.allocation ?? null;
+
+  // Invoices page through the server (the range can hold years of periods).
+  const { data: invoicePageData } = useFetch(async (signal) => {
+    const res = await api.listBillingInvoices({ ...range, ...invoicePage }, { signal }).catch(() => null);
+    return { invoices: res?.data?.invoices ?? [], total: res?.data?.pagination?.total ?? 0 };
+  }, [from, to, invoicePage.offset, invoicePage.limit]);
+  const invoices: BillingInvoiceRow[] = invoicePageData?.invoices ?? [];
+  const invoiceTotal = invoicePageData?.total ?? 0;
 
   useEffect(() => {
-    void load(from, to);
-    // Invalidate any in-flight load on range change / unmount so its late
-    // response is ignored.
-    return () => { loadGenRef.current++; };
-  }, [load, from, to]);
+    if ((summary?.invoiceCount ?? 0) > 0) setHasHistory(true);
+  }, [summary]);
+  // A new range starts the invoice table from its first page.
+  useEffect(() => {
+    setInvoicePage((p) => (p.offset === 0 ? p : { ...p, offset: 0 }));
+  }, [from, to]);
 
   // Hide entirely until this account has had billing history at least once.
   if (!hasHistory && (loading || !summary || summary.invoiceCount === 0)) return null;
@@ -190,6 +191,14 @@ export function BillingDashboard() {
           getRowKey={(r) => `${r.periodStart}|${r.periodEnd}|${r.status}`}
           emptyState={{ icon: Receipt, title: 'No invoices', description: 'No invoices in the selected range.' }}
         />
+        {invoiceTotal > invoicePage.limit && (
+          <Pagination
+            pagination={{ ...invoicePage, total: invoiceTotal }}
+            onPageChange={(offset) => setInvoicePage((p) => ({ ...p, offset }))}
+            onPageSizeChange={(limit) => setInvoicePage({ offset: 0, limit })}
+            pageSizeOptions={[12, 24, 48, 96]}
+          />
+        )}
       </Card>
 
       {allocation && allocation.rows.length > 1 && (

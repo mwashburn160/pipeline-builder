@@ -13,12 +13,15 @@ import ComplianceContentSets from '../src/components/compliance/ComplianceConten
 
 // Per-test toggle for which compliance feature flags the org holds.
 let mockEnabled = new Set<string>();
+let mockSuperAdmin = false;
+let mockLoaded = true;
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
   useFeatures: () => ({
     isEnabled: (f: string) => mockEnabled.has(f),
     features: [...mockEnabled],
-    isLoaded: true,
+    isLoaded: mockLoaded,
+    isSuperAdmin: mockSuperAdmin,
     supportAlias: 'support@pipeline-builder',
     supportAliases: ['support@pipeline-builder'],
   }),
@@ -34,7 +37,7 @@ jest.mock('next/link', () => ({
 
 const hrefOf = (name: RegExp) => (screen.getByRole('link', { name }) as HTMLAnchorElement).getAttribute('href');
 
-beforeEach(() => { mockEnabled = new Set(); });
+beforeEach(() => { mockEnabled = new Set(); mockSuperAdmin = false; mockLoaded = true; });
 
 describe('ComplianceContentSets', () => {
   it('shows an upsell for BOTH sets when the org holds neither, routing Advanced to Standard first', () => {
@@ -66,5 +69,18 @@ describe('ComplianceContentSets', () => {
     render(<ComplianceContentSets />);
     expect(screen.getAllByText('Included')).toHaveLength(2);
     expect(screen.queryByRole('link', { name: /unlock/i })).not.toBeInTheDocument();
+  });
+
+  it('treats a superadmin as entitled to both sets (no upsell for the operator)', () => {
+    mockSuperAdmin = true;
+    render(<ComplianceContentSets />);
+    expect(screen.getAllByText('Included')).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: /unlock/i })).not.toBeInTheDocument();
+  });
+
+  it('renders nothing until the entitlements have loaded (no flash of the lock)', () => {
+    mockLoaded = false;
+    const { container } = render(<ComplianceContentSets />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

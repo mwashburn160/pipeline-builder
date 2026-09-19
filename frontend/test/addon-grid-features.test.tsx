@@ -333,3 +333,48 @@ describe('AddonGrid — combo "pair to save" nudge', () => {
     expect(screen.queryByText(/Completes the Small/i)).not.toBeInTheDocument();
   });
 });
+
+describe('AddonGrid — unmet prerequisites', () => {
+  const historyPack = {
+    id: 'dora_history_pack',
+    name: 'DORA History Pack (+365d)',
+    description: '365 additional days of DORA history',
+    grants: { doraRetentionDays: 365 },
+    prices: { monthly: 3000, annual: 30000 },
+    stackable: true,
+    maxQuantity: 1,
+    availableForTiers: [],
+    requiresFeatures: ['advanced_reporting'],
+    unmetRequirement: {
+      bundleIds: [],
+      features: ['advanced_reporting'],
+      message: "DORA History Pack (+365d) requires Advanced Reporting, which your plan doesn't include yet",
+    },
+  } as unknown as Bundle;
+
+  it('disables the add, says why, and links to the add-on that provides the feature', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[doraBundle, historyPack]} />);
+    const card = screen.getByTestId('addon-blocked-dora_history_pack');
+    expect(card).toHaveTextContent(/requires Advanced Reporting/);
+    // No quantity entry is offered for the blocked pack.
+    expect(screen.queryByRole('spinbutton', { name: /DORA History Packs/i })).not.toBeInTheDocument();
+    const add = card.querySelector('button')!;
+    expect(add).toBeDisabled();
+    fireEvent.click(add);
+    expect(requestAddonChange).not.toHaveBeenCalled();
+    const link = screen.getByRole('link', { name: /Add Advanced Reporting \(DORA\) first/ });
+    expect(link.getAttribute('href')).toContain('highlight=bundle-dora');
+  });
+
+  it('points at the Plans tab when nothing on sale provides the prerequisite', () => {
+    render(<AddonGrid {...baseProps} bundles={[historyPack]} />);
+    const link = screen.getByRole('link', { name: /Upgrade your plan/ });
+    expect(link.getAttribute('href')).toContain('tab=plans');
+  });
+
+  it('keeps a HELD pack manageable even if its prerequisite is unmet (so it can be removed)', () => {
+    render(<AddonGrid {...baseProps} bundles={[historyPack]} addonQty={() => 1} />);
+    expect(screen.queryByTestId('addon-blocked-dora_history_pack')).not.toBeInTheDocument();
+  });
+});

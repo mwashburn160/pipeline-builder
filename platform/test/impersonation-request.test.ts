@@ -330,10 +330,23 @@ describe('decide — break-glass', () => {
 
 
 describe('listForCaller — visibility mirrors decide/revoke authorization', () => {
-  /** find(filter).sort().limit().select().lean() → rows; records select arg. */
+  /** find(filter).sort().skip().limit().select().lean() → rows; records the
+   *  select, skip and limit args. */
   let selected: unknown;
+  let skipped: unknown;
+  let limited: unknown;
   const rows = (docs: unknown[]) => mockFind.mockReturnValue({
-    sort: () => ({ limit: () => ({ select: (sel: unknown) => { selected = sel; return { lean: () => Promise.resolve(docs) }; } }) }),
+    sort: () => ({
+      skip: (n: unknown) => {
+        skipped = n;
+        return {
+          limit: (l: unknown) => {
+            limited = l;
+            return { select: (sel: unknown) => { selected = sel; return { lean: () => Promise.resolve(docs) }; } };
+          },
+        };
+      },
+    }),
   });
   const filterOf = () => mockFind.mock.calls[0]![0] as any;
   const caller = (over: Partial<{ userId: string; isSysadmin: boolean; adminOrgIds: string[] }> = {}) =>
@@ -341,6 +354,8 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
 
   beforeEach(() => {
     selected = undefined;
+    skipped = undefined;
+    limited = undefined;
     rows([]);
     mockUserFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
   });
@@ -405,6 +420,29 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
     expect(filterOf()).toEqual({ requesterId: 'me' });
   });
 
+  it('pages newest-first with a default page size, and counts the whole view', async () => {
+    mockCountDocuments.mockResolvedValue(57);
+
+    const page = await impersonationService.listForCaller(caller(), 'mine');
+
+    expect(skipped).toBe(0);
+    expect(limited).toBe(20);
+    expect(page).toMatchObject({ total: 57, limit: 20, offset: 0 });
+    // The count runs against the SAME filter as the page — never a wider one.
+    expect(mockCountDocuments).toHaveBeenCalledWith(filterOf());
+  });
+
+  it('honours limit/offset and clamps an oversized or negative page', async () => {
+    await impersonationService.listForCaller(caller(), 'mine', { limit: 10, offset: 30 });
+    expect(skipped).toBe(30);
+    expect(limited).toBe(10);
+
+    const page = await impersonationService.listForCaller(caller(), 'mine', { limit: 5000, offset: -4 });
+    expect(skipped).toBe(0);
+    expect(limited).toBe(100);
+    expect(page).toMatchObject({ limit: 100, offset: 0 });
+  });
+
   it('never returns the session token id', async () => {
     await impersonationService.listForCaller(caller(), 'mine');
     expect(selected).toBe('-jti');
@@ -420,7 +458,7 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
       }),
     });
 
-    const [row] = await impersonationService.listForCaller(caller(), 'mine');
+    const { requests: [row] } = await impersonationService.listForCaller(caller(), 'mine');
 
     expect(row!.requester.name).toBe('op-jane');
     expect(row!.target.name).toBe('u@x.com'); // falls back to email
@@ -491,23 +529,25 @@ describe('listForCaller — reports lapsed requests as expired immediately', () 
   it('maps a lapsed pending row to expired before the reaper runs', async () => {
     mockFind.mockReturnValue({
       sort: () => ({
-        limit: () => ({
-          select: () => ({
-            lean: () => Promise.resolve([{
-              _id: 'r1',
-              status: 'pending',
-              requesterId: 'me',
-              targetUserId: 'u',
-              createdAt: new Date(Date.now() - 2 * 3600_000),
-              expiresAt: new Date(Date.now() - 3600_000),
-            }]),
+        skip: () => ({
+          limit: () => ({
+            select: () => ({
+              lean: () => Promise.resolve([{
+                _id: 'r1',
+                status: 'pending',
+                requesterId: 'me',
+                targetUserId: 'u',
+                createdAt: new Date(Date.now() - 2 * 3600_000),
+                expiresAt: new Date(Date.now() - 3600_000),
+              }]),
+            }),
           }),
         }),
       }),
     });
     mockUserFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
 
-    const [row] = await impersonationService.listForCaller({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'mine');
+    const { requests: [row] } = await impersonationService.listForCaller({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'mine');
     expect(row!.status).toBe('expired');
   });
 });

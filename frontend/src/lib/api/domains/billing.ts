@@ -170,8 +170,8 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Add-on bundle catalog for the active account, filtered to its tier. */
-    getBundles: async () => {
-      return core.request<ApiResponse<{ bundles: Bundle[]; selfService: boolean; comboDiscounts?: ComboDiscount[] }>>('/api/billing/bundles');
+    getBundles: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ bundles: Bundle[]; selfService: boolean; comboDiscounts?: ComboDiscount[] }>>('/api/billing/bundles', { signal: opts?.signal });
     },
 
     /** Dry-run: effective limits + itemized price for a proposed add-on change. */
@@ -204,41 +204,41 @@ export function billingApi(core: ApiCore) {
     },
 
     /** List billing events (admin only) — fleet-wide, optionally filtered by `orgId`. */
-    listBillingEvents: async (params?: { orgId?: string; limit?: number; offset?: number }) => {
-      return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
+    listBillingEvents: async (params?: { orgId?: string; limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** The caller's OWN billing events (`billing:read`) — credit applied/consumed/
      *  exhausted, discounts, combos. Scoped to the active org (no `orgId` param). */
-    listOwnBillingEvents: async (params?: { limit?: number; offset?: number }) => {
-      return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/events${buildQuery(params)}`);
+    listOwnBillingEvents: async (params?: { limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/events${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** F-3.5 cost+usage rollup for the active org. Optional `periodStart`/`periodEnd`
      *  (ISO) reframe the DISPLAYED period window + day math; the usage bars stay the
      *  live current-period snapshot (the quota service tracks only the current period). */
-    getBillingUsage: async (params?: { periodStart?: string; periodEnd?: string }) => {
-      return core.request<ApiResponse<UsageRollup>>(`/api/billing/usage${buildQuery(params)}`);
+    getBillingUsage: async (params?: { periodStart?: string; periodEnd?: string }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<UsageRollup>>(`/api/billing/usage${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Dashboard summary — account totals (gross → discounts/credits → net) + per-period timeline. */
-    getBillingSummary: async (params?: { from?: string; to?: string }) => {
-      return core.request<ApiResponse<BillingSummary>>(`/api/billing/summary${buildQuery(params)}`);
+    getBillingSummary: async (params?: { from?: string; to?: string }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<BillingSummary>>(`/api/billing/summary${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Paginated invoice rows for the dashboard table. */
-    listBillingInvoices: async (params?: { from?: string; to?: string; limit?: number; offset?: number }) => {
-      return core.request<ApiResponse<{ invoices: BillingInvoiceRow[]; pagination: { total: number; limit: number; offset: number } }>>(`/api/billing/invoices${buildQuery(params)}`);
+    listBillingInvoices: async (params?: { from?: string; to?: string; limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ invoices: BillingInvoiceRow[]; pagination: { total: number; limit: number; offset: number } }>>(`/api/billing/invoices${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Cost-by-team showback — apportion the account's billed actuals across its subtree. */
-    getBillingAllocation: async (params?: { from?: string; to?: string; driver?: string; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<BillingAllocation>>(`/api/billing/summary/allocation${buildQuery(params)}`);
+    getBillingAllocation: async (params?: { from?: string; to?: string; driver?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<BillingAllocation>>(`/api/billing/summary/allocation${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Per-team current usage across all quota dimensions (feature-gated: team_usage_analytics). */
-    getTeamUsage: async (params?: { includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ teams: TeamUsageRow[] }>>(`/api/billing/summary/usage-by-team${buildQuery(params)}`);
+    getTeamUsage: async (params?: { includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ teams: TeamUsageRow[] }>>(`/api/billing/summary/usage-by-team${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     // ============================================
@@ -275,6 +275,11 @@ export function billingApi(core: ApiCore) {
     /** List discount records (filtered + paginated). Never returns a token. */
     listDiscounts: async (params?: { campaign?: string; targetOrgId?: string; active?: 'true' | 'false'; limit?: number; offset?: number }) => {
       return core.request<ApiResponse<{ discounts: Discount[]; pagination: { total: number; limit: number; offset: number } }>>(`/api/billing/admin/discounts${buildQuery(params)}`);
+    },
+
+    /** Inspect one discount record (never returns a token). */
+    getDiscount: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}`, { signal: opts?.signal });
     },
 
     /** Mint a discount record from the authoring form. */
@@ -328,6 +333,11 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ promotions: Promotion[]; total: number }>>(`/api/billing/admin/promotions${buildQuery(params)}`);
     },
 
+    /** Inspect one promotion campaign. */
+    getPromotion: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}`, { signal: opts?.signal });
+    },
+
     /** Mint a promotion campaign. */
     createPromotion: async (body: PromotionInput) => {
       return core.request<ApiResponse<{ promotion: Promotion }>>('/api/billing/admin/promotions', {
@@ -336,7 +346,13 @@ export function billingApi(core: ApiCore) {
       });
     },
 
-    /** Edit / activate / revoke a promotion. */
+    /** Revoke a promotion (stops future grants; already-granted credit stays).
+     *  The dedicated route, so the write is audited as `billing.promotion.revoke`. */
+    revokePromotion: async (id: string) => {
+      return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
+    /** Edit / (re)activate a promotion. Revoke goes through {@link revokePromotion}. */
     updatePromotion: async (id: string, body: Partial<{ name: string; isActive: boolean; endsAt: string; budgetCents: number; maxGrants: number }>) => {
       return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${id}`, {
         method: 'PUT',
@@ -385,8 +401,8 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Cross-account finance aggregate (totals + per-org impact). `orgId` narrows to one account. */
-    getAdminBillingSummary: async (params?: { from?: string; to?: string; orgId?: string }) => {
-      return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`);
+    getAdminBillingSummary: async (params?: { from?: string; to?: string; orgId?: string }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** One-off: seed the ledger from the provider's historical invoices (idempotent). */

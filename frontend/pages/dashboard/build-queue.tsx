@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, Inbox, AlertTriangle } from 'lucide-react';
@@ -6,6 +6,8 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { usePolling } from '@/hooks/usePolling';
+import { useFetch } from '@/hooks/useFetch';
+import { useServerPagination } from '@/hooks/useServerPagination';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
@@ -14,7 +16,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
@@ -23,8 +25,24 @@ import api from '@/lib/api';
 import { formatTime } from '@/lib/format';
 import { FailedJobsTable } from '@/components/build-queue/FailedJobsTable';
 import type { DlqJob, FailedJob } from '@/components/build-queue/types';
+import type { QueuePagination } from '@/lib/api/domains/plugins';
 
 const POLL_INTERVAL = 10_000;
+
+/** Rows per server page in the failed-build and DLQ tables. */
+const JOBS_PAGE_SIZE = 25;
+
+/**
+ * Normalize a queue page for `useServerPagination`. The server's `total` is
+ * exact for system admins (this page's audience); if it is ever absent, fall
+ * back to "what we've seen, plus one more page when the server says there is
+ * one" so the pager still offers Next.
+ */
+function toServerPage<T>(jobs: T[] | undefined, p: QueuePagination | undefined, offset: number, limit: number) {
+  const items = jobs ?? [];
+  const total = p?.total ?? offset + items.length + (p?.hasMore ? 1 : 0);
+  return { items, pagination: { offset: p?.offset ?? offset, limit: p?.limit ?? limit, total } };
+}
 
 interface TierRow { tier: string; waiting: number; active: number; completed: number; failed: number; delayed: number }
 
@@ -81,11 +99,9 @@ function queueHealth(status: QueueStatus | null): { label: string; color: string
 // ---------------------------------------------------------------------------
 
 export default function BuildQueuePage() {
-  const { accessDenied, user, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // Sysadmin-only — declared once in page-access.ts (the nav entry's gate).
+  const { accessDenied, user, isReady, isSuperAdmin } = useAuthGuard();
   const toast = useToast();
-  const [status, setStatus] = useState<QueueStatus | null>(null);
-  const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
-  const [dlqJobs, setDlqJobs] = useState<DlqJob[]>([]);
   const [showFailed, setShowFailed] = useState(false);
   // When every tier is idle the per-tier table is a wall of zeros; collapse it
   // to one line, with an opt-in expand.
@@ -100,50 +116,39 @@ export default function BuildQueuePage() {
   const [replayTarget, setReplayTarget] = useState<string | null>(null);
   const [retryTarget, setRetryTarget] = useState<string | null>(null);
   const [pendingPurge, setPendingPurge] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const mountedRef = useRef(true);
 
-  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
+  const enabled = isReady && !!user;
+  const statusQ = useFetch<QueueStatus | null>(
+    async () => (enabled ? (await api.getQueueStatus()).data ?? null : null),
+    [enabled],
+  );
+  const status = statusQ.data;
+  const fetchStatus = statusQ.refetch;
+  useEffect(() => { if (status) setLastUpdated(new Date()); }, [status]);
 
-  const fetchStatus = useCallback(async () => {
-    if (!mountedRef.current) return;
-    try {
-      const res = await api.getQueueStatus();
-      if (!mountedRef.current) return;
-      if (res.data) {
-        setStatus(res.data);
-        setLastUpdated(new Date());
-        setError(null);
-      }
-    } catch (err) {
-      if (mountedRef.current) setError(formatError(err, 'Failed to fetch queue status'));
-    }
-  }, []);
-
-  const fetchFailed = useCallback(async () => {
-    if (!mountedRef.current) return;
-    try {
-      const res = await api.getQueueFailed();
-      if (!mountedRef.current) return;
-      setFailedJobs(res.data?.jobs || []);
-      setShowFailed(true);
-    } catch (err) {
-      if (mountedRef.current) setError(formatError(err, 'Failed to fetch failed jobs'));
-    }
-  }, []);
-
-  const fetchDlq = useCallback(async () => {
-    if (!mountedRef.current) return;
-    try {
-      const res = await api.getQueueDlq();
-      if (!mountedRef.current) return;
-      setDlqJobs(res.data?.jobs || []);
-      setShowDlq(true);
-    } catch (err) {
-      if (mountedRef.current) setError(formatError(err, 'Failed to fetch DLQ jobs'));
-    }
-  }, []);
+  // The two job tables are server-paged and only read once the operator opens
+  // them (`visible` is part of the filter key, so opening resets to page 1).
+  const failed = useServerPagination<FailedJob, { visible: boolean }>(
+    async ({ offset, limit, filters, signal }) => {
+      if (!filters.visible) return toServerPage<FailedJob>([], undefined, 0, limit);
+      const res = await api.getQueueFailed({ offset, limit }, { signal });
+      return toServerPage(res.data?.jobs, res.data?.pagination, offset, limit);
+    },
+    { visible: showFailed },
+    JOBS_PAGE_SIZE,
+  );
+  const dlq = useServerPagination<DlqJob, { visible: boolean }>(
+    async ({ offset, limit, filters, signal }) => {
+      if (!filters.visible) return toServerPage<DlqJob>([], undefined, 0, limit);
+      const res = await api.getQueueDlq({ offset, limit }, { signal });
+      return toServerPage(res.data?.jobs, res.data?.pagination, offset, limit);
+    },
+    { visible: showDlq },
+    JOBS_PAGE_SIZE,
+  );
+  const { refetch: refetchFailed } = failed;
+  const { refetch: refetchDlq } = dlq;
 
   // Re-enqueue a single DLQ job onto the main build queue, then refetch the
   // DLQ list so the replayed row drops out. Mirrors the triage page's replay.
@@ -153,19 +158,17 @@ export default function BuildQueuePage() {
       const res = await api.replayDlqJob(jobId);
       const newJobId = res.data?.newJobId ?? '?';
       toast.success(`Re-enqueued as job ${newJobId}`);
-      await fetchDlq();
+      refetchDlq();
     } catch (err) {
       toast.error(formatError(err, 'Failed to replay DLQ job'));
     } finally {
-      if (mountedRef.current) {
-        setReplayingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(jobId);
-          return next;
-        });
-      }
+      setReplayingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
     }
-  }, [toast, fetchDlq]);
+  }, [toast, refetchDlq]);
 
   // Re-enqueue a single failed build onto the main build queue, then refetch
   // the failed list + aggregate status so the retried row drops out. Mirrors
@@ -176,19 +179,18 @@ export default function BuildQueuePage() {
       const res = await api.retryFailedJob(jobId);
       const newJobId = res.data?.newJobId ?? '?';
       toast.success(`Re-enqueued as job ${newJobId}`);
-      await Promise.all([fetchFailed(), fetchStatus()]);
+      refetchFailed();
+      fetchStatus();
     } catch (err) {
       toast.error(formatError(err, 'Failed to retry build'));
     } finally {
-      if (mountedRef.current) {
-        setRetryingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(jobId);
-          return next;
-        });
-      }
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
     }
-  }, [toast, fetchFailed, fetchStatus]);
+  }, [toast, refetchFailed, fetchStatus]);
 
   // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
   // confirm, then refresh the aggregate status + (if open) the DLQ list.
@@ -197,18 +199,18 @@ export default function BuildQueuePage() {
     try {
       await api.purgeDlq();
       toast.success('Dead-letter queue purged');
-      setDlqJobs([]);
-      await fetchStatus();
+      refetchDlq();
+      fetchStatus();
     } catch (err) {
       toast.error(formatError(err, 'Failed to purge DLQ'));
     } finally {
-      if (mountedRef.current) setPurging(false);
+      setPurging(false);
     }
-  }, [toast, fetchStatus]);
+  }, [toast, fetchStatus, refetchDlq]);
 
   // Poll the aggregate status while the tab is visible (usePolling pauses when
-  // hidden and refreshes on return).
-  usePolling(fetchStatus, POLL_INTERVAL, { enabled: isReady && !!user });
+  // hidden and refreshes on return). The first read is useFetch's own.
+  usePolling(fetchStatus, POLL_INTERVAL, { enabled, immediate: false });
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -242,7 +244,9 @@ export default function BuildQueuePage() {
       }
     >
       <BuildsTabs active="queue" />
-      <ErrorAlert message={error} className="mb-6" />
+      {statusQ.error && (
+        <RetryError message={formatError(statusQ.error, 'Failed to fetch queue status')} onRetry={fetchStatus} className="mb-6" />
+      )}
 
       {/* Health indicator */}
       <motion.div
@@ -334,14 +338,20 @@ export default function BuildQueuePage() {
               </span>
             </h2>
             {!showFailed && (
-              <Button onClick={fetchFailed} variant="secondary" size="sm">
+              <Button onClick={() => setShowFailed(true)} variant="secondary" size="sm">
                 View Failed Jobs
               </Button>
             )}
           </div>
+          {failed.error && (
+            <RetryError message={formatError(failed.error, 'Failed to fetch failed jobs')} onRetry={refetchFailed} className="mb-4" />
+          )}
           {showFailed && (
             <FailedJobsTable
-              jobs={failedJobs}
+              jobs={failed.items}
+              pagination={failed.pagination}
+              onPageChange={failed.setOffset}
+              loading={failed.loading}
               title="failed jobs"
               onAction={(id) => setRetryTarget(id)}
               actionPendingIds={retryingIds}
@@ -371,7 +381,7 @@ export default function BuildQueuePage() {
             </h2>
             <div className="flex items-center gap-2">
               {!showDlq && (
-                <Button onClick={fetchDlq} variant="secondary" size="sm">
+                <Button onClick={() => setShowDlq(true)} variant="secondary" size="sm">
                   View DLQ Jobs
                 </Button>
               )}
@@ -382,9 +392,15 @@ export default function BuildQueuePage() {
               )}
             </div>
           </div>
+          {dlq.error && (
+            <RetryError message={formatError(dlq.error, 'Failed to fetch DLQ jobs')} onRetry={refetchDlq} className="mb-4" />
+          )}
           {showDlq && (
             <FailedJobsTable
-              jobs={dlqJobs}
+              jobs={dlq.items}
+              pagination={dlq.pagination}
+              onPageChange={dlq.setOffset}
+              loading={dlq.loading}
               title="DLQ jobs"
               showCategory
               onAction={(id) => setReplayTarget(id)}

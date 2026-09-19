@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { CreditCard, Pencil, DatabaseZap, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -20,6 +20,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
+import { useQuery } from '@/hooks/useQuery';
+import { useFetch } from '@/hooks/useFetch';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -28,7 +31,6 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatCents } from '@/lib/format';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
 import { ApiError } from '@/lib/api/errors';
 import type { AdminBillingSummary, AdminSubscriptionUpdate } from '@/lib/api/domains/billing';
 import type { Plan, Subscription, SubscriptionStatus, BillingInterval } from '@/types';
@@ -69,7 +71,8 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
  * fall back to a "not enabled" empty state rather than an error banner.
  */
 export default function BillingAdminPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // System-admin gate comes from the "Billing Admin" nav entry (page-access.ts).
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   const toast = useToast();
 
   const [notEnabled, setNotEnabled] = useState(false);
@@ -105,50 +108,42 @@ export default function BillingAdminPage() {
   });
 
   // ── Plans (for the edit modal's plan picker) ────────────
-  const [plans, setPlans] = useState<Plan[]>([]);
-  useEffect(() => {
-    if (!isAuthenticated || !isSuperAdmin) return;
-    runQuery(queries.plans())
-      .then((res) => { if (res.success && res.data?.plans) setPlans(res.data.plans); })
-      .catch(() => { /* plan picker just falls back to a free-text-less select */ });
-  }, [isAuthenticated, isSuperAdmin]);
+  // Shared, cached catalog. A failure just leaves the picker on the current plan.
+  const plansQ = useQuery(isAuthenticated && isSuperAdmin ? queries.plans() : null);
+  const plans: Plan[] = plansQ.data?.data?.plans ?? [];
 
   // ── Platform finance summary ────────────────────────────
-  const [summary, setSummary] = useState<AdminBillingSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  // Distinguishes a summary LOAD FAILURE from a genuinely empty window (a 500 must
-  // not read as "No billing ledger data"). A 404 stays soft (billing disabled).
-  const [summaryError, setSummaryError] = useState<string | null>(null);
+  // `from`/`to` are the inputs; `range` is what Apply committed, so typing a date
+  // doesn't refetch on every keystroke.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-
-  const loadSummary = useCallback(async () => {
-    setSummaryLoading(true);
-    setSummaryError(null);
+  const [range, setRange] = useState({ from: '', to: '' });
+  const summaryQ = useFetch(async (signal): Promise<AdminBillingSummary | null> => {
+    if (!isAuthenticated || !isSuperAdmin) return null;
     try {
       const res = await api.getAdminBillingSummary({
-        ...(from.trim() && { from: new Date(from.trim()).toISOString() }),
-        ...(to.trim() && { to: new Date(to.trim()).toISOString() }),
-      });
-      if (res.success && res.data) setSummary(res.data);
+        ...(range.from && { from: new Date(range.from).toISOString() }),
+        ...(range.to && { to: new Date(range.to).toISOString() }),
+      }, { signal });
+      return res.data ?? null;
     } catch (err) {
       // A 404 means billing isn't enabled — stay soft (the subscriptions table is
-      // the primary surface). Any other error is a real load failure: surface it as
-      // a retryable error rather than a misleading empty state.
-      if (!(err instanceof ApiError && err.statusCode === 404)) {
-        setSummaryError(formatError(err, 'Failed to load billing summary'));
-      }
-      setSummary(null);
-    } finally {
-      setSummaryLoading(false);
+      // the primary surface). Any other error is a real load failure: surface it
+      // as a retryable error rather than a misleading empty state.
+      if (err instanceof ApiError && err.statusCode === 404) return null;
+      throw err;
     }
-  }, [from, to]);
-
-  useEffect(() => {
-    if (isAuthenticated && isSuperAdmin) void loadSummary();
-    // Initial load only; the range Apply button re-fetches explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, isSuperAdmin]);
+  }, [isAuthenticated, isSuperAdmin, range.from, range.to]);
+  const summary = summaryQ.data;
+  const summaryLoading = summaryQ.loading;
+  const summaryError = summaryQ.error ? formatError(summaryQ.error, 'Failed to load billing summary') : null;
+  const applyRange = () => {
+    const next = { from: from.trim(), to: to.trim() };
+    // Re-applying the same range is an explicit refresh.
+    if (next.from === range.from && next.to === range.to) summaryQ.refetch();
+    else setRange(next);
+  };
+  const loadSummary = summaryQ.refetch;
 
   // ── Edit subscription ───────────────────────────────────
   const [editSub, setEditSub] = useState<Subscription | null>(null);
@@ -189,7 +184,7 @@ export default function BillingAdminPage() {
     if (result !== null) {
       setEditSub(null);
       list.refresh();
-      void loadSummary();
+      loadSummary();
       toast.success('Subscription updated');
     }
   };
@@ -208,7 +203,7 @@ export default function BillingAdminPage() {
       if (!res.success) throw new Error(res.message || 'Purge failed');
       toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
       list.refresh();
-      void loadSummary();
+      loadSummary();
     } catch (err) {
       list.setError(formatError(err, 'Failed to purge org subscription'));
     }
@@ -225,7 +220,7 @@ export default function BillingAdminPage() {
       const r = res.data;
       toast.success(`Backfill complete — ${r?.ingested ?? 0} invoices across ${r?.accounts ?? 0} accounts (${r?.errors ?? 0} errors)`);
       setBackfillOpen(false);
-      void loadSummary();
+      loadSummary();
     } catch (err) {
       toast.error(formatError(err, 'Backfill failed'));
     } finally {
@@ -310,7 +305,7 @@ export default function BillingAdminPage() {
       }
     >
       <BillingAdminTabs active="admin" />
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (
         <Card className="flex flex-col items-center text-center py-14">
@@ -337,7 +332,7 @@ export default function BillingAdminPage() {
                   <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400">To</label>
                   <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm" />
                 </div>
-                <Button variant="secondary" onClick={loadSummary} loading={summaryLoading}>
+                <Button variant="secondary" onClick={applyRange} loading={summaryLoading}>
                   <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Apply
                 </Button>
               </div>
@@ -370,10 +365,7 @@ export default function BillingAdminPage() {
                 )}
               </>
             ) : summaryError ? (
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-                <span>{summaryError}</span>
-                <button type="button" onClick={() => void loadSummary()} className="underline hover:no-underline">Retry</button>
-              </div>
+              <RetryError className="mt-4" message={summaryError} onRetry={loadSummary} />
             ) : (
               <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
                 {summaryLoading ? 'Loading summary…' : 'No billing ledger data for this window.'}

@@ -6,8 +6,9 @@
 import Link from 'next/link';
 import { ShieldCheck, Lock, BookOpen } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import { useFeatures } from '@/hooks/useFeatures';
+import { useFeatureGate, type FeatureGateState } from '@/hooks/useFeatureGate';
 import { FEATURE_METADATA, type ComplianceSetFlag } from '@/lib/feature-flags';
+import { featureUpsellHref } from '@/lib/feature-gates';
 
 /**
  * Curated compliance content sets, gated on the `compliance_standard` /
@@ -120,7 +121,7 @@ function LockedCard({ set, standardHeld }: { set: ContentSet; standardHeld: bool
       </ul>
       {note && <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{note}</p>}
       <Link
-        href={`/dashboard/billing?highlight=${highlight}`}
+        href={featureUpsellHref(highlight)}
         className="btn btn-primary btn-sm mt-4 self-start"
       >
         Unlock {meta.label}
@@ -130,8 +131,16 @@ function LockedCard({ set, standardHeld }: { set: ContentSet; standardHeld: bool
 }
 
 export default function ComplianceContentSets() {
-  const { isEnabled } = useFeatures();
-  const standardHeld = isEnabled('compliance_standard');
+  // Both gates up front (hooks can't run per card). `useFeatureGate` carries the
+  // superadmin bypass, so an operator sees both sets as included.
+  const gates: Record<ComplianceSetFlag, FeatureGateState> = {
+    compliance_standard: useFeatureGate('compliance_standard'),
+    compliance_advanced: useFeatureGate('compliance_advanced'),
+  };
+  // Neither "included" nor an upsell until /config + the profile resolve, so an
+  // entitled org never sees a flash of the lock.
+  if (!gates.compliance_standard.isLoaded) return null;
+  const standardHeld = gates.compliance_standard.entitled;
   return (
     <section aria-label="Curated compliance content sets" className="space-y-3">
       <div>
@@ -142,7 +151,7 @@ export default function ComplianceContentSets() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {CONTENT_SETS.map((set) =>
-          isEnabled(set.feature) ? <HeldCard key={set.feature} set={set} /> : <LockedCard key={set.feature} set={set} standardHeld={standardHeld} />,
+          gates[set.feature].entitled ? <HeldCard key={set.feature} set={set} /> : <LockedCard key={set.feature} set={set} standardHeld={standardHeld} />,
         )}
       </div>
     </section>

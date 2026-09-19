@@ -50,8 +50,13 @@ jest.mock('@/components/billing/AddonGrid', () => ({
   __esModule: true,
   AddonGrid: ({ highlightFeature }: { highlightFeature: string | null }) => <p>Add-on grid (highlight: {highlightFeature})</p>,
 }));
+jest.mock('@/components/billing/SubscriptionStatusCard', () => ({
+  __esModule: true,
+  SubscriptionStatusCard: ({ onCancel }: { onCancel: () => void }) => (
+    <button type="button" onClick={onCancel}>Cancel Subscription</button>
+  ),
+}));
 for (const [path, name] of [
-  ['@/components/billing/SubscriptionStatusCard', 'SubscriptionStatusCard'],
   ['@/components/billing/UsageCard', 'UsageCard'],
   ['@/components/billing/BillingDashboard', 'BillingDashboard'],
   ['@/components/billing/TeamUsageCard', 'TeamUsageCard'],
@@ -65,12 +70,17 @@ for (const [path, name] of [
 const getPlans = jest.fn();
 const getSubscription = jest.fn();
 const changeSubscription = jest.fn();
+const cancelSubscription = jest.fn();
+const getBillingUsage = jest.fn();
+const getBundles = jest.fn();
 jest.mock('@/lib/api', () => {
   const overrides: Record<string, unknown> = {
     getPlans: (...a: unknown[]) => getPlans(...a),
+    cancelSubscription: (...a: unknown[]) => cancelSubscription(...a),
+    getBillingUsage: (...a: unknown[]) => getBillingUsage(...a),
     changeSubscription: (...a: unknown[]) => changeSubscription(...a),
     getSubscription: (...a: unknown[]) => getSubscription(...a),
-    getBundles: () => Promise.resolve({ success: true, data: { bundles: [{ id: 'b1', name: 'Seat pack' }], selfService: true, comboDiscounts: [] } }),
+    getBundles: (...a: unknown[]) => getBundles(...a),
   };
   const api = new Proxy({}, { get: (_t, k: string) => overrides[k] ?? (() => Promise.resolve({ success: true, data: null })) });
   return { __esModule: true, default: api, api, ApiError: class extends Error {} };
@@ -85,6 +95,9 @@ describe('BillingPage', () => {
     getPlans.mockResolvedValue(plans);
     getSubscription.mockResolvedValue(subscription);
     changeSubscription.mockResolvedValue({ success: true });
+    cancelSubscription.mockResolvedValue({ success: true });
+    getBillingUsage.mockResolvedValue({ success: true, data: null });
+    getBundles.mockResolvedValue({ success: true, data: { bundles: [{ id: 'b1', name: 'Seat pack' }], selfService: true, comboDiscounts: [] } });
     mockAuthGuard({ isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
   });
 
@@ -130,5 +143,36 @@ describe('BillingPage', () => {
     mockRouter.query = { highlight: 'advanced_reporting' };
     render(<BillingPage />);
     expect(await screen.findByText('Add-on grid (highlight: advanced_reporting)')).toBeInTheDocument();
+  });
+
+  it('asks before cancelling, stating access runs to the period end', async () => {
+    render(<BillingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel Subscription' }));
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(screen.getByText(/stays active until the end of the current/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep subscription' }));
+    expect(cancelSubscription).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Subscription' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel subscription' }));
+    await waitFor(() => expect(cancelSubscription).toHaveBeenCalledWith('sub-1'));
+  });
+
+  it('shows a retryable error when usage fails to load, instead of dropping the section', async () => {
+    getBillingUsage.mockRejectedValueOnce(new Error('usage down'));
+    render(<BillingPage />);
+    expect(await screen.findByText(/couldn't load usage for this period/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(getBillingUsage).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows a retryable error when the add-on catalog fails to load', async () => {
+    mockRouter.query = { tab: 'addons' };
+    getBundles.mockRejectedValueOnce(new Error('bundles down'));
+    render(<BillingPage />);
+    expect(await screen.findByText(/couldn't load the add-on catalog/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(/Add-on grid/)).toBeInTheDocument();
   });
 });

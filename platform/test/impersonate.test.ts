@@ -156,7 +156,7 @@ beforeEach(() => {
   mockResolvePolicy.mockReset().mockResolvedValue({ policy: 'open', allowSelfApproval: true, resolved: true });
   mockCreateBreakglass.mockReset();
   mockExpandOrgScope.mockReset().mockResolvedValue([]);
-  mockListForCaller.mockReset().mockResolvedValue([]);
+  mockListForCaller.mockReset().mockResolvedValue({ requests: [], total: 0, limit: 20, offset: 0 });
   mockIsOrgAdmin.mockReset().mockReturnValue(false);
   mockPublishSessionRevocation.mockReset().mockResolvedValue(true);
   // Default: an `open` org, so pre-existing happy-path tests still start a session.
@@ -587,10 +587,10 @@ describe('breakglassImpersonation', () => {
 
 
 describe('listImpersonationRequests', () => {
-  const list = (user: any, view?: string) => {
+  const list = (user: any, view?: string, extra: Record<string, string> = {}) => {
     const res = mockRes();
     return (listImpersonationRequests as unknown as (req: any, res: any) => Promise<void>)(
-      { user, query: view === undefined ? {} : { view } }, res,
+      { user, query: view === undefined ? extra : { view, ...extra } }, res,
     ).then(() => res);
   };
 
@@ -604,7 +604,18 @@ describe('listImpersonationRequests', () => {
     await list({ sub: 'me', organizationId: 'org-a' }, 'to-decide');
 
     expect(mockExpandOrgScope).not.toHaveBeenCalled();
-    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'to-decide');
+    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'to-decide', { limit: undefined, offset: undefined });
+  });
+
+  it('forwards limit/offset and returns a pagination envelope', async () => {
+    mockListForCaller.mockResolvedValue({ requests: [{ id: 'r1' }], total: 45, limit: 20, offset: 20 });
+
+    const res = await list({ sub: 'me' }, 'mine', { limit: '20', offset: '20' });
+
+    expect(mockListForCaller).toHaveBeenCalledWith(expect.anything(), 'mine', { limit: 20, offset: 20 });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: { requests: [{ id: 'r1' }], pagination: { total: 45, offset: 20, limit: 20, hasMore: true } },
+    }));
   });
 
   it('scopes a tenant admin to their active org subtree', async () => {
@@ -615,7 +626,7 @@ describe('listImpersonationRequests', () => {
 
     expect(mockExpandOrgScope).toHaveBeenCalledWith('org-a');
     expect(mockListForCaller).toHaveBeenCalledWith(
-      { userId: 'admin', isSysadmin: false, adminOrgIds: ['org-a', 'team-1'] }, 'to-decide',
+      { userId: 'admin', isSysadmin: false, adminOrgIds: ['org-a', 'team-1'] }, 'to-decide', { limit: undefined, offset: undefined },
     );
   });
 
@@ -624,7 +635,7 @@ describe('listImpersonationRequests', () => {
 
     await list({ sub: 'sys', organizationId: 'system' }, 'to-decide');
 
-    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'sys', isSysadmin: true, adminOrgIds: [] }, 'to-decide');
+    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'sys', isSysadmin: true, adminOrgIds: [] }, 'to-decide', { limit: undefined, offset: undefined });
   });
 });
 

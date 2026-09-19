@@ -63,12 +63,10 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | PUT | `/organization/ai-config` | Update the org's AI-provider keys (admin/owner) |
 | GET | `/organization/:id` | Get an organization by ID |
 | GET | `/organization/:id/descendants` | Org→team subtree IDs (self + descendants) |
-| PUT | `/organization/:id` | Update an organization (system admin) |
+| PUT | `/organization/:id` | Update an organization's name/slug/description (system admin, step-up) |
 | PATCH | `/organization/:id/tier` | Change pricing tier (system admin, step-up) |
 | DELETE | `/organization/:id` | Delete an organization (system admin, step-up) |
 | GET | `/organization/:id/export` | GDPR portability export (admin/owner) |
-| GET | `/organization/:id/quotas` | Get quota limits and usage |
-| PUT | `/organization/:id/quotas` | Update quota limits (system admin, step-up) |
 | GET | `/organization/:id/members` | List members |
 | POST | `/organization/:id/members` | Add a member (admin/owner) |
 | POST | `/organization/:id/members/bulk-add` | Add a user to several subtree teams (admin/owner) |

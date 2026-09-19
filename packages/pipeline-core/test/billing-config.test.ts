@@ -156,7 +156,9 @@ describe('loadBillingConfig', () => {
     expect(developer.features).toContain('Community support');
     expect(pro.features).toContain('Reporting dashboard');
     // Feature-flag-backed perks are derived from FEATURE_METADATA labels.
-    expect(team.features).toContain('Audit Log');
+    expect(team.features).toContain('SSO / IdP');
+    // No flag-backed perk the API doesn't enforce (the old `audit_log` flag gated nothing).
+    expect(team.features).not.toContain('Audit Log');
     expect(enterprise.features).toContain('Custom Integrations');
     // Pro now advertises its enforced Priority Support entitlement (was wrongly
     // marketed as 'Community support' while TIER_FEATURES.pro grants priority_support).
@@ -198,7 +200,7 @@ describe('loadBillingConfig', () => {
       expect(sso?.features).toContain('sso');
       expect(sso?.stackable).toBe(false);
       // Advanced Reporting (DORA) — a feature bundle for every non-Enterprise tier
-      // (Enterprise gets it via TIER_FEATURES), priced between Audit Log and SSO.
+      // (Enterprise gets it via TIER_FEATURES), priced below SSO.
       const advReporting = bundles.find((x) => x.id === 'advanced_reporting');
       expect(advReporting).toMatchObject({
         id: 'advanced_reporting',
@@ -272,9 +274,26 @@ describe('loadBillingConfig', () => {
     });
 
     it('ignores a grant override on a feature-only (empty-grant) bundle', () => {
-      process.env.BILLING_BUNDLE_AUDIT_LOG_GRANT = '99';
+      process.env.BILLING_BUNDLE_ADVANCED_REPORTING_GRANT = '99';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'audit_log')?.grants).toEqual({});
+      expect(bundles.find((x) => x.id === 'advanced_reporting')?.grants).toEqual({});
+    });
+
+    it('offers Team Usage Analytics only on Team (lower tiers cannot nest teams)', () => {
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'team_usage_analytics')?.availableForTiers).toEqual(['team']);
+    });
+
+    it('describes Advanced Reporting lead time as measured, not a proxy', () => {
+      const { bundles } = loadBillingConfig();
+      const desc = bundles.find((x) => x.id === 'advanced_reporting')?.description ?? '';
+      expect(desc).not.toMatch(/proxy/i);
+      expect(desc).toMatch(/lead time \(commit → deploy\)/);
+    });
+
+    it('makes the DORA History Pack require the advanced_reporting feature', () => {
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'dora_history_pack')?.requiresFeatures).toEqual(['advanced_reporting']);
     });
 
     it('keeps plugin/api/ai/storage packs all-tier, but restricts seat + pipeline_pack (tier differentiators) to Team+', () => {
@@ -424,6 +443,26 @@ describe('loadBillingConfig', () => {
     it('throws on a direct self-requires cycle', () => {
       const bundles = [mkBundle('loop', { requires: ['loop'] })];
       expect(() => assertBundleRequiresValid(bundles)).toThrow(/cycle detected/);
+    });
+
+    it('accepts a feature prerequisite a tier includes or can buy', () => {
+      const bundles = [
+        // pro buys `advanced_reporting` via the grant bundle; enterprise includes it.
+        mkBundle('grant', { features: ['advanced_reporting'], availableForTiers: ['pro'] }),
+        mkBundle('dependent', { requiresFeatures: ['advanced_reporting'], availableForTiers: ['pro', 'enterprise'] }),
+      ];
+      expect(() => assertBundleRequiresValid(bundles)).not.toThrow();
+    });
+
+    it('throws when requiresFeatures names an unknown feature flag', () => {
+      const bundles = [mkBundle('dependent', { requiresFeatures: ['not_a_flag'] })];
+      expect(() => assertBundleRequiresValid(bundles)).toThrow(/requiresFeatures "not_a_flag".*not a feature flag/);
+    });
+
+    it('throws when a sold-to tier can neither include nor buy the required feature', () => {
+      // developer has no tier features and nothing here grants advanced_reporting.
+      const bundles = [mkBundle('dependent', { requiresFeatures: ['advanced_reporting'], availableForTiers: ['developer'] })];
+      expect(() => assertBundleRequiresValid(bundles)).toThrow(/developer tier neither includes nor can buy/);
     });
 
     it('throws on a multi-node requires cycle', () => {

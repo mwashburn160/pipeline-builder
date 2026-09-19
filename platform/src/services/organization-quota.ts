@@ -10,7 +10,6 @@ import { pooledSeatUsage } from '../helpers/seats.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import {
   getOrganizationQuotaStatus,
-  updateQuotaLimits,
   type QuotaType,
 } from '../middleware/quota.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
@@ -18,9 +17,6 @@ import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('organization-service');
-
-const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
-export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
 
 /**
  * BILLING-OWNED retention dimensions persisted ONLY to `dora_settings` (via the
@@ -43,7 +39,7 @@ const RESEED_EXCLUDED_DIMS: ReadonlySet<string> = new Set<string>(['seats', ...R
 
 /**
  * Strip the billing-owned {@link RETENTION_DIMS} from a reseeded quota preset,
- * in place. For the reseed paths (setTier / updateQuotas) that PRESERVE `seats`
+ * in place. For the reseed path (setTier) that PRESERVE `seats`
  * via keep-max, so — unlike setSeatLimit's per-dim skip — only the retention
  * dims are removed here.
  */
@@ -172,27 +168,6 @@ async function propagateToSubtree(
     );
   }
   return scope;
-}
-
-export interface QuotaStatus {
-  used: number;
-  limit: number | string;
-  remaining: number | string;
-  resetAt: Date;
-  resetPeriod: string;
-  unlimited: boolean;
-}
-
-export interface QuotaLimitsInput {
-  plugins?: number;
-  pipelines?: number;
-  apiCalls?: number;
-  aiCalls?: number;
-}
-
-/** Format a quota limit for API responses. -1 → 'unlimited'. */
-function formatQuotaValue(value: number): number | string {
-  return value === -1 ? 'unlimited': value;
 }
 
 /**
@@ -426,10 +401,10 @@ export async function checkTierOvercap(
  * previous + new tier so the audit event can record the transition.
  *
  * The quota-microservice is NOT updated here — callers that care
- * about reflecting the new limits in the quota service should call
- * `updateQuotas` separately. We keep the two operations decoupled
- * because partial failure of the remote quota service shouldn't
- * leave the org-doc tier unchanged.
+ * about reflecting the new limits in the quota service update it
+ * through the quota service's own `PUT /quotas`. We keep the two
+ * operations decoupled because partial failure of the remote quota
+ * service shouldn't leave the org-doc tier unchanged.
  */
 export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
   const org = await Organization.findById(toOrgId(id));
@@ -544,100 +519,5 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     previousTier,
     tier: newTier,
     ...(featuresRemoved && featuresRemoved.length > 0 ? { featuresRemoved } : {}),
-  };
-}
-
-/**
- * Fetch quota usage/limits per type from the quota microservice, falling back
- * to the org doc when the service is unavailable. Returns null if the org
- * doesn't exist.
- */
-export async function getQuotas(id: string, authHeader: string): Promise<Record<string, QuotaStatus> | null> {
-  const org = await Organization.findById(toOrgId(id));
-  if (!org) return null;
-
-  const tierKey = (org.tier || 'developer') as QuotaTier;
-  const tierConfig = config.quota.tier[tierKey];
-
-  const results = await Promise.all( QUOTA_TYPES.map((type) => getOrganizationQuotaStatus(id, type as QuotaType, authHeader)),
-  );
-
-  const quotas: Record<string, QuotaStatus> = {};
-  for (let i = 0; i < QUOTA_TYPES.length; i++) {
-    const type = QUOTA_TYPES[i];
-    const quotaStatus = results[i];
-
-    if (quotaStatus) {
-      quotas[type] = {
-        used: quotaStatus.used,
-        limit: formatQuotaValue(quotaStatus.limit),
-        remaining: formatQuotaValue(quotaStatus.remaining),
-        resetAt: new Date(quotaStatus.resetAt),
-        resetPeriod: tierConfig.resetPeriod[type],
-        unlimited: quotaStatus.unlimited,
-      };
-    } else {
-      // Service unavailable: read from the org doc as a degraded fallback.
-      const limit = org.quotas?.[type] ?? -1;
-      const used = org.usage?.[type]?.used ?? 0;
-      quotas[type] = {
-        used,
-        limit: formatQuotaValue(limit),
-        remaining: formatQuotaValue(limit === -1 ? -1: Math.max(0, limit - used)),
-        resetAt: org.usage?.[type]?.resetAt || new Date(),
-        resetPeriod: tierConfig.resetPeriod[type],
-        unlimited: limit === -1,
-      };
-    }
-  }
-  return quotas;
-}
-
-/**
- * Update quota limits via the quota service, falling back to direct Mongo
- * write when the service is unreachable so the limits still take effect.
- * Returns the final quota limits per type. Returns null if org not found.
- */
-export async function updateQuotas(id: string, quotaLimits: QuotaLimitsInput, authHeader: string): Promise<Record<QuotaTypeKey, { limit: number | string; unlimited: boolean }> | null> {
-  const org = await Organization.findById(toOrgId(id));
-  if (!org) return null;
-
-  const serviceUpdated = await updateQuotaLimits(id, quotaLimits, authHeader);
-
-  // Apply the new limits to `org.quotas` in BOTH branches. Previously only the
-  // service-UNREACHABLE branch mutated the doc; the success branch saved without
-  // updating it, so the returned limits (and the service-down fallback report in
-  // getQuotas) reflected the STALE pre-update caps. The quota service is the
-  // source of truth on the success path, but keeping the org-doc mirror in sync
-  // is what makes the response + the fallback read correct.
-  if (!org.quotas) {
-    // Same lockstep rationale as setTier — spread the full QuotaTierLimits shape
-    // so we don't drop newer fields, then strip the billing-owned retention dims
-    // (they live only on `dora_settings`, never on the org doc's `quotas`).
-    const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
-    const seeded = { ...QUOTA_TIERS[tierKey].limits };
-    stripRetentionDims(seeded as Record<string, unknown>);
-    org.quotas = seeded;
-  }
-  for (const [key, value] of Object.entries(quotaLimits)) {
-    if (value !== undefined) {
-      org.quotas[key as keyof typeof org.quotas] = value;
-    }
-  }
-  await org.save();
-  logger.info(
-    serviceUpdated
-      ? `Organization ${id} quotas updated via service`
-      : `Organization ${id} quotas updated directly (service unavailable)`,
-  );
-
-  // `org.quotas` is the in-memory post-save state — no need to re-fetch.
-  const finalQuotas = org.quotas;
-
-  return {
-    plugins: { limit: formatQuotaValue(finalQuotas.plugins), unlimited: finalQuotas.plugins === -1 },
-    pipelines: { limit: formatQuotaValue(finalQuotas.pipelines), unlimited: finalQuotas.pipelines === -1 },
-    apiCalls: { limit: formatQuotaValue(finalQuotas.apiCalls), unlimited: finalQuotas.apiCalls === -1 },
-    aiCalls: { limit: formatQuotaValue(finalQuotas.aiCalls), unlimited: finalQuotas.aiCalls === -1 },
   };
 }

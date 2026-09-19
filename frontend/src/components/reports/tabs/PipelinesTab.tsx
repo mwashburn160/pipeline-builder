@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { TabBar } from '@/components/ui/TabBar';
 import { PipelineOverview } from '../PipelineOverview';
 import { PipelinePerformance } from '../PipelinePerformance';
@@ -49,7 +49,7 @@ export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
         <PipelinePerformance loading={loading} executions={data.executions} durations={data.durations} bottlenecks={data.bottlenecks} />
       )}
       {subTab === 'failures' && (
-        <PipelineFailures loading={loading} stageFailures={data.stageFailures} actionFailures={data.actionFailures} errors={data.errors} />
+        <PipelineFailures loading={loading} stageFailures={data.stageFailures} actionFailures={data.actionFailures} errors={data.errors} showErrors={!!filters.systemAdmin} />
       )}
     </>
   );

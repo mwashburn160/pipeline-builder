@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formatDateTime } from '@/lib/format';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
@@ -14,16 +14,18 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
-import { useIsDirty } from '@/hooks/useIsDirty';
+import type { PluginSummary } from '@/lib/api/domains/plugins';
+import { clearPluginCache } from '@/hooks/usePlugins';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { formatJSON, safeJSONParse } from '@/lib/constants';
+import { formatError, formatJSON, safeJSONParse } from '@/lib/constants';
 import { Plugin, Visibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
-  /** The plugin to edit; used as initial form state and fallback if fetch fails. */
-  plugin: Plugin;
+  /** The row to edit — a list summary is enough (the list omits the build
+   *  spec); the full record is fetched by id on mount and seeds the form. */
+  plugin: PluginSummary;
   /** Whether the current user may PUBLISH (make a plugin public) — gates the
    *  access-modifier control. Sourced from `can('plugins:publish')` (superadmins
    *  bypass), matching the backend gate, not the org-admin role. */
@@ -34,29 +36,41 @@ interface EditPluginModalProps {
   onSaved: () => void;
 }
 
+/** The dirty-tracked fields, as the form renders them for a given record. */
+function dirtySnapshot(pl: Plugin) {
+  return {
+    name: pl.name,
+    description: pl.description || '',
+    keywords: pl.keywords?.join(', ') || '',
+    version: pl.version,
+    metadata: formatJSON(pl.metadata || {}),
+    pluginType: pl.pluginType,
+    computeType: pl.computeType,
+    env: formatJSON(pl.env || {}),
+  };
+}
+
 /** Modal for editing plugin metadata, configuration, and access settings. */
 export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }: EditPluginModalProps) {
   const [name, setName] = useState(plugin.name);
   const [description, setDescription] = useState(plugin.description || '');
   const [keywords, setKeywords] = useState(plugin.keywords?.join(', ') || '');
   const [version, setVersion] = useState(plugin.version);
-  const [metadata, setMetadata] = useState(formatJSON(plugin.metadata || {}));
+  // Build-spec fields aren't on the list row; they seed from the full record below.
+  const [metadata, setMetadata] = useState(formatJSON({}));
   const [pluginType, setPluginType] = useState(plugin.pluginType);
   const [computeType, setComputeType] = useState(plugin.computeType);
-  const [env, setEnv] = useState(formatJSON(plugin.env || {}));
-  // ~20 editable fields including hand-written JSON — a misplaced backdrop click
-  // used to discard the lot silently.
-  const dirty = useIsDirty({ name, description, keywords, version, metadata, pluginType, computeType, env });
+  const [env, setEnv] = useState(formatJSON({}));
   const [confirmingMetadataWipe, setConfirmingMetadataWipe] = useState(false);
-  const [buildArgs, setBuildArgs] = useState(formatJSON(plugin.buildArgs || {}));
-  const [installCommands, setInstallCommands] = useState(plugin.installCommands?.join('\n') || '');
-  const [commands, setCommands] = useState(plugin.commands?.join('\n') || '');
+  const [buildArgs, setBuildArgs] = useState(formatJSON({}));
+  const [installCommands, setInstallCommands] = useState('');
+  const [commands, setCommands] = useState('');
   const [isActive, setIsActive] = useState(plugin.isActive);
   const [isDefault, setIsDefault] = useState(plugin.isDefault);
-  const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState(plugin.primaryOutputDirectory || '');
+  const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState('');
   const [timeout, setPluginTimeout] = useState<string>(plugin.timeout != null ? String(plugin.timeout) : '');
   const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
-  const [secrets, setSecrets] = useState(formatJSON(plugin.secrets || []));
+  const [secrets, setSecrets] = useState(formatJSON([]));
   const [visibility, setVisibility] = useState<Visibility>(plugin.visibility);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -75,11 +89,15 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
   // Fetch full plugin by ID; useEntityFetch only re-fires on id change so
   // a stale re-mount won't overwrite in-progress user edits.
+  //
+  // No list-row fallback: the row lacks the build spec, and saving a form seeded
+  // from it would wipe the plugin's commands/env/secrets.
   const fetchPlugin = useCallback(async (id: string): Promise<Plugin> => {
     const response = await api.getPluginById(id);
-    return response.data?.plugin ?? plugin;
-  }, [plugin]);
-  const { entity: fullPlugin, fetching } = useEntityFetch<Plugin>(plugin.id, fetchPlugin, plugin);
+    if (!response.data?.plugin) throw new Error(formatError(response, 'Failed to load plugin'));
+    return response.data.plugin;
+  }, []);
+  const { entity: fullPlugin, fetching, error: fetchError } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
 
   // Seed editable fields once the full record loads (only fires when the
   // fetched entity changes, not on every render).
@@ -105,8 +123,16 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     setVisibility(fullPlugin.visibility);
   }, [fullPlugin]);
 
-  // Resolved plugin data (fetched by ID, or fallback to list data)
-  const p = fullPlugin ?? plugin;
+  // The full record (fetched by id); null until it lands.
+  const p = fullPlugin;
+  const loadingRecord = fetching || !p;
+
+  // ~20 editable fields including hand-written JSON — a misplaced backdrop click
+  // used to discard the lot silently. The baseline is the FETCHED record (the
+  // form is seeded from it), not the first render's placeholders.
+  const baseline = useMemo(() => (fullPlugin ? JSON.stringify(dirtySnapshot(fullPlugin)) : null), [fullPlugin]);
+  const dirty = baseline !== null
+    && baseline !== JSON.stringify({ name, description, keywords, version, metadata, pluginType, computeType, env });
 
   const handleSave = async ({ metadataWipeConfirmed = false }: { metadataWipeConfirmed?: boolean } = {}) => {
     clearError();
@@ -159,6 +185,8 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
     if (response?.success) {
       setSuccess('Plugin updated successfully!');
+      // The pipeline builder's plugin picker caches the catalog — drop it.
+      clearPluginCache();
       onSaved();
       setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
     }
@@ -169,7 +197,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       <Button variant="secondary" onClick={onClose} disabled={loading}>
         Cancel
       </Button>
-      <Button onClick={() => void handleSave()} disabled={loading || fetching}>
+      <Button onClick={() => void handleSave()} disabled={loading || loadingRecord}>
         {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
       </Button>
     </div>
@@ -192,7 +220,9 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       <ErrorAlert message={error} />
       <SuccessAlert message={success} />
 
-      {fetching ? (
+      {!p && fetchError ? (
+        <ErrorAlert message={formatError(fetchError, 'Failed to load plugin')} />
+      ) : loadingRecord || !p ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
       ) : (
         <div className="space-y-4">

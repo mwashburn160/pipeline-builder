@@ -40,7 +40,7 @@ Routes live under `pages/`. The main ones:
 | `/dashboard/messages`, `/dashboard/notifications` | In-app messages and notification settings |
 | `/dashboard/registry`, `/dashboard/build-queue`, `/dashboard/triage` | OCI registry, plugin build queue, DLQ triage (sysadmin) |
 | `/dashboard/organizations`, `/dashboard/users` | All-orgs and all-users views (sysadmin) |
-| `/dashboard/admin/settings`, `/dashboard/admin/alert-destinations`, `/dashboard/admin/orgs/[orgId]` | Platform admin (sysadmin) |
+| `/dashboard/admin/settings`, `/dashboard/admin/orgs/[orgId]` | Platform admin (sysadmin) |
 | `/dashboard/settings`, `/dashboard/security`, `/dashboard/downloads`, `/dashboard/help` | Profile + organization, Security (factors / sessions / access keys / service accounts), CLI downloads, help |
 | `/auth/register` | New account / organization sign-up |
 

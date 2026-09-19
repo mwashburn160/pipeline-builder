@@ -21,6 +21,7 @@ import {
   applyAddon,
   bundleQuantityCapError,
   bundleRequiresError,
+  bundleUnmetRequirement,
   cascadeRemoveDependents,
   comboDelta,
   comboSavings,
@@ -163,7 +164,19 @@ export function createAddonRoutes(): Router {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
     const loaded = await loadSubAndPlan(orgId);
     const tier = loaded?.plan.tier;
-    const bundles = getBundleCatalog().filter((b) => b.isActive && (!tier || b.availableForTiers.includes(tier)));
+    const catalog = getBundleCatalog();
+    const offeredBundles = catalog.filter((b) => b.isActive && (!tier || b.availableForTiers.includes(tier)));
+    // Prerequisites the account doesn't meet yet (e.g. DORA History Pack without
+    // Advanced Reporting), evaluated as if the bundle were added now — the SAME
+    // gate the add route 400s on — so the UI can disable the control and say why
+    // before the click. Only computable with a plan in scope (tier + held add-ons).
+    const current = (loaded?.subscription.addons ?? []) as Addon[];
+    const bundles = offeredBundles.map((b) => {
+      const unmet = tier
+        ? bundleUnmetRequirement(b, applyAddon(current, b.id, Math.max(1, current.find((a) => a.bundleId === b.id)?.quantity ?? 0)), catalog, tier)
+        : null;
+      return unmet ? { ...b, unmetRequirement: unmet } : b;
+    });
     // Only advertise a combo whose every member is purchasable on this tier —
     // otherwise the "pair them to save" nudge points at a bundle the account
     // can't buy. Expose the per-interval savings so the UI needn't recompute it.
@@ -239,14 +252,14 @@ export function createAddonRoutes(): Router {
     // aren't satisfied by the effective set after the change (e.g. Advanced
     // Compliance without Standard Compliance). Generic on `requires`. Checked on
     // the pre-cascade set so an unmet-prereq add still 400s in preview.
-    const requiresError = bundleRequiresError(bundle, applied, bundles);
+    const requiresError = bundleRequiresError(bundle, applied, bundles, plan.tier);
     if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
     // Cascade parity with the real DELETE: removing a bundle that is a `requires`
     // prerequisite of another held bundle drops the dependent(s) too (Advanced
     // can't outlive Standard). Preview it so a removal of Standard SHOWS Advanced
     // would be cascaded out — the effective limits/price/combos below reflect the
     // fully-unwound set, and `cascaded` lists the ids the change would remove.
-    const { addons: next, removed: cascaded } = cascadeRemoveDependents(applied, bundles);
+    const { addons: next, removed: cascaded } = cascadeRemoveDependents(applied, bundles, plan.tier);
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
 
     return sendSuccess(res, 200, {
@@ -287,7 +300,7 @@ export function createAddonRoutes(): Router {
     // Prerequisite gate (bundle.requires): reject an add whose prerequisites
     // aren't satisfied by the effective set after the change (e.g. Advanced
     // Compliance without Standard Compliance). Generic on `requires`.
-    const requiresError = bundleRequiresError(bundle, next, bundles);
+    const requiresError = bundleRequiresError(bundle, next, bundles, plan.tier);
     if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
 
     // Payment-method gate: a paid INCREASE needs a card on file so the charge can
@@ -360,13 +373,15 @@ export function createAddonRoutes(): Router {
 
     const bundles = getBundleCatalog();
     const current = (subscription.addons ?? []) as Addon[];
-    // Removing a bundle that is a `requires` prerequisite of another held bundle
-    // cascades: the dependent(s) can't outlive their prerequisite, so drop them in
-    // the same change (e.g. cancel Standard Compliance while Advanced is held →
-    // Advanced goes too). Generic on `bundle.requires`; iterated to a fixpoint.
+    // Removing a bundle that is a prerequisite of another held bundle cascades:
+    // the dependent(s) can't outlive their prerequisite, so drop them in the same
+    // change (e.g. cancel Standard Compliance while Advanced is held → Advanced
+    // goes too; remove Advanced Reporting below Enterprise → the DORA History Pack
+    // goes too). Generic on `requires` / `requiresFeatures`; iterated to a fixpoint.
     const { addons: next, removed: cascaded } = cascadeRemoveDependents(
       applyAddon(current, bundleId, 0),
       bundles,
+      plan.tier,
     );
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');

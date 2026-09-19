@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { EyeOff } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { RetryError } from '@/components/ui/RetryError';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { EffectiveImpersonationPolicyDto, ImpersonationPolicy } from '@/lib/api/domains/organizations';
@@ -50,27 +52,21 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
   const toast = useToast();
   const [policy, setPolicy] = useState<EffectiveImpersonationPolicyDto | null>(null);
   const [draft, setDraft] = useState<{ impersonationPolicy: ImpersonationPolicy; allowSelfApproval: boolean } | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.getImpersonationPolicy(orgId);
-      if (res.success && res.data) {
-        setPolicy(res.data);
-        // Edit the org's OWN setting — that is what saving changes.
-        setDraft({ impersonationPolicy: res.data.own.policy, allowSelfApproval: res.data.own.allowSelfApproval });
-      }
-      setError(null);
-    } catch (e) {
-      setError(formatError(e, 'Could not load the access policy'));
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => { void load(); }, [load]);
+  const read = useFetch(
+    async (signal): Promise<EffectiveImpersonationPolicyDto | null> => (await api.getImpersonationPolicy(orgId, { signal })).data ?? null,
+    [orgId],
+  );
+  const loading = read.loading && !policy;
+  // The read seeds the policy; a save then replaces it with the write's answer.
+  useEffect(() => {
+    if (!read.data) return;
+    setPolicy(read.data);
+    // Edit the org's OWN setting — that is what saving changes.
+    setDraft({ impersonationPolicy: read.data.own.policy, allowSelfApproval: read.data.own.allowSelfApproval });
+  }, [read.data]);
 
   const dirty = !!policy && !!draft && (
     draft.impersonationPolicy !== policy.own.policy || draft.allowSelfApproval !== policy.own.allowSelfApproval
@@ -103,7 +99,9 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
     >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
-      {loading || !policy || !draft ? (
+      {read.error && !policy ? (
+        <RetryError message={formatError(read.error, 'Could not load the access policy')} onRetry={read.refetch} />
+      ) : loading || !policy || !draft ? (
         <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
           <LoadingSpinner size="sm" /> Loading…
         </div>

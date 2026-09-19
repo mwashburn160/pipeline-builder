@@ -43,7 +43,8 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 };
 
 export default function InvitationsPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'invitations:manage' });
+  // The read gate (`invitations:manage`) comes from the nav entry via page-access.
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   // Role admins/owners (via bundle) and custom-group members granted it.
   const canManageInvitations = can('invitations:manage');

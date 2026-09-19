@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
+ * Words for the health dot's colour (the `overallHealthColor` classes). The dot
+ * alone is colour-only information, so the same verdict is carried as text for
+ * screen readers and as the tooltip for everyone.
+ */
+const HEALTH_LABEL: Record<string, string> = {
+  'bg-red-500': 'Quota critical',
+  'bg-yellow-500': 'Approaching a quota limit',
+  'bg-green-500': 'Quotas healthy',
+};
+
+/**
  * Sidebar list item for an organization, with a health-color indicator dot.
  * @param org - Organization identity (id, name, slug).
  * @param selected - Whether this org is currently selected.
@@ -19,6 +30,7 @@ export function OrgListItem({
   healthColor?: string;
   onClick: () => void;
 }) {
+  const healthLabel = (healthColor && HEALTH_LABEL[healthColor]) || 'Quota health not loaded yet';
   return (
     <button
       type="button"
@@ -32,9 +44,10 @@ export function OrgListItem({
     >
       <span
         className={`w-2 h-2 rounded-full flex-shrink-0 ${healthColor || 'bg-gray-300 dark:bg-gray-600'}`}
-        title="Overall quota health"
+        title={healthLabel}
         aria-hidden="true"
       />
+      <span className="sr-only">{healthLabel}:</span>
       <div className="min-w-0 flex-1">
         <div
           title={org.name}

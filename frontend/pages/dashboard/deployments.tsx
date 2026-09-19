@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import Link from 'next/link';
 import { Cloud, Plus, X, AlertTriangle, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -25,9 +27,17 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { buildListSummary } from '@/lib/list-summary';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
+
+/** The config columns drift + the register modal need — the whole set is
+ *  drained (see `queries.allPipelines`), so it stays narrow. */
+const CONFIG_FIELDS = ['pipelineName', 'project', 'organization'] as const;
+type PipelineConfig = Pick<Pipeline, typeof CONFIG_FIELDS[number] | 'id'>;
+
+/** Registry page size for the drain, and its runaway guard. */
+const REGISTRY_PAGE = 200;
+const REGISTRY_MAX_PAGES = 50;
 
 /**
  * Drift status of a deployed-pipeline registry row relative to the current
@@ -90,76 +100,60 @@ const PAGE_SIZE_DEFAULT = 25;
  * server page.
  */
 export default function DeploymentsPage() {
-  const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'pipelines:read' });
+  // Page gate (pipelines:read) comes from page-access.ts via the nav entry.
+  const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   const canWrite = can('pipelines:write');
 
-  const [rows, setRows] = useState<PipelineDeployment[]>([]);
-  const [configs, setConfigs] = useState<Pipeline[]>([]);
-  // Whether the config fetch actually SUCCEEDED. Distinguishes "no config exists"
-  // (→ orphaned) from "we couldn't load configs" (→ unknown). Without this, a
-  // transient list-pipelines failure marked every row orphaned and the banner
-  // urged deregistering valid records.
-  const [configsLoaded, setConfigsLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<DeploymentRow | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Configs (for drift) load in parallel with the registry drain below.
-      // Best-effort: a failure just renders every row "unknown" drift (NOT
-      // orphaned) rather than blocking the list.
-      const cfgPromise = runQuery(queries.listPipelines({ limit: '200', includeTotal: 'false' })).catch(() => null);
-
-      // Drain ALL registry rows (the endpoint is page-limited). Looping until
-      // `hasMore` is false avoids the previous silent limit:100 cap; the
-      // MAX_PAGES bound is a runaway guard that realistically never trips.
-      const PAGE = 200;
-      const MAX_PAGES = 50;
-      const allRows: PipelineDeployment[] = [];
-      let offset = 0;
-      let more = true;
-      let regFailed = false;
-      for (let i = 0; more && i < MAX_PAGES; i++) {
-        const regRes = await api.listPipelineDeployments({ limit: PAGE, offset });
-        if (!regRes.success || !regRes.data) { regFailed = true; break; }
-        const batch = regRes.data.registry;
-        allRows.push(...batch);
-        more = regRes.data.pagination.hasMore && batch.length > 0;
-        offset += batch.length;
+  // Drain ALL registry rows (the endpoint is page-limited). Looping until
+  // `hasMore` is false avoids a silent one-page cap; the max-pages bound is a
+  // runaway guard that realistically never trips.
+  const registry = useFetch<PipelineDeployment[] | null>(async (signal) => {
+    if (!isReady) return null;
+    const allRows: PipelineDeployment[] = [];
+    let offset = 0;
+    for (let i = 0; i < REGISTRY_MAX_PAGES; i++) {
+      const regRes = await api.listPipelineDeployments({ limit: REGISTRY_PAGE, offset }, { signal });
+      if (!regRes.success || !regRes.data) {
+        if (allRows.length === 0) throw new Error('Failed to load deployments');
+        break;
       }
-
-      if (regFailed && allRows.length === 0) {
-        setError('Failed to load deployments');
-      } else {
-        setRows(allRows);
-      }
-
-      const cfgRes = await cfgPromise;
-      if (cfgRes?.success && cfgRes.data) {
-        setConfigs(cfgRes.data.pipelines || []);
-        setConfigsLoaded(true);
-      } else {
-        setConfigsLoaded(false);
-      }
-    } catch (err) {
-      setError(formatError(err, 'Failed to load deployments'));
-    } finally {
-      setLoading(false);
+      const batch = regRes.data.registry;
+      allRows.push(...batch);
+      if (!regRes.data.pagination.hasMore || batch.length === 0) break;
+      offset += batch.length;
     }
-  }, []);
+    return allRows;
+  }, [isReady]);
+  const rows = useMemo(() => registry.data ?? [], [registry.data]);
 
-  useEffect(() => {
-    if (isReady) void fetchAll();
-  }, [isReady, fetchAll]);
+  // Current configs for the drift join — EVERY pipeline, not one capped page: a
+  // config past the cap used to read as "orphaned" and the banner urged
+  // deregistering a valid record. Cursor-drained + trimmed to three columns.
+  // Best-effort: a failure renders every row "unknown" drift (never orphaned).
+  const configsQ = useQuery(isReady ? queries.allPipelines(CONFIG_FIELDS) : null);
+  const configs: PipelineConfig[] = useMemo(() => configsQ.data ?? [], [configsQ.data]);
+  // Whether the config fetch actually SUCCEEDED. Distinguishes "no config exists"
+  // (→ orphaned) from "we couldn't load configs" (→ unknown).
+  const configsLoaded = configsQ.data !== null && !configsQ.error;
+
+  const loading = registry.loading;
+  const error = actionError ?? (registry.error ? formatError(registry.error, 'Failed to load deployments') : null);
+  const refetchRegistry = registry.refetch;
+  const refetchConfigs = configsQ.refetch;
+  const fetchAll = useCallback(() => {
+    setActionError(null);
+    refetchRegistry();
+    refetchConfigs();
+  }, [refetchRegistry, refetchConfigs]);
 
   // Join registry rows against config by pipelineId to derive drift.
   const configById = useMemo(() => {
-    const m = new Map<string, Pipeline>();
+    const m = new Map<string, PipelineConfig>();
     for (const c of configs) m.set(c.id, c);
     return m;
   }, [configs]);
@@ -236,18 +230,18 @@ export default function DeploymentsPage() {
 
   const performRemove = async (row: DeploymentRow) => {
     setRemoving(row.id);
-    setError(null);
+    setActionError(null);
     setConfirmTarget(null);
     try {
       const res = await api.deregisterPipelineDeployment(row.id);
       if (res.success) {
-        setRows((prev) => prev.filter((r) => r.id !== row.id));
+        refetchRegistry();
         toast.success('Deployment deregistered');
       } else {
-        setError('Failed to deregister deployment');
+        setActionError('Failed to deregister deployment');
       }
     } catch (err) {
-      setError(formatError(err, 'Failed to deregister deployment'));
+      setActionError(formatError(err, 'Failed to deregister deployment'));
     } finally {
       setRemoving(null);
     }
@@ -481,13 +475,10 @@ export default function DeploymentsPage() {
         <RegisterDeploymentModal
           configs={configs}
           onClose={() => setShowRegister(false)}
-          onRegistered={(row) => {
-            // Upsert into the local list so the new/updated row shows without a
-            // full refetch (the server upserts by pipelineId).
-            setRows((prev) => {
-              const rest = prev.filter((r) => r.pipelineId !== row.pipelineId);
-              return [row, ...rest];
-            });
+          onRegistered={() => {
+            // Re-read the registry (the server upserts by pipelineId, so the
+            // new or updated row is authoritative there).
+            refetchRegistry();
             setShowRegister(false);
             toast.success('Deployment registered');
           }}
@@ -501,7 +492,7 @@ export default function DeploymentsPage() {
 function RegisterDeploymentModal({
   configs, onClose, onRegistered,
 }: {
-  configs: Pipeline[];
+  configs: PipelineConfig[];
   onClose: () => void;
   onRegistered: (row: PipelineDeployment) => void;
 }) {

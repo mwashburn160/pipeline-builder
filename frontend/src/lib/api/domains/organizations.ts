@@ -42,6 +42,25 @@ export interface ServiceAccountBilling {
   budgetPeriodDays: number;
 }
 
+/** One member of the roster embedded in `GET /organization/:id`. */
+export interface OrganizationRosterMember {
+  _id: string;
+  username?: string;
+  email?: string;
+  role: 'owner' | 'admin' | 'member';
+  joinedAt?: string;
+}
+
+/** `GET /organization/:id` — the org plus one page of its member roster. */
+export interface OrganizationDetail extends Organization {
+  members: OrganizationRosterMember[];
+  isTeam?: boolean;
+  rootOrgId?: string;
+  pendingDeletion?: boolean;
+  deletedAt?: string;
+  purgeAfter?: string;
+}
+
 /** An org row from the sysadmin list, extended with soft-delete state. The list
  *  endpoint returns soft-deleted orgs inline (NOT filtered out), flagged with
  *  `pendingDeletion` + `deletedAt` so a sysadmin can see and restore them within
@@ -116,15 +135,31 @@ export function organizationsApi(core: ApiCore) {
 
     /** Get a single org by id. Used by the sysadmin org-detail page.
      *  The backend (`getOrganizationById`) returns the org object flat as the
-     *  response `data`, not wrapped in `{ organization }`. */
-    getOrganization: async (id: string) => {
-      return core.request<ApiResponse<Organization>>(`/api/organization/${id}`);
+     *  response `data`, not wrapped in `{ organization }`, and embeds one page of
+     *  the member roster: `membersLimit` (1-500, default 100) / `membersOffset`
+     *  page it, while `memberCount` is always the full total. */
+    getOrganization: async (
+      id: string,
+      params?: { membersLimit?: number; membersOffset?: number },
+      opts?: { signal?: AbortSignal },
+    ) => {
+      return core.request<ApiResponse<OrganizationDetail>>(`/api/organization/${id}${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /** PUT /organization/:id — sysadmin edit of an org's name, slug and/or
+     *  description (the only route that edits the description). Step-up gated:
+     *  the caller confirms in a `StepUpModal` and forwards its token. */
+    updateOrganization: async (id: string, data: { name?: string; slug?: string; description?: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string } }>>(
+        `/api/organization/${id}`,
+        { method: 'PUT', body: JSON.stringify(data), headers: core.stepUpHeader(stepUpToken) },
+      );
     },
 
     /** GET /organization — the current user's own organization (any member).
      *  Wrapped in `{ organization }` by the backend (`getMyOrganization`). */
-    getMyOrganization: async () => {
-      return core.request<ApiResponse<{ organization: Organization }>>('/api/organization');
+    getMyOrganization: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ organization: Organization }>>('/api/organization', { signal: opts?.signal });
     },
 
     /** PATCH /organization/:id/identity — self-serve name/slug edit for an org
@@ -181,15 +216,15 @@ export function organizationsApi(core: ApiCore) {
 
     /** Descendant team roster for `orgId` (no member context) — for the
      *  "also add to teams" picker when adding a member. */
-    getOrganizationTeams: async (orgId: string) => {
-      return core.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`);
+    getOrganizationTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`, { signal: opts?.signal });
     },
 
     /** Pooled seat usage for the account (root): distinct active members + pending
      *  invites across the whole subtree vs the root's seat limit. Account admin or
      *  service principal only. `limit === -1` means unlimited seats. */
-    getOrganizationSeatUsage: async (orgId: string) => {
-      return core.request<ApiResponse<{ limit: number; used: number }>>(`/api/organization/${orgId}/seat-usage`);
+    getOrganizationSeatUsage: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ limit: number; used: number }>>(`/api/organization/${orgId}/seat-usage`, { signal: opts?.signal });
     },
 
     /** PUT /organization/:id/seat-limit — set the account (root) seat limit.
@@ -205,11 +240,11 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** GET /organization/:id/feature-entitlements — the account's (root) pooled
-     *  feature entitlements (e.g. `sso`, `audit_log`) as a flag list. Service
+     *  feature entitlements (e.g. `sso`, `advanced_reporting`) as a flag list. Service
      *  principal or an admin reading their OWN account. Feature FLAGS, not
      *  secrets. Fail-soft: an org with none yields an empty array. */
-    getOrganizationFeatureEntitlements: async (id: string) => {
-      return core.request<ApiResponse<{ featureEntitlements: string[] }>>(`/api/organization/${id}/feature-entitlements`);
+    getOrganizationFeatureEntitlements: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ featureEntitlements: string[] }>>(`/api/organization/${id}/feature-entitlements`, { signal: opts?.signal });
     },
 
     /** Descendant teams of `orgId` annotated with whether `memberId` belongs to
@@ -250,9 +285,18 @@ export function organizationsApi(core: ApiCore) {
     // platform admin.
     // ============================================
 
-    /** List the org's permission roles, each with its current members. */
-    getOrganizationRoles: async (orgId: string) => {
-      return core.request<ApiResponse<{ roles: OrganizationRole[] }>>(`/api/organization/${orgId}/roles`);
+    /** List the org's permission roles, each with its current members. Without
+     *  `params.limit` every role is returned (what the pickers need); with it the
+     *  roles are paged server-side. `pagination.total` always counts every role. */
+    getOrganizationRoles: async (
+      orgId: string,
+      params?: { limit?: number; offset?: number },
+      opts?: { signal?: AbortSignal },
+    ) => {
+      return core.request<ApiResponse<{
+        roles: OrganizationRole[];
+        pagination: { total: number; offset: number; limit: number; hasMore: boolean };
+      }>>(`/api/organization/${orgId}/roles${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Create a custom permission role (name + optional description + permissions). */
@@ -301,9 +345,19 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
 
     /** List the org's service accounts (each with its roles + key metadata). */
-    listServiceAccounts: async (orgId: string) => {
+    listServiceAccounts: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ serviceAccounts: ServiceAccount[]; billing: ServiceAccountBilling }>>(
         `/api/organization/${orgId}/service-accounts`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /** GET /organization/:id/service-accounts/:accountId — one account with its
+     *  roles, usage and key metadata (never a secret). */
+    getServiceAccount: async (orgId: string, accountId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ serviceAccount: ServiceAccount }>>(
+        `/api/organization/${orgId}/service-accounts/${accountId}`,
+        { signal: opts?.signal },
       );
     },
 
@@ -383,8 +437,8 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
-    getOrgAIConfig: async () => {
-      return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config');
+    getOrgAIConfig: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', { signal: opts?.signal });
     },
 
     /** Update org AI provider keys. Step-up-gated server-side (persists provider
@@ -472,8 +526,8 @@ export function organizationsApi(core: ApiCore) {
     /** GET /admin/org-idp — every org's IdP config in one shot (sysadmin only).
      *  Powers the IdP roster page. Per-org CRUD lives on the org-detail page's
      *  IdP editor; this is the read-only fleet view of who has SSO configured. */
-    listOrgIdpConfigs: async () => {
-      return core.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp');
+    listOrgIdpConfigs: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp', { signal: opts?.signal });
     },
 
     // ============================================
@@ -483,16 +537,40 @@ export function organizationsApi(core: ApiCore) {
     /** GET /organization/:id/idp — the caller's own org IdP config. Gated on the
      *  `org:settings` permission and own-org only; `sso` entitlement enforced
      *  server-side. `config` is null when no IdP is configured (a normal 200). */
-    getOwnOrgIdpConfig: async (orgId: string) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`);
+    getOwnOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`, { signal: opts?.signal });
     },
 
-    /** PUT /organization/:id/idp — upsert the caller's own org IdP config. On
-     *  update, omitting `clientSecret` keeps the existing secret (write-only). */
-    putOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>) => {
+    /** PUT /organization/:id/idp — CREATE the caller's own org IdP config (the
+     *  full body the protocol requires). Edits to an existing config go through
+     *  {@link patchOwnOrgIdpConfig}. Every write needs an MFA-grade session and a
+     *  strong-factor step-up: the editor confirms in a `StepUpModal`
+     *  (`requireStrongFactor`) and forwards its token here. */
+    putOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/organization/${orgId}/idp`, {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** PATCH /organization/:id/idp — change only the fields sent on an EXISTING
+     *  config (404 when none exists). An omitted/empty `clientSecret` keeps the
+     *  stored one. */
+    patchOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/organization/${orgId}/idp`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** DELETE /organization/:id/idp — disconnect the org's SSO entirely. Members
+     *  fall back to their other sign-in methods; group → Role mappings stop firing. */
+    deleteOwnOrgIdpConfig: async (orgId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<Record<string, never>>>(`/api/organization/${orgId}/idp`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 
@@ -530,8 +608,8 @@ export function organizationsApi(core: ApiCore) {
 
     // -- Domain-based join (P2b): admin domain management + join-request review --
 
-    listOrgDomains: async (orgId: string) => {
-      return core.request<ApiResponse<{ domains: OrgDomainDto[]; entitled: boolean }>>(`/api/organization/${orgId}/domains`);
+    listOrgDomains: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ domains: OrgDomainDto[]; entitled: boolean }>>(`/api/organization/${orgId}/domains`, { signal: opts?.signal });
     },
     addOrgDomain: async (orgId: string, domain: string) => {
       return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains`, {
@@ -549,8 +627,8 @@ export function organizationsApi(core: ApiCore) {
     deleteOrgDomain: async (orgId: string, domainId: string) => {
       return core.request<ApiResponse<{ deleted: boolean }>>(`/api/organization/${orgId}/domains/${domainId}`, { method: 'DELETE' });
     },
-    listOrgJoinRequests: async (orgId: string) => {
-      return core.request<ApiResponse<{ requests: OrgJoinRequestDto[] }>>(`/api/organization/${orgId}/join-requests`);
+    listOrgJoinRequests: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ requests: OrgJoinRequestDto[] }>>(`/api/organization/${orgId}/join-requests`, { signal: opts?.signal });
     },
     decideOrgJoinRequest: async (orgId: string, reqId: string, decision: 'approve' | 'deny') => {
       return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${orgId}/join-requests/${reqId}/${decision}`, { method: 'POST' });
@@ -559,8 +637,8 @@ export function organizationsApi(core: ApiCore) {
     /** The org's impersonation policy: its OWN setting and the EFFECTIVE one. A
      *  team's policy can be tightened by its parent (strictest wins), so the UI
      *  must show both or an admin who set `open` can't tell why it isn't. */
-    getImpersonationPolicy: async (orgId: string) => {
-      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`);
+    getImpersonationPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`, { signal: opts?.signal });
     },
     /** Change the policy. Step-up gated: loosening it widens who can see the org's data. */
     updateImpersonationPolicy: async (
@@ -577,8 +655,8 @@ export function organizationsApi(core: ApiCore) {
 
     /** The org's two-factor requirement (#8): its OWN setting and what actually
      *  governs, since a parent org's requirement also applies to its teams. */
-    getMfaPolicy: async (orgId: string) => {
-      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`);
+    getMfaPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, { signal: opts?.signal });
     },
     /**
      * Turn the requirement on or off, set the grace period, or record that the

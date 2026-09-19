@@ -12,6 +12,8 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import { RetryError } from '@/components/ui/RetryError';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { api } from '@/lib/api';
 import type { Dashboard } from '@/types/observability';
 
@@ -30,7 +32,7 @@ export default function ObservabilityIndexPage() {
   const canCreateDashboard = can('dashboards:write');
   const ready = isReady && isAuthenticated;
   const { data, loading, error, refetch } = useFetch(
-    async () => (ready ? (await api.listDashboards()).data?.dashboards ?? [] : []),
+    async (signal) => (ready ? (await api.listDashboards(signal)).data?.dashboards ?? [] : []),
     [ready],
   );
   const dashboards: Dashboard[] = data ?? [];
@@ -93,12 +95,7 @@ export default function ObservabilityIndexPage() {
         ) : undefined
       }
     >
-      {error && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200" role="alert">
-          <span>{error.message}</span>
-          <button type="button" onClick={refetch} className="underline hover:no-underline whitespace-nowrap">Retry</button>
-        </div>
-      )}
+      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
 
       {/* Client-side filters over the dashboard tiles below (the fixed
           Alerts/Rules/Logs links are always shown). */}
@@ -207,15 +204,19 @@ export default function ObservabilityIndexPage() {
 
         {/* No-match state — dashboards exist but the active filters hide them all. */}
         {!loading && dashboards.length > 0 && filteredDashboards.length === 0 && (
-          <div className="col-span-full rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-            No dashboards match your filters.
+          <div className="col-span-full">
+            <EmptyState icon={LayoutDashboard} illustration="search" title="No matching dashboards" description="No dashboards match your filters." />
           </div>
         )}
 
         {/* Empty state */}
         {!loading && dashboards.length === 0 && !error && (
-          <div className="col-span-full rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-            No dashboards yet. The platform service seeds 5 default dashboards at cold start — if you don't see them, check Postgres connectivity.
+          <div className="col-span-full">
+            <EmptyState
+              icon={LayoutDashboard}
+              title="No dashboards yet"
+              description="The platform service seeds 5 default dashboards at cold start — if you don't see them, check Postgres connectivity."
+            />
           </div>
         )}
       </div>

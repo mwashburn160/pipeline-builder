@@ -15,8 +15,6 @@ import {
   updateOrganization,
   updateOrganizationIdentity,
   updateOrganizationTier,
-  getOrganizationQuotas,
-  updateOrganizationQuotas,
   updateOrganizationSeatLimit,
   getOrganizationSeatUsage,
   getOrganizationFeatureEntitlements,
@@ -208,22 +206,6 @@ router.post('/:id/restore', requireAuth, requirePermission('org:settings'), requ
  *  Controller gates with `canAdministerOrg` (target-org scope); `requirePermission`
  *  is the capability gate (org:settings, in the admin/owner bundle). */
 router.get('/:id/export', requireAuth, requirePermission('org:settings'), exportOrganization);
-
-/*
- * Organization Quotas
- */
-
-/** GET /organization/:id/quotas - Get organization quota limits and usage
- *  (sysadmin only). `requireSystemAdmin` mirrors the controller's own gate at
- *  the route layer, like the sibling PUT — it reads ANY org's limits by path id,
- *  so a tenant reading their own usage goes through the quota service instead. */
-router.get('/:id/quotas', requireAuth, requireSystemAdmin, getOrganizationQuotas);
-
-/** PUT /organization/:id/quotas - Update organization quota limits (sysadmin only).
- *  `requireSystemAdmin` mirrors the controller's gate at the route layer.
- *  Step-up gated like the tier change: resizing quota limits has billing/capacity
- *  impact, so a stale sysadmin session must re-confirm before it lands. */
-router.put('/:id/quotas', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.org.quota.override'), updateOrganizationQuotas);
 
 /** PUT /organization/:id/seat-limit — internal seat-entitlement sync from billing.
  *  Service-principal or sysadmin (checked in the controller); NO step-up, so the

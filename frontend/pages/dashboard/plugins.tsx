@@ -1,94 +1,47 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
+import { Search, Puzzle, Plus, Upload, Star } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
-import type { PluginCategory } from '@/lib/plugin-categories';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useFetch } from '@/hooks/useFetch';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
+import { clearPluginCache } from '@/hooks/usePlugins';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { TabBar } from '@/components/ui/TabBar';
-import { Badge } from '@/components/ui/Badge';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DataTable } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
-import { RelativeTime } from '@/components/ui/RelativeTime';
-import { AccessCell } from '@/components/ui/AccessCell';
-import EditPluginModal from '@/components/plugin/EditPluginModal';
-import CreatePluginModal from '@/components/plugin/CreatePluginModal';
-import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import { PluginDetailModal } from '@/components/plugin/PluginDetailModal';
+import { usePluginColumns, PLUGIN_SORT_FIELD } from '@/components/plugin/usePluginColumns';
+import { BulkActionBar, BulkActionBarSpacer, useRowSelection } from '@/components/dashboard/BulkActionBar';
 import api from '@/lib/api';
+import { PLUGIN_LIST_FIELDS, type PluginSummary } from '@/lib/api/domains/plugins';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { useFavorites } from '@/lib/favorites';
-import type { Plugin } from '@/types';
-import { formatDateTime } from '@/lib/format';
 
-// Maps a DataTable column id to the server-side sort field the plugins list
-// endpoint honors (via parsePaginationParams → sortBy). Columns absent here
-// fall back to their own id.
-const PLUGIN_SORT_FIELD: Record<string, string> = {
-  name: 'name',
-  id: 'id',
-  version: 'version',
-  category: 'category',
-  type: 'pluginType',
-  compute: 'computeType',
-  visibility: 'visibility',
-  uri: 'uri',
-  timeout: 'timeout',
-  failureBehavior: 'failureBehavior',
-  status: 'isActive',
-  createdBy: 'createdBy',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
-};
+// Modals and the recently-deleted panel load on first use — none of them is
+// part of the list's first paint, and the create modal carries the AI builder.
+const CreatePluginModal = dynamic(() => import('@/components/plugin/CreatePluginModal'), { ssr: false });
+const EditPluginModal = dynamic(() => import('@/components/plugin/EditPluginModal'), { ssr: false });
+const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
 
-/**
- * Parse a Plugin URI of shape `<repo-path>:<tag>` (optionally prefixed with
- * a registry host like `registry.example.com/...`) into the repo path and
- * tag the registry browser uses. Strips a leading host segment if present.
- */
-function parsePluginUri(uri: string): { repo: string; tag: string } | null {
-  if (!uri) return null;
-  const lastColon = uri.lastIndexOf(':');
-  if (lastColon < 1) return null;
-  let repo = uri.slice(0, lastColon);
-  const tag = uri.slice(lastColon + 1);
-  // Strip leading host (anything before the first `/` that contains a `.` or `:`).
-  const firstSlash = repo.indexOf('/');
-  if (firstSlash > 0) {
-    const head = repo.slice(0, firstSlash);
-    if (head.includes('.') || head.includes(':')) repo = repo.slice(firstSlash + 1);
-  }
-  if (!repo || !tag) return null;
-  return { repo, tag };
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="text-gray-900 dark:text-gray-100 font-mono text-xs mt-0.5">{value}</p>
-    </div>
-  );
-}
+/** `fields` for the list request — every rendered column, never the build spec. */
+const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
 // ─── Page ───────────────────────────────────────────────
 
@@ -101,9 +54,6 @@ export default function PluginsPage() {
   // unlock on `plugins:write`, not org-admin role, so a custom-group member
   // granted the capability gets them too. Role-admins hold it in their bundle.
   const canWrite = can('plugins:write');
-  // Shared inputs for the visibility gate — mirrors the backend's
-  // requireVisibilityWriteAccess so the UI never offers an action the API refuses.
-  const pluginGateOpts = { isSuperAdmin, canPublish: can('plugins:publish'), userId: user?.id };
   // Publishing (making a plugin PUBLIC) is a distinct capability the backend
   // gates upload/update/delete/bulk on — mirror the pipelines pattern
   // (`can('pipelines:publish')`) instead of the old `isSuperAdmin` proxy, so a
@@ -117,6 +67,14 @@ export default function PluginsPage() {
   const bulkGate = useFeatureGate('bulk_operations');
   const canBulk = canWrite && canPublish && bulkGate.entitled;
 
+  // Row write gate — mirrors the backend's requireVisibilityWriteAccess so the
+  // UI never offers an action the API refuses.
+  const userId = user?.id;
+  const canWriteRow = useCallback(
+    (p: { visibility?: string; createdBy?: string }) => canWrite && canModify(p, { isSuperAdmin, canPublish, userId }),
+    [canWrite, isSuperAdmin, canPublish, userId],
+  );
+
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
     if (typeof window === 'undefined' || !user?.organizationId) return;
@@ -129,19 +87,23 @@ export default function PluginsPage() {
   const { favorites, toggle: handleToggleFavorite } = useFavorites(user?.id, user?.organizationId);
 
   // Plugin usage counts (how many of the org's pipelines reference each plugin).
-  const [pluginUsage, setPluginUsage] = useState<Record<string, number>>({});
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    api.getPluginUsage()
-      .then((r) => { if (!cancelled) setPluginUsage(r.data?.counts ?? {}); })
-      .catch(() => { /* non-blocking — badge just won't render */ });
-    return () => { cancelled = true; };
+  // Non-blocking — on failure the "Used by" badge just doesn't render.
+  const { data: usageData } = useFetch(async () => {
+    if (!isAuthenticated) return {};
+    try {
+      return (await api.getPluginUsage()).data?.counts ?? {};
+    } catch {
+      return {};
+    }
   }, [isAuthenticated]);
+  const pluginUsage = useMemo(() => usageData ?? {}, [usageData]);
 
   // ── Data ──
 
-  const list = useListPage<Plugin>({
+  // Offset-paged (page numbers, page size and a URL-synced offset), so the
+  // keyset `cursor` the endpoint also offers doesn't fit here; `fields` does —
+  // the list never renders the build spec (commands, dockerfile, env, …).
+  const list = useListPage<PluginSummary>({
     fields: [
       { key: 'name', type: 'text', defaultValue: '', primary: true },
       { key: 'id', type: 'text', defaultValue: '' },
@@ -158,12 +120,13 @@ export default function PluginsPage() {
     // Server-side default sort mirrors the previous client-side default
     // (name ascending) so the initial view is unchanged.
     initialSort: { sortBy: 'name', sortOrder: 'asc' },
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       const p: Record<string, string> = {
         ...mapCommonParams(params),
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',
+        fields: LIST_FIELDS,
       };
       if (params.name) p.name = params.name;
       if (params.id) p.id = params.id;
@@ -176,16 +139,22 @@ export default function PluginsPage() {
       // strips it server-side, so it's applied as a client-side filter below.
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
-      const response = await api.listPlugins(p);
+      const response = await api.listPlugins(p, { signal });
       return { items: response.data?.plugins || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
     urlSync: true,
   });
 
-  const del = useDelete<Plugin>(
+  // Any write here re-reads this page AND drops the pipeline builder's cached
+  // plugin catalog (usePlugins), which would otherwise offer a deleted or
+  // deactivated plugin until its TTL ran out.
+  const { refresh: refreshList } = list;
+  const afterWrite = useCallback(() => { clearPluginCache(); refreshList(); }, [refreshList]);
+
+  const del = useDelete<PluginSummary>(
     (p) => api.deletePlugin(p.id),
-    () => { list.refresh(); toast.success('Plugin deleted'); },
+    () => { afterWrite(); toast.success('Plugin deleted'); },
     (err) => list.setError(formatError(err, 'Failed to delete plugin')),
   );
 
@@ -252,21 +221,12 @@ export default function PluginsPage() {
 
   // ── Bulk Operations ──
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selection = useRowSelection();
+  const { selectedIds, clear: clearSelection } = selection;
   const [bulkLoading, setBulkLoading] = useState(false);
   // Gate bulk delete behind a confirmation modal (mirrors single-row delete's
   // DeleteConfirmModal), since the bulk action is destructive and irreversible.
   const [showBulkDelete, setShowBulkDelete] = useState(false);
-
-  const toggleSelect = useCallback((id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -276,7 +236,7 @@ export default function PluginsPage() {
       await api.bulkDeletePlugins(Array.from(selectedIds));
       clearSelection();
       setShowBulkDelete(false);
-      list.refresh();
+      afterWrite();
       toast.success(`${count} plugin${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete plugins'));
@@ -292,7 +252,7 @@ export default function PluginsPage() {
       const count = selectedIds.size;
       await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
       clearSelection();
-      list.refresh();
+      afterWrite();
       toast.success(`${count} plugin${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} plugins`));
@@ -307,236 +267,29 @@ export default function PluginsPage() {
   // CreatePluginModal is a tabbed surface (AI Builder + Upload). The two
   // toolbar buttons just pick which tab to open it on; only one modal exists.
   const [createInitialTab, setCreateInitialTab] = useState<'upload' | 'ai' | null>(null);
-  const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
+  const [editPlugin, setEditPlugin] = useState<PluginSummary | null>(null);
+  const [viewPlugin, setViewPlugin] = useState<PluginSummary | null>(null);
 
   // Open the create modal (AI Builder tab) when arrived via the sidebar "Add
   // Plugin" shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setCreateInitialTab('ai'); });
-  const [viewPlugin, setViewPlugin] = useState<Plugin | null>(null);
 
   // ── Columns ──
 
-  const pluginColumns: Column<Plugin>[] = useMemo(() => [
-    ...(canBulk ? [{
-      id: 'select',
-      header: '',
-      locked: true,
-      render: (plugin: Plugin) => (
-        canModify(plugin, pluginGateOpts) ? (
-          <Checkbox
-            checked={selectedIds.has(plugin.id)}
-            onChange={(e) => {
-              e.stopPropagation();
-              toggleSelect(plugin.id);
-            }}
-          />
-        ) : null
-      ),
-    } as Column<Plugin>] : []),
-    {
-      id: 'favorite',
-      header: '',
-      locked: true,
-      render: (p: Plugin) => {
-        const fav = favorites.has(p.id);
-        return (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); handleToggleFavorite(p.id); }}
-            className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${fav ? 'text-yellow-500' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-500'}`}
-            aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
-            title={fav ? 'Favorited' : 'Add to favorites'}
-          >
-            <Star className={`w-4 h-4 ${fav ? 'fill-current' : ''}`} aria-hidden="true" />
-          </button>
-        );
-      },
-    },
-    {
-      id: 'name',
-      header: 'Name',
-      sortValue: (p) => p.name,
-      render: (p) => {
-        const used = pluginUsage[p.name] ?? 0;
-        return (
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Name is the "view" click target (opens the detail modal), so the
-                  Actions column no longer needs a separate View link. Version
-                  folds in here as a chip → the standalone Version column hides. */}
-              <button
-                onClick={() => setViewPlugin(p)}
-                className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left truncate"
-              >
-                {p.name}
-              </button>
-              {p.version && <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">v{p.version}</span>}
-              {!p.isActive && <Badge color="red">Inactive</Badge>}
-              {used > 0 && (
-                <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">
-                  <Badge color="blue">Used by {used}</Badge>
-                </span>
-              )}
-            </div>
-            {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
-          </div>
-        );
-      },
-    },
-    {
-      id: 'id',
-      header: 'ID',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
-      sortValue: (p) => p.id,
-      render: (p) => <span title={p.id}>{p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id}</span>,
-    },
-    {
-      id: 'version',
-      header: 'Version',
-      // Hidden by default: version now shows as a chip in the Name cell, so a
-      // standalone column (usually all "1.0.0") is redundant. Re-enable via the
-      // column toggle.
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.version,
-      render: (p) => <>{p.version}</>,
-    },
-    {
-      id: 'category',
-      header: 'Category',
-      sortValue: (p) => p.category || 'unknown',
-      render: (p) => (
-        <Badge color="blue">
-          {CATEGORY_DISPLAY_NAMES[(p.category || 'unknown') as PluginCategory] || p.category || 'unknown'}
-        </Badge>
-      ),
-    },
-    {
-      id: 'type',
-      header: 'Type',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.pluginType,
-      render: (p) => <>{p.pluginType}</>,
-    },
-    {
-      id: 'compute',
-      header: 'Compute',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.computeType,
-      render: (p) => <>{p.computeType}</>,
-    },
-    {
-      id: 'visibility',
-      header: 'Visibility',
-      sortValue: (p) => p.visibility,
-      render: (p) => <AccessCell visibility={p.visibility} />,
-    },
-    {
-      id: 'uri',
-      header: 'URI',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
-      sortValue: (p) => p.uri,
-      render: (p) => <span title={p.uri}>{p.uri}</span>,
-    },
-    {
-      id: 'timeout',
-      header: 'Timeout',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.timeout ?? 0,
-      render: (p) => <>{p.timeout ? `${p.timeout} min` : '-'}</>,
-    },
-    {
-      id: 'failureBehavior',
-      header: 'On Failure',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.failureBehavior || '',
-      render: (p) => <>{p.failureBehavior || '-'}</>,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      hidden: true,
-      sortValue: (p) => p.isActive,
-      render: (p) => (
-        <div className="flex gap-1">
-          {p.isDefault && <Badge color="blue">Default</Badge>}
-          <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>
-        </div>
-      ),
-    },
-    {
-      id: 'createdBy',
-      header: 'Created By',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.createdBy,
-      render: (p) => <>{p.createdBy}</>,
-    },
-    {
-      id: 'createdAt',
-      header: 'Created',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.createdAt,
-      render: (p) => <RelativeTime value={p.createdAt} />,
-    },
-    {
-      id: 'updatedAt',
-      header: 'Updated',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.updatedAt,
-      render: (p) => <RelativeTime value={p.updatedAt} />,
-    },
-    {
-      id: 'keywords',
-      header: 'Keywords',
-      hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      render: (p) => <>{(p.keywords || []).join(', ')}</>,
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      cellClassName: 'text-sm',
-      render: (plugin) => {
-        const parsed = isSuperAdmin ? parsePluginUri(plugin.uri) : null;
-        return (
-          // Decrowded: the name is now the "view" target, so View is dropped.
-          // Edit stays a link; registry cross-link + delete are icons (delete
-          // muted, red-on-hover, guarded by the confirm modal).
-          <div className="flex items-center gap-1">
-            {canWrite && canModify(plugin, pluginGateOpts) && (
-              <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
-            )}
-            {/* Sysadmin-only registry cross-link — closes the Plugins↔Registry
-                navigation loop so an operator can jump straight to the image. */}
-            {parsed && (
-              <Link
-                href={`/dashboard/registry?repo=${encodeURIComponent(parsed.repo)}&tag=${encodeURIComponent(parsed.tag)}`}
-                title={`Browse ${plugin.uri} in the registry`}
-                aria-label="View in registry"
-                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
-              >
-                <Boxes className="w-4 h-4" />
-              </Link>
-            )}
-            {canWrite && canModify(plugin, pluginGateOpts) && (
-              <IconButton tone="danger" title="Delete plugin" aria-label="Delete plugin" onClick={() => del.open(plugin)}>
-                <Trash2 className="h-4 w-4" />
-              </IconButton>
-            )}
-          </div>
-        );
-      },
-    },
-  ], [isSuperAdmin, canWrite, canBulk, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
+  const openDelete = del.open;
+  const pluginColumns = usePluginColumns({
+    selectable: canBulk,
+    selectedIds,
+    onToggleSelect: selection.toggle,
+    favorites,
+    onToggleFavorite: handleToggleFavorite,
+    usage: pluginUsage,
+    canWriteRow,
+    showRegistryLink: isSuperAdmin,
+    onView: setViewPlugin,
+    onEdit: setEditPlugin,
+    onDelete: openDelete,
+  });
 
   // ── Render ──
 
@@ -583,7 +336,7 @@ export default function PluginsPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify({ visibility: r.visibility, createdBy: r.createdBy }, pluginGateOpts)} />
+          <RecentlyDeletedPanel resource="plugin" onRestored={afterWrite} canRestoreRow={(r) => canWriteRow({ visibility: r.visibility, createdBy: r.createdBy })} />
         ) : (
         <>
         {/* Sticky search + advanced-filter panel stays above the list shell.
@@ -664,7 +417,7 @@ export default function PluginsPage() {
         </div>
 
         {/* Spacer when sticky bulk bar is visible */}
-        {canBulk && selectedIds.size > 0 && <div className="h-16" />}
+        {canBulk && <BulkActionBarSpacer count={selectedIds.size} />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -673,7 +426,7 @@ export default function PluginsPage() {
             filters are active because ResourceList's built-in
             `filteredEmptyState` keys off the filter input it renders itself,
             and our filter input lives in FilterBar above. */}
-        <ResourceList<Plugin>
+        <ResourceList<PluginSummary>
           loading={list.isLoading}
           error={list.error}
           onRefresh={list.refresh}
@@ -721,7 +474,7 @@ export default function PluginsPage() {
           canPublish={canPublish}
           initialTab={createInitialTab}
           onClose={() => setCreateInitialTab(null)}
-          onCreated={list.refresh}
+          onCreated={afterWrite}
         />
       )}
 
@@ -740,88 +493,22 @@ export default function PluginsPage() {
       )}
 
       {editPlugin && (
-        <EditPluginModal plugin={editPlugin} canPublish={canPublish} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
+        <EditPluginModal plugin={editPlugin} canPublish={canPublish} onClose={() => setEditPlugin(null)} onSaved={refreshList} />
       )}
 
       {viewPlugin && (
-        <Modal title={viewPlugin.name} onClose={() => setViewPlugin(null)} maxWidth="max-w-lg">
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <Detail label="Version" value={viewPlugin.version} />
-              <Detail label="Category" value={viewPlugin.category || '—'} />
-              <Detail label="Type" value={viewPlugin.pluginType} />
-              <Detail label="Compute" value={viewPlugin.computeType} />
-              <Detail label="Access" value={viewPlugin.visibility} />
-              <Detail label="Timeout" value={viewPlugin.timeout ? `${viewPlugin.timeout} min` : '—'} />
-              <Detail label="Active" value={viewPlugin.isActive ? 'Yes' : 'No'} />
-              <Detail label="Default" value={viewPlugin.isDefault ? 'Yes' : 'No'} />
-            </div>
-            {viewPlugin.description && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</p>
-                <p className="text-gray-900 dark:text-gray-100">{viewPlugin.description}</p>
-              </div>
-            )}
-            {viewPlugin.keywords && viewPlugin.keywords.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Keywords</p>
-                <div className="flex flex-wrap gap-1">
-                  {viewPlugin.keywords.map((k: string, i: number) => (
-                    <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{k}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {viewPlugin.uri && (
-              <div>
-                <Detail label="URI" value={viewPlugin.uri} />
-                {(() => {
-                  const parsed = isSuperAdmin ? parsePluginUri(viewPlugin.uri) : null;
-                  if (!parsed) return null;
-                  return (
-                    <Link
-                      href={`/dashboard/registry?repo=${encodeURIComponent(parsed.repo)}&tag=${encodeURIComponent(parsed.tag)}`}
-                      className="action-link inline-flex items-center gap-1 mt-1 text-xs"
-                    >
-                      <Boxes className="w-3.5 h-3.5" />
-                      Browse this image in the registry
-                    </Link>
-                  );
-                })()}
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
-              <div>Created: {formatDateTime(viewPlugin.createdAt)}</div>
-              <div>Updated: {formatDateTime(viewPlugin.updatedAt)}</div>
-            </div>
-          </div>
-        </Modal>
+        <PluginDetailModal plugin={viewPlugin} showRegistryLink={isSuperAdmin} onClose={() => setViewPlugin(null)} />
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {canBulk && selectedIds.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
-          <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {selectedIds.size} selected
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(true)} disabled={bulkLoading}>
-                Activate
-              </Button>
-              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
-                Deactivate
-              </Button>
-              <Button variant="danger" size="xs" onClick={() => setShowBulkDelete(true)} disabled={bulkLoading}>
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete
-              </Button>
-              <IconButton onClick={clearSelection} title="Clear selection" aria-label="Clear selection">
-                <X className="w-4 h-4" />
-              </IconButton>
-            </div>
-          </div>
-        </div>
+      {canBulk && (
+        <BulkActionBar
+          count={selectedIds.size}
+          busy={bulkLoading}
+          onActivate={(isActive) => void handleBulkActivate(isActive)}
+          onDelete={() => setShowBulkDelete(true)}
+          onClear={clearSelection}
+        />
       )}
     </DashboardLayout>
   );

@@ -7,9 +7,23 @@
  * Redirects unauthenticated users to the login page, and enforces the route's
  * read gate — org-admin / system-admin / a fine-grained permission. The gate is
  * resolved from `src/lib/page-access.ts`, which derives it from the SAME
- * `NAV_SECTIONS` declaration the sidebar filters on, so a page needs no options
- * and the two can't drift. Explicit options still win when a page needs more
- * than its nav entry says.
+ * `NAV_SECTIONS` declaration the sidebar filters on, so the two can't drift.
+ *
+ * CONVENTION — call it with NO options: `const { accessDenied, … } = useAuthGuard();`
+ *  - A page's read gate lives in ONE place: its nav entry (`NavItem`
+ *    `requiredPermission` / `adminOnly` / `systemAdminOnly`, with `paletteOnly`
+ *    for a page that shouldn't get a sidebar row), or — for a page with no nav
+ *    entry (detail routes, forwarding pages) — `EXTRA_PAGE_GATES` in
+ *    `page-access.ts`. `test/page-access.test.ts` fails for an undeclared page.
+ *  - Do NOT restate that gate as options here. A copy can only drift: the
+ *    parity test rejects options that DISAGREE with the declaration, and
+ *    options that agree are noise.
+ *  - Options are for what a route table can't say: `allowOnboarding` (the
+ *    onboarding page itself), or a gate STRICTER than the declared one. They
+ *    override per requirement, so a page can ask for more, never less by
+ *    omission.
+ *  - Entitlements (`requiredFeature`) are not read gates: a page on a plan that
+ *    lacks the feature renders its upsell (`useFeatureGate` / `FeatureLock`).
  *
  * An authorization failure surfaces as `accessDenied` (render
  * `<AccessDenied>`), NOT as a redirect: a deep link, a bookmark or a
@@ -50,11 +64,11 @@ export interface AccessDenial {
 }
 
 /**
- * Guards a page route by checking authentication and role requirements.
- * Redirects to `/` (landing page) if not authenticated, or to `/dashboard` if
- * the user lacks the required admin privileges.
+ * Guards a page route by checking authentication and its declared read gate.
+ * Redirects to `/` (landing page) if not authenticated and to onboarding while
+ * that's pending; an authorization failure is reported as `accessDenied`.
  *
- * @param options - Optional role requirements (admin, system admin)
+ * @param options - Rarely needed; see the convention in the module comment.
  * @returns User info, role flags, readiness state, and auth action callbacks
  */
 export function useAuthGuard(options?: AuthGuardOptions) {

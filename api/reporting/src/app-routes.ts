@@ -13,6 +13,7 @@ import { createIngestHealthRoutes } from './routes/ingest-health.js';
 import { createPluginReportRoutes } from './routes/plugin-reports.js';
 import { createReportSettingsRoutes } from './routes/report-settings.js';
 import { createRetentionSyncRoutes } from './routes/retention-sync.js';
+import { createRetentionRoutes } from './routes/retention.js';
 
 /** Dependencies the route factories need. */
 export interface ReportingRouteDeps {
@@ -84,6 +85,13 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // org-admin `org:settings` gate inside the router. Distinct prefix so requireAuth
   // doesn't double-run.
   app.use('/reports/settings', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), requireFeature('advanced_reporting'), createReportSettingsRoutes());
+
+  // The org's effective retention horizon, read-only. `reports:read` only — NOT
+  // `advanced_reporting`: the Retention Pack is sold to every tier and widens the
+  // standard reports, so the Reports date-range cap must be readable without the
+  // DORA entitlement. Distinct from `/reports/retention-sync` (express matches
+  // whole path segments, so this mount never sees the machine sync leg).
+  app.use('/reports/retention', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createRetentionRoutes());
 
   // Inbound billing → reporting retention sync (Phase 8). MACHINE write: billing
   // pushes the account's effective retention entitlement (tier baseline + purchased

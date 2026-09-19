@@ -19,6 +19,7 @@ const mockGroupCreate = jest.fn();
 const mockGroupFind = jest.fn();
 const mockGroupFindOne = jest.fn();
 const mockGroupExists = jest.fn();
+const mockGroupCount = jest.fn();
 const mockGmCreate = jest.fn();
 const mockGmFind = jest.fn();
 const mockGmUpdateOne = jest.fn();
@@ -58,6 +59,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     find: (...a: unknown[]) => mockGroupFind(...a),
     findOne: (...a: unknown[]) => mockGroupFindOne(...a),
     exists: (...a: unknown[]) => mockGroupExists(...a),
+    countDocuments: (...a: unknown[]) => mockGroupCount(...a),
   },
   RoleAssignment: {
     create: (...a: unknown[]) => mockGmCreate(...a),
@@ -77,7 +79,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
 }));
 
-const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole, grantPlatformAdmin, revokePlatformAdmin, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
+const { listRolesWithMembers, seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole, grantPlatformAdmin, revokePlatformAdmin, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
 const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
 
 // Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to
@@ -816,5 +818,63 @@ describe('assertActorMayAssignBuiltinAdmin — Admin-role grant ceiling outside 
     await assertActorMayAssignBuiltinAdmin('org-1', orgAdminActor);
     await assertActorMayAssignBuiltinAdmin('org-1', superAdminActor);
     expect(mockGroupFindOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('listRolesWithMembers — paging', () => {
+  /** Role.find().sort()[.skip().limit()].lean() → roles; records skip/limit. */
+  let skipped: number | undefined;
+  let limited: number | undefined;
+  const roleRows = [
+    { _id: 'r-admin', name: 'Admin', grantsRole: 'admin', permissions: ['org:settings'], system: true },
+    { _id: 'r-qa', name: 'QA', grantsRole: 'member', permissions: [], system: false },
+  ];
+  beforeEach(() => {
+    skipped = undefined;
+    limited = undefined;
+    const chain: any = {
+      skip: (n: number) => { skipped = n; return chain; },
+      limit: (n: number) => { limited = n; return chain; },
+      lean: () => Promise.resolve(roleRows),
+    };
+    mockGroupFind.mockReturnValue({ sort: () => chain });
+    mockGroupCount.mockResolvedValue(7);
+    mockGmFind.mockReturnValue({
+      populate: () => ({
+        lean: () => Promise.resolve([
+          { roleId: 'r-qa', userId: { _id: 'u1', username: 'ann', email: 'ann@x.io' } },
+          { roleId: 'r-qa', userId: null }, // deleted user — skipped
+        ]),
+      }),
+    });
+  });
+
+  it('returns every Role (no skip/limit) when no page is asked for, with the org-wide total', async () => {
+    const out = await listRolesWithMembers('org-1');
+
+    expect(skipped).toBeUndefined();
+    expect(limited).toBeUndefined();
+    expect(out.total).toBe(7);
+    expect(out.roles.map((r: any) => r.id)).toEqual(['r-admin', 'r-qa']);
+    expect(out.roles[1].members).toEqual([{ id: 'u1', username: 'ann', email: 'ann@x.io' }]);
+  });
+
+  it('pages the Roles and loads members only for the page\'s Roles', async () => {
+    const out = await listRolesWithMembers('org-1', { limit: 2, offset: 4 });
+
+    expect(skipped).toBe(4);
+    expect(limited).toBe(2);
+    expect(out.total).toBe(7);
+    const assignmentFilter = mockGmFind.mock.calls[0]![0] as any;
+    expect(assignmentFilter).toEqual({ organizationId: 'org-1', roleId: { $in: ['r-admin', 'r-qa'] } });
+  });
+
+  it('skips the assignment read for an empty page', async () => {
+    mockGroupFind.mockReturnValue({ sort: () => ({ skip: () => ({ limit: () => ({ lean: () => Promise.resolve([]) }) }) }) });
+
+    const out = await listRolesWithMembers('org-1', { limit: 20, offset: 40 });
+
+    expect(out).toEqual({ roles: [], total: 7 });
+    expect(mockGmFind).not.toHaveBeenCalled();
   });
 });

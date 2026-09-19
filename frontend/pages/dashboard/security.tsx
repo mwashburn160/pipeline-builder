@@ -14,7 +14,9 @@
  * Four sub-tabs, each a complete answer to one question:
  *   - Factors — how I prove it's me (password, passkeys, authenticator app);
  *   - Sessions — where I'm signed in, and what to kill;
- *   - Access keys — the long-lived credentials my machines use;
+ *   - Access keys — the long-lived credentials my machines use: minting a
+ *     machine token (lifetime + optional capability scope), the history of the
+ *     tokens I've been issued, and my access keys;
  *   - Service accounts — the org's machine identities (permission-gated).
  *
  * Old URLs still work: /dashboard/tokens and /dashboard/settings/service-accounts
@@ -23,8 +25,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, KeyRound, Lock, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ChevronRight, History, KeyRound, Lock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -39,8 +42,12 @@ import { Callout } from '@/components/ui/Callout';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Input } from '@/components/ui/Input';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { RetryError } from '@/components/ui/RetryError';
+import { Select } from '@/components/ui/Select';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { SecretReveal } from '@/components/ui/SecretReveal';
 import { AccessKeysSection } from '@/components/settings/AccessKeysSection';
@@ -48,9 +55,12 @@ import { PasskeySection } from '@/components/settings/PasskeySection';
 import { ServiceAccountsSection } from '@/components/settings/ServiceAccountsSection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
 import { TotpSection } from '@/components/settings/TotpSection';
+import { MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS } from '@/components/settings/token-scopes';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { formatDateTime } from '@/lib/format';
+import type { TokenHistoryEntry } from '@/lib/api/domains/auth';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 import { SECURITY_HASH_TABS, SECURITY_TABS, SECURITY_TAB_IDS, type SecurityTab } from '@/lib/security-links';
@@ -117,6 +127,7 @@ export default function SecurityPage() {
         {activeTab === 'keys' && (
           <div className="space-y-6">
             <MachineTokenSection readOnly={isReadOnly} />
+            <Anchor id="token-history"><TokenHistorySection /></Anchor>
             <Anchor id="access-keys"><AccessKeysSection readOnly={isReadOnly} /></Anchor>
           </div>
         )}
@@ -216,25 +227,36 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
   );
 }
 
+/** Lifetime presets for a machine token, in days (the API caps it at 365). */
+const TOKEN_LIFETIME_DAYS = [1, 7, 30, 90, 180, MAX_CREDENTIAL_DAYS] as const;
+const DEFAULT_TOKEN_DAYS = 30;
+
 /**
  * Mint a stored MACHINE credential (CLI / CI / the renewal Lambda).
  *
  * It opens its own machine session rather than replacing this tab's, and shows
- * up under Sessions → Machine credentials, where renewal can be stopped.
+ * up under Sessions → Machine credentials, where renewal can be stopped. The
+ * person picks its lifetime (1–365 days, the API's bounds) and, optionally, ONE
+ * capability scope — a scoped token carries none of their permissions, only
+ * that capability, which is what an automation that does one thing should hold.
  */
 function MachineTokenSection({ readOnly }: { readOnly: boolean }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setToken] = useState<{ value: string; expiresIn: number; scope: string } | null>(null);
+  const [days, setDays] = useState<number>(DEFAULT_TOKEN_DAYS);
+  const [scope, setScope] = useState('');
 
   const generate = async () => {
     setGenerating(true);
     setError(null);
     setToken(null);
     try {
-      const res = await api.generateNewToken();
+      const res = await api.generateNewToken({ expiresIn: days * 86400, ...(scope ? { scope } : {}) });
       if (!res.success || !res.data?.accessToken) throw new Error('Failed to generate token');
-      setToken(res.data.accessToken);
+      setToken({ value: res.data.accessToken, expiresIn: res.data.expiresIn, scope });
+      // A new issuance belongs in the history list below.
+      window.dispatchEvent(new Event(TOKEN_ISSUED_EVENT));
     } catch (err) {
       setError(formatError(err, 'Failed to generate token'));
     } finally {
@@ -250,18 +272,114 @@ function MachineTokenSection({ readOnly }: { readOnly: boolean }) {
     >
       <ErrorAlert message={error} />
 
-      <Button onClick={() => void generate()} loading={generating} readOnly={readOnly} className={error ? 'mt-4' : ''}>
-        {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
-      </Button>
+      <div className={`flex flex-wrap items-end gap-3 ${error ? 'mt-4' : ''}`}>
+        <FormField label="Expires after" className="w-40">
+          <Select
+            value={String(days)}
+            onChange={(e) => setDays(Number(e.target.value))}
+            disabled={generating || readOnly}
+          >
+            {TOKEN_LIFETIME_DAYS.map((d) => (
+              <option key={d} value={d}>{d === 1 ? '1 day' : `${d} days`}</option>
+            ))}
+          </Select>
+        </FormField>
+        <FormField
+          label="Capability"
+          className="min-w-[260px] flex-1"
+          hint={scope
+            ? 'Least privilege: the token can do only this, and carries none of your permissions.'
+            : 'The token acts with your full permissions in the active organization.'}
+        >
+          <Select value={scope} onChange={(e) => setScope(e.target.value)} disabled={generating || readOnly}>
+            <option value="">Your permissions (no scope)</option>
+            {TOKEN_SCOPE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </Select>
+        </FormField>
+        <Button onClick={() => void generate()} loading={generating} readOnly={readOnly}>
+          {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
+        </Button>
+      </div>
 
       {token && (
-        <SecretReveal
-          value={token}
-          label="Machine token"
-          filename="pipeline-builder-machine-token.txt"
-          onDone={() => setToken(null)}
-          className="mt-4"
-        />
+        <>
+          <p className="mt-4 text-sm text-[var(--pb-text-muted)]">
+            Valid for {Math.round(token.expiresIn / 86400)} day{Math.round(token.expiresIn / 86400) === 1 ? '' : 's'}
+            {token.scope ? <> · scoped to <code className="text-xs">{token.scope}</code></> : ' · full permissions'}.
+          </p>
+          <SecretReveal
+            value={token.value}
+            label="Machine token"
+            filename="pipeline-builder-machine-token.txt"
+            onDone={() => setToken(null)}
+            className="mt-2"
+          />
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Fired by the mint form so the history list re-reads without a shared store. */
+const TOKEN_ISSUED_EVENT = 'pb:machine-token-issued';
+
+const TOKEN_STATUS_COLOR: Record<TokenHistoryEntry['status'], 'green' | 'gray' | 'red'> = {
+  active: 'green',
+  expired: 'gray',
+  revoked: 'red',
+};
+
+/**
+ * The tokens this account has been issued (`GET /user/tokens`), newest first,
+ * each with where it stands now: `revoked` means a sign-out-everywhere came
+ * after it, `expired` that its lifetime ran out. The question it answers is
+ * "is anything I minted still live?" — which the sessions list only answers for
+ * credentials that are still renewing.
+ */
+function TokenHistorySection() {
+  const { data, loading, error, refetch } = useFetch(
+    async (signal) => (await api.listTokenHistory({ signal })).data?.tokens ?? [],
+    [],
+  );
+
+  useEffect(() => {
+    window.addEventListener(TOKEN_ISSUED_EVENT, refetch);
+    return () => window.removeEventListener(TOKEN_ISSUED_EVENT, refetch);
+  }, [refetch]);
+
+  return (
+    <SectionCard
+      icon={History}
+      title="Token history"
+      description="Tokens issued to this account, newest first. Revoked ones were cut off by a sign-out everywhere."
+    >
+      {error ? (
+        <RetryError message={error.message || 'Failed to load token history'} onRetry={refetch} />
+      ) : loading && !data ? (
+        <LoadingSpinner />
+      ) : !data || data.length === 0 ? (
+        <EmptyState icon={History} title="No tokens issued yet" description="Machine tokens you generate above are listed here." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-[var(--pb-text-muted)]">
+                <th className="py-2 pr-4 font-medium">Issued</th>
+                <th className="py-2 pr-4 font-medium">Expires</th>
+                <th className="py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--pb-border)]">
+              {data.map((t) => (
+                <tr key={t.id}>
+                  <td className="py-2 pr-4">{formatDateTime(t.createdAt)}</td>
+                  <td className="py-2 pr-4">{formatDateTime(t.expiresAt)}</td>
+                  <td className="py-2"><Badge color={TOKEN_STATUS_COLOR[t.status]}>{t.status}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </SectionCard>
   );

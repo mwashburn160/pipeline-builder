@@ -34,9 +34,6 @@ jest.mock('next/router', () => ({
   useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
 }));
 
-// ReportTabs is loaded via next/dynamic — stub it out.
-jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
-
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const getExecutionCount = jest.fn();

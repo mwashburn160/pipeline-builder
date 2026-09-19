@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useFetch } from '@/hooks/useFetch';
+import { RetryError } from '@/components/ui/RetryError';
 import { Sparkles } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -46,24 +48,17 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   // then forwarded to the PUT. Mirrors OrgKmsConfigModal.
   const [pendingOp, setPendingOp] = useState<{ type: 'add' } | { type: 'update'; id: string } | { type: 'remove'; id: string } | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await api.getOrgAIConfig();
-        if (cancelled) return;
-        if (response.data?.providers) {
-          setProviders(response.data.providers);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        // 404 = user doesn't have an org yet; not a real error.
-        if (err instanceof ApiError && err.statusCode === 404) return;
-        setError(formatError(err));
-      }
-    })();
-    return () => { cancelled = true; };
+  // The stored config seeds `providers`; each write then replaces it with the
+  // write's answer. 404 = the user has no org yet — an empty config, not an error.
+  const read = useFetch(async (signal) => {
+    try {
+      return (await api.getOrgAIConfig({ signal })).data?.providers ?? {};
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 404) return {};
+      throw err;
+    }
   }, []);
+  useEffect(() => { if (read.data) setProviders(read.data); }, [read.data]);
 
   const configuredIds = Object.entries(providers)
     .filter(([, s]) => s.configured)
@@ -164,6 +159,9 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
+      {read.error && (
+        <RetryError className="mb-4" message={formatError(read.error, 'Could not load AI providers')} onRetry={read.refetch} />
+      )}
 
       {/* Configured providers */}
       {configuredIds.length > 0 && (

@@ -58,7 +58,6 @@ jest.unstable_mockModule('mongoose', () => {
 const mockGetQuotaStatus = jest.fn<(...a: unknown[]) => Promise<{ used: number } | null | undefined>>();
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   getOrganizationQuotaStatus: mockGetQuotaStatus,
-  updateQuotaLimits: jest.fn(),
   QuotaType: {},
 }));
 

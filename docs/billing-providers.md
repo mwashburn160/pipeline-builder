@@ -80,7 +80,6 @@ Add-ons are charged as extra **subscription line items** on the same subscriptio
 | `storage_pack` | $19.99 | $199.90 | `storage_pack_monthly`, `storage_pack_annual` |
 | `retention_pack` | $15 | $150 | `retention_pack_monthly`, `retention_pack_annual` |
 | `dora_history_pack` | $30 | $300 | `dora_history_pack_monthly`, `dora_history_pack_annual` |
-| `audit_log` | $20 | $200 | `audit_log_monthly`, `audit_log_annual` |
 | `sso` | $40 | $400 | `sso_monthly`, `sso_annual` |
 | `advanced_reporting` | $30 | $300 | `advanced_reporting_monthly`, `advanced_reporting_annual` |
 | `team_usage_analytics` | $30 | $300 | `team_usage_analytics_monthly`, `team_usage_analytics_annual` |
@@ -107,7 +106,6 @@ STRIPE_PRICE_MAP='{
   "storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE",
   "retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE",
   "dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE",
-  "audit_log_monthly":"price_REPLACE","audit_log_annual":"price_REPLACE",
   "sso_monthly":"price_REPLACE","sso_annual":"price_REPLACE",
   "advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE",
   "team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE",
@@ -320,7 +318,6 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `storage_pack` | `StoragePack` | $19.99 (`1999`) | all |
 | `retention_pack` | `RetentionPack` | $15 (`1500`) | all (max 7) |
 | `dora_history_pack` | `DoraHistoryPack` | $30 (`3000`) | all (max 1) |
-| `audit_log` | `AuditLog` | $20 (`2000`) | pro |
 | `sso` | `Sso` | $40 (`4000`) | pro |
 | `advanced_reporting` | `AdvancedReporting` | $30 (`3000`) | developer, pro, team |
 | `team_usage_analytics` | `TeamUsageAnalytics` | $30 (`3000`) | pro, team |
@@ -328,9 +325,9 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `compliance_advanced` | `ComplianceAdvanced` | $99.90 (`9990`) | developer, pro, team |
 
 ```bash
-AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","audit_log":"AuditLog","sso":"Sso","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced"}'
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","sso":"Sso","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"RetentionPack":1500,"DoraHistoryPack":3000,"AuditLog":2000,"Sso":4000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"RetentionPack":1500,"DoraHistoryPack":3000,"Sso":4000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990}'
 ```
 
 Only list the add-ons you actually sell on Marketplace — a bundle with no dimension mapping isn't metered, and a dimension with no price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is reported in full (never drawn against for credit). Tier availability (the "Available tiers" column) is enforced separately by `BILLING_BUNDLE_<ID>_TIERS`.

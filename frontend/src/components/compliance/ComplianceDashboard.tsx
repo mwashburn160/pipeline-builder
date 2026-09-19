@@ -8,6 +8,7 @@ import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { Button } from '@/components/ui/Button';
 import { TabBar } from '@/components/ui/TabBar';
+import { RetryError } from '@/components/ui/RetryError';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -87,6 +88,28 @@ function readViolation(raw: Record<string, unknown>) {
   };
 }
 
+const ACTIVITY_TABS = [
+  { id: 'checks', label: 'Recent check results' },
+  { id: 'changes', label: 'Recent changes' },
+] as const;
+type ActivityTab = (typeof ACTIVITY_TABS)[number]['id'];
+const ACTIVITY_TAB_IDS: readonly ActivityTab[] = ACTIVITY_TABS.map((t) => t.id);
+
+/**
+ * The `action` values the compliance check log records: the validate routes
+ * (`upload` for plugins, `create` for pipelines), scans, and the entity-event
+ * re-checks fired on create/update/delete.
+ */
+const AUDIT_ACTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'All actions' },
+  { value: 'upload', label: 'Plugin upload' },
+  { value: 'create', label: 'Pipeline create' },
+  { value: 'scan', label: 'Scan' },
+  { value: 'created', label: 'Entity created' },
+  { value: 'updated', label: 'Entity updated' },
+  { value: 'deleted', label: 'Entity deleted' },
+];
+
 function TabSpinner() {
   return <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" /></div>;
 }
@@ -115,6 +138,8 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Audit log filters & pagination
   const [auditTarget, setAuditTarget] = useState('');
   const [auditResult, setAuditResult] = useState('');
+  // What produced the check (upload/create validation, a scan, an entity event).
+  const [auditAction, setAuditAction] = useState('');
   // Date-range scope (empty = unbounded). `getComplianceAuditLog` accepts
   // dateFrom/dateTo; the result filter already exists as a select above.
   const [auditDateFrom, setAuditDateFrom] = useState('');
@@ -131,6 +156,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       const params: Record<string, string | number> = { limit, offset };
       if (auditTarget) params.target = auditTarget;
       if (auditResult) params.result = auditResult;
+      if (auditAction) params.action = auditAction;
       if (auditDateFrom) params.dateFrom = auditDateFrom;
       if (auditDateTo) params.dateTo = auditDateTo;
       const res = await api.getComplianceAuditLog(params);
@@ -147,7 +173,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     } catch {
       if (auditGenRef.current === gen) setAuditError('Failed to load audit log');
     }
-  }, [auditTarget, auditResult, auditDateFrom, auditDateTo, auditPagination.offset, auditPagination.limit]);
+  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo, auditPagination.offset, auditPagination.limit]);
 
   // Pass/warn/block counts come from dedicated `result=` queries that ask
   // for `limit:1` and read `pagination.total`. We can't derive the totals
@@ -176,7 +202,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Reset to page 1 when filters change.
   useEffect(() => {
     setAuditPagination(prev => ({ ...prev, offset: 0 }));
-  }, [auditTarget, auditResult, auditDateFrom, auditDateTo]);
+  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo]);
 
   // Refetch the audit log when the filters change. The previous
   // `filtersActive` truthy-string indirection skipped fetches when both
@@ -190,7 +216,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     // fetchAudit closes over the same deps; we want to fire only when the
     // user-facing filters change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auditTarget, auditResult, auditDateFrom, auditDateTo]);
+  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo]);
 
   const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
   const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
@@ -236,24 +262,21 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
 
   return (
     <div className="space-y-4">
-      {/* Level 1 — top-level sections (4, not a flat run of 10 tabs). */}
-      <nav className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto" aria-label="Compliance sections">
-        {SECTIONS.map(({ id, label, icon: Icon, tabs }) => {
-          const active = activeSection.id === id;
-          return (
-            <button
-              key={id}
-              onClick={() => { if (!active) setTab(tabs[0]); }}
-              aria-current={active ? 'page' : undefined}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
-            >
-              <Icon className="h-4 w-4" /> {label}
-            </button>
-          );
-        })}
-      </nav>
+      {/* Level 1 — top-level sections (4, not a flat run of 10 tabs). Selecting a
+          section opens its first view; the view itself lives in `?view=`. */}
+      <TabBar
+        items={SECTIONS.map(({ id, label, icon: Icon }) => ({
+          id,
+          label: <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Icon className="h-4 w-4" /> {label}</span>,
+        }))}
+        activeId={activeSection.id}
+        onSelect={(id) => {
+          const section = SECTIONS.find((s) => s.id === id);
+          if (section && section.id !== activeSection.id) setTab(section.tabs[0]);
+        }}
+        ariaLabel="Compliance sections"
+        className="!mb-0"
+      />
 
       {/* Level 2 — sub-tabs for the active section (hidden for Overview). */}
       {subTabs.length > 0 && (
@@ -289,8 +312,10 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
             onRetryAudit={() => fetchAudit()}
             auditTarget={auditTarget}
             auditResult={auditResult}
+            auditAction={auditAction}
             onTargetChange={setAuditTarget}
             onResultChange={setAuditResult}
+            onActionChange={setAuditAction}
             onGoToRules={() => setTab('rules')}
             auditDateFrom={auditDateFrom}
             auditDateTo={auditDateTo}
@@ -343,14 +368,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
  * recent, so it answers "what changed lately?" at a glance. `changes === null` = loading.
  */
 function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntry[] | null; error: string | null; onRetry: () => void }) {
-  if (error) {
-    return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-        <span>{error}</span>
-        <button onClick={onRetry} className="underline hover:no-underline shrink-0">Retry</button>
-      </div>
-    );
-  }
+  if (error) return <RetryError message={error} onRetry={onRetry} />;
   if (changes === null) return <TabSpinner />;
   if (changes.length === 0) {
     return <div className="text-center py-6 text-sm text-gray-400">No compliance changes recorded yet.</div>;
@@ -387,8 +405,10 @@ interface OverviewProps {
   onRetryAudit: () => void;
   auditTarget: string;
   auditResult: string;
+  auditAction: string;
   onTargetChange: (v: string) => void;
   onResultChange: (v: string) => void;
+  onActionChange: (v: string) => void;
   onGoToRules: () => void;
   auditDateFrom: string;
   auditDateTo: string;
@@ -399,7 +419,7 @@ interface OverviewProps {
   onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, onGoToRules, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, auditAction, onTargetChange, onResultChange, onActionChange, onGoToRules, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
   // Inline drill-in: which row is expanded to show its violations/metadata.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -407,7 +427,8 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
   // compact, action-oriented "Recent changes" list (create/update/delete). Both
   // read the compliance audit trail; changes are fetched lazily the first time
   // that tab is opened (unfiltered, most-recent) so the default view costs nothing.
-  const [activityTab, setActivityTab] = useState<'checks' | 'changes'>('checks');
+  // In `?activity=` like the dashboard's own view, so "Recent changes" is linkable.
+  const [activityTab, setActivityTab] = useUrlTab<ActivityTab>('activity', ACTIVITY_TAB_IDS, 'checks');
   const [changes, setChanges] = useState<ComplianceAuditEntry[] | null>(null);
   const [changesError, setChangesError] = useState<string | null>(null);
   useEffect(() => {
@@ -459,7 +480,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
     onDateToChange(to.toISOString().slice(0, 10));
   };
   const allDatesActive = !auditDateFrom && !auditDateTo;
-  const filtersActive = Boolean(auditResult || auditTarget || auditDateFrom || auditDateTo);
+  const filtersActive = Boolean(auditResult || auditTarget || auditAction || auditDateFrom || auditDateTo);
 
   return (
     <div className="space-y-6">
@@ -503,9 +524,10 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
         <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100 dark:border-gray-800 gap-2 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <TabBar
-              items={[{ id: 'checks', label: 'Recent check results' }, { id: 'changes', label: 'Recent changes' }]}
+              items={ACTIVITY_TABS}
               activeId={activityTab}
-              onSelect={(id) => setActivityTab(id as 'checks' | 'changes')}
+              onSelect={(id) => setActivityTab(id as ActivityTab)}
+              ariaLabel="Compliance activity"
             />
             {activityTab === 'checks' && auditResult && (
               <Button variant="link" onClick={() => onResultChange('')} className="text-xs font-normal">
@@ -540,6 +562,13 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               <option value="pass">Pass</option>
               <option value="warn">Warn</option>
               <option value="block">Block</option>
+            </FilterSelect>
+            <FilterSelect
+              value={auditAction}
+              onChange={e => onActionChange(e.target.value)}
+              aria-label="Filter audit log by action"
+            >
+              {AUDIT_ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
             </FilterSelect>
             {/* Date range: quick presets + custom inputs (empty = unbounded). */}
             <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
@@ -582,10 +611,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
         {activityTab === 'changes' ? (
           <ChangesFeed changes={changes} error={changesError} onRetry={() => { setChanges(null); setChangesError(null); }} />
         ) : auditError ? (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-            <span>{auditError}</span>
-            <button onClick={onRetryAudit} className="underline hover:no-underline shrink-0">Retry</button>
-          </div>
+          <RetryError message={auditError} onRetry={onRetryAudit} />
         ) : audit.length === 0 ? (
           <div className="text-center py-6 text-sm text-gray-400">
             {filtersActive ? 'No checks match these filters.' : 'No check results recorded yet.'}

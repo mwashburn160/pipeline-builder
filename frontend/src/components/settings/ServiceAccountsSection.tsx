@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState, type ReactNode } from 'react';
-import { Bot, KeyRound, Plus, Power, Trash2 } from 'lucide-react';
+import { Bot, Eye, KeyRound, Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -19,6 +19,8 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccessKeyTable } from '@/components/settings/AccessKeyTable';
+import { ServiceAccountDrawer } from '@/components/settings/ServiceAccountDrawer';
+import { TOKEN_SCOPE_OPTIONS } from '@/components/settings/token-scopes';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
@@ -35,21 +37,24 @@ interface ServiceAccountsData {
 const EMPTY: ServiceAccountsData = { accounts: [], billing: null, roles: [] };
 
 /**
- * Capability scopes a key may carry INSTEAD of the account's roles (#12). A
- * scoped key exchanges to a token with no permissions at all, so it can do the
- * one thing named here and nothing else — which is what every automation that
- * does exactly one thing should hold. Mirrors api-core's `TOKEN_SCOPES`; a value
- * outside that catalog is refused by the API.
+ * Parse the token-budget field: empty = unlimited (-1), otherwise a whole number
+ * of exchanges per period, at least 1 — the same rule as the API's schema.
+ * Returns null for anything else.
  */
-const KEY_SCOPES: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'reporting:ingest', label: 'reporting:ingest — post pipeline events / incidents' },
-  { value: 'registry:push', label: 'registry:push — push images to this org’s namespace' },
-  { value: 'scim', label: 'scim — provision members from your identity provider (SCIM 2.0)' },
-];
+export function parseTokenBudget(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return -1;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+}
+
+const BUDGET_HINT = 'Token exchanges per period. Leave empty for unlimited.';
 
 /** A pending step-up-gated action, held until the user re-confirms. */
 type PendingAction =
-  | { kind: 'create'; name: string; description?: string; roleIds: string[] }
+  | { kind: 'create'; name: string; description?: string; roleIds: string[]; tokenBudget: number }
+  | { kind: 'details'; accountId: string; accountName: string; changes: { description?: string | null; tokenBudget?: number } }
   | { kind: 'key'; accountId: string; accountName: string; name: string; expiresIn: number; ipAllowlist: string[]; scope: string }
   | { kind: 'toggle'; accountId: string; accountName: string; disabled: boolean }
   | { kind: 'roles'; accountId: string; accountName: string; roleIds: string[]; roleNames: string[] }
@@ -82,6 +87,11 @@ function sameRoleSet(a: readonly string[], b: readonly string[]): boolean {
  *   - Revoking a key is a plain confirm: the server deliberately does not gate
  *     revocation, so a compromised key is always killable.
  *
+ * Every field the update API takes has a control: roles (above), enable/disable,
+ * and — through Edit — the description and the token budget (also settable at
+ * create; empty = unlimited). Details opens {@link ServiceAccountDrawer}, a
+ * fresh read of the one account with its effective permissions and keys.
+ *
  * Its keys are rendered by the shared {@link AccessKeyTable}, the same rows the
  * personal access-keys panel shows — including the never-used / expiring-soon
  * flags that the hand-rolled list here used to omit.
@@ -105,6 +115,12 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [budget, setBudget] = useState('');
+  // Inline editor for an account's description + budget (the other PATCH fields
+  // — roles and disabled — have their own controls on the card).
+  const [detailsDraft, setDetailsDraft] = useState<{ accountId: string; description: string; budget: string } | null>(null);
+  // The account open in the detail drawer.
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -135,7 +151,31 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       toast.error('Name must be 2-64 characters: lowercase letters, digits, hyphen or underscore');
       return;
     }
-    setPending({ kind: 'create', name: trimmed, description: description.trim() || undefined, roleIds });
+    const tokenBudget = parseTokenBudget(budget);
+    if (tokenBudget === null) {
+      toast.error('Token budget must be a whole number of at least 1, or empty for unlimited');
+      return;
+    }
+    setPending({ kind: 'create', name: trimmed, description: description.trim() || undefined, roleIds, tokenBudget });
+  };
+
+  /** Validate the description/budget editor and hold the changed fields for step-up. */
+  const handleDetailsSave = () => {
+    if (!detailsDraft) return;
+    const account = data.accounts.find((a) => a.id === detailsDraft.accountId);
+    if (!account) return;
+    const tokenBudget = parseTokenBudget(detailsDraft.budget);
+    if (tokenBudget === null) {
+      toast.error('Token budget must be a whole number of at least 1, or empty for unlimited');
+      return;
+    }
+    const nextDescription = detailsDraft.description.trim();
+    const changes: { description?: string | null; tokenBudget?: number } = {};
+    // `null` clears the description on the server; an unchanged value isn't sent.
+    if (nextDescription !== (account.description ?? '')) changes.description = nextDescription || null;
+    if (tokenBudget !== account.tokenBudget) changes.tokenBudget = tokenBudget;
+    if (Object.keys(changes).length === 0) { setDetailsDraft(null); return; }
+    setPending({ kind: 'details', accountId: account.id, accountName: account.name, changes });
   };
 
   const handleKeyCreate = () => {
@@ -165,11 +205,18 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
           name: pending.name,
           ...(pending.description ? { description: pending.description } : {}),
           roleIds: pending.roleIds,
+          tokenBudget: pending.tokenBudget,
         }, stepUpToken);
         if (res.success) {
           toast.success('Service account created');
-          setName(''); setDescription(''); setRoleIds([]);
+          setName(''); setDescription(''); setBudget(''); setRoleIds([]);
         } else toast.error('Failed to create service account');
+      } else if (pending.kind === 'details') {
+        const res = await api.updateServiceAccount(orgId, pending.accountId, pending.changes, stepUpToken);
+        if (res.success) {
+          toast.success('Service account updated');
+          setDetailsDraft(null);
+        } else toast.error('Failed to update service account');
       } else if (pending.kind === 'key') {
         setNewKey(null);
         const res = await api.createServiceAccountKey(orgId, pending.accountId, {
@@ -235,8 +282,35 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         return {
           title: 'Create this service account?',
           action: `Create the service account “${action.name}”`,
-          details: <p>It takes no seat, holds the roles you ticked, and can be given keys that act with them.</p>,
+          details: (
+            <p>
+              It takes no seat, holds the roles you ticked, and can be given keys that act with them.{' '}
+              {action.tokenBudget === -1
+                ? 'Its keys may exchange for tokens without limit.'
+                : `Its keys may exchange for at most ${action.tokenBudget} tokens per period.`}
+            </p>
+          ),
         };
+      case 'details': {
+        const { description: nextDescription, tokenBudget } = action.changes;
+        return {
+          title: 'Update this service account?',
+          action: `Update ${action.accountName}`,
+          details: (
+            <ul className="list-disc pl-5 space-y-1">
+              {nextDescription !== undefined && (
+                <li>Description: {nextDescription ? `“${nextDescription}”` : 'cleared'}</li>
+              )}
+              {tokenBudget !== undefined && (
+                <li>
+                  Token budget: {tokenBudget === -1 ? 'unlimited' : `${tokenBudget} exchanges per period`}. A lower
+                  budget can refuse its keys&apos; next exchanges this period.
+                </li>
+              )}
+            </ul>
+          ),
+        };
+      }
       case 'key':
         return {
           title: 'Issue a key?',
@@ -308,6 +382,9 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         <FormField label="Description" className="flex-1 min-w-[180px]">
           <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deploys from CI" maxLength={256} disabled={busy || readOnly} />
         </FormField>
+        <FormField label="Token budget" className="w-44" hint={BUDGET_HINT}>
+          <Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Unlimited" inputMode="numeric" disabled={busy || readOnly} />
+        </FormField>
         <Button onClick={handleCreate} loading={busy && pending?.kind === 'create'} readOnly={readOnly} className="gap-1">
           <Plus className="w-4 h-4" /> Create
         </Button>
@@ -378,6 +455,28 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                       variant="ghost"
                       size="xs"
                       className="gap-1"
+                      onClick={() => setViewingId(account.id)}
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Details
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1"
+                      readOnly={readOnly}
+                      disabled={busy}
+                      onClick={() => setDetailsDraft({
+                        accountId: account.id,
+                        description: account.description ?? '',
+                        budget: account.tokenBudget === -1 ? '' : String(account.tokenBudget),
+                      })}
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1"
                       readOnly={readOnly}
                       disabled={busy}
                       onClick={() => setPending({
@@ -410,6 +509,30 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                     </Button>
                   </div>
                 </div>
+
+                {detailsDraft?.accountId === account.id && (
+                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md bg-[var(--pb-surface-muted)] p-2">
+                    <FormField label="Description" className="flex-1 min-w-[180px]" hint="Leave empty to clear it.">
+                      <Input
+                        value={detailsDraft.description}
+                        onChange={(e) => setDetailsDraft({ ...detailsDraft, description: e.target.value })}
+                        maxLength={256}
+                        aria-label={`Description for ${account.name}`}
+                      />
+                    </FormField>
+                    <FormField label="Token budget" className="w-44" hint={BUDGET_HINT}>
+                      <Input
+                        value={detailsDraft.budget}
+                        onChange={(e) => setDetailsDraft({ ...detailsDraft, budget: e.target.value })}
+                        placeholder="Unlimited"
+                        inputMode="numeric"
+                        aria-label={`Token budget for ${account.name}`}
+                      />
+                    </FormField>
+                    <Button size="xs" onClick={handleDetailsSave} readOnly={readOnly} loading={busy && pending?.kind === 'details'}>Save</Button>
+                    <Button variant="ghost" size="xs" onClick={() => setDetailsDraft(null)}>Cancel</Button>
+                  </div>
+                )}
 
                 {/* Roles — the account's authority, edited as a SET and saved once. */}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -499,13 +622,25 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
             >
               <Select value={keyDraft.scope} onChange={(e) => setKeyDraft({ ...keyDraft, scope: e.target.value })}>
                 <option value="">Account roles (no scope)</option>
-                {KEY_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {TOKEN_SCOPE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </Select>
             </FormField>
             <Button onClick={handleKeyCreate} loading={busy && pending?.kind === 'key'} readOnly={readOnly}>Issue key</Button>
             <Button variant="ghost" onClick={() => setKeyDraft(null)}>Cancel</Button>
           </div>
         </div>
+      )}
+
+      {viewingId && (
+        <ServiceAccountDrawer
+          orgId={orgId}
+          accountId={viewingId}
+          version={data}
+          readOnly={readOnly}
+          revokingKeyId={revokingKeyId}
+          onRevokeKey={(account, key) => setPendingKeyRevoke({ account, keyId: key.id, keyName: key.name })}
+          onClose={() => setViewingId(null)}
+        />
       )}
 
       {pending && (

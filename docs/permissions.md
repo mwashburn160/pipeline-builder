@@ -212,7 +212,7 @@ enforced — `route` (a `requireFeature` middleware, visible in the route table)
 entitlement) or `entitlement-only` (nothing in the API checks it). Only the first
 two get a UI lock, rendered by `FeatureLock` / `FeatureLockedAction`, which name
 the entitlement and link to the matching add-on. `entitlement-only` flags
-(`priority_support`, `custom_integrations`, `audit_log`) deliberately gate
+(`priority_support`, `custom_integrations`) deliberately gate
 nothing: locking a control the API serves would take capability away from an org
 that has it. The parity test enforces both halves.
 
@@ -369,7 +369,11 @@ refused. Without `orgId`, the session is for the user's active organization.
 page (`/dashboard/access-requests`, under Home in the sidebar). It lists live
 sessions on your own account, sessions you opened, and — for an organization
 admin — sessions on your organization's members, each with an **End session**
-button. Ending a session takes effect immediately; it never asks for confirmation.
+button. Ending a session takes effect immediately after one plain confirmation —
+never a step-up, so stopping access is never harder than granting it — because
+it can't be undone: to look again the operator must ask, and be approved, again.
+Each list on the page is paged (`GET /api/admin/impersonate/requests?view=…&limit=&offset=`,
+newest first, returning `pagination.total`).
 
 **Stop impersonating** ends the session on the server as well as in the browser,
 so the token stops working rather than remaining valid until it expires.

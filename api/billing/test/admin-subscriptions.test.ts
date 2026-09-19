@@ -581,15 +581,15 @@ describe('PUT /admin/subscriptions/:id', () => {
       planId: 'pro',
       interval: 'monthly',
       externalId: 'ext-admin-1',
-      addons: [{ bundleId: 'audit_log', quantity: 1 }, { bundleId: 'seat_pack', quantity: 2 }],
+      addons: [{ bundleId: 'bulk_operations', quantity: 1 }, { bundleId: 'seat_pack', quantity: 2 }],
     });
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockPlanFindOne.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'team' } });
 
-    // team bundles in audit_log → dropped; the quota pack (seat_pack) is retained.
+    // team bundles in bulk_operations → dropped; the quota pack (seat_pack) is retained.
     const reduced = [{ bundleId: 'seat_pack', quantity: 2 }];
-    const pruned = [{ bundleId: 'audit_log', features: ['audit_log'] }];
+    const pruned = [{ bundleId: 'bulk_operations', features: ['bulk_operations'] }];
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
 
     await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
@@ -615,13 +615,13 @@ describe('PUT /admin/subscriptions/:id', () => {
   it('does NOT finalize a prune when subscription.save() rejects (drift guard)', async () => {
     const sub = makeSubscription({
       planId: 'developer',
-      addons: [{ bundleId: 'audit_log', quantity: 1 }],
+      addons: [{ bundleId: 'bulk_operations', quantity: 1 }],
       save: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('write conflict')),
     });
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockPlanFindOne.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'team' } });
-    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = []; return [{ bundleId: 'audit_log', features: ['audit_log'] }]; });
+    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = []; return [{ bundleId: 'bulk_operations', features: ['bulk_operations'] }]; });
 
     await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
 

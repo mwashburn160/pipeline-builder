@@ -55,6 +55,8 @@ export interface ObservabilityLogsParams {
   event?: string;
   /** Actor id or email. */
   actor?: string;
+  /** One HTTP request's id — pulls every audited action that request made. */
+  requestId?: string;
 }
 
 /** A single Alertmanager-v2 alert. Mirrors the backend Alert type. */
@@ -182,6 +184,11 @@ export interface AlertRule {
 
 export interface AlertRulesResponse {
   rules: AlertRule[];
+}
+
+/** `GET /observability/alert-rules` — one page of the live list. */
+export interface AlertRulesPageResponse extends AlertRulesResponse {
+  pagination: { total: number; offset: number; limit: number; hasMore: boolean };
 }
 
 export interface AlertRuleResponse {

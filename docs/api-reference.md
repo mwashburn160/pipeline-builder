@@ -180,8 +180,8 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 |--------|----------|-------------|------------|
 | `GET` | `/organization` | Caller's active organization | — (auth) |
 | `POST` | `/organization` | Create an organization or nested team | `org:settings` |
-| `GET` | `/organization/:id` | Get an organization | — (own org / managed team / sysadmin) |
-| `PUT` | `/organization/:id` | Update an organization | *system admin* |
+| `GET` | `/organization/:id` | Get an organization, with a page of its member roster (`?membersLimit=` 1–500, default 100; `?membersOffset=`) — `memberCount` is always the full total | — (own org / managed team / sysadmin) |
+| `PUT` | `/organization/:id` | Update an organization's name, slug and/or description (+ step-up). The only route that edits the description | *system admin* |
 | `DELETE` | `/organization/:id` | Delete an organization (+ step-up) | *system admin* |
 | `PATCH` | `/organization/:id/tier` | Change pricing tier (+ step-up) | *system admin* |
 | `GET` | `/organization/:id/export` | GDPR data export | `org:settings` |
@@ -190,7 +190,7 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `GET` | `/organization/:id/members/:userId/exists` | Active-membership probe (`{ isMember }`) — internal, used by the message service to reject a per-user DM to a non-member | — (service / member) |
 | `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
 | `GET` | `/organization/:id/teams` | List descendant teams | — (member) |
-| `GET` | `/organization/:id/roles` | List Roles (permission sets) + members | — (member) |
+| `GET` | `/organization/:id/roles` | List Roles (permission sets) + members. Every Role without `?limit=`; with it (1–100, plus `?offset=`) one page, members loaded for that page only. Always returns `pagination.total` | — (member) |
 | `POST` | `/organization/:id/roles` | Create a custom Role | `roles:manage` |
 | `PUT` \| `DELETE` | `/organization/:id/roles/:roleId` | Update / delete a custom Role | `roles:manage` |
 | `POST` \| `DELETE` | `/organization/:id/roles/:roleId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
@@ -249,6 +249,7 @@ from `POST /auth/step-up`).
 | `POST` | `/auth/refresh` | Rotate an **interactive** session's token pair. The browser presents the `pb_refresh` cookie (empty body); a CLI caller posts `{ refreshToken }`. Machine sessions are refused (they renew through `/user/generate-token`) | refresh cookie **or** body token, + `X-Pb-Client` |
 | `POST` | `/auth/logout` | End the current session's slot and clear the refresh cookie | — (auth), + `X-Pb-Client` |
 | `POST` | `/user/generate-token` | Mint a stored **machine** credential (`{ expiresIn?, scope? }`, max 365 d). From a person: opens a new machine session with that scope. From a machine token: renews that session in place under its stored scope. Returns `{ accessToken, expiresIn }` — no refresh token | — (auth) |
+| `GET` | `/user/tokens` | The caller's token-issuance history, newest first: `{ tokens: [{ id, createdAt, expiresAt, status }] }` where `status` is `active`, `expired`, or `revoked` (a later sign-out-everywhere) | — (auth) |
 | `GET` | `/user/sessions` | Signed-in devices (`sessions`) and stored machine credentials (`machineSessions`), each with client summary, last IP, `amr`, scope, created / last-used; the caller's own session is flagged `current` | — (auth) |
 | `DELETE` | `/user/sessions/:id` | Revoke one session — a device is signed out, a machine credential stops renewing. The current session is refused (use logout) | + step-up |
 | `POST` | `/user/tokens/revoke-all` | Sign out everywhere: bump `tokenVersion`, clear every slot of both kinds, revoke the user's access keys | + step-up |
@@ -481,6 +482,7 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | `POST` | `/reports/incidents` | Ingest a production **incident** `{incidentId, environment, openedAt, resolvedAt?, severity}` from your monitoring → automated post-deploy CFR/MTTR. Machine **`reporting:ingest`** scope, idempotent on `(org, incidentId)`. See [Incident Webhook](incidents-webhook.md) |
 | `POST` | `/reports/ingest-health` | The ingestion Lambda's delivery-health heartbeat `{forwarded, dropped, lastEventAt}`. Machine **`reporting:ingest`** scope |
 | `GET` | `/reports/ingest-health` | Read that heartbeat back — `{health, now}`, where `health` is `null` when the deployment has **never** reported ingestion (not the same as stale) and `now` is the server clock. Drives the Reports freshness strip, which separates "no deploys in range" from "nothing has reached the ingest pipeline since X". User-facing: org-scoped, `reports:read` (**not** the `reporting:ingest` scope, and **not** `advanced_reporting` — it applies to the execution reports every tier sees) |
+| `GET` | `/reports/retention` | The org's **effective** retention, read-only — `{eventRetentionDays, doraRetentionDays, eventMaxRangeDays, doraMaxRangeDays}` (`-1` = unlimited; `*MaxRangeDays` is the horizon clamped to the 730-day report ceiling). Drives the Reports date-range cap. `reports:read` only (**not** `advanced_reporting` — the Retention Pack is sold to every tier) |
 | `GET` | `/reports/plugins/summary` | Plugin inventory stats |
 | `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
 | `GET` | `/reports/plugins/build-duration` | Build time per plugin |

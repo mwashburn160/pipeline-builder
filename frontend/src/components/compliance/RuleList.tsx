@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
+import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search, Tag } from 'lucide-react';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
+import { useDebounce } from '@/hooks/useDebounce';
 import { useDelete } from '@/hooks/useDelete';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
@@ -17,6 +18,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Pagination } from '@/components/ui/Pagination';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 
 interface RuleListProps {
@@ -25,28 +27,49 @@ interface RuleListProps {
   onViewHistory?: (rule: ComplianceRule) => void;
 }
 
-// `scope` and `name` aren't part of the server-side filter surface today, so
-// we still filter those client-side. `target`/`severity` are forwarded to
-// the API; this prevents the previous "client-filter on already-server-
-// filtered data" duplication that quietly truncated paginated results.
-type RuleParams = { target?: RuleTarget; severity?: RuleSeverity; policyId?: string; limit?: number; offset?: number };
+type RuleParams = {
+  name?: string; tag?: string; scope?: RuleScope; target?: RuleTarget; severity?: RuleSeverity;
+  sortBy?: string; sortOrder?: string; limit?: number; offset?: number;
+};
+
+/** Typing in a search box waits this long before it becomes a request. */
+const SEARCH_DEBOUNCE_MS = 300;
+const DEFAULT_PAGE_SIZE = 25;
 
 export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleListProps) {
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
   const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
   const [scopeFilter, setScopeFilter] = useState<RuleScope | ''>('');
   const [nameSearch, setNameSearch] = useState('');
+  const [tagSearch, setTagSearch] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState({ offset: 0, limit: DEFAULT_PAGE_SIZE });
+  const debouncedName = useDebounce(nameSearch.trim(), SEARCH_DEBOUNCE_MS);
+  const debouncedTag = useDebounce(tagSearch.trim(), SEARCH_DEBOUNCE_MS);
 
+  // Any filter/sort change starts again from page 1.
+  useEffect(() => {
+    setPage((p) => (p.offset === 0 ? p : { ...p, offset: 0 }));
+  }, [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder]);
+
+  // Every filter, the sort and the page go to the server, so they apply across
+  // ALL of the org's rules rather than just the rows already on screen.
   const crudApi = useMemo(() => ({
     list: async (params?: RuleParams) => {
-      // Forward target/severity to the server. Other filters (scope, name
-      // search) remain client-side because the API doesn't accept them.
       const merged: RuleParams = {
         ...params,
+        ...(debouncedName ? { name: debouncedName } : {}),
+        ...(debouncedTag ? { tag: debouncedTag } : {}),
+        ...(scopeFilter ? { scope: scopeFilter } : {}),
         ...(targetFilter ? { target: targetFilter } : {}),
         ...(severityFilter ? { severity: severityFilter } : {}),
+        // `severity` is stored as text, and alphabetical order (critical <
+        // error < warning) IS the severity order, so the server sort matches.
+        sortBy,
+        sortOrder,
+        limit: page.limit,
+        offset: page.offset,
       };
       const res = await api.getComplianceRules(merged);
       return { success: res.success, data: res.data ? { items: res.data.rules, pagination: res.data.pagination } : undefined };
@@ -60,8 +83,8 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
     },
     delete: (id: string) => api.deleteComplianceRule(id),
-  }), [targetFilter, severityFilter]);
-  const { items: rules, loading, loadError, mutationError, clearError, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
+  }), [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder, page]);
+  const { items: rules, total, loading, loadError, mutationError, clearError, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
 
   // Deleting a rule is confirmed via a modal. `deleteRule` never throws — a
   // failure lands in `mutationError` and renders inline above the list.
@@ -73,24 +96,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     fetchRules();
   }, [fetchRules]);
 
-  const filteredRules = useMemo(() => {
-    // Only scope + nameSearch run client-side now (target/severity are
-    // applied server-side by `crudApi.list`).
-    let result = rules.filter((rule) => {
-      if (scopeFilter && rule.scope !== scopeFilter) return false;
-      if (nameSearch && !rule.name.toLowerCase().includes(nameSearch.toLowerCase())) return false;
-      return true;
-    });
-    const sevOrder: Record<string, number> = { critical: 0, error: 1, warning: 2 };
-    result.sort((a, b) => {
-      let cmp = 0;
-      if (sortBy === 'priority') cmp = a.priority - b.priority;
-      else if (sortBy === 'name') cmp = a.name.localeCompare(b.name);
-      else if (sortBy === 'severity') cmp = (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9);
-      return sortOrder === 'desc' ? -cmp : cmp;
-    });
-    return result;
-  }, [rules, scopeFilter, nameSearch, sortBy, sortOrder]);
+  const filtersActive = Boolean(nameSearch || tagSearch || targetFilter || severityFilter || scopeFilter);
 
   const columns: Column<ComplianceRule>[] = [
     {
@@ -201,7 +207,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-blue-600" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Compliance Rules ({filteredRules.length})
+            Compliance Rules ({total})
           </h2>
         </div>
         {onCreateNew && (
@@ -220,6 +226,15 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             onChange={e => setNameSearch(e.target.value)}
             placeholder="Search by name..."
             aria-label="Search by name"
+          />
+        </div>
+        <div className="relative min-w-[160px] max-w-[200px]">
+          <Tag className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+          <FilterInput
+            value={tagSearch}
+            onChange={e => setTagSearch(e.target.value)}
+            placeholder="Tag..."
+            aria-label="Filter by tag"
           />
         </div>
         <FilterSelect value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} aria-label="Filter rules by target">
@@ -258,19 +273,28 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner label="Loading rules" />
         </div>
-      ) : filteredRules.length === 0 ? (
+      ) : rules.length === 0 ? (
         <TextEmptyState>
-          {nameSearch || targetFilter || severityFilter || scopeFilter ? 'No rules match your filters.' : 'No compliance rules found. Create one to get started.'}
+          {filtersActive ? 'No rules match your filters.' : 'No compliance rules found. Create one to get started.'}
         </TextEmptyState>
       ) : (
-        <div className="overflow-x-auto">
-          <DataTable
-            data={filteredRules}
-            columns={columns}
-            isLoading={false}
-            getRowKey={(rule) => rule.id}
-            emptyState={{ icon: Shield, title: 'No compliance rules', description: 'Create one to get started.' }}
-          />
+        <div>
+          <div className="overflow-x-auto">
+            <DataTable
+              data={rules}
+              columns={columns}
+              isLoading={false}
+              getRowKey={(rule) => rule.id}
+              emptyState={{ icon: Shield, title: 'No compliance rules', description: 'Create one to get started.' }}
+            />
+          </div>
+          {total > page.limit && (
+            <Pagination
+              pagination={{ ...page, total }}
+              onPageChange={(offset) => setPage((p) => ({ ...p, offset }))}
+              onPageSizeChange={(limit) => setPage({ offset: 0, limit })}
+            />
+          )}
         </div>
       )}
 

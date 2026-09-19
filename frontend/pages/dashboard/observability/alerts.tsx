@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
-import { AlertTriangle, BellOff, RefreshCw, Volume2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, BellOff, CheckCircle2, RefreshCw, Volume2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
+import { useFetch } from '@/hooks/useFetch';
 import { usePolling } from '@/hooks/usePolling';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -13,7 +14,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
@@ -58,41 +61,45 @@ export default function AlertsPage() {
   // Members hold it). Alert triage (creating/expiring silences) is an
   // `observability:write` capability gated per-control via `can()`, which also
   // reports false under read-only impersonation (superadmins bypass).
-  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  // (The `observability:read` page gate comes from page-access.)
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard();
   const canWrite = can('observability:write');
   const toast = useToast();
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [silences, setSilences] = useState<Silence[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // True when the backend returned a degraded (empty) result because Alertmanager
-  // was unreachable — e.g. a LEAN deploy that omits it. Distinguishes "no alerts"
-  // from "can't see alerts" so an empty panel isn't misread as all-clear.
-  const [degraded, setDegraded] = useState(false);
+  const ready = isReady && isAuthenticated;
   const [silenceTarget, setSilenceTarget] = useState<Alert | null>(null);
+  // Expiring a silence re-arms its alerts immediately — confirm first.
+  const [expireTarget, setExpireTarget] = useState<Silence | null>(null);
+  const [expiring, setExpiring] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setError(null);
-    try {
+  const { data, loading, error, refetch } = useFetch(
+    async (signal) => {
+      if (!ready) return null;
       const [alertsRes, silencesRes] = await Promise.all([
-        api.observabilityAlerts(),
-        api.observabilitySilences(),
+        api.observabilityAlerts(signal),
+        api.observabilitySilences(signal),
       ]);
-      setAlerts(alertsRes.data?.alerts ?? []);
-      setSilences(silencesRes.data?.silences ?? []);
-      setDegraded(Boolean(alertsRes.data?.degraded || silencesRes.data?.degraded));
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return {
+        alerts: alertsRes.data?.alerts ?? [],
+        silences: silencesRes.data?.silences ?? [],
+        // True when the backend returned a degraded (empty) result because
+        // Alertmanager was unreachable — e.g. a LEAN deploy that omits it.
+        // Distinguishes "no alerts" from "can't see alerts" so an empty panel
+        // isn't misread as all-clear.
+        degraded: Boolean(alertsRes.data?.degraded || silencesRes.data?.degraded),
+      };
+    },
+    [ready],
+  );
+  const alerts: Alert[] = data?.alerts ?? [];
+  const silences: Silence[] = data?.silences ?? [];
+  const degraded = data?.degraded ?? false;
 
   // Poll every 30 s while the tab is visible — Alertmanager itself evaluates
   // rules every 15 s, so this keeps the UI ~half a cycle behind which is fine
   // for an operator dashboard. Drop to 5 s if pager-level urgency is needed;
-  // bump to 60 s+ if Prom/AM start to feel the load.
-  usePolling(refresh, 30_000, { enabled: isReady && isAuthenticated });
+  // bump to 60 s+ if Prom/AM start to feel the load. The first read is
+  // useFetch's own.
+  usePolling(refetch, 30_000, { enabled: ready, immediate: false });
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
@@ -113,19 +120,24 @@ export default function AlertsPage() {
       await api.observabilityCreateSilence({ matchers, durationMs, comment });
       toast.success('Silence created — alert will stop firing within ~15 s.');
       setSilenceTarget(null);
-      await refresh();
+      refetch();
     } catch (err) {
       toast.error(formatError(err));
     }
   };
 
-  const onExpireSilence = async (id: string) => {
+  const onExpireSilence = async () => {
+    if (!expireTarget) return;
+    setExpiring(true);
     try {
-      await api.observabilityDeleteSilence(id);
+      await api.observabilityDeleteSilence(expireTarget.id);
       toast.success('Silence expired.');
-      await refresh();
+      setExpireTarget(null);
+      refetch();
     } catch (err) {
       toast.error(formatError(err));
+    } finally {
+      setExpiring(false);
     }
   };
 
@@ -137,7 +149,7 @@ export default function AlertsPage() {
         <Button
           variant="secondary"
           size="xs"
-          onClick={() => void refresh()}
+          onClick={refetch}
           className="gap-1"
           aria-label="Refresh alerts"
         >
@@ -145,21 +157,22 @@ export default function AlertsPage() {
         </Button>
       }
     >
-      {loading && alerts.length === 0 ? (
+      {loading && !data ? (
         <div className="text-sm text-gray-500 dark:text-gray-400">Loading…</div>
-      ) : error ? (
-        <ErrorAlert message={error} />
+      ) : error && !data ? (
+        <RetryError message={formatError(error)} onRetry={refetch} />
       ) : (
         <div className="space-y-6">
+          {error && <RetryError message={formatError(error)} onRetry={refetch} />}
           <WarningAlert
             message={degraded
               ? 'Monitoring backend unavailable — Alertmanager is not reachable (this deployment may be running in LEAN mode, which omits it). Alerts and silences can’t be shown.'
               : undefined}
           />
           {sortedAlerts.length === 0 ? (
-            <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-              No alerts firing. ☀️
-            </div>
+            degraded ? null : (
+              <EmptyState icon={CheckCircle2} title="No alerts firing" description="Nothing is firing or silenced for this org right now." />
+            )
           ) : (
             <div className="space-y-2">
               {sortedAlerts.map((a) => {
@@ -235,7 +248,7 @@ export default function AlertsPage() {
                       <Button
                         variant="secondary"
                         size="xs"
-                        onClick={() => void onExpireSilence(s.id)}
+                        onClick={() => setExpireTarget(s)}
                         className="flex-shrink-0"
                       >
                         Expire
@@ -247,6 +260,25 @@ export default function AlertsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {expireTarget && (
+        <ConfirmDialog
+          title="Expire silence?"
+          confirmLabel="Expire silence"
+          tone="danger"
+          loading={expiring}
+          onConfirm={() => void onExpireSilence()}
+          onCancel={() => setExpireTarget(null)}
+        >
+          <p className="text-sm">
+            Alerts matching{' '}
+            <code className="font-mono text-xs break-all">
+              {expireTarget.matchers.map((m) => `${m.name}="${m.value}"`).join(', ')}
+            </code>{' '}
+            will start notifying again straight away. This can&apos;t be undone — you would need to create a new silence.
+          </p>
+        </ConfirmDialog>
       )}
 
       {silenceTarget && (

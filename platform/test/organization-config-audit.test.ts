@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * RBAC/audit Tier 2 — the sysadmin org-configuration mutations must leave a
- * trail:
- *  - `updateOrganizationQuotas` → `admin.org.quota.override` (records numeric
- *    old→new per quota type; numbers are not secrets).
+ * RBAC/audit Tier 2 — the org-configuration mutations must leave a trail:
  *  - `updateOrgAIConfig` → `admin.org.ai-config.update`, recording only WHICH
  *    provider slots changed (field names) and NEVER a provider API-key value.
- * A refactor that silently drops either audit call — or that leaks a key value
+ * A refactor that silently drops the audit call — or that leaks a key value
  * into `details` — should fail these tests loudly.
  */
 
@@ -16,8 +13,6 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
-const mockGetRawQuotaLimits = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockUpdateQuotas = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateAIConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
@@ -57,8 +52,6 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: je
 // real helper: return the body's keys (never their secret values).
 jest.unstable_mockModule('../src/services/index.js', () => ({
   organizationService: {
-    getRawQuotaLimits: (...a: unknown[]) => mockGetRawQuotaLimits(...a),
-    updateQuotas: (...a: unknown[]) => mockUpdateQuotas(...a),
     updateAIConfig: (...a: unknown[]) => mockUpdateAIConfig(...a),
     update: (...a: unknown[]) => mockUpdateOrg(...a),
   },
@@ -75,10 +68,9 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   createOrganizationSchema: {},
   updateOrganizationSchema: {},
   updateOrgIdentitySchema: {},
-  updateQuotasSchema: {},
 }));
 
-const { updateOrganization, updateOrganizationQuotas, updateOrgAIConfig } = await import('../src/controllers/organization.js');
+const { updateOrganization, updateOrgAIConfig } = await import('../src/controllers/organization.js');
 const { ORG_SLUG_TAKEN } = await import('../src/services/org-errors.js');
 
 function mockRes() {
@@ -90,45 +82,6 @@ function mockRes() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-});
-
-describe('updateOrganizationQuotas audit — admin.org.quota.override', () => {
-  it('records the numeric old→new per quota type with affectedOrgId = the org', async () => {
-    mockGetRawQuotaLimits.mockResolvedValue({ plugins: 10, pipelines: 5 });
-    mockUpdateQuotas.mockResolvedValue({ plugins: 25, pipelines: 5 });
-
-    const req: any = {
-      user: { sub: 'admin-1', organizationId: 'sysorg' },
-      params: { id: 'org-acme' },
-      headers: { authorization: 'Bearer x' },
-      body: { plugins: 25 },
-    };
-    await (updateOrganizationQuotas as any)(req, mockRes());
-
-    expect(mockAudit).toHaveBeenCalledTimes(1);
-    expect(mockAudit).toHaveBeenCalledWith(req, 'admin.org.quota.override', expect.objectContaining({
-      targetType: 'organization',
-      targetId: 'org-acme',
-      affectedOrgId: 'org-acme',
-      details: { changes: { plugins: { from: 10, to: 25 } } },
-    }));
-  });
-
-  it('records from:null when the pre-override read is unavailable', async () => {
-    mockGetRawQuotaLimits.mockRejectedValue(new Error('read failed'));
-    mockUpdateQuotas.mockResolvedValue({ pipelines: 50 });
-
-    const req: any = {
-      user: { sub: 'admin-1', organizationId: 'sysorg' },
-      params: { id: 'org-acme' },
-      headers: {},
-      body: { pipelines: 50 },
-    };
-    await (updateOrganizationQuotas as any)(req, mockRes());
-
-    const details = (mockAudit.mock.calls[0] as any)[2].details;
-    expect(details.changes.pipelines).toEqual({ from: null, to: 50 });
-  });
 });
 
 describe('updateOrgAIConfig audit — admin.org.ai-config.update', () => {

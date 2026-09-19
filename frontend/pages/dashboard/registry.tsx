@@ -64,7 +64,8 @@ const RECENT_ACTIONS_MAX = 20;
  */
 const MIN_USABLE_WIDTH = 1024;
 export default function RegistryPage() {
-  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // Sysadmin-only — the gate is declared once, in page-access.ts (nav entry).
+  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
 
@@ -135,19 +136,14 @@ export default function RegistryPage() {
   }, 60_000);
 
   /**
-   * 403 mid-session handler. If any registry call returns 403 (sysadmin demoted
-   * while the page was open), toast + redirect. The page's data hooks each CATCH
-   * their fetch error into an `error` state (so nothing ever reaches a `window`
-   * `unhandledrejection` — the old listener here was dead code that never fired).
-   * Observe the hooks' surfaced errors directly instead.
+   * 403 mid-session: a registry call refused (sysadmin demoted while the page
+   * was open, or a server-side gate the profile doesn't reflect yet). Render the
+   * same AccessDenied state the route guard uses — it says what's missing,
+   * rather than a toast plus a silent teleport to /dashboard. The data hooks
+   * each CATCH their fetch error into an `error` state, so observe those.
    */
-  useEffect(() => {
-    const is403 = (e: unknown): boolean => e instanceof ApiError && e.statusCode === 403;
-    if (is403(error) || is403(tagsError) || is403(manifestError)) {
-      toast.error('System-admin access required. Your session no longer has it — returning to the dashboard.');
-      void router.push('/dashboard');
-    }
-  }, [error, tagsError, manifestError, router, toast]);
+  const is403 = (e: unknown): boolean => e instanceof ApiError && e.statusCode === 403;
+  const serverDenied = is403(error) || is403(tagsError) || is403(manifestError);
 
   // Track narrow viewports — the 3-column layout doesn't reflow below ~1024px.
   useEffect(() => {
@@ -320,6 +316,7 @@ export default function RegistryPage() {
   }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen, deleteRepo, gcOpen, storageOpen]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
+  if (serverDenied) return <AccessDenied denial={{ kind: 'systemAdmin', pathname: router.pathname }} />;
   if (!isReady || !isSuperAdmin) return <LoadingPage />;
 
   // Focus model: the "active" column is the right-most one with data —

@@ -779,7 +779,7 @@ describe('requireFeature', () => {
 
   it('403s when the feature is absent', () => {
     const res = createMockRes(); const next = jest.fn();
-    requireFeature('advanced_reporting')(req(['audit_log']), res, next);
+    requireFeature('advanced_reporting')(req(['custom_integrations']), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
     expect(JSON.stringify(res._json)).toContain('advanced_reporting');

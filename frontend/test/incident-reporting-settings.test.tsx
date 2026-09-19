@@ -21,7 +21,7 @@ jest.mock('next/router', () => ({
 }));
 
 /** Click a tab by its label so its section renders, then run the assertions. */
-const goTab = (name: RegExp) => fireEvent.click(screen.getByRole('button', { name }));
+const goTab = (name: RegExp) => fireEvent.click(screen.getByRole('tab', { name }));
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
@@ -100,6 +100,24 @@ describe('IncidentReportingSettings', () => {
     expect(await screen.findByText(/Correlated to deploy/)).toBeInTheDocument();
   });
 
+  it('pages through incidents using the backend hasMore flag', async () => {
+    const row = (id: string) => ({ incidentId: id, environment: 'production', severity: 'critical', openedAt: null, resolvedAt: null, createdAt: null, resolved: false, correlatedExecutionId: null, deployCompletedAt: null });
+    listIncidents
+      .mockResolvedValueOnce({ success: true, data: { incidents: [row('first-page')], pagination: { limit: 25, offset: 0, hasMore: true } } })
+      .mockResolvedValueOnce({ success: true, data: { incidents: [row('second-page')], pagination: { limit: 25, offset: 25, hasMore: false } } });
+    render(<IncidentReportingSettings readOnly={false} />);
+    goTab(/Test & history/);
+    expect(await screen.findByText('first-page')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /newer/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /older/i }));
+    expect(await screen.findByText('second-page')).toBeInTheDocument();
+    expect(listIncidents).toHaveBeenLastCalledWith({ limit: 25, offset: 25 }, expect.anything());
+    // Last page: no further "older", but the way back is open.
+    expect(screen.getByRole('button', { name: /older/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /newer/i })).toBeEnabled();
+  });
+
   it('lists recent incidents with their correlated deploy', async () => {
     render(<IncidentReportingSettings readOnly={false} />);
     goTab(/Test & history/);
@@ -122,9 +140,12 @@ describe('IncidentReportingSettings', () => {
     // Retention is billing-owned now: no editable inputs, no save button.
     expect(screen.queryByRole('button', { name: /save retention/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('30')).not.toBeInTheDocument();
-    // Deep-link CTA to buy a retention / DORA-History pack, highlighting the pack.
-    const cta = await screen.findByRole('link', { name: /extend retention/i });
-    expect(cta).toHaveAttribute('href', expect.stringContaining('highlight=dora_history_pack'));
+    // Deep-link CTAs to buy a pack, each highlighting its own add-on: the
+    // Retention Pack (standard events, every tier) and the DORA-History pack.
+    const cta = await screen.findByRole('link', { name: /^extend retention$/i });
+    expect(cta).toHaveAttribute('href', expect.stringContaining('highlight=retention_pack'));
+    const dora = screen.getByRole('link', { name: /extend dora history/i });
+    expect(dora).toHaveAttribute('href', expect.stringContaining('highlight=dora_history_pack'));
     // putReportingSettings is never called for retention.
     expect(putReportingSettings).not.toHaveBeenCalled();
   });

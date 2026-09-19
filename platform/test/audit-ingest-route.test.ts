@@ -97,7 +97,7 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<any>
 }
 
 /** Drive the express router for a GET / (list) request with the given query. */
-function get(query: Record<string, unknown>): Promise<any> {
+function get(query: Record<string, unknown>, user: Record<string, unknown> = { sub: 'admin', organizationId: 'org-1', isSuperAdmin: true }): Promise<any> {
   const res = mockRes();
   const req: any = {
     method: 'GET',
@@ -106,7 +106,7 @@ function get(query: Record<string, unknown>): Promise<any> {
     query,
     headers: {},
     header: () => undefined,
-    user: { sub: 'admin', organizationId: 'org-1', isSuperAdmin: true },
+    user,
   };
   return new Promise((resolve) => {
     router(req, res, () => undefined);
@@ -123,6 +123,27 @@ beforeEach(() => {
   // Default to a sysadmin admin context (isOrgAdmin=false) so the list handler
   // takes the cross-tenant branch and reads the org/actor/date query filters.
   mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false });
+});
+
+describe('GET /audit — identity filters', () => {
+  it('threads impersonator, target, group and org filters for a sysadmin', async () => {
+    await get({ impersonatorId: 'op-1', targetId: 'pl-9', groupId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter).toMatchObject({ impersonatorId: 'op-1', targetId: 'pl-9', groupId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
+  });
+
+  it('pins an org admin to their own org, ignores their org filters, but honours the actor filter', async () => {
+    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true });
+    await get(
+      { orgId: 'org-other', affectedOrgId: 'org-other', actorId: 'u-3', impersonatorId: 'op-1' },
+      { sub: 'orgadmin', organizationId: 'org-1' },
+    );
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.orgIdOrAffected).toBe('org-1');
+    expect(filter).not.toHaveProperty('orgId');
+    expect(filter).not.toHaveProperty('affectedOrgId');
+    expect(filter).toMatchObject({ actorId: 'u-3', impersonatorId: 'op-1' });
+  });
 });
 
 describe('GET /audit — createdAt from/to range filter', () => {

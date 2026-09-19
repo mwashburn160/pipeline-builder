@@ -17,23 +17,9 @@ import { incCounter } from '../observability/metrics.js';
 import { organizationService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED } from '../services/org-errors.js';
-import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema, updateQuotasSchema } from '../utils/validation.js';
+import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
-
-/**
- * Parse a quota value from user input.
- * Accepts numbers >= -1 or the string 'unlimited' (mapped to -1).
- */
-function parseQuotaValue(value: unknown): number | undefined {
-  // Treat null as "absent" so an explicit `null` in the request body doesn't
-  // produce `NaN >= -1` (false) and silently drop the field with no signal —
-  // callers expect undefined to mean "leave as-is".
-  if (value === undefined || value === null) return undefined;
-  if (value === 'unlimited' || value === -1) return -1;
-  const num = Number(value);
-  return !isNaN(num) && num >= -1 ? num: undefined;
-}
 
 // Organization CRUD (System Admin)
 
@@ -186,7 +172,7 @@ const ORG_UPDATE_ERROR_MAP = {
   [ORG_SLUG_TAKEN]: { status: 409, message: 'That slug is already taken — choose another' },
 };
 
-/** PUT /organization/:id — sysadmin org edit (name/description). */
+/** PUT /organization/:id — sysadmin org edit (name/slug/description). */
 export const updateOrganization = withController('Update organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const body = validateBody(updateOrganizationSchema, req.body, res);
@@ -427,19 +413,6 @@ export const exportOrganization = withController('Export organization', async (r
   res.status(200).send(JSON.stringify(dump, null, 2));
 });
 
-// Quota Management (System Admin)
-
-export const getOrganizationQuotas = withController('Get organization quotas', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
-
-  const id = getParam(req.params, 'id')!;
-
-  const quotas = await organizationService.getQuotas(id, req.headers.authorization || '');
-  if (!quotas) return sendError(res, 404, 'Organization not found');
-
-  sendSuccess(res, 200, { quotas });
-});
-
 /**
  * PUT /organization/:id/seat-limit — internal: set the account seat limit.
  *
@@ -573,48 +546,6 @@ export const getOrganizationFeatureEntitlements = withController('Get organizati
   }
   const featureEntitlements = await pooledFeatureEntitlements(id);
   sendSuccess(res, 200, { featureEntitlements });
-});
-
-export const updateOrganizationQuotas = withController('Update organization quotas', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
-  const body = validateBody(updateQuotasSchema, req.body, res);
-  if (!body) return;
-
-  const id = getParam(req.params, 'id')!;
-
-  const quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number; aiCalls?: number } = {};
-  const parsedPlugins = parseQuotaValue(body.plugins);
-  if (parsedPlugins !== undefined) quotaLimits.plugins = parsedPlugins;
-  const parsedPipelines = parseQuotaValue(body.pipelines);
-  if (parsedPipelines !== undefined) quotaLimits.pipelines = parsedPipelines;
-  const parsedApiCalls = parseQuotaValue(body.apiCalls);
-  if (parsedApiCalls !== undefined) quotaLimits.apiCalls = parsedApiCalls;
-  const parsedAiCalls = parseQuotaValue(body.aiCalls);
-  if (parsedAiCalls !== undefined) quotaLimits.aiCalls = parsedAiCalls;
-
-  // Snapshot the pre-override limits so the audit trail can record old→new.
-  // Best-effort — a missing/failed read just yields `from: null`, never blocks.
-  const before = await organizationService.getRawQuotaLimits(id).catch(() => null);
-
-  const quotas = await organizationService.updateQuotas(id, quotaLimits, req.headers.authorization || '');
-  if (!quotas) return sendError(res, 404, 'Organization not found');
-
-  // Audit the sysadmin manual override AFTER it succeeds. Numeric limits are not
-  // secrets, so recording per-type old→new lets a reviewer reconstruct exactly
-  // what was changed. `affectedOrgId` is the org whose caps were resized.
-  const changes: Record<string, { from: number | null; to: number }> = {};
-  for (const [quotaType, to] of Object.entries(quotaLimits)) {
-    if (to === undefined) continue;
-    changes[quotaType] = { from: before?.[quotaType] ?? null, to };
-  }
-  audit(req, 'admin.org.quota.override', {
-    targetType: 'organization',
-    targetId: id,
-    affectedOrgId: id,
-    details: { changes },
-  });
-
-  sendSuccess(res, 200, { quotas }, 'Organization quotas updated successfully');
 });
 
 // Current User's Organization

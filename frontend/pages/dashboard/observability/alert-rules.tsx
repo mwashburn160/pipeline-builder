@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Trash2, Edit2, Activity } from 'lucide-react';
+import { Plus, Trash2, Edit2, Activity, FileCode } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
@@ -17,7 +17,10 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { RetryError } from '@/components/ui/RetryError';
+import { Pagination } from '@/components/ui/Pagination';
+import { CodeBlock } from '@/components/ui/CodeBlock';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
@@ -43,10 +46,18 @@ import { formatError } from '@/lib/constants';
  * catalog); authoring/editing/deleting requires `observability:write`, gated
  * per-control via `can()` (which also reports false under read-only
  * impersonation). Superadmins bypass.
+ *
+ * The list pages server-side (`?offset&limit`). System admins additionally get a
+ * read-only preview of the materialized `rule_files` YAML — the exact document
+ * Prometheus loads, across every org (hence sysadmin-only, like its route).
  */
+/** Smallest page-size option — the pager only appears once there's more than this. */
+const PAGE_SIZES = [10, 25, 50, 100];
+
 export default function AlertRulesPage() {
-  // View on `observability:read`; write controls gated on `observability:write`.
-  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  // View on `observability:read` (page-access, from the route declaration);
+  // write controls gated on `observability:write`.
+  const { accessDenied, isReady, isAuthenticated, can, isSuperAdmin } = useAuthGuard();
   const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
@@ -54,17 +65,28 @@ export default function AlertRulesPage() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<AlertRule | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(25);
 
   const { data, loading, error, refetch } = useFetch(
-    async () => {
-      if (!ready) return [] as AlertRule[];
-      const res = await api.listAlertRules();
-      return res.data?.rules ?? [];
+    async (signal) => {
+      if (!ready) return null;
+      return (await api.listAlertRules({ offset, limit }, signal)).data ?? null;
     },
-    [ready],
+    [ready, offset, limit],
   );
-  const rules: AlertRule[] = data ?? [];
+  const rules: AlertRule[] = data?.rules ?? [];
+  const total = data?.pagination.total ?? 0;
   const refresh = async () => { refetch(); };
+
+  // A delete can empty the last page — step back to the new last page rather
+  // than render an empty list on a stale offset.
+  useEffect(() => {
+    if (data && offset > 0 && offset >= total) {
+      setOffset(total === 0 ? 0 : Math.floor((total - 1) / limit) * limit);
+    }
+  }, [data, offset, total, limit]);
 
   const onDelete = async () => {
     if (!deleting) return;
@@ -89,15 +111,29 @@ export default function AlertRulesPage() {
       title="Alert rules"
       subtitle="Operator-authored PromQL conditions that fire alerts for this org. Rules are auto-scoped to your org's metrics."
       actions={
-        canWrite ? (
-          <Button
-            variant="secondary"
-            size="xs"
-            onClick={() => setCreating(true)}
-            className="gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add rule
-          </Button>
+        canWrite || isSuperAdmin ? (
+          <div className="flex items-center gap-2">
+            {isSuperAdmin && (
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => setPreviewing(true)}
+                className="gap-1"
+              >
+                <FileCode className="w-3.5 h-3.5" /> Preview rendered rules
+              </Button>
+            )}
+            {canWrite && (
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => setCreating(true)}
+                className="gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add rule
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
     >
@@ -108,9 +144,9 @@ export default function AlertRulesPage() {
         <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
       </div>
 
-      <ErrorAlert message={error?.message} className="mb-4" />
+      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
 
-      {loading ? (
+      {loading && !data ? (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="px-4 py-3 flex items-center gap-3">
@@ -122,11 +158,16 @@ export default function AlertRulesPage() {
             </div>
           ))}
         </div>
-      ) : rules.length === 0 ? (
-        <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          No alert rules yet. Click <strong>Add rule</strong> above to author a PromQL condition (e.g. a build-failure rate) that fires alerts for your org.
-        </div>
+      ) : error && !data ? null : rules.length === 0 ? (
+        <EmptyState
+          icon={Activity}
+          title="No alert rules yet"
+          description={canWrite
+            ? <>Click <strong>Add rule</strong> above to author a PromQL condition (e.g. a build-failure rate) that fires alerts for your org.</>
+            : 'No PromQL alert conditions have been authored for this org.'}
+        />
       ) : (
+        <>
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
           {rules.map((r) => (
             <div key={r.id} className="px-4 py-3 flex items-center gap-3">
@@ -165,6 +206,15 @@ export default function AlertRulesPage() {
             </div>
           ))}
         </div>
+        {total > PAGE_SIZES[0] && (
+          <Pagination
+            pagination={{ offset, limit, total }}
+            onPageChange={setOffset}
+            onPageSizeChange={(size) => { setLimit(size); setOffset(0); }}
+            pageSizeOptions={PAGE_SIZES}
+          />
+        )}
+        </>
       )}
 
       {/* Recently deleted — a deleted rule stays restorable until the retention
@@ -186,6 +236,8 @@ export default function AlertRulesPage() {
         />
       )}
 
+      {previewing && <MaterializedRulesModal onClose={() => setPreviewing(false)} />}
+
       {deleting && (
         <DeleteConfirmModal
           title="Delete alert rule"
@@ -196,6 +248,32 @@ export default function AlertRulesPage() {
         />
       )}
     </DashboardLayout>
+  );
+}
+
+/**
+ * Sysadmin read-only view of `GET /observability/alert-rules/materialized.yml`:
+ * every org's enabled rules rendered into the Prometheus `rule_files` document
+ * the config reloader pulls — what Prometheus will actually evaluate, org_id
+ * matchers and labels included.
+ */
+function MaterializedRulesModal({ onClose }: { onClose: () => void }) {
+  const { data: yaml, loading, error, refetch } = useFetch(
+    (signal) => api.getMaterializedAlertRules(signal),
+    [],
+  );
+  return (
+    <Modal title="Rendered alert rules (all orgs)" onClose={onClose} maxWidth="max-w-3xl">
+      {loading && yaml === null ? (
+        <div className="h-40 skeleton rounded" />
+      ) : error ? (
+        <RetryError message={error.message} onRetry={refetch} />
+      ) : (
+        <div className="max-h-[60vh] overflow-auto">
+          <CodeBlock code={yaml ?? ''} language="YAML" />
+        </div>
+      )}
+    </Modal>
   );
 }
 

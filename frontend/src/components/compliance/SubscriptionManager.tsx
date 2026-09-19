@@ -3,15 +3,17 @@
 import Link from 'next/link';
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
+import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
+import { TabBar } from '@/components/ui/TabBar';
 import { useToast } from '@/components/ui/Toast';
-import { useFeatures } from '@/hooks/useFeatures';
+import { useFeatureGate, type FeatureGateState } from '@/hooks/useFeatureGate';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import type { ComplianceSetFlag } from '@/lib/feature-flags';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
@@ -54,10 +56,23 @@ interface SubscriptionManagerProps {
   readOnly?: boolean;
 }
 
+/** Sub-view, carried in `?subs=` so "Browse Catalog" is linkable and survives Back. */
+const SUB_TABS = [
+  { id: 'subscriptions', label: 'My Subscriptions' },
+  { id: 'catalog', label: 'Browse Catalog' },
+] as const;
+type SubTab = (typeof SUB_TABS)[number]['id'];
+const SUB_TAB_IDS: readonly SubTab[] = SUB_TABS.map((t) => t.id);
+
 export default function SubscriptionManager({ readOnly = false }: SubscriptionManagerProps) {
   const toast = useToast();
-  const { isEnabled } = useFeatures();
-  const [tab, setTab] = useState<'subscriptions' | 'catalog'>('subscriptions');
+  // One gate per paid content set (hooks can't run per catalog row). The gate
+  // carries the superadmin bypass, so an operator never sees a set as locked.
+  const setGates: Record<ComplianceSetFlag, FeatureGateState> = {
+    compliance_standard: useFeatureGate('compliance_standard'),
+    compliance_advanced: useFeatureGate('compliance_advanced'),
+  };
+  const [tab, setTab] = useUrlTab<SubTab>('subs', SUB_TAB_IDS, 'subscriptions');
   const [subscriptions, setSubscriptions] = useState<SubscriptionWithRule[]>([]);
   const [catalog, setCatalog] = useState<PublishedRuleCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,20 +175,6 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     fetchCatalog();
   }, 'Failed to subscribe to rule');
 
-  const handleAutoSubscribe = () => runMutation(async () => {
-    const res = await api.autoSubscribe();
-    fetchSubscriptions();
-    fetchCatalog();
-    if (res.success && res.data) {
-      const { subscribed, skipped } = res.data;
-      const plural = (n: number) => (n === 1 ? '' : 's');
-      toast.success(
-        `Subscribed to ${subscribed} rule${plural(subscribed)}` +
-          (skipped > 0 ? ` — skipped ${skipped} (already subscribed or set-gated)` : ''),
-      );
-    }
-  }, 'Failed to auto-subscribe');
-
   const handleClone = (ruleId: string) => runMutation(async () => {
     await api.cloneRule(ruleId);
     fetchSubscriptions();
@@ -235,38 +236,21 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     });
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Published Rules & Subscriptions</h2>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTab('subscriptions')}
-            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${tab === 'subscriptions' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
-          >
-            My Subscriptions
-          </button>
-          <button
-            onClick={() => setTab('catalog')}
-            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${tab === 'catalog' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
-          >
-            Browse Catalog
-          </button>
-        </div>
+      <div className="flex items-center gap-2">
+        <BookOpen className="h-5 w-5 text-blue-600" />
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Published Rules & Subscriptions</h2>
       </div>
+      {/* The tab bar stays mounted through a load, so switching views never
+          blanks the whole section. */}
+      <TabBar items={SUB_TABS} activeId={tab} onSelect={(id) => setTab(id as SubTab)} ariaLabel="Published rule views" className="!mb-0" />
 
-      {tab === 'subscriptions' && (
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        </div>
+      ) : tab === 'subscriptions' && (
         <>
           {!readOnly && selectedIds.size > 0 && (
             <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
@@ -276,28 +260,14 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
             </div>
           )}
           {subscriptions.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              <p>No subscriptions yet. Browse the catalog to subscribe to published rules.</p>
-              {!readOnly && (
-                <Button variant="primary" onClick={handleAutoSubscribe} className="mt-3">
-                  <Zap className="h-4 w-4" /> Auto-Subscribe to All
-                </Button>
-              )}
-            </div>
+            <TextEmptyState>
+              <p>No subscriptions yet.</p>
+              <Button variant="secondary" size="sm" onClick={() => setTab('catalog')} className="mt-3">
+                Browse the catalog
+              </Button>
+            </TextEmptyState>
           ) : (
             <div className="space-y-2">
-              {!readOnly && (
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="xs"
-                    onClick={handleAutoSubscribe}
-                    title="Subscribe to all published rules not yet subscribed"
-                  >
-                    <Zap className="h-3 w-3" /> Auto-Subscribe
-                  </Button>
-                </div>
-              )}
               {subscriptions.map(sub => (
                 <div key={sub.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                   <div className="flex items-center justify-between p-3">
@@ -428,7 +398,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         </>
       )}
 
-      {tab === 'catalog' && (
+      {!loading && tab === 'catalog' && (
         <div className="space-y-3">
           {/* Catalog filters */}
           <div className="flex gap-3">
@@ -464,7 +434,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                 // Locked = a set-tagged rule whose entitlement the org lacks.
                 // Server-gated on subscribe/activate, so surface the paywall here
                 // instead of sending the user on a 403 round-trip.
-                const locked = setMeta !== null && !isEnabled(setMeta.feature);
+                const locked = setMeta !== null && !setGates[setMeta.feature].entitled;
                 return (
                   <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                     <div className="flex items-center gap-3">
@@ -484,7 +454,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                       <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
                     ) : locked ? (
                       <Link
-                        href={`/dashboard/billing?highlight=${setMeta.feature}`}
+                        href={setGates[setMeta.feature].upsellHref}
                         className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 whitespace-nowrap"
                         title={`This rule is part of the ${setMeta.label} Compliance library — unlock it in billing`}
                       >

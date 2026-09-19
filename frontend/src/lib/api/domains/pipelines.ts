@@ -3,6 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
+import { ApiError } from '../errors';
 import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
@@ -39,6 +40,35 @@ export interface PipelineDeployment {
   lastDeployed: string;
 }
 
+/** Pagination envelope of `GET /pipelines`. `total` is present only when the
+ *  request passed `includeTotal=true`; `nextCursor` only when `hasMore`. */
+export interface PipelineListPagination {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  /** Opaque keyset cursor for the page after this one (send back as `cursor`). */
+  nextCursor?: string;
+}
+
+/**
+ * Columns the pipelines LIST view renders — everything except `props`, the
+ * (large) BuilderProps document, which only the detail page and the edit modal
+ * need, and both of those read the full record by id. Sent as `fields`.
+ */
+export const PIPELINE_LIST_FIELDS = [
+  'id', 'orgId', 'project', 'organization', 'pipelineName', 'description', 'keywords',
+  'visibility', 'isActive', 'isDefault', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
+] as const satisfies ReadonlyArray<keyof Pipeline>;
+
+/** A pipeline row as the list view receives it (see {@link PIPELINE_LIST_FIELDS}). */
+export type PipelineSummary = Pick<Pipeline, typeof PIPELINE_LIST_FIELDS[number]>;
+
+/** Page size for {@link pipelinesApi}'s `listAllPipelines` drain (the server max). */
+const DRAIN_PAGE_SIZE = 1000;
+/** Runaway guard for the drain — 50 × 1000 rows is far past any real org. */
+const DRAIN_MAX_PAGES = 50;
+
 export function pipelinesApi(core: ApiCore) {
   return {
     // ============================================
@@ -47,7 +77,36 @@ export function pipelinesApi(core: ApiCore) {
     /** `opts.signal` cancels the request on the wire — supplied by the shared
      *  query cache and the debounced list hooks so a superseded read stops. */
     listPipelines: async (params?: Record<string, string>, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ pipelines: Pipeline[]; pagination: PipelineListPagination }>>(`/api/pipelines${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /**
+     * EVERY pipeline matching `params`, trimmed to `fields` and drained page by
+     * page with the keyset cursor. For joins that need the whole set (the
+     * deployments drift check, the inbox's "pipelines I own") — a single capped
+     * page silently misreports whatever falls past the cap. `id` is always
+     * returned. Throws when a page fails, so a partial set is never mistaken
+     * for the whole one.
+     */
+    listAllPipelines: async <K extends keyof Pipeline>(
+      fields: readonly K[],
+      params?: Record<string, string>,
+      opts?: { signal?: AbortSignal },
+    ): Promise<Array<Pick<Pipeline, K | 'id'>>> => {
+      const out: Array<Pick<Pipeline, K | 'id'>> = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < DRAIN_MAX_PAGES; page++) {
+        const q: Record<string, string> = { ...params, limit: String(DRAIN_PAGE_SIZE), fields: fields.join(',') };
+        if (cursor) q.cursor = cursor;
+        const res = await core.request<ApiResponse<{ pipelines: Array<Pick<Pipeline, K | 'id'>>; pagination: PipelineListPagination }>>(
+          `/api/pipelines${buildQuery(q)}`, { signal: opts?.signal },
+        );
+        if (!res.success || !res.data) throw new ApiError(res.message || 'Failed to list pipelines', res.statusCode ?? 500);
+        out.push(...res.data.pipelines);
+        cursor = res.data.pagination.hasMore ? res.data.pagination.nextCursor : undefined;
+        if (!cursor) break;
+      }
+      return out;
     },
 
     getPipelineById: async (id: string) => {
@@ -149,11 +208,11 @@ export function pipelinesApi(core: ApiCore) {
      * ARN→pipelineId mapping written by CDK at deploy time). Powers the
      * deployments page. Distinct from `listPipelines`, which lists config.
      */
-    listPipelineDeployments: async (params?: { limit?: number; offset?: number }) => {
+    listPipelineDeployments: async (params?: { limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{
         registry: PipelineDeployment[];
         pagination: { total: number; limit: number; offset: number; hasMore: boolean };
-      }>>(`/api/pipelines/registry${buildQuery(params as Record<string, unknown> | undefined)}`);
+      }>>(`/api/pipelines/registry${buildQuery(params as Record<string, unknown> | undefined)}`, { signal: opts?.signal });
     },
 
     /**

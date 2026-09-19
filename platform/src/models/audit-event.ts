@@ -480,10 +480,8 @@ export const ALL_AUDIT_ACTIONS = [
   // Platform admin mutations that were previously unaudited (controllers).
   // `admin.org.ai-config.update` — org AI-provider config (holds provider API
   //   keys; details carry field NAMES only, never a key value).
-  // `admin.org.quota.override` — a sysadmin manual quota limit/usage override.
   // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
   'admin.org.ai-config.update',
-  'admin.org.quota.override',
   'admin.user.features.update',
   // "Ask" assistant (api/ask) — safe metadata only (tools used, proposal kinds,
   // query length, outcome), never the raw query text. `ask.query` = read-only

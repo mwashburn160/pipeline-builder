@@ -22,7 +22,7 @@ import { FeatureLock } from '@/components/ui/FeatureLock';
 import { IncidentReportingSettings } from '@/components/settings/IncidentReportingSettings';
 
 export default function IncidentReportingSettingsPage() {
-  const { accessDenied, isReady, user, isReadOnly } = useAuthGuard({ requireAdmin: true });
+  const { accessDenied, isReady, user, isReadOnly } = useAuthGuard();
   // Shared entitlement verdict (superadmin bypass included) + the shared lock
   // copy, so this page's "not on your plan" reads like every other one.
   const { entitled, isLoaded } = useFeatureGate('advanced_reporting');

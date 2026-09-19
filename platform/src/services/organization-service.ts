@@ -7,14 +7,9 @@ import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './or
 import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
-  getQuotas,
   setSeatLimit,
   setTier,
-  updateQuotas,
   type FeatureDelta,
-  type QuotaLimitsInput,
-  type QuotaStatus,
-  type QuotaTypeKey,
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -492,34 +487,6 @@ class OrganizationService {
     // re-issued token resolves the org as live again on the stateless services.
     await publishUsersRevocation(bumpedMemberIds);
     return result;
-  }
-
-  /**
-   * Fetch quota usage/limits per type from the quota microservice — see
-   * {@link getQuotas} in organization-quota.js. Delegates; signature unchanged.
-   */
-  async getQuotas(id: string, authHeader: string): Promise<Record<string, QuotaStatus> | null> {
-    return getQuotas(id, authHeader);
-  }
-
-  /**
-   * Update quota limits via the quota service — see {@link updateQuotas} in
-   * organization-quota.js. Delegates; signature unchanged.
-   */
-  async updateQuotas(id: string, quotaLimits: QuotaLimitsInput, authHeader: string): Promise<Record<QuotaTypeKey, { limit: number | string; unlimited: boolean }> | null> {
-    return updateQuotas(id, quotaLimits, authHeader);
-  }
-
-  /**
-   * Raw numeric quota limits straight off the org doc (no service round-trip, no
-   * formatting). Used to snapshot the BEFORE state of a manual quota override so
-   * the audit trail can record the old→new limits. Returns null when the org
-   * doesn't exist; `{}` when it exists but has no persisted quotas yet.
-   */
-  async getRawQuotaLimits(id: string): Promise<Record<string, number> | null> {
-    const org = await Organization.findById(toOrgId(id)).select('quotas').lean();
-    if (!org) return null;
-    return (org as unknown as { quotas?: Record<string, number> }).quotas ?? {};
   }
 
   /** Get the AI provider keys for an org as a configured/hint map. Returns null if org not found. */

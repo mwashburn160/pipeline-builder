@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { Layers, GitBranch, Puzzle, RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
@@ -42,6 +43,16 @@ const PLUGIN_SORT_FIELD: Record<string, string> = {
   updated: 'updatedAt',
 };
 
+// Sparse fieldsets — exactly the columns each table renders, so the lists don't
+// carry every pipeline's `props` document or every plugin's build spec.
+const PIPELINE_FIELDS = ['id', 'pipelineName', 'project', 'lifecycle', 'criticality', 'updatedAt'] as const;
+const PLUGIN_FIELDS = ['id', 'name', 'version', 'category', 'lifecycle', 'updatedAt'] as const;
+type OwnedPipeline = Pick<Pipeline, typeof PIPELINE_FIELDS[number]>;
+type OwnedPlugin = Pick<Plugin, typeof PLUGIN_FIELDS[number]>;
+
+const TABS = ['pipelines', 'plugins'] as const;
+type Tab = typeof TABS[number];
+
 /**
  * "My Services" — the developer-portal personal catalog view. Lists the
  * pipelines and plugins the current user OWNS (ownerId = their user id), across
@@ -59,16 +70,17 @@ export default function MyServicesPage() {
   const ownerId = user?.id;
   const enabled = isReady && !!ownerId;
 
-  // Which resource panel is shown. Pipelines and plugins live in the same
-  // tabbed panel rather than stacked, so the page stays compact.
-  const [tab, setTab] = useState<'pipelines' | 'plugins'>('pipelines');
+  // Which resource panel is shown (`?tab=`), so the view is linkable and Back
+  // returns to it. Pipelines and plugins live in the same tabbed panel rather
+  // than stacked, so the page stays compact.
+  const [tab, setTab] = useUrlTab<Tab>('tab', TABS, 'pipelines');
 
   // ── Owner-scoped, server-paginated lists (one per tab) ──
   // Both fetch on mount so each tab label can show its true total. `ownerId` and
   // `includeTotal` are baked into the fetcher; `lifecycle` is a server filter so
   // it composes with pagination. urlSync is off: two hooks on one page would
   // otherwise both write offset/sortBy to the URL and clobber each other.
-  const pipelinesList = useListPage<Pipeline>({
+  const pipelinesList = useListPage<OwnedPipeline>({
     fields: [{ key: 'lifecycle', type: 'select', defaultValue: '' }],
     initialSort: { sortBy: 'updatedAt', sortOrder: 'desc' },
     fetcher: async (params, signal) => {
@@ -77,6 +89,7 @@ export default function MyServicesPage() {
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',
+        fields: PIPELINE_FIELDS.join(','),
       };
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
@@ -87,20 +100,21 @@ export default function MyServicesPage() {
     enabled,
   });
 
-  const pluginsList = useListPage<Plugin>({
+  const pluginsList = useListPage<OwnedPlugin>({
     fields: [{ key: 'lifecycle', type: 'select', defaultValue: '' }],
     initialSort: { sortBy: 'updatedAt', sortOrder: 'desc' },
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       const p: Record<string, string> = {
         ownerId: ownerId as string,
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',
+        fields: PLUGIN_FIELDS.join(','),
       };
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
       if (params.lifecycle) p.lifecycle = params.lifecycle;
-      const res = await api.listPlugins(p);
+      const res = await api.listPlugins(p, { signal });
       return { items: res.data?.plugins || [], pagination: res.data?.pagination };
     },
     enabled,
@@ -133,7 +147,7 @@ export default function MyServicesPage() {
     setPluginSort(PLUGIN_SORT_FIELD[columnId] ?? columnId, direction);
   }, [setPluginSort]);
 
-  const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
+  const pipelineColumns: Column<OwnedPipeline>[] = useMemo(() => [
     {
       id: 'name',
       header: 'Pipeline',
@@ -150,7 +164,7 @@ export default function MyServicesPage() {
     { id: 'updated', header: 'Updated', render: (p) => <RelativeTime value={p.updatedAt} />, sortValue: (p) => p.updatedAt },
   ], []);
 
-  const pluginColumns: Column<Plugin>[] = useMemo(() => [
+  const pluginColumns: Column<OwnedPlugin>[] = useMemo(() => [
     {
       id: 'name',
       header: 'Plugin',
@@ -212,10 +226,10 @@ export default function MyServicesPage() {
       }
     >
       <div className="page-section">
-        <TabBar items={tabItems} activeId={tab} onSelect={(id) => setTab(id as 'pipelines' | 'plugins')} />
+        <TabBar items={tabItems} activeId={tab} onSelect={(id) => setTab(id as Tab)} />
 
         {tab === 'pipelines' ? (
-          <ResourceList<Pipeline>
+          <ResourceList<OwnedPipeline>
             loading={pipelinesList.isLoading}
             error={pipelinesList.error}
             onRefresh={refreshPipelines}
@@ -248,7 +262,7 @@ export default function MyServicesPage() {
             />
           </ResourceList>
         ) : (
-          <ResourceList<Plugin>
+          <ResourceList<OwnedPlugin>
             loading={pluginsList.isLoading}
             error={pluginsList.error}
             onRefresh={refreshPlugins}

@@ -517,13 +517,13 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
   });
 
   it('prunes on a marketplace upgrade but is EXEMPT from provider line-item removal (metered add-ons)', async () => {
-    const doc = subDoc({ status: 'active', planId: 'developer', interval: 'monthly', externalId: 'aws_sub_x', addons: [{ bundleId: 'audit_log', quantity: 1 }] });
+    const doc = subDoc({ status: 'active', planId: 'developer', interval: 'monthly', externalId: 'aws_sub_x', addons: [{ bundleId: 'bulk_operations', quantity: 1 }] });
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
-    // team bundles in audit_log → dropped locally; the marketplace provider does
+    // team bundles in bulk_operations → dropped locally; the marketplace provider does
     // NOT push line items (finalizePrunedAddons treats it as a no-op removal).
     const reduced: Array<{ bundleId: string; quantity: number }> = [];
-    const pruned = [{ bundleId: 'audit_log', features: ['audit_log'] }];
+    const pruned = [{ bundleId: 'bulk_operations', features: ['bulk_operations'] }];
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
 
     const res = mockRes();

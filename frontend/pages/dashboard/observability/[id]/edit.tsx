@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GripVertical, LayoutGrid, List, Plus, Save, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useToast } from '@/components/ui/Toast';
@@ -19,7 +20,8 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { api } from '@/lib/api';
 import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
@@ -47,18 +49,20 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
  * local state and shipping the whole set on Save means no "half-saved" view
  * for other readers if the request fails mid-flight.
  */
+/** Stable empty catalog until the read lands (keeps AddPanelModal's props steady). */
+const EMPTY_CATALOG: CatalogEntry[] = [];
+
 export default function DashboardEditPage() {
   // View on `dashboards:read`; persisting edits is a `dashboards:write`
   // capability gated on `can()` (the backend rejects the PUT otherwise, and
   // `can()` reports false under read-only impersonation so Save disables).
   // Superadmins bypass.
-  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard();
   const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id: '';
 
-  const [original, setOriginal] = useState<DashboardWithPanels | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'org' | 'public'>('private');
@@ -74,11 +78,35 @@ export default function DashboardEditPage() {
   const [editorMode, setEditorMode] = useState<'grid' | 'list'>('grid');
   const [gridWidth, setGridWidth] = useState(960);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showAddPanel, setShowAddPanel] = useState(false);
+
+  // Fetch dashboard + catalog in parallel; the draft state below is seeded
+  // from the dashboard once it lands.
+  const ready = isReady && isAuthenticated && !!id;
+  const { data: loaded, loading, error, refetch } = useFetch<{ dashboard: DashboardWithPanels | null; catalog: CatalogEntry[] } | null>(
+    async (signal) => {
+      if (!ready) return null;
+      const [dRes, cRes] = await Promise.all([api.getDashboard(id, signal), api.observabilityCatalog(signal)]);
+      return { dashboard: dRes.data?.dashboard ?? null, catalog: cRes.data?.entries ?? [] };
+    },
+    [ready, id],
+  );
+  const original = loaded?.dashboard ?? null;
+  const catalog = loaded?.catalog ?? EMPTY_CATALOG;
+
+  useEffect(() => {
+    if (!original) return;
+    setName(original.name);
+    setDescription(original.description ?? '');
+    setVisibility(original.visibility);
+    setPanels(original.panels.map(({ id: _id, dashboardId: _did, ...rest }) => rest));
+    setPanelKeys(original.panels.map(() => `panel-${panelKeySeq.current++}`));
+    // layoutJson keys are `p-${position}` end-to-end (server keeps
+    // whatever map we send). Position-based keys survive PUT — which
+    // re-assigns panel ids — without invalidating the saved layout.
+    setLayoutJson(original.layoutJson ?? {});
+  }, [original]);
 
   // Draft differs from the loaded doc? Compared field-by-field against
   // `original` (panels/layoutJson serialized) so an accidental Back / tab
@@ -112,37 +140,6 @@ export default function DashboardEditPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [editorMode]);
-
-  // Fetch dashboard + catalog in parallel.
-  useEffect(() => {
-    if (!isReady || !isAuthenticated || !id) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        const [dRes, cRes] = await Promise.all([api.getDashboard(id), api.observabilityCatalog()]);
-        if (cancelled) return;
-        const d = dRes.data?.dashboard;
-        if (!d) { setError('Dashboard not found'); return; }
-        setOriginal(d);
-        setName(d.name);
-        setDescription(d.description ?? '');
-        setVisibility(d.visibility);
-        setPanels(d.panels.map(({ id: _id, dashboardId: _did,...rest }) => rest));
-        setPanelKeys(d.panels.map(() => `panel-${panelKeySeq.current++}`));
-        // layoutJson keys are `p-${position}` end-to-end (server keeps
-        // whatever map we send). Position-based keys survive PUT — which
-        // re-assigns panel ids — without invalidating the saved layout.
-        setLayoutJson(d.layoutJson ?? {});
-        setCatalog(cRes.data?.entries ?? []);
-      } catch (err) {
-        if (!cancelled) setError(formatError(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isReady, isAuthenticated, id]);
 
   // Reordering (both modes) swaps panels AND swaps their layoutJson entries
   // so the grid view stays consistent if the user toggles back. Grid-mode
@@ -247,12 +244,14 @@ export default function DashboardEditPage() {
   };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
-  if (!isReady || !isAuthenticated) return <LoadingPage />;
-  if (loading) return <LoadingPage />;
+  if (!isReady || !isAuthenticated || !id) return <LoadingPage />;
+  if (loading && !loaded) return <LoadingPage />;
   if (error || !original) {
     return (
       <DashboardLayout title="Edit dashboard" subtitle="">
-        <ErrorAlert message={error ?? 'Dashboard not found'} />
+        {error
+          ? <RetryError message={formatError(error)} onRetry={refetch} />
+          : <EmptyState icon={LayoutGrid} title="Dashboard not found" description="It may have been deleted, or you no longer have access to it." />}
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back</Link>
       </DashboardLayout>
     );

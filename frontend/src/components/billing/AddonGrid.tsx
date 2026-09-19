@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
@@ -155,6 +157,20 @@ interface AddonGridProps {
   onSubscribeIntent?: (bundle: Bundle) => void;
 }
 
+/**
+ * Where a buyer goes to satisfy a card's unmet prerequisite: the add-on that
+ * provides it on this page (`?highlight=` scrolls to it), or the Plans tab when
+ * nothing on sale here provides it — then only an upgrade can.
+ */
+function prerequisiteLink(unmet: NonNullable<Bundle['unmetRequirement']>, bundles: Bundle[]): { href: { pathname: string; query: Record<string, string> }; label: string } {
+  const provider = unmet.bundleIds.map((id) => bundles.find((b) => b.id === id)).find(Boolean)
+    ?? unmet.features.map((f) => bundles.find((b) => b.features?.includes(f))).find(Boolean);
+  if (provider) {
+    return { href: { pathname: '/dashboard/billing', query: { tab: 'addons', highlight: provider.id } }, label: `Add ${provider.name} first` };
+  }
+  return { href: { pathname: '/dashboard/billing', query: { tab: 'plans' } }, label: 'Upgrade your plan' };
+}
+
 /** Human labels for the feature flags a bundle grants (unknown flags pass through raw). */
 function featureLabels(features?: string[]): string[] {
   if (!features?.length) return [];
@@ -251,6 +267,10 @@ export function AddonGrid({
           const features = featureLabels(b.features);
           const nudge = comboNudge(b.id);
           const isHighlighted = b.id === highlightedId;
+          // Prerequisite the account doesn't meet yet (server-evaluated, the same
+          // gate the add route 400s on). Only blocks an ADD — a held pack stays
+          // manageable so it can still be removed.
+          const blocked = canBuy && qty === 0 && b.unmetRequirement ? b.unmetRequirement : null;
           return (                  <div
               key={b.id}
               ref={isHighlighted ? highlightRef : undefined}
@@ -309,6 +329,23 @@ export function AddonGrid({
                       </a>
                     )}
                   </span>
+                ): blocked ? (
+                  <div className="w-full space-y-1" data-testid={`addon-blocked-${b.id}`}>
+                    <Button size="sm" disabled title={blocked.message}>
+                      <Lock className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Add
+                    </Button>
+                    <p className="text-xs text-[var(--pb-text-muted)]">
+                      {blocked.message}.{' '}
+                      {(() => {
+                        const link = prerequisiteLink(blocked, bundles);
+                        return (
+                          <Link href={link.href} className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                            {link.label} →
+                          </Link>
+                        );
+                      })()}
+                    </p>
+                  </div>
                 ): b.stackable ? (
                   <PackQuantityEntry
                     bundle={b}

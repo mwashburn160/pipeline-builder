@@ -53,17 +53,35 @@ export function FeatureLock({ flag, className = '' }: { flag: FeatureFlag; class
  * Render only when the viewer WOULD otherwise have the control (they hold the
  * write permission) — a lock on something they couldn't use anyway is noise.
  */
-export function FeatureLockedAction({ flag, label, icon: Icon }: { flag: FeatureFlag; label: string; icon?: LucideIcon }) {
+export function FeatureLockedAction({ flag, label, icon: Icon, iconOnly = false }: {
+  flag: FeatureFlag;
+  label: string;
+  icon?: LucideIcon;
+  /** Toolbar-icon form (e.g. the top bar's Ask): the icon with a lock badge, no
+   *  visible text. The accessible name and tooltip still say what's locked. */
+  iconOnly?: boolean;
+}) {
   const gate = useFeatureGate(flag);
   if (!gate.isLoaded || gate.entitled) return null;
+  const common = {
+    href: gate.upsellHref,
+    title: `${label} needs ${gate.label}, which isn't included in your current plan.`,
+    'aria-label': `${label} — requires ${gate.label}. Open billing to add it.`,
+    'data-testid': `feature-locked-${flag}`,
+  };
+  if (iconOnly) {
+    return (
+      <Link
+        {...common}
+        className="relative p-1.5 rounded-full text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      >
+        {Icon ? <Icon className="w-5 h-5" aria-hidden="true" /> : null}
+        <Lock className="absolute -bottom-0.5 -right-0.5 w-3 h-3" aria-hidden="true" />
+      </Link>
+    );
+  }
   return (
-    <Link
-      href={gate.upsellHref}
-      title={`${label} needs ${gate.label}, which isn't included in your current plan.`}
-      aria-label={`${label} — requires ${gate.label}. Open billing to add it.`}
-      data-testid={`feature-locked-${flag}`}
-      className="btn btn-secondary opacity-60 hover:opacity-100"
-    >
+    <Link {...common} className="btn btn-secondary opacity-60 hover:opacity-100">
       {Icon ? <Icon className="w-4 h-4 mr-2" aria-hidden="true" /> : null}
       {label}
       <Lock className="w-3.5 h-3.5 ml-2" aria-hidden="true" />

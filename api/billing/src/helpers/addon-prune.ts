@@ -8,6 +8,7 @@
  * (billing-helpers never imports this file, so there's no cycle).
  */
 import { createLogger, type QuotaTier } from '@pipeline-builder/api-core';
+import { cascadeRemoveDependents } from './addon-catalog.js';
 import {
   billingServiceAuth,
   createBillingEvent,
@@ -58,9 +59,20 @@ export function applyTierIncludedAddonPrune(
   newTier: QuotaTier,
   ctx: Pick<AddonPruneContext, 'orgId' | 'subscriptionId' | 'source'>,
 ): PrunedAddon[] {
-  const { addons, pruned } = pruneTierIncludedFeatureAddons(
-    subscription.addons ?? [], newTier, getBundleCatalog(),
-  );
+  const catalog = getBundleCatalog();
+  const included = pruneTierIncludedFeatureAddons(subscription.addons ?? [], newTier, catalog);
+  // A tier change can also strand a bundle whose PREREQUISITE the new tier no
+  // longer provides (e.g. Enterprise → Team drops the tier-included
+  // advanced_reporting, so a held DORA History Pack has nothing to extend). Those
+  // are dropped the same way — the account would otherwise keep paying for a
+  // pack that does nothing.
+  const cascade = cascadeRemoveDependents(included.addons, catalog, newTier);
+  const byId = new Map(catalog.map((b) => [b.id, b]));
+  const addons = cascade.addons;
+  const pruned: PrunedAddon[] = [
+    ...included.pruned,
+    ...cascade.removed.map((bundleId) => ({ bundleId, features: [...(byId.get(bundleId)?.features ?? [])] })),
+  ];
   if (pruned.length === 0) return [];
   subscription.addons = addons;
   for (const p of pruned) {

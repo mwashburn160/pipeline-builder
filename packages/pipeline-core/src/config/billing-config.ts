@@ -14,7 +14,7 @@
  *
  * All defaults match the original hardcoded seed data.
  */
-import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './config-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
@@ -30,8 +30,9 @@ type GrantMap = Partial<Record<keyof QuotaTierLimits, number>>;
 //      (TIER_FEATURES) via FEATURE_METADATA labels — so an advertised base
 //      feature is always one `requireFeature` actually grants for that tier.
 // Only genuinely non-gated marketing copy (support level, dashboards, RBAC) is
-// hand-authored, passed as `perks`. Purchasable add-ons (sso, audit_log) are NOT
-// listed as base perks here — they are sold as bundles (see loadBundles()).
+// hand-authored, passed as `perks`. Purchasable feature add-ons (sso,
+// advanced_reporting, …) are NOT listed as base perks here — they are sold as
+// bundles (see loadBundles()).
 
 /** "Up to N plugins" / "Unlimited plugins" from an effective limit (-1 = unlimited). */
 function limitLine(limit: number, singular: string, plural: string): string {
@@ -55,9 +56,12 @@ function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
 
 // Note: `perks` are non-gated marketing lines only. Enforced features (incl.
 // Priority Support for pro/team/enterprise) come from TIER_FEATURES above.
-const DEFAULT_DEVELOPER_FEATURES = defaultFeatures('developer', ['Community support']);
+// The reporting dashboard is open to every tier (only the DORA/scorecard views
+// are entitlement-gated), so it's listed on each plan rather than implying a
+// lower tier lacks it.
+const DEFAULT_DEVELOPER_FEATURES = defaultFeatures('developer', ['Community support', 'Reporting dashboard']);
 const DEFAULT_PRO_FEATURES = defaultFeatures('pro', ['Reporting dashboard']);
-const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles']);
+const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles', 'Reporting dashboard']);
 const DEFAULT_ENTERPRISE_FEATURES = defaultFeatures('enterprise', [
   'RBAC & team roles', 'Reporting dashboard',
 ]);
@@ -418,7 +422,7 @@ function loadBundles(): BundleConfig[] {
     monthly: number,
     availableForTiers: QuotaTier[],
     sortOrder: number,
-    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; volumeTiers?: VolumeTier[] } = {},
+    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; requiresFeatures?: string[]; volumeTiers?: VolumeTier[] } = {},
   ): BundleConfig => {
     // Resolve monthly first so the annual fallback tracks a `_MONTHLY` override
     // (annual ≈ 10× the *effective* monthly, not the hardcoded default).
@@ -432,6 +436,7 @@ function loadBundles(): BundleConfig[] {
       ...(extra.features ? { features: extra.features } : {}),
       ...(extra.maxQuantity !== undefined ? { maxQuantity: extra.maxQuantity } : {}),
       ...(extra.requires ? { requires: extra.requires } : {}),
+      ...(extra.requiresFeatures ? { requiresFeatures: extra.requiresFeatures } : {}),
       ...(volumeTiers ? { volumeTiers } : {}),
       prices: {
         monthly: resolvedMonthly,
@@ -460,19 +465,20 @@ function loadBundles(): BundleConfig[] {
     b('api_pack', 'API Pack (+100k)', '100,000 additional API calls / period', { apiCalls: 100_000 }, 1999, ALL, 3),
     b('ai_pack', 'AI Pack (+2.5k)', '2,500 additional AI calls / period', { aiCalls: 2500 }, 1999, ALL, 4),
     b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
-    b('audit_log', 'Audit Log', 'Audit log capability', {}, 2000, ['pro'], 6, { features: ['audit_log'], stackable: false }),
     // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
-    b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),
+    // The grant is ADDITIVE on Pro's own idpConfigs baseline, hence "additional".
+    b('sso', 'SSO / IdP', 'Single sign-on + 5 additional IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),
     // DORA / advanced delivery analytics. INCLUDED in Enterprise (TIER_FEATURES),
     // so the add-on is offered to every other tier (developer/pro/team). Priced
-    // between Audit Log ($20) and SSO ($40) — a higher-value, actively-used
-    // analytics surface than the audit log, but below the SSO enterprise gate.
-    b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, change failure rate, MTTR, lead-time proxy, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
+    // below SSO ($40) — an analytics surface, not the enterprise identity gate.
+    // Lead time is MEASURED commit → deploy (reporting's deploy events), not a proxy.
+    b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, lead time (commit → deploy), change failure rate, MTTR, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
     // Per-team usage breakdown across the org → team subtree. INCLUDED in
-    // Enterprise (TIER_FEATURES); the add-on is offered to Pro/Team (developer has
-    // no teams to break down). Priced at $30/mo ($300/yr) — parity with DORA, its
-    // analytics sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
-    b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['pro', 'team'], 9, { features: ['team_usage_analytics'], stackable: false }),
+    // Enterprise (TIER_FEATURES); the add-on is offered to Team only — Developer
+    // and Pro can't nest teams (TEAM_CAPABLE_TIERS), so there'd be nothing to
+    // break down. Priced at $30/mo ($300/yr) — parity with DORA, its analytics
+    // sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
+    b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['team'], 9, { features: ['team_usage_analytics'], stackable: false }),
     // Retention packs (docs/billing-bundles.md). Stackable capacity packs that
     // raise the reporting retention entitlement billing syncs to reporting's
     // `dora_settings`. NOT quota-metered flow — `eventRetentionDays`/`doraRetentionDays`
@@ -482,9 +488,10 @@ function loadBundles(): BundleConfig[] {
     b('retention_pack', 'Standard Retention Pack (+90d)', '90 additional days of standard pipeline-event retention', { eventRetentionDays: 90 }, 1500, ALL, 10, { maxQuantity: 7 }),
     // DORA History Pack: +365d DORA retention AND per-org report-query window (the
     // window cap tracks doraRetentionDays). Only meaningful with Advanced Reporting
-    // — INCLUDED in Enterprise, an add-on on developer/pro/team. Capped at 1
+    // — INCLUDED in Enterprise, an add-on on developer/pro/team — so it
+    // `requiresFeatures` it (the tier OR a held bundle satisfies it). Capped at 1
     // (180 + 365 = 545 ≤ the 730-day retention ceiling).
-    b('dora_history_pack', 'DORA History Pack (+365d)', '365 additional days of DORA history + report-query window (requires Advanced Reporting)', { doraRetentionDays: 365 }, 3000, ALL, 11, { maxQuantity: 1 }),
+    b('dora_history_pack', 'DORA History Pack (+365d)', '365 additional days of DORA history + report-query window (requires Advanced Reporting)', { doraRetentionDays: 365 }, 3000, ALL, 11, { maxQuantity: 1, requiresFeatures: ['advanced_reporting'] }),
     // Compliance content add-ons (docs/plans/compliance-addons.md). Feature bundles
     // gating access to curated system-org published rule sets. INCLUDED in
     // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team.
@@ -498,14 +505,17 @@ function loadBundles(): BundleConfig[] {
 }
 
 /**
- * Config-load guardrail for the `requires` prerequisite graph. A `requires` entry
- * that doesn't resolve to an ACTIVE bundle — or that participates in a cycle —
- * silently makes the referencing bundle unpurchasable (the addon route rejects
- * with 400 forever because the prerequisite can never be satisfied). Catch it at
- * load with a clear error rather than shipping a dead SKU.
+ * Config-load guardrail for the `requires` / `requiresFeatures` prerequisites. A
+ * `requires` entry that doesn't resolve to an ACTIVE bundle — or that participates
+ * in a cycle — silently makes the referencing bundle unpurchasable (the addon
+ * route rejects with 400 forever because the prerequisite can never be
+ * satisfied). Catch it at load with a clear error rather than shipping a dead SKU.
  *
  *  - Every id in a bundle's `requires` MUST name an active bundle in the catalog.
  *  - The `requires` graph MUST be acyclic (a → b → a can never be satisfied).
+ *  - Every `requiresFeatures` entry MUST be a real feature flag, attainable on
+ *    EVERY tier the bundle is sold to — either tier-included (`TIER_FEATURES`) or
+ *    granted by an active bundle offered on that same tier.
  */
 export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
   const active = new Map(bundles.filter((b) => b.isActive).map((b) => [b.id, b]));
@@ -517,6 +527,24 @@ export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
         throw new Error(
           `[billing-config] Bundle "${bundle.id}" requires "${reqId}", which is not an active bundle in the catalog — it would be permanently unpurchasable.`,
         );
+      }
+    }
+  }
+
+  // 1b. Feature prerequisites: a real flag, attainable on every sold-to tier.
+  for (const bundle of bundles) {
+    for (const flag of bundle.requiresFeatures ?? []) {
+      if (!isValidFeatureFlag(flag)) {
+        throw new Error(`[billing-config] Bundle "${bundle.id}" requiresFeatures "${flag}", which is not a feature flag.`);
+      }
+      for (const tier of bundle.availableForTiers) {
+        const tierIncludes = (TIER_FEATURES[tier] ?? []).includes(flag);
+        const buyable = [...active.values()].some((o) => o.availableForTiers.includes(tier) && (o.features ?? []).includes(flag));
+        if (!tierIncludes && !buyable) {
+          throw new Error(
+            `[billing-config] Bundle "${bundle.id}" requires feature "${flag}", which the ${tier} tier neither includes nor can buy — it would be permanently unpurchasable there.`,
+          );
+        }
       }
     }
   }

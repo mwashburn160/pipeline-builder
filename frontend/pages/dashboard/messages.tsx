@@ -1,8 +1,10 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
 import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useMessages, type MessageView } from '@/hooks/useMessages';
+import { useMessages, type MessageView, type MessageFilters } from '@/hooks/useMessages';
 import { useDebounce } from '@/hooks/useDebounce';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -11,18 +13,23 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
-import { ComposeModal } from '@/components/message/ComposeModal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterSelect } from '@/components/ui/FilterSelect';
+import { RetryError } from '@/components/ui/RetryError';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
-import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { aliasLocalPart } from '@/lib/support-label';
-import { SYSTEM_ORG_ID } from '@/lib/constants';
-import type { Message } from '@/types';
+import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
+import type { Message, MessagePriority } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
+
+// Loaded on demand: compose only mounts while open, and the recently-deleted
+// panel only for writers — neither belongs in the inbox's first paint.
+const ComposeModal = dynamic(() => import('@/components/message/ComposeModal').then((m) => m.ComposeModal), { ssr: false });
+const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
 
 
 /**
@@ -47,17 +54,17 @@ const FILTER_NOUN: Record<MessageFilter, string> = {
 };
 
 /**
- * Channel filter. `'all'` matches every channel + the no-channel case;
- * `'none'` matches only messages with no channel (org-to-org); any other
- * string matches an exact channel value (`'support'`, `'help'`, …).
+ * Server-side list filters. `''` means "any" (the filter is not sent). Each
+ * narrows the ACTIVE tab on the server, so the list, its count and its empty
+ * state describe the whole corpus rather than the pages loaded so far.
  */
-type ChannelFilter = 'all' | 'none' | string;
+type ReadFilter = '' | 'unread' | 'read';
+type PriorityFilter = '' | MessagePriority;
+/** Known channels (open-ended server-side; `support` is the one the product sends). */
+type ChannelFilter = '' | 'support';
 
-const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
-  { key: 'all',     label: 'All channels' },
-  { key: 'support', label: 'Support' },
-  { key: 'none',    label: 'Other' },
-];
+/** Query-string key of the message deep link: `/dashboard/messages?message=<id>`. */
+export const MESSAGE_QUERY_KEY = 'message';
 
 /** Placeholder shown in the thread panel when no conversation is selected. */
 function EmptyChat() {
@@ -75,7 +82,7 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { accessDenied, user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'messages:read' });
+  const { accessDenied, user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard();
   // `messages:write` unlocks full compose (address other orgs/teams directly)
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
@@ -88,6 +95,15 @@ export default function MessagesPage() {
   const debouncedSearch = useDebounce(searchInput.trim(), 300);
   // Declared before the data hook: the tab IS the endpoint the hook fetches.
   const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
+  const [readFilter, setReadFilter] = useState<ReadFilter>('');
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('');
+  const listFilters = useMemo<MessageFilters>(() => ({
+    ...(readFilter ? { isRead: readFilter === 'read' } : {}),
+    ...(priorityFilter ? { priority: priorityFilter } : {}),
+    ...(channelFilter ? { channel: channelFilter } : {}),
+  }), [readFilter, priorityFilter, channelFilter]);
+  const filtersActive = !!(readFilter || priorityFilter || channelFilter);
   const {
     messages,
     loading,
@@ -103,11 +119,12 @@ export default function MessagesPage() {
     markThreadAsRead,
     deleteMessage,
     fetchMessages,
-  } = useMessages(user?.organizationId, debouncedSearch, messageFilter);
+  } = useMessages(user?.organizationId, debouncedSearch, messageFilter, listFilters);
 
+  const router = useRouter();
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
 
   const currentOrgId = user?.organizationId?.toLowerCase() || '';
 
@@ -157,31 +174,25 @@ export default function MessagesPage() {
     return out;
   }, [messages, currentOrgId, resolveOrgName]);
 
-  // The channel filter is only meaningful when the inbox actually spans more than
-  // one channel bucket (a distinct channel value, or the no-channel "Other").
-  // For a single-channel inbox — the common case — hide the row to cut chrome and
-  // treat the filter as "all" so a stale selection can't hide everything.
-  const channelBuckets = useMemo(() => new Set(messages.map((m) => m.channel || 'none')), [messages]);
-  const showChannelFilter = channelBuckets.size > 1;
-  const effectiveChannelFilter = showChannelFilter ? channelFilter : 'all';
-
-  // Message TYPE is filtered server-side (the tab picks the endpoint), so only
-  // the channel narrowing is left to do client-side over the loaded page.
-  const filteredMessages = useMemo(() => {
-    if (effectiveChannelFilter === 'none') return messages.filter((m) => !m.channel);
-    if (effectiveChannelFilter !== 'all') return messages.filter((m) => m.channel === effectiveChannelFilter);
-    return messages;
-  }, [messages, effectiveChannelFilter]);
-
-  // Heading count: the SERVER's total for the active tab + search — not
-  // `messages.length`, which is just the pages fetched so far. Suppressed while
-  // a channel filter narrows the list client-side (the server total wouldn't
-  // describe what's rendered) and until the first page reports one.
+  // Heading count: the SERVER's total for the active tab + search + filters —
+  // not `messages.length`, which is just the pages fetched so far. Every filter
+  // is applied server-side, so the total always describes what's rendered.
   const noun = FILTER_NOUN[messageFilter];
-  const headingCount = effectiveChannelFilter === 'all' ? total : null;
+  const headingCount = total;
 
-  const handleSelectMessage = useCallback((msg: Message) => {
+  // Mirror the open message into the URL (shallow) so the view is linkable and
+  // Back closes it; `null` drops the key.
+  const writeMessageParam = useCallback((id: string | null) => {
+    const rest = { ...router.query };
+    delete rest[MESSAGE_QUERY_KEY];
+    void router.replace({ pathname: router.pathname, query: id ? { ...rest, [MESSAGE_QUERY_KEY]: id } : rest }, undefined, { shallow: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- router identity changes each render
+  }, [router.query, router.pathname]);
+
+  /** Open a message: select it and mark it read for the current org. */
+  const openMessage = useCallback((msg: Message) => {
     setSelectedMessage(msg);
+    setDeepLinkError(null);
     // Per-participant read state — mark as read only if the *current* org
     // hasn't already done so.
     const currentOrg = user?.organizationId?.toLowerCase();
@@ -190,10 +201,41 @@ export default function MessagesPage() {
     }
   }, [markAsRead, user?.organizationId]);
 
+  const handleSelectMessage = useCallback((msg: Message) => {
+    openMessage(msg);
+    writeMessageParam(msg.id);
+  }, [openMessage, writeMessageParam]);
+
   const handleBack = useCallback(() => {
     setSelectedMessage(null);
+    writeMessageParam(null);
     fetchMessages();
-  }, [fetchMessages]);
+  }, [fetchMessages, writeMessageParam]);
+
+  // Deep link: `?message=<id>` opens that message even when it isn't on the
+  // loaded page (or in the active tab/filters) — it's fetched by id through the
+  // viewer-scoped `GET /messages/:id`, so a link to a message the viewer can't
+  // see resolves to "not found", never to someone else's message.
+  const rawLinked = router.query[MESSAGE_QUERY_KEY];
+  const linkedId = router.isReady ? (Array.isArray(rawLinked) ? rawLinked[0] : rawLinked) : undefined;
+  const selectedId = selectedMessage?.id;
+  useEffect(() => {
+    if (!isReady || !linkedId || linkedId === selectedId) return;
+    const controller = new AbortController();
+    api.getMessage(linkedId, { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        if (res.success && res.data?.message) openMessage(res.data.message);
+        else setDeepLinkError('That message could not be found — it may have been deleted, or it isn’t addressed to you.');
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setDeepLinkError(formatError(err, 'Failed to open the linked message'));
+      });
+    return () => controller.abort();
+    // `openMessage` is stable per org; the id pair is what drives a (re)load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, linkedId, selectedId]);
 
   // Deleting used to fire straight from the row/thread trash icon with no
   // prompt and no undo. Both call sites now stage the id and confirm here.
@@ -308,6 +350,12 @@ export default function MessagesPage() {
               </div>
             </div>
 
+            {deepLinkError && (
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                <RetryError message={deepLinkError} onRetry={() => { setDeepLinkError(null); writeMessageParam(null); }} />
+              </div>
+            )}
+
             {/* Filter tabs — message type */}
             <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
               {FILTER_TABS.map(({ key, label }) => (
@@ -324,24 +372,33 @@ export default function MessagesPage() {
                 </button>
               ))}
             </div>
-            {/* Filter tabs — channel (only when the inbox spans >1 channel) */}
-            {showChannelFilter && (
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-              {CHANNEL_TABS.map(({ key, label }) => (
+            {/* Server-side filters — read state, priority, channel. */}
+            <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <FilterSelect aria-label="Filter by read state" value={readFilter} onChange={(e) => setReadFilter(e.target.value as ReadFilter)} className="text-xs">
+                <option value="">Any status</option>
+                <option value="unread">Unread</option>
+                <option value="read">Read</option>
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by priority" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)} className="text-xs">
+                <option value="">Any priority</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by channel" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)} className="text-xs">
+                <option value="">All channels</option>
+                <option value="support">Support</option>
+              </FilterSelect>
+              {filtersActive && (
                 <button
-                  key={key}
-                  onClick={() => setChannelFilter(key)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${
-                    channelFilter === key
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700/50'
-                  }`}
+                  type="button"
+                  onClick={() => { setReadFilter(''); setPriorityFilter(''); setChannelFilter(''); }}
+                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
                 >
-                  {label}
+                  Clear
                 </button>
-              ))}
+              )}
             </div>
-            )}
 
             {/* Live-updates status — only shown when SSE has dropped after a
                 healthy connection; the list keeps refreshing via polling. */}
@@ -357,18 +414,12 @@ export default function MessagesPage() {
                 <LoadingSpinner size="sm" />
               </div>
             ) : error ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
-                <button
-                  onClick={fetchMessages}
-                  className="action-link mt-2"
-                >
-                  Try again
-                </button>
+              <div className="flex-1 flex flex-col justify-center px-3">
+                <RetryError message={error} onRetry={fetchMessages} />
               </div>
             ) : (
               <MessageList
-                messages={filteredMessages}
+                messages={messages}
                 onSelect={handleSelectMessage}
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
@@ -377,13 +428,13 @@ export default function MessagesPage() {
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
-                emptyTitle={debouncedSearch || messageFilter !== 'all' || effectiveChannelFilter !== 'all' ? `No matching ${noun}` : undefined}
+                emptyTitle={debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
                 emptyDescription={
-                  // Honest now that the tab is server-filtered: "no announcements"
-                  // means the SERVER has none for this org, not "none in the pages
-                  // we happened to load".
+                  // Honest now that the tab and filters are server-side: "no
+                  // announcements" means the SERVER has none for this org, not
+                  // "none in the pages we happened to load".
                   debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
-                    : effectiveChannelFilter !== 'all' ? `No ${noun} in this channel — switch to "All channels".`
+                    : filtersActive ? `No ${noun} match these filters — clear them to see everything.`
                       : messageFilter === 'announcements' ? 'No announcements have been sent to your organization.'
                         : messageFilter === 'conversations' ? 'No conversations yet — start one with the + button.'
                           : undefined
@@ -421,9 +472,11 @@ export default function MessagesPage() {
         )}
       </div>
 
-      {/* Compose modal */}
+      {/* Compose modal — mounted only while open (it starts a fresh draft on
+          every open anyway), so its chunk loads on first use. */}
+      {showCompose && (
       <ComposeModal
-        isOpen={showCompose}
+        isOpen
         onClose={() => setShowCompose(false)}
         onSend={handleSend}
         canWrite={canWrite}
@@ -438,6 +491,7 @@ export default function MessagesPage() {
           .filter((o) => o.id.toLowerCase() !== currentOrgId)
           .map((o) => ({ value: o.id, label: o.name }))}
       />
+      )}
 
       {pendingDelete && (
         <DeleteConfirmModal

@@ -49,7 +49,7 @@ describe('FeatureOverridesEditor', () => {
     expect(screen.getByLabelText(/Override AI Generation/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Override Bulk Operations/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Override Custom Integrations/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Override Audit Log/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Override Custom Integrations/i)).toBeInTheDocument();
   });
 
   it('disables Save when state is identical to initial', () => {
@@ -61,12 +61,12 @@ describe('FeatureOverridesEditor', () => {
     render(
       <FeatureOverridesEditor
         userId="u1"
-        initial={{ ai_generation: true, audit_log: false }}
+        initial={{ ai_generation: true, custom_integrations: false }}
         onSaved={jest.fn()}
       />,
     );
     expect((screen.getByLabelText(/Override AI Generation/i) as HTMLSelectElement).value).toBe('on');
-    expect((screen.getByLabelText(/Override Audit Log/i) as HTMLSelectElement).value).toBe('off');
+    expect((screen.getByLabelText(/Override Custom Integrations/i) as HTMLSelectElement).value).toBe('off');
     expect((screen.getByLabelText(/Override Priority Support/i) as HTMLSelectElement).value).toBe('inherit');
   });
 
@@ -82,7 +82,7 @@ describe('FeatureOverridesEditor', () => {
     render(<FeatureOverridesEditor userId="user-42" initial={{}} onSaved={onSaved} />);
 
     fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'on' } });
-    fireEvent.change(screen.getByLabelText(/Override Audit Log/i), { target: { value: 'off' } });
+    fireEvent.change(screen.getByLabelText(/Override Custom Integrations/i), { target: { value: 'off' } });
     // Priority Support stays at inherit — must not appear in the payload.
 
     // Nothing is sent until the password check is confirmed.
@@ -96,7 +96,7 @@ describe('FeatureOverridesEditor', () => {
 
     expect(updateUserFeatures).toHaveBeenCalledWith('user-42', {
       ai_generation: true,
-      audit_log: false,
+      custom_integrations: false,
     }, 'step-up-token');
     expect(onSaved).toHaveBeenCalled();
   });

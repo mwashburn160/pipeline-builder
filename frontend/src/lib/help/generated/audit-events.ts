@@ -54,7 +54,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Query the trail via GET /audit (admin-only; org admins are forced to their own org, sysadmins may filter any org) or the dashboard Audit page at /dashboard/audit. Records auto-expire via a MongoDB TTL index after config.audit.retentionDays days (default 90, overridable via AUDIT_RETENTION_DAYS)."
+          "content": "Query the trail via GET /audit (admin-only; org admins are forced to their own org, sysadmins may filter any org) or the dashboard Audit page at /dashboard/audit. Filters: action, actorId, impersonatorId, targetType, targetId, groupId, requestId, outcome, from/to, and — sysadmin only — orgId and affectedOrgId. Every one is also a URL parameter of the Audit page, and the ids on each row narrow the list to that actor, impersonator, target or group. Records auto-expire via a MongoDB TTL index after config.audit.retentionDays days (default 90, overridable via AUDIT_RETENTION_DAYS)."
         }
       ]
     },
@@ -237,7 +237,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Admin / sysadmin",
-              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.seatLimit.update, admin.org.quota.override, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.impersonate.request/approve/deny/revoke/breakglass, admin.org.namespace.render"
+              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.seatLimit.update, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.impersonate.request/approve/deny/revoke/breakglass, admin.org.namespace.render"
             ],
             [
               "Denied access",

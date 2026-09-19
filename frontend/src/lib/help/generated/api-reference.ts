@@ -585,13 +585,13 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id",
-              "Get an organization",
+              "Get an organization, with a page of its member roster (?membersLimit= 1–500, default 100; ?membersOffset=) — memberCount is always the full total",
               "— (own org / managed team / sysadmin)"
             ],
             [
               "PUT",
               "/organization/:id",
-              "Update an organization",
+              "Update an organization's name, slug and/or description (+ step-up). The only route that edits the description",
               "system admin"
             ],
             [
@@ -648,7 +648,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id/roles",
-              "List Roles (permission sets) + members",
+              "List Roles (permission sets) + members. Every Role without ?limit=; with it (1–100, plus ?offset=) one page, members loaded for that page only. Always returns pagination.total",
               "— (member)"
             ],
             [
@@ -724,7 +724,7 @@ export const apiReferenceTopic: HelpTopic = {
               "GET \\",
               "PATCH",
               "/organization/:id/mfa-policy",
-              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes. The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
+              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes, plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
               "org:settings"
             ]
           ]
@@ -889,6 +889,12 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/user/generate-token",
               "Mint a stored machine credential ({ expiresIn?, scope? }, max 365 d). From a person: opens a new machine session with that scope. From a machine token: renews that session in place under its stored scope. Returns { accessToken, expiresIn } — no refresh token",
+              "— (auth)"
+            ],
+            [
+              "GET",
+              "/user/tokens",
+              "The caller's token-issuance history, newest first: { tokens: [{ id, createdAt, expiresAt, status }] } where status is active, expired, or revoked (a later sign-out-everywhere)",
               "— (auth)"
             ],
             [
@@ -1319,6 +1325,11 @@ export const apiReferenceTopic: HelpTopic = {
               "GET",
               "/reports/ingest-health",
               "Read that heartbeat back — {health, now}, where health is null when the deployment has never reported ingestion (not the same as stale) and now is the server clock. Drives the Reports freshness strip, which separates \"no deploys in range\" from \"nothing has reached the ingest pipeline since X\". User-facing: org-scoped, reports:read (not the reporting:ingest scope, and not advanced_reporting — it applies to the execution reports every tier sees)"
+            ],
+            [
+              "GET",
+              "/reports/retention",
+              "The org's effective retention, read-only — {eventRetentionDays, doraRetentionDays, eventMaxRangeDays, doraMaxRangeDays} (-1 = unlimited; *MaxRangeDays is the horizon clamped to the 730-day report ceiling). Drives the Reports date-range cap. reports:read only (not advanced_reporting — the Retention Pack is sold to every tier)"
             ],
             [
               "GET",

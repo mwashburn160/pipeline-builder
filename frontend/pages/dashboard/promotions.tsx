@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, type ReactNode } from 'react';
-import { Megaphone, Plus, ShieldAlert, Eye, Gift, BarChart3, Zap } from 'lucide-react';
+import { Megaphone, Plus, ShieldAlert, Eye, Gift, BarChart3, Zap, Info } from 'lucide-react';
 import { formatError } from '@/lib/constants';
 import { formatCents } from '@/lib/format';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -17,6 +17,8 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Button } from '@/components/ui/Button';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
+import { PromotionDetailDrawer } from '@/components/billing/PromotionDetailDrawer';
+import { useDetailParam } from '@/components/billing/useDetailParam';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -58,7 +60,10 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 }
 
 export default function PromotionsPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // System-admin gate comes from page-access.ts (a "Billing Admin" sub-route).
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  // Promotion open in the detail drawer — `?id=` so it's deep-linkable.
+  const [detailId, setDetailId] = useDetailParam();
   const toast = useToast();
 
   // Feature-off (BILLING_PROMOTIONS_ENABLED=false) surfaces as a 404 on list —
@@ -163,13 +168,24 @@ export default function PromotionsPage() {
   };
 
   // ── Row actions ─────────────────────────────────────────
-  const toggleActive = async (p: Promotion) => {
+  // Revoke goes through the dedicated DELETE route so the write is recorded as
+  // `billing.promotion.revoke`; re-activating is an ordinary update.
+  const revoke = async (p: Promotion) => {
     try {
-      await api.updatePromotion(p.id, { isActive: !p.isActive });
-      toast.success(p.isActive ? 'Promotion revoked' : 'Promotion activated');
+      await api.revokePromotion(p.id);
+      toast.success('Promotion revoked');
       list.refresh();
     } catch (err) {
-      list.setError(formatError(err, 'Failed to update promotion'));
+      list.setError(formatError(err, 'Failed to revoke promotion'));
+    }
+  };
+  const reactivate = async (p: Promotion) => {
+    try {
+      await api.updatePromotion(p.id, { isActive: true });
+      toast.success('Promotion activated');
+      list.refresh();
+    } catch (err) {
+      list.setError(formatError(err, 'Failed to activate promotion'));
     }
   };
 
@@ -245,7 +261,7 @@ export default function PromotionsPage() {
   const confirmRevoke = async () => {
     if (!revokeTarget) return;
     setRevokeLoading(true);
-    await toggleActive(revokeTarget);
+    await revoke(revokeTarget);
     setRevokeLoading(false);
     setRevokeTarget(null);
   };
@@ -286,11 +302,12 @@ export default function PromotionsPage() {
       id: 'actions', header: '',
       render: (p) => (
         <div className="flex items-center justify-end gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setDetailId(p.id)} title="Details" aria-label="Details"><Info className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => doPreview(p)} title="Preview reach" aria-label="Preview reach"><Eye className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => { setActivateTarget(p); setActivateConfirm(''); }} title="Grant to existing eligible base" aria-label="Grant to existing eligible base"><Zap className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => doSpend(p)} title="Spend rollup" aria-label="Spend rollup"><BarChart3 className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => openGrant(p)} title="Manual grant" aria-label="Manual grant"><Gift className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => (p.isActive ? setRevokeTarget(p) : toggleActive(p))}>{p.isActive ? 'Revoke' : 'Activate'}</Button>
+          <Button variant="ghost" size="sm" onClick={() => (p.isActive ? setRevokeTarget(p) : reactivate(p))}>{p.isActive ? 'Revoke' : 'Activate'}</Button>
         </div>
       ),
     },
@@ -465,6 +482,9 @@ export default function PromotionsPage() {
           </div>
         </Modal>
       )}
+
+      {/* Detail (deep-linkable via ?id=) */}
+      {detailId && !notEnabled && <PromotionDetailDrawer id={detailId} onClose={() => setDetailId(null)} />}
 
       {/* Revoke confirmation */}
       {revokeTarget && (

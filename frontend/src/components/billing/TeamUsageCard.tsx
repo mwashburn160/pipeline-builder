@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { useFeatures } from '@/hooks/useFeatures';
+import { FeatureLock } from '@/components/ui/FeatureLock';
+import { RetryError } from '@/components/ui/RetryError';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useFetch } from '@/hooks/useFetch';
 import { fmtNum, formatBytes } from '@/lib/format';
 import { formatError } from '@/lib/constants';
-import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { TeamUsageRow } from '@/lib/api/domains/billing';
 
 /** Quota dimensions shown per team, with their display formatters. */
@@ -39,65 +40,36 @@ const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
  * teams → a hint; entitled with teams → the table.
  */
 export function TeamUsageCard() {
-  const enabled = useFeatures().isEnabled('team_usage_analytics');
-  const [teams, setTeams] = useState<TeamUsageRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  // Distinguish a genuine "no teams" from a failed load — otherwise a fetch
-  // error renders the empty hint and hides the failure.
-  const [error, setError] = useState<string | null>(null);
+  // The gate carries the superadmin bypass and the "not on your plan" copy; the
+  // route itself is `requireFeature('team_usage_analytics')`.
+  const gate = useFeatureGate('team_usage_analytics');
+  const entitled = gate.isLoaded && gate.entitled;
+  const { data, loading, error, refetch } = useFetch(
+    async (signal) => (entitled ? (await api.getTeamUsage({ includeDescendants: true }, { signal })).data?.teams ?? [] : null),
+    [entitled],
+  );
+  const teams = data ?? [];
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await api.getTeamUsage({ includeDescendants: true });
-      setTeams(r?.data?.teams ?? []);
-    } catch (e) {
-      setError(formatError(e, 'Failed to load team usage.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  if (!gate.isLoaded) return null;
 
-  useEffect(() => {
-    if (!enabled) { setLoading(false); return; }
-    let active = true;
-    (async () => {
-      setError(null);
-      try {
-        const r = await api.getTeamUsage({ includeDescendants: true });
-        if (active && r?.data) setTeams(r.data.teams);
-      } catch (e) {
-        if (active) setError(formatError(e, 'Failed to load team usage.'));
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [enabled]);
-
-  if (!enabled) {
-    const meta = FEATURE_METADATA.team_usage_analytics;
+  if (!gate.entitled) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-[var(--pb-text)]">{meta.label}</h3>
-        <p className="text-sm text-[var(--pb-text-muted)] mt-1">{meta.description}. Included with Enterprise, or add it for $30/mo.</p>
+        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
+        <FeatureLock flag="team_usage_analytics" className="mt-2" />
       </Card>
     );
   }
 
   if (loading) return null;
 
+  // Distinguish a genuine "no teams" from a failed load — otherwise a fetch
+  // error renders the empty hint and hides the failure.
   if (error) {
     return (
       <Card>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
-            <p className="text-sm text-red-600 dark:text-red-400 mt-1" role="alert">{error}</p>
-          </div>
-          <button type="button" onClick={() => void reload()} className="action-link text-sm shrink-0">Retry</button>
-        </div>
+        <h3 className="text-sm font-semibold text-[var(--pb-text)] mb-2">Team usage</h3>
+        <RetryError message={formatError(error, 'Failed to load team usage.')} onRetry={refetch} />
       </Card>
     );
   }

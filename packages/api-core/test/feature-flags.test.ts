@@ -15,12 +15,11 @@ import {
 
 describe('ALL_FEATURE_FLAGS', () => {
   it('should contain all 10 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(10);
+    expect(ALL_FEATURE_FLAGS).toHaveLength(9);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
     expect(ALL_FEATURE_FLAGS).toContain('custom_integrations');
-    expect(ALL_FEATURE_FLAGS).toContain('audit_log');
     expect(ALL_FEATURE_FLAGS).toContain('sso');
     expect(ALL_FEATURE_FLAGS).toContain('advanced_reporting');
     expect(ALL_FEATURE_FLAGS).toContain('team_usage_analytics');
@@ -43,13 +42,13 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.pro).toContain('bulk_operations');
   });
 
-  it('pro tier does NOT include custom_integrations or audit_log', () => {
+  it('pro tier does NOT include custom_integrations or sso', () => {
     expect(TIER_FEATURES.pro).not.toContain('custom_integrations');
-    expect(TIER_FEATURES.pro).not.toContain('audit_log');
+    expect(TIER_FEATURES.pro).not.toContain('sso');
   });
 
-  it('team tier includes audit_log but not custom_integrations', () => {
-    expect(TIER_FEATURES.team).toContain('audit_log');
+  it('team tier includes sso but not custom_integrations', () => {
+    expect(TIER_FEATURES.team).toContain('sso');
     expect(TIER_FEATURES.team).toContain('ai_generation');
     expect(TIER_FEATURES.team).not.toContain('custom_integrations');
   });
@@ -90,7 +89,7 @@ describe('FEATURE_METADATA', () => {
 
 describe('isValidFeatureFlag', () => {
   it('returns true for valid flags', () => {
-    expect(isValidFeatureFlag('audit_log')).toBe(true);
+    expect(isValidFeatureFlag('custom_integrations')).toBe(true);
     expect(isValidFeatureFlag('ai_generation')).toBe(true);
     expect(isValidFeatureFlag('bulk_operations')).toBe(true);
   });
@@ -107,14 +106,14 @@ describe('isValidFeatureFlag', () => {
 
 describe('resolveUserFeatures', () => {
   it('unions account-level feature entitlements (purchased bundles)', () => {
-    const features = resolveUserFeatures('developer', { accountFeatures: ['audit_log', 'not_a_flag'] });
-    expect(features).toContain('audit_log'); // granted by an account bundle
+    const features = resolveUserFeatures('developer', { accountFeatures: ['custom_integrations', 'not_a_flag'] });
+    expect(features).toContain('custom_integrations'); // granted by an account bundle
     expect(features).not.toContain('not_a_flag'); // invalid flag ignored
   });
 
   it('a per-user override can still disable an account-entitled feature', () => {
-    const features = resolveUserFeatures('developer', { overrides: { audit_log: false }, accountFeatures: ['audit_log'] });
-    expect(features).not.toContain('audit_log');
+    const features = resolveUserFeatures('developer', { overrides: { custom_integrations: false }, accountFeatures: ['custom_integrations'] });
+    expect(features).not.toContain('custom_integrations');
   });
 
   it('developer tier gets no features by default', () => {
@@ -148,8 +147,8 @@ describe('resolveUserFeatures', () => {
   });
 
   it('override true adds a feature to the tier', () => {
-    const features = resolveUserFeatures('pro', { overrides: { audit_log: true } });
-    expect(features).toContain('audit_log');
+    const features = resolveUserFeatures('pro', { overrides: { custom_integrations: true } });
+    expect(features).toContain('custom_integrations');
     expect(features).toHaveLength(4);
   });
 
@@ -163,13 +162,13 @@ describe('resolveUserFeatures', () => {
     const features = resolveUserFeatures('pro', {
       overrides: {
         priority_support: false,
-        audit_log: true,
         custom_integrations: true,
+        sso: true,
       },
     });
     expect(features).not.toContain('priority_support');
-    expect(features).toContain('audit_log');
     expect(features).toContain('custom_integrations');
+    expect(features).toContain('sso');
     expect(features).toHaveLength(4); // 3 - 1 + 2
   });
 
@@ -186,11 +185,11 @@ describe('resolveUserFeatures', () => {
   it('returns features in canonical order', () => {
     const features = resolveUserFeatures('developer', {
       overrides: {
-        audit_log: true,
+        custom_integrations: true,
         ai_generation: true,
       },
     });
-    expect(features.indexOf('ai_generation')).toBeLessThan(features.indexOf('audit_log'));
+    expect(features.indexOf('ai_generation')).toBeLessThan(features.indexOf('custom_integrations'));
   });
 
   it('adding an already-included feature via override is a no-op', () => {
@@ -199,7 +198,7 @@ describe('resolveUserFeatures', () => {
   });
 
   it('removing a feature not in the tier via override is a no-op', () => {
-    const features = resolveUserFeatures('developer', { overrides: { audit_log: false } });
+    const features = resolveUserFeatures('developer', { overrides: { custom_integrations: false } });
     expect(features).toEqual([]);
   });
 });

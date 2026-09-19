@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Globe, Check, Trash2, RefreshCw } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
@@ -11,8 +11,10 @@ import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { RetryError } from '@/components/ui/RetryError';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organizations';
@@ -25,45 +27,39 @@ import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organiza
  */
 export function DomainJoinSettings({ orgId }: { orgId: string }) {
   const toast = useToast();
-  const [domains, setDomains] = useState<OrgDomainDto[]>([]);
-  const [requests, setRequests] = useState<OrgJoinRequestDto[]>([]);
-  // Default false: the add-domain form must not flash for an unentitled org before
-  // the first load resolves (the real gate is server-side regardless).
-  const [entitled, setEntitled] = useState(false);
   const [newDomain, setNewDomain] = useState('');
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<OrgDomainDto | null>(null);
 
-  /** Reload domains + requests. Returns false (and sets `error`) on failure so
-   *  `run` can suppress a misleading success toast when the post-mutation reload
-   *  actually failed. */
-  const load = useCallback(async (): Promise<boolean> => {
-    try {
-      const [d, r] = await Promise.all([api.listOrgDomains(orgId), api.listOrgJoinRequests(orgId)]);
-      if (d.success && d.data) { setDomains(d.data.domains); setEntitled(d.data.entitled); }
-      if (r.success && r.data) setRequests(r.data.requests);
-      return true;
-    } catch (e) {
-      setError(formatError(e));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
+  // Domains and pending join requests, read together.
+  const read = useFetch(
+    async (signal): Promise<{ domains: OrgDomainDto[]; entitled: boolean; requests: OrgJoinRequestDto[] }> => {
+      const [d, r] = await Promise.all([api.listOrgDomains(orgId, { signal }), api.listOrgJoinRequests(orgId, { signal })]);
+      return {
+        domains: d.data?.domains ?? [],
+        // Default false: the add-domain form must not show for an org whose
+        // entitlement is unknown (the real gate is server-side regardless).
+        entitled: d.data?.entitled ?? false,
+        requests: r.data?.requests ?? [],
+      };
+    },
+    [orgId],
+  );
+  const domains = read.data?.domains ?? [];
+  const requests = read.data?.requests ?? [];
+  const entitled = read.data?.entitled ?? false;
+  const loading = read.loading && !read.data;
 
-  useEffect(() => { void load(); }, [load]);
-
-  // Wrap a mutating action: clear errors, run, reload, toast ONLY if the reload
-  // also succeeded (else the reload already set `error` — don't show both).
+  // Wrap a mutating action: clear errors, run, toast, then re-read. A failed
+  // re-read surfaces as the section's retry state, not as a failed action.
   const run = async (fn: () => Promise<unknown>, successMsg?: string) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      const reloaded = await load();
-      if (successMsg && reloaded) toast.success(successMsg);
+      if (successMsg) toast.success(successMsg);
+      read.refetch();
     } catch (e) {
       setError(formatError(e));
     } finally {
@@ -79,7 +75,9 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
     >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
-      {loading ? (
+      {read.error ? (
+        <RetryError message={formatError(read.error, 'Could not load domains')} onRetry={read.refetch} />
+      ) : loading ? (
         <div className="flex items-center gap-2 text-sm text-[var(--pb-text-muted)] py-4">
           <LoadingSpinner size="sm" /> Loading domains…
         </div>

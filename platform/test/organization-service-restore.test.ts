@@ -40,7 +40,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn(), updateQuotaLimits: jest.fn(), QuotaType: {} }));
+jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn(), QuotaType: {} }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { quota: { tier: {} } } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 

@@ -290,7 +290,7 @@ export interface BundleConfig {
    *  constrained to real quota fields so a typo is a compile error (was
    *  `Record<string, number>`, where a misspelled key was silently unenforceable). */
   readonly grants: Readonly<Partial<Record<keyof QuotaTierLimits, number>>>;
-  /** Feature flags granted by a feature bundle (e.g. `audit_log`). */
+  /** Feature flags granted by a feature bundle (e.g. `sso`). */
   readonly features?: readonly string[];
   /** Per-unit price (cents). Stripe multiplies by quantity. */
   readonly prices: BillingPlanPrices;
@@ -322,6 +322,17 @@ export interface BundleConfig {
    * Absent ⇒ no prerequisite.
    */
   readonly requires?: readonly string[];
+  /**
+   * Prerequisite FEATURE flags the account must hold — from its plan tier
+   * (`TIER_FEATURES`) or from a feature bundle it holds after the change — before
+   * this bundle can be added. Distinct from {@link requires} because a feature can
+   * be tier-included (no bundle to name): e.g. `dora_history_pack` needs
+   * `advanced_reporting`, which Enterprise includes and lower tiers buy as an
+   * add-on. Enforced by the addon purchase/preview route (400 when unmet), and a
+   * held bundle whose feature prerequisite disappears (its granting bundle removed,
+   * or a downgrade to a tier without it) is cascade-removed. Absent ⇒ none.
+   */
+  readonly requiresFeatures?: readonly string[];
   readonly isActive: boolean;
   readonly sortOrder: number;
 }

@@ -6,8 +6,10 @@
  *
  * The properties that matter:
  *   - APPROVE is confirmed, and the confirmation says exactly what is granted.
- *   - DENY and END SESSION act immediately — stopping access is never harder
- *     than allowing it.
+ *   - END SESSION is confirmed once (it can't be undone) but never stepped up —
+ *     stopping access is never harder than allowing it.
+ *   - DENY acts immediately.
+ *   - Each list is paged server-side.
  *   - A request someone else already answered is reported, not shown as an error.
  *   - During read-only impersonation every action is disabled (it would 403).
  *   - The operator-written reason renders as TEXT, never markup.
@@ -89,11 +91,14 @@ const live = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function serve({ toDecide = [] as unknown[], sessions = [] as unknown[], mine = [] as unknown[] } = {}) {
-  listImpersonationRequests.mockImplementation(async (view: string) => ({
-    success: true,
-    data: { requests: view === 'to-decide' ? toDecide : view === 'sessions' ? sessions : mine },
-  }));
+function serve({ toDecide = [] as unknown[], sessions = [] as unknown[], mine = [] as unknown[] } = {}, totals: Record<string, number> = {}) {
+  listImpersonationRequests.mockImplementation(async (view: string, page?: { limit?: number; offset?: number }) => {
+    const requests = view === 'to-decide' ? toDecide : view === 'sessions' ? sessions : mine;
+    const limit = page?.limit ?? 10;
+    const offset = page?.offset ?? 0;
+    const total = totals[view] ?? requests.length;
+    return { success: true, data: { requests, pagination: { total, offset, limit, hasMore: offset + limit < total } } };
+  });
 }
 
 beforeEach(() => {
@@ -179,13 +184,29 @@ describe('AccessRequestsPage — deciding', () => {
 });
 
 describe('AccessRequestsPage — live sessions', () => {
-  it('END SESSION acts immediately, with no confirmation', async () => {
+  it('END SESSION confirms once — no step-up — then ends it', async () => {
     serve({ sessions: [live()] });
     render(<AccessRequestsPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'End session' }));
 
+    // Only a confirmation is open; it says the ending can't be undone.
+    expect(revokeImpersonationSession).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveTextContent(/can't be undone/i);
+    expect(screen.queryByRole('button', { name: 'Confirm password' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Confirm End session/ }));
     await waitFor(() => expect(revokeImpersonationSession).toHaveBeenCalledWith('sess-1'));
+  });
+
+  it('cancelling END SESSION leaves the session running', async () => {
+    serve({ sessions: [live()] });
+    render(<AccessRequestsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'End session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(revokeImpersonationSession).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -195,6 +216,7 @@ describe('AccessRequestsPage — live sessions', () => {
     render(<AccessRequestsPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'End session' }));
+    fireEvent.click(screen.getByRole('button', { name: /Confirm End session/ }));
 
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/other services/i)));
     expect(toast.success).not.toHaveBeenCalled();
@@ -256,5 +278,32 @@ describe('AccessRequestsPage — your requests', () => {
 
     expect(await screen.findByText(/waiting for approval/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open session' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AccessRequestsPage — paging', () => {
+  it('asks each list for one page, and pages on demand', async () => {
+    serve({ toDecide: [pending()] }, { 'to-decide': 23 });
+    render(<AccessRequestsPage />);
+
+    // The pending count is the server's total, not the page length.
+    expect(await screen.findByText('23 pending')).toBeInTheDocument();
+    expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 10, offset: 0 }, expect.anything());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
+    await waitFor(() => expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 10, offset: 10 }, expect.anything()));
+  });
+
+  it('shows no pager when everything fits on one page', async () => {
+    serve({ toDecide: [pending()] });
+    render(<AccessRequestsPage />);
+    await screen.findByText('op-jane');
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
+  });
+
+  it('offers a retry when a list fails to load', async () => {
+    listImpersonationRequests.mockRejectedValue(new Error('down'));
+    render(<AccessRequestsPage />);
+    expect(await screen.findAllByRole('button', { name: /retry/i })).not.toHaveLength(0);
   });
 });

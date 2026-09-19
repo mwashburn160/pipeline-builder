@@ -23,6 +23,7 @@
 import api from './api';
 import { CACHE_TTL_MS } from './constants';
 import { invalidateQueries, type Query } from './query-cache';
+import type { Pipeline } from '@/types';
 
 /**
  * Stable key fragment for a params object — sorted, `undefined` dropped — so
@@ -62,6 +63,17 @@ export const queries = {
   listPipelines: (params?: PipelineParams): Query<Awaited<ReturnType<typeof api.listPipelines>>> => ({
     key: `${PREFIX.pipelines}${stable(params)}`,
     run: (signal) => api.listPipelines(params, { signal }),
+  }),
+
+  /** EVERY matching pipeline, cursor-drained and trimmed to `fields` (see
+   *  `api.listAllPipelines`). Keyed under the pipelines prefix, so
+   *  `invalidate.pipelines()` drops it along with the paged reads. */
+  allPipelines: <K extends keyof Pipeline>(
+    fields: readonly K[],
+    params?: PipelineParams,
+  ): Query<Array<Pick<Pipeline, K | 'id'>>> => ({
+    key: `${PREFIX.pipelines}all&fields=${fields.join(',')}&${stable(params)}`,
+    run: (signal) => api.listAllPipelines(fields, params, { signal }),
   }),
 
   listOrganizations: (params?: OrgParams): Query<Awaited<ReturnType<typeof api.listOrganizations>>> => ({

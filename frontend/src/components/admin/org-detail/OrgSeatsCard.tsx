@@ -1,0 +1,126 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { useState } from 'react';
+import { Armchair } from 'lucide-react';
+import api from '@/lib/api';
+import { Card } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useFormState } from '@/hooks/useFormState';
+
+/**
+ * Pooled account seat usage plus the sysadmin seat-limit override.
+ *
+ * `seats` is platform-owned (not a quota type); -1 = unlimited. The PUT is
+ * sysadmin/service only with no step-up (it is billing's entitlement sync, so a
+ * human MFA gate would block the sync), hence no StepUpModal here.
+ */
+export function OrgSeatsCard({
+  orgId,
+  seatUsage,
+  onChanged,
+}: {
+  orgId: string;
+  /** Null when the org isn't an account root or the read failed (fail-soft). */
+  seatUsage: { limit: number; used: number } | null;
+  onChanged: () => void;
+}) {
+  const form = useFormState();
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [unlimited, setUnlimited] = useState(false);
+
+  const openEditor = () => {
+    const current = seatUsage?.limit ?? 0;
+    setUnlimited(current === -1);
+    setInput(current === -1 ? '' : String(current));
+    form.reset();
+    setOpen(true);
+  };
+
+  const save = async () => {
+    let seats = -1;
+    if (!unlimited) {
+      const n = Number(input);
+      if (!Number.isInteger(n) || n < 0) {
+        form.setError('Enter a whole number of seats (0 or more), or check Unlimited.');
+        return;
+      }
+      seats = n;
+    }
+    const result = await form.run(() => api.setOrganizationSeatLimit(orgId, seats));
+    if (result !== null) {
+      setOpen(false);
+      onChanged();
+    }
+  };
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Armchair className="w-5 h-5 text-gray-500" />
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Seats</h3>
+        </div>
+        <button type="button" onClick={openEditor} className="action-link text-sm">Set limit</button>
+      </div>
+      {seatUsage ? (
+        <dl className="text-sm space-y-1.5">
+          <div className="flex justify-between">
+            <dt className="text-gray-500 dark:text-gray-400">Used</dt>
+            <dd className="font-mono text-xs">
+              {seatUsage.used} / {seatUsage.limit === -1 ? '∞' : seatUsage.limit}
+            </dd>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">
+            Pooled across the whole account (active members + pending invites).
+            {seatUsage.limit === -1 ? ' Seats are unlimited.' : ''}
+          </p>
+        </dl>
+      ) : (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Seat usage unavailable for this org. It may not be an account root,
+          or the seat service didn&apos;t respond.
+        </p>
+      )}
+
+      {open && (
+        <Modal
+          title="Set seat limit"
+          onClose={() => setOpen(false)}
+          maxWidth="max-w-md"
+          footer={<ModalFooter onCancel={() => setOpen(false)} onConfirm={save} confirmLabel="Save" loading={form.loading} />}
+        >
+          <div className="space-y-4">
+            <ErrorAlert message={form.error} />
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Sets the pooled seat cap for the whole account (applied to the root org).
+              Seats count active members plus pending invites across every team.
+            </p>
+            <div>
+              <label htmlFor="seat-limit" className="label">Seats</label>
+              <Input
+                id="seat-limit"
+                type="number"
+                min={0}
+                step={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={form.loading || unlimited}
+                placeholder="e.g. 25"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <Checkbox checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} disabled={form.loading} />
+              Unlimited seats
+            </label>
+          </div>
+        </Modal>
+      )}
+    </Card>
+  );
+}

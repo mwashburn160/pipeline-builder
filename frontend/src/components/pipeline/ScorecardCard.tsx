@@ -4,7 +4,8 @@
 import { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import { useFeatures } from '@/hooks/useFeatures';
+import { FeatureLock } from '@/components/ui/FeatureLock';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import api from '@/lib/api';
 import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
@@ -21,12 +22,13 @@ function Band({ label, level }: { label: string; level: ScorecardDoraLevel }) {
 
 /**
  * Per-pipeline maturity scorecard card for the pipeline detail page. Blends
- * compliance posture + DORA bands into a graded score. Renders nothing when the
- * `advanced_reporting` feature is off (the endpoint is gated on it too).
+ * compliance posture + DORA bands into a graded score. Without the
+ * `advanced_reporting` entitlement (the endpoint is gated on it too) the card
+ * shows the in-place plan lock instead — never fetches, never 403s.
  */
 export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
-  const features = useFeatures();
-  const enabled = features.isEnabled('advanced_reporting');
+  const gate = useFeatureGate('advanced_reporting');
+  const enabled = gate.entitled;
 
   const [scorecard, setScorecard] = useState<PipelineScorecard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,7 +50,20 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
     return () => { cancelled = true; };
   }, [pipelineId, enabled]);
 
-  if (!enabled) return null;
+  if (!enabled) {
+    // Nothing until the entitlement has resolved (no flash of the lock), then
+    // the lock names what's missing and where to get it.
+    if (!gate.isLoaded) return null;
+    return (
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <Gauge className="w-5 h-5 text-gray-500" aria-hidden="true" />
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maturity scorecard</h3>
+        </div>
+        <FeatureLock flag="advanced_reporting" />
+      </Card>
+    );
+  }
 
   return (
     <Card>

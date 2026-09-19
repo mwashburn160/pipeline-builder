@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Ticket, Plus, KeyRound, Building2, ShieldAlert, Pencil } from 'lucide-react';
+import { Ticket, Plus, KeyRound, Building2, ShieldAlert, Pencil, Eye } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -11,6 +11,8 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
+import { DiscountDetailDrawer } from '@/components/billing/DiscountDetailDrawer';
+import { useDetailParam } from '@/components/billing/useDetailParam';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Modal } from '@/components/ui/Modal';
 import { MintDiscountModal } from '@/components/discounts/MintDiscountModal';
@@ -36,7 +38,10 @@ import type { Discount } from '@/types';
  * back to a "not enabled" empty state instead of an error banner.
  */
 export default function DiscountsPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  // System-admin gate comes from page-access.ts (a "Billing Admin" sub-route).
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  // Discount open in the detail drawer — `?id=` so it's deep-linkable.
+  const [detailId, setDetailId] = useDetailParam();
   const toast = useToast();
   // Org picker for "Apply to org" — mirrors the Users page rather than a raw
   // org-id text field, so operators pick from names instead of pasting ids.
@@ -200,6 +205,13 @@ export default function DiscountsPage() {
       render: (d) => (
         <div className="flex justify-end gap-3">
           <button
+            onClick={() => setDetailId(d.id)}
+            className="action-link inline-flex items-center gap-1"
+            title="View the full discount record"
+          >
+            <Eye className="w-3.5 h-3.5" /> Details
+          </button>
+          <button
             onClick={() => issueToken(d)}
             disabled={issuingId === d.id}
             className="action-link inline-flex items-center gap-1 disabled:opacity-50"
@@ -227,7 +239,7 @@ export default function DiscountsPage() {
         </div>
       ),
     },
-  ], [issueToken, issuingId, del]);
+  ], [issueToken, issuingId, del, setDetailId]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -344,6 +356,9 @@ export default function DiscountsPage() {
           }}
         />
       )}
+
+      {/* Detail (deep-linkable via ?id=) */}
+      {detailId && !notEnabled && <DiscountDetailDrawer id={detailId} onClose={() => setDetailId(null)} />}
 
       {/* Revoke */}
       {del.target && (

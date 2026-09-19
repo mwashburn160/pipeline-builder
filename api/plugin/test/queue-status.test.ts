@@ -214,6 +214,7 @@ describe('queue-status route', () => {
 
     it('system admin sees ALL orgs\' failed jobs', async () => {
       (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      mockGetJobCounts.mockResolvedValue({ failed: 2 });
       mockGetJobs.mockResolvedValue([
         { id: 'j-a', name: 'a', data: { orgId: 'org-1', pluginRecord: { name: 'a' } }, opts: {}, attemptsMade: 1 },
         { id: 'j-b', name: 'b', data: { orgId: 'org-2', pluginRecord: { name: 'b' } }, opts: {}, attemptsMade: 1 },
@@ -262,6 +263,68 @@ describe('queue-status route', () => {
       expect(mockGetJobs).not.toHaveBeenCalled();
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.statusCode).toBe(403);
+    });
+  });
+
+  describe('GET /failed + /dlq  server-side paging', () => {
+    const job = (id: string, finishedOn: number, orgId = 'org-1') => ({
+      id, name: id, data: { orgId, pluginRecord: { name: id } }, opts: {}, attemptsMade: 1, finishedOn, timestamp: finishedOn,
+    });
+
+    async function call(path: string, req: any) {
+      const handler = getRouteHandler(path);
+      const json = jest.fn();
+      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn());
+      return (json.mock.calls[0] as any[])[0].data;
+    }
+
+    it('reads offset+limit+1 rows per tier and returns the requested newest-first slice with an exact sysadmin total', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      mockGetJobCounts.mockResolvedValue({ failed: 5 });
+      mockGetJobs.mockResolvedValue([job('a', 1), job('e', 5), job('c', 3), job('b', 2), job('d', 4)]);
+
+      const data = await call('/failed', makeReq('owner', '000000000000000000000001', { limit: '2', offset: '2' }));
+
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 0, 4);
+      expect(mockGetJobCounts).toHaveBeenCalledWith('failed');
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['c', 'b']);
+      expect(data.pagination).toEqual({ total: 5, limit: 2, offset: 2, hasMore: true });
+    });
+
+    it('omits the total for a tenant-scoped caller and derives hasMore from the filtered window', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      mockGetJobs.mockResolvedValue([job('m1', 3), job('x', 2, 'org-X'), job('m2', 1)]);
+
+      const data = await call('/failed', makeReq('admin', 'org-1', { limit: '1', offset: '0' }));
+
+      expect(mockGetJobCounts).not.toHaveBeenCalled();
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['m1']);
+      expect(data.pagination).toEqual({ limit: 1, offset: 0, hasMore: true });
+    });
+
+    it('clamps limit to 200 and bounds the paging depth', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      mockGetJobCounts.mockResolvedValue({ failed: 0 });
+      mockGetJobs.mockResolvedValue([]);
+
+      const data = await call('/failed', makeReq('owner', '000000000000000000000001', { limit: '5000', offset: '999999' }));
+
+      expect(data.pagination.limit).toBe(200);
+      expect(data.pagination.offset).toBe(4800);
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 0, 5000);
+    });
+
+    it('pages the DLQ across its state sets with a summed sysadmin total', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      mockDlqGetJobCounts.mockResolvedValue({ waiting: 1, delayed: 0, active: 0, completed: 1, failed: 1 });
+      mockDlqGetJobs.mockResolvedValue([job('d1', 1), job('d3', 3), job('d2', 2)]);
+
+      const data = await call('/dlq', makeReq('owner', '000000000000000000000001', { limit: '2' }));
+
+      expect(mockDlqGetJobs).toHaveBeenCalledWith(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, 2);
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['d3', 'd2']);
+      expect(data.pagination).toEqual({ total: 3, limit: 2, offset: 0, hasMore: true });
     });
   });
 

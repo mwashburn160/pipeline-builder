@@ -34,6 +34,15 @@ export interface SessionMeta {
   current: boolean;
 }
 
+/** One entry of `GET /user/tokens`: when a token was issued, when it lapses,
+ *  and its status now (`revoked` = a sign-out-everywhere bumped past it). */
+export interface TokenHistoryEntry {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  status: 'active' | 'expired' | 'revoked';
+}
+
 /**
  * Access-key metadata (never the secret — the key itself is shown once, at
  * creation, and only its hash is stored).
@@ -302,10 +311,8 @@ export function authApi(core: ApiCore) {
     },
 
     /** GET /user/tokens — recent token-issuance history with computed status. */
-    listTokenHistory: async () => {
-      return core.request<ApiResponse<{ tokens: Array<{ id: string; createdAt: string; expiresAt: string; status: 'active' | 'expired' | 'revoked' }> }>>(
-        '/api/user/tokens',
-      );
+    listTokenHistory: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ tokens: TokenHistoryEntry[] }>>('/api/user/tokens', { signal: opts?.signal });
     },
 
     /** POST /user/keys — create a named access key. The raw `pb_pat_…` key comes

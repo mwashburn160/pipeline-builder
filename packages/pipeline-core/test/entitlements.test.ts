@@ -22,7 +22,7 @@ const bundle = (over: Partial<BundleConfig> & Pick<BundleConfig, 'id' | 'grants'
 const bundles: BundleConfig[] = [
   bundle({ id: 'seat_pack', grants: { seats: 5 } }),
   bundle({ id: 'pipeline_pack', grants: { pipelines: 10 } }),
-  bundle({ id: 'audit_log', grants: {}, features: ['audit_log'], stackable: false }),
+  bundle({ id: 'custom_integrations', grants: {}, features: ['custom_integrations'], stackable: false }),
 ];
 
 describe('effectiveEntitlements', () => {
@@ -51,10 +51,10 @@ describe('effectiveEntitlements', () => {
   it('unions feature-bundle flags and ignores unknown bundles', () => {
     const dev = getTierLimits('developer');
     const { limits, features } = effectiveEntitlements('developer', [
-      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'custom_integrations', quantity: 1 },
       { bundleId: 'nope', quantity: 5 },
     ], bundles);
-    expect(features).toContain('audit_log');
+    expect(features).toContain('custom_integrations');
     expect(limits.seats).toBe(dev.seats); // unchanged
   });
 

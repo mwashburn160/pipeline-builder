@@ -3,16 +3,23 @@
 
 /**
  * Data hooks for the Reports dashboard. Each top-level tab owns a cohesive hook
- * that fetches exactly the slices it renders, keyed on the active filters — this
- * replaces the page's single giant fetch effect + ~40 useStates. Every hook
- * keeps the request-generation guard (a superseded fetch never writes state) and
- * surfaces the first rejected fetch as an `error` string so a backend failure
- * shows a banner instead of masquerading as an empty ("No data yet") state.
+ * that reads exactly the slices it renders, keyed on the active filters.
+ *
+ * Every slice is one `useFetch` (or, for the reads other pages share —
+ * execution counts and the pipeline list — one `useQuery` against the shared
+ * cache), so cancellation, the superseded-request guard and loading/error state
+ * live in those primitives rather than being hand-rolled per tab. A tab folds
+ * its slices into ONE {@link TabDataStatus}: loading while any slice is, and the
+ * first failed slice as an `error` string so a backend failure shows a banner
+ * instead of masquerading as an empty ("No data yet") state.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
+import { queries } from '@/lib/api-cache';
 import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse } from '@/lib/api/domains/reporting';
 import type {
@@ -22,8 +29,8 @@ import type {
 
 // ─── Retention / effective-max ──────────────────────────
 
-/** Fallback caps applied when the per-org retention settings are unavailable or
- *  the viewer isn't entitled to read them (mirrors the backend env defaults). */
+/** Fallback caps applied until (or if) the org's effective retention can't be
+ *  read (mirrors the backend env defaults). */
 export const DEFAULT_EVENT_RETENTION_DAYS = 30;
 export const DEFAULT_DORA_RETENTION_DAYS = 180;
 
@@ -32,41 +39,28 @@ export interface ReportRetention {
   eventMax: number;
   /** Max selectable window (days) for DORA routes. */
   doraMax: number;
+  /** Standard-event retention horizon in days (`-1` = unlimited). */
+  eventDays: number;
+  /** DORA-source retention horizon in days (`-1` = unlimited). */
+  doraDays: number;
 }
 
 /**
- * The per-tab effective date-range cap, read once from `getIncidentSettings`
- * (best-effort). Standard event routes cap at the org's event retention; DORA
- * routes cap at its DORA retention. Falls back to the env defaults (30 / 180)
- * when the settings can't be read (non-entitled / offline) — the caller clamps
- * the requested range to this so the frontend never issues an over-range request.
+ * The per-tab effective date-range cap, read from `GET /reports/retention` —
+ * `reports:read` only, so an org with a Retention Pack but no Advanced Reporting
+ * still gets the horizon it bought (the incident settings carry the same numbers
+ * but sit behind the DORA entitlement). Falls back to the env defaults (30 / 180)
+ * when the read fails — the caller clamps the requested range to the max so the
+ * frontend never issues an over-range request.
  */
 export function useReportRetention(): ReportRetention {
-  const [retention, setRetention] = useState<ReportRetention>({
-    eventMax: DEFAULT_EVENT_RETENTION_DAYS,
-    doraMax: DEFAULT_DORA_RETENTION_DAYS,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // Optional-chain the call so a client build without the method (or a test
-        // that doesn't mock it) yields `undefined` rather than throwing.
-        const s = await api.getIncidentSettings?.();
-        if (cancelled || !s) return;
-        setRetention({
-          eventMax: s.eventRetentionDays ?? s.defaultEventRetentionDays ?? DEFAULT_EVENT_RETENTION_DAYS,
-          doraMax: s.doraRetentionDays ?? s.defaultDoraRetentionDays ?? DEFAULT_DORA_RETENTION_DAYS,
-        });
-      } catch {
-        /* fail-soft: keep the defaults */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  return retention;
+  const { data } = useFetch(async (signal) => (await api.getReportRetention({ signal })) ?? null, []);
+  return useMemo(() => ({
+    eventMax: data?.eventMaxRangeDays ?? DEFAULT_EVENT_RETENTION_DAYS,
+    doraMax: data?.doraMaxRangeDays ?? DEFAULT_DORA_RETENTION_DAYS,
+    eventDays: data?.eventRetentionDays ?? DEFAULT_EVENT_RETENTION_DAYS,
+    doraDays: data?.doraRetentionDays ?? DEFAULT_DORA_RETENTION_DAYS,
+  }), [data]);
 }
 
 // ─── Ingestion freshness ────────────────────────────────
@@ -89,34 +83,18 @@ export interface IngestHealthState {
  * nothing for the former and says so plainly for the latter.
  */
 export function useIngestHealth(): IngestHealthState {
-  const [data, setData] = useState<IngestHealthResponse | null | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [generation, setGeneration] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        // Optional-chain so a test that doesn't mock the method yields undefined
-        // rather than throwing (same convention as useReportRetention).
-        const res = await api.getIngestHealth?.();
-        if (cancelled) return;
-        setData(res ?? undefined);
-        setError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setError(formatError(err, 'Failed to read ingestion health'));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [generation]);
-
-  const reload = useCallback(() => setGeneration((g) => g + 1), []);
-  return { data, loading, error, reload };
+  // Optional-chain so a test that doesn't mock the method yields undefined
+  // rather than throwing.
+  const { data, loading, error, refetch } = useFetch(
+    async (signal) => (await api.getIngestHealth?.(signal)) ?? null,
+    [],
+  );
+  return {
+    data: data ?? undefined,
+    loading,
+    error: error ? formatError(error, 'Failed to read ingestion health') : null,
+    reload: refetch,
+  };
 }
 
 // ─── Shared filter shape ────────────────────────────────
@@ -127,27 +105,62 @@ export interface SharedFilters {
   dateFrom: string;
   dateTo: string;
   interval: 'day' | 'week' | 'month';
+  /** Org → team rollup. Sent to EVERY rollup-aware report, so all panels share one scope. */
   includeDescendants: boolean;
+  /** The viewer is a system admin: the error-pattern / build-failure reports are
+   *  sysadmin-only on the backend, so nobody else requests them (a 403 there
+   *  would otherwise raise the tab's error banner for every org admin). */
+  systemAdmin?: boolean;
 }
 
-/** Build the `{from,to}` query bag, omitting empty bounds. */
-function dateParamsOf(dateFrom: string, dateTo: string): Record<string, string> {
-  const p: Record<string, string> = {};
+/** The `{from,to,includeDescendants}` query bag, omitting empty/false values. */
+interface RangeParams { from?: string; to?: string; includeDescendants?: boolean }
+
+function rangeParamsOf({ dateFrom, dateTo, includeDescendants }: SharedFilters): RangeParams {
+  const p: RangeParams = {};
   if (dateFrom) p.from = dateFrom;
   if (dateTo) p.to = dateTo;
+  if (includeDescendants) p.includeDescendants = true;
   return p;
-}
-
-/** First rejected settled result → error string (else null). */
-function firstError(settled: PromiseSettledResult<unknown>[]): string | null {
-  const rejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-  return rejected ? formatError(rejected.reason, 'Failed to load report data') : null;
 }
 
 export interface TabDataStatus {
   loading: boolean;
   error: string | null;
   refetch: () => void;
+}
+
+/** The status half of a `useFetch` / `useQuery` result. */
+interface SliceStatus {
+  loading: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+/**
+ * One report read. While `active` is false it resolves `null` without touching
+ * the network (the sub-tab isn't showing it); `key` is the dependency that
+ * re-issues it — the fetcher itself may be rebuilt every render.
+ */
+function useSlice<T>(active: boolean, key: string, run: (signal: AbortSignal) => Promise<T>) {
+  return useFetch<T | null>((signal) => (active ? run(signal) : Promise.resolve(null)), [active, key]);
+}
+
+/** Fold a tab's slices into its one loading / first-error / refetch-all status. */
+function useTabStatus(slices: SliceStatus[]): TabDataStatus {
+  const loading = slices.some((s) => s.loading);
+  const failed = slices.find((s) => s.error)?.error ?? null;
+  const refetchers = slices.map((s) => s.refetch);
+  // The individual refetches are stable, so this is too — which matters: tabs
+  // report it up through an effect keyed on its identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const refetch = useCallback(() => { refetchers.forEach((r) => r()); }, refetchers);
+  return { loading, error: failed ? formatError(failed, 'Failed to load report data') : null, refetch };
+}
+
+/** A best-effort slice: its failure never trips the shared error banner. */
+function quiet(slice: SliceStatus): SliceStatus {
+  return { ...slice, error: null };
 }
 
 // ─── Pipelines tab ──────────────────────────────────────
@@ -165,70 +178,40 @@ export interface PipelinesData extends TabDataStatus {
 }
 
 export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters): PipelinesData {
-  const { dateFrom, dateTo, interval, includeDescendants } = filters;
-  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [durations, setDurations] = useState<DurationStat[]>([]);
-  const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
-  const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
-  const [actionFailures, setActionFailures] = useState<ActionFailure[]>([]);
-  const [errors, setErrors] = useState<ErrorEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const reqIdRef = useRef(0);
+  const range = rangeParamsOf(filters);
+  const key = JSON.stringify(range);
+  const { interval } = filters;
+  const overview = subTab === 'overview';
+  const performance = subTab === 'performance';
+  const failures = subTab === 'failures';
 
-  const refetch = useCallback(async () => {
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    setError(null);
-    const dateParams = dateParamsOf(dateFrom, dateTo);
-    const rollup = includeDescendants ? { includeDescendants: true } : {};
-    let settled: PromiseSettledResult<unknown>[] = [];
-    try {
-      if (subTab === 'overview') {
-        const results = await Promise.allSettled([
-          api.getExecutionCount({ ...dateParams, ...rollup }),
-          api.getSuccessRate({ interval, ...dateParams, ...rollup }),
-        ]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [execRes, successRateRes] = results;
-        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-        if (successRateRes.status === 'fulfilled') setTimeline(successRateRes.value.data?.timeline || []);
-      } else if (subTab === 'performance') {
-        const results = await Promise.allSettled([
-          api.getExecutionCount({ ...dateParams, ...rollup }),
-          api.getPipelineDuration({ ...dateParams, ...rollup }),
-          api.getStageBottlenecks(dateParams),
-        ]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [execRes, durationRes, bottleneckRes] = results;
-        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-        if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
-        if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
-      } else {
-        const results = await Promise.allSettled([
-          api.getStageFailures(dateParams),
-          api.getActionFailures(dateParams),
-          api.getExecutionErrors({ limit: 10, ...dateParams }),
-        ]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [stageRes, actionRes, errorRes] = results;
-        if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
-        if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
-        if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
-      }
-      setError(firstError(settled));
-    } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
-    }
-  }, [subTab, dateFrom, dateTo, interval, includeDescendants]);
+  // Execution counts are shared with the executions page / DORA tab via the cache.
+  const exec = useQuery(!failures ? queries.executionCount(range) : null);
+  const timeline = useSlice(overview, `${key}|${interval}`, async (signal) =>
+    (await api.getSuccessRate({ interval, ...range }, { signal })).data?.timeline ?? []);
+  const durations = useSlice(performance, key, async (signal) =>
+    (await api.getPipelineDuration(range, { signal })).data?.pipelines ?? []);
+  const bottlenecks = useSlice(performance, key, async (signal) =>
+    (await api.getStageBottlenecks(range, { signal })).data?.stages ?? []);
+  const stageFailures = useSlice(failures, key, async (signal) =>
+    (await api.getStageFailures(range, { signal })).data?.stages ?? []);
+  const actionFailures = useSlice(failures, key, async (signal) =>
+    (await api.getActionFailures(range, { signal })).data?.actions ?? []);
+  const errors = useSlice(failures && !!filters.systemAdmin, key, async (signal) =>
+    (await api.getExecutionErrors({ limit: 10, ...range }, { signal })).data?.errors ?? []);
 
-  useEffect(() => { void refetch(); }, [refetch]);
+  const status = useTabStatus([exec, timeline, durations, bottlenecks, stageFailures, actionFailures, errors]);
 
-  return { executions, timeline, durations, bottlenecks, stageFailures, actionFailures, errors, loading, error, refetch };
+  return {
+    executions: exec.data?.data?.pipelines ?? [],
+    timeline: timeline.data ?? [],
+    durations: durations.data ?? [],
+    bottlenecks: bottlenecks.data ?? [],
+    stageFailures: stageFailures.data ?? [],
+    actionFailures: actionFailures.data ?? [],
+    errors: errors.data ?? [],
+    ...status,
+  };
 }
 
 // ─── Plugins tab ────────────────────────────────────────
@@ -245,59 +228,38 @@ export interface PluginsData extends TabDataStatus {
 }
 
 export function usePluginsData(subTab: PluginSubTab, filters: SharedFilters): PluginsData {
-  const { dateFrom, dateTo, interval } = filters;
-  const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [distribution, setDistribution] = useState<PluginDistribution[]>([]);
-  const [buildTimeline, setBuildTimeline] = useState<BuildSuccessEntry[]>([]);
-  const [buildDurations, setBuildDurations] = useState<BuildDurationStat[]>([]);
-  const [buildFailures, setBuildFailures] = useState<BuildFailure[]>([]);
-  const [pluginVersions, setPluginVersions] = useState<PluginVersion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const reqIdRef = useRef(0);
+  // Build reports are rollup-aware; the inventory reports (summary /
+  // distribution / versions) are single-org by design and take no range.
+  const range = rangeParamsOf(filters);
+  const key = JSON.stringify(range);
+  const { interval } = filters;
+  const overview = subTab === 'overview';
+  const builds = subTab === 'builds';
 
-  const refetch = useCallback(async () => {
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    setError(null);
-    const dateParams = dateParamsOf(dateFrom, dateTo);
-    let settled: PromiseSettledResult<unknown>[] = [];
-    try {
-      if (subTab === 'overview') {
-        const results = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [sumRes, distRes] = results;
-        if (sumRes.status === 'fulfilled') setPluginSummary(sumRes.value.data?.summary || null);
-        if (distRes.status === 'fulfilled') setDistribution(distRes.value.data?.distribution || []);
-      } else if (subTab === 'builds') {
-        const results = await Promise.allSettled([
-          api.getBuildSuccessRate({ interval, ...dateParams }),
-          api.getBuildDuration(dateParams),
-          api.getBuildFailures({ limit: 10, ...dateParams }),
-        ]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [timelineRes, durRes, failRes] = results;
-        if (timelineRes.status === 'fulfilled') setBuildTimeline(timelineRes.value.data?.timeline || []);
-        if (durRes.status === 'fulfilled') setBuildDurations(durRes.value.data?.plugins || []);
-        if (failRes.status === 'fulfilled') setBuildFailures(failRes.value.data?.failures || []);
-      } else {
-        const results = await Promise.allSettled([api.getPluginVersions()]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [verRes] = results;
-        if (verRes.status === 'fulfilled') setPluginVersions(verRes.value.data?.plugins || []);
-      }
-      setError(firstError(settled));
-    } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
-    }
-  }, [subTab, dateFrom, dateTo, interval]);
+  const summary = useSlice(overview, '', async (signal) =>
+    (await api.getPluginSummary({ signal })).data?.summary ?? null);
+  const distribution = useSlice(overview, '', async (signal) =>
+    (await api.getPluginDistribution({ signal })).data?.distribution ?? []);
+  const buildTimeline = useSlice(builds, `${key}|${interval}`, async (signal) =>
+    (await api.getBuildSuccessRate({ interval, ...range }, { signal })).data?.timeline ?? []);
+  const buildDurations = useSlice(builds, key, async (signal) =>
+    (await api.getBuildDuration(range, { signal })).data?.plugins ?? []);
+  const buildFailures = useSlice(builds && !!filters.systemAdmin, key, async (signal) =>
+    (await api.getBuildFailures({ limit: 10, ...range }, { signal })).data?.failures ?? []);
+  const versions = useSlice(subTab === 'versions', '', async (signal) =>
+    (await api.getPluginVersions({ signal })).data?.plugins ?? []);
 
-  useEffect(() => { void refetch(); }, [refetch]);
+  const status = useTabStatus([summary, distribution, buildTimeline, buildDurations, buildFailures, versions]);
 
-  return { pluginSummary, distribution, buildTimeline, buildDurations, buildFailures, pluginVersions, loading, error, refetch };
+  return {
+    pluginSummary: summary.data ?? null,
+    distribution: distribution.data ?? [],
+    buildTimeline: buildTimeline.data ?? [],
+    buildDurations: buildDurations.data ?? [],
+    buildFailures: buildFailures.data ?? [],
+    pluginVersions: versions.data ?? [],
+    ...status,
+  };
 }
 
 // ─── DORA tab ───────────────────────────────────────────
@@ -322,81 +284,52 @@ export interface DoraData extends TabDataStatus {
 }
 
 export function useDoraData(filters: DoraFilters): DoraData {
-  const { dateFrom, dateTo, interval, includeDescendants, enabled, pipelineId, environmentApplied } = filters;
-  const [dora, setDora] = useState<DoraMetrics | null>(null);
-  const [doraTrend, setDoraTrend] = useState<DoraTrendPoint[]>([]);
-  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
-  const [pipelineOptions, setPipelineOptions] = useState<{ id: string; name: string }[]>([]);
-  const [environmentOptions, setEnvironmentOptions] = useState<string[]>([]);
-  const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
-  const [buildHealth, setBuildHealth] = useState<BuildHealth | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const reqIdRef = useRef(0);
+  const { interval, enabled, pipelineId, environmentApplied } = filters;
+  const range = rangeParamsOf(filters);
+  const key = JSON.stringify(range);
+  const scope: { pipelineId?: string; environment?: string } = {};
+  if (pipelineId) scope.pipelineId = pipelineId;
+  if (environmentApplied.trim()) scope.environment = environmentApplied.trim();
+  const scopeKey = `${key}|${JSON.stringify(scope)}`;
+  // Per-pipeline aux reads (deploy list + build health) key on a pipelineId, so
+  // they only fire once a single pipeline is scoped.
+  const scoped = enabled && !!pipelineId;
 
-  const refetch = useCallback(async () => {
-    // Non-entitled: the tab renders the upsell teaser — no fetch fires (avoids a
-    // pointless 403), and there is nothing to load.
-    if (!enabled) {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    setError(null);
-    const dateParams = dateParamsOf(dateFrom, dateTo);
-    const rollup = includeDescendants ? { includeDescendants: true } : {};
-    const doraScope: { pipelineId?: string; environment?: string } = {};
-    if (pipelineId) doraScope.pipelineId = pipelineId;
-    if (environmentApplied.trim()) doraScope.environment = environmentApplied.trim();
-    // Per-pipeline aux fetches (deploy list + build health) only fire when a
-    // single pipeline is scoped — their endpoints key on a pipelineId. Best-effort:
-    // swallow failures so they never trip the shared error banner.
-    const deployListReq = pipelineId
-      ? api.listPipelineExecutions(pipelineId, { ...dateParams, ...rollup, limit: 25 }).catch(() => undefined)
-      : Promise.resolve(undefined);
-    const buildHealthReq = pipelineId
-      ? api.getBuildHealth(pipelineId, { ...dateParams, ...rollup }).catch(() => undefined)
-      : Promise.resolve(undefined);
-    let settled: PromiseSettledResult<unknown>[] = [];
-    try {
-      const results = await Promise.allSettled([
-        api.getDora({ ...dateParams, ...rollup, ...doraScope }),
-        api.getDoraTrend({ interval, ...dateParams, ...rollup, ...doraScope }),
-        api.getExecutionCount({ ...dateParams, ...rollup }),
-        api.listPipelines({ limit: '200' }).catch(() => undefined),
-        api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined),
-        deployListReq,
-        buildHealthReq,
-      ]);
-      if (reqId !== reqIdRef.current) return;
-      settled = results;
-      const [doraRes, doraTrendRes, execRes, pipelineListRes, envListRes, deployRes, buildHealthRes] = results;
-      if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
-      if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
-      if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-      if (pipelineListRes.status === 'fulfilled' && pipelineListRes.value) {
-        setPipelineOptions(
-          (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
-        );
-      }
-      if (envListRes.status === 'fulfilled' && envListRes.value) {
-        setEnvironmentOptions(envListRes.value.data?.environments ?? []);
-      }
-      setDeployments(
-        deployRes.status === 'fulfilled' && deployRes.value ? deployRes.value.data?.executions ?? [] : [],
-      );
-      setBuildHealth(
-        buildHealthRes.status === 'fulfilled' && buildHealthRes.value ? buildHealthRes.value : null,
-      );
-      setError(firstError(settled));
-    } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
-    }
-  }, [enabled, dateFrom, dateTo, interval, includeDescendants, pipelineId, environmentApplied]);
+  // Non-entitled: the tab renders the upsell teaser — no read fires (avoids a
+  // pointless 403), and there is nothing to load.
+  const dora = useSlice(enabled, scopeKey, async (signal) =>
+    (await api.getDora({ ...range, ...scope }, { signal })) ?? null);
+  const doraTrend = useSlice(enabled, `${scopeKey}|${interval}`, (signal) =>
+    api.getDoraTrend({ interval, ...range, ...scope }, { signal }));
+  const exec = useQuery(enabled ? queries.executionCount(range) : null);
+  // The rest are best-effort pickers / aux panels: a failure leaves them empty
+  // rather than raising the shared banner.
+  const pipelines = useQuery(enabled ? queries.listPipelines({ limit: '200' }) : null);
+  const environments = useSlice(enabled, key, async (signal) =>
+    (await api.getReportEnvironments(range, { signal })).data?.environments ?? []);
+  const deployments = useSlice(scoped, `${key}|${pipelineId}`, async (signal) =>
+    (await api.listPipelineExecutions(pipelineId, { ...range, limit: 25 }, { signal })).data?.executions ?? []);
+  const buildHealth = useSlice(scoped, `${key}|${pipelineId}`, async (signal) =>
+    (await api.getBuildHealth(pipelineId, range, { signal })) ?? null);
 
-  useEffect(() => { void refetch(); }, [refetch]);
+  const status = useTabStatus([
+    dora, doraTrend, exec, quiet(pipelines), quiet(environments), quiet(deployments), quiet(buildHealth),
+  ]);
 
-  return { dora, doraTrend, executions, pipelineOptions, environmentOptions, deployments, buildHealth, loading, error, refetch };
+  const pipelineRows = pipelines.data?.data?.pipelines;
+  const pipelineOptions = useMemo(
+    () => (pipelineRows ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
+    [pipelineRows],
+  );
+
+  return {
+    dora: dora.data ?? null,
+    doraTrend: doraTrend.data ?? [],
+    executions: exec.data?.data?.pipelines ?? [],
+    pipelineOptions,
+    environmentOptions: environments.error ? [] : environments.data ?? [],
+    deployments: deployments.error ? [] : deployments.data ?? [],
+    buildHealth: buildHealth.error ? null : buildHealth.data ?? null,
+    ...status,
+  };
 }

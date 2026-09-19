@@ -104,12 +104,6 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     unlocks: 'connecting external services and custom webhook endpoints',
     note: 'No API route checks it today; alert destinations and webhooks are permission-gated, not entitlement-gated. Locking them client-side would remove working capability.',
   },
-  audit_log: {
-    enforcement: 'entitlement-only',
-    controls: [],
-    unlocks: 'the detailed audit trail of user and system actions',
-    note: 'Sold as an add-on, but the platform audit routes are gated on org-admin only — no `requireFeature`. The UI must NOT lock the Audit Log page while every org can call the API.',
-  },
 };
 
 /**

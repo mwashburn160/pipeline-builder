@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -273,38 +274,27 @@ export default function SettingsPage() {
  */
 function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
   const form = useFormState();
-  const [loaded, setLoaded] = useState(false);
   const [orgId, setOrgId] = useState('');
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [initial, setInitial] = useState<{ name: string; slug: string }>({ name: '', slug: '' });
-  // Set when the initial org fetch fails, so the user gets an explicit error +
-  // retry instead of a silently-blank form they'd edit blindly (and only find out
-  // it failed on save).
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadOrg = useCallback(async () => {
-    setLoadError(null);
-    setLoaded(false);
-    try {
-      const res = await api.getMyOrganization();
-      const org = res.data?.organization;
-      if (org) {
-        setOrgId(org.id);
-        setName(org.name ?? '');
-        setSlug(org.slug ?? '');
-        setInitial({ name: org.name ?? '', slug: org.slug ?? '' });
-      } else {
-        setLoadError('Could not load your organization settings.');
-      }
-    } catch (e) {
-      setLoadError(formatError(e, 'Could not load your organization settings.'));
-    } finally {
-      setLoaded(true);
-    }
+  // A failed read shows an explicit error + retry instead of a silently-blank
+  // form the user would edit blindly (and only find out it failed on save).
+  const org = useFetch(async (signal) => {
+    const res = await api.getMyOrganization({ signal });
+    if (!res.data?.organization) throw new Error('Could not load your organization settings.');
+    return res.data.organization;
   }, []);
+  const loaded = !!org.data;
 
-  useEffect(() => { void loadOrg(); }, [loadOrg]);
+  useEffect(() => {
+    if (!org.data) return;
+    setOrgId(org.data.id);
+    setName(org.data.name ?? '');
+    setSlug(org.data.slug ?? '');
+    setInitial({ name: org.data.name ?? '', slug: org.data.slug ?? '' });
+  }, [org.data]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -342,10 +332,10 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
     }
   };
 
-  if (loadError) {
+  if (org.error) {
     return (
       <SectionCard icon={Building2} title="Organization">
-        <RetryError message={loadError} onRetry={() => void loadOrg()} />
+        <RetryError message={formatError(org.error, 'Could not load your organization settings.')} onRetry={org.refetch} />
       </SectionCard>
     );
   }

@@ -20,10 +20,12 @@ interface PluginBuildsProps {
   buildTimeline: BuildSuccessEntry[];
   buildDurations: BuildDurationStat[];
   buildFailures: BuildFailure[];
+  /** Render the Recent Build Failures card — that report is sysadmin-only. */
+  showFailures?: boolean;
 }
 
 /** Plugins → Builds tab: build success-rate timeline, durations, and recent failures. */
-export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFailures }: PluginBuildsProps) {
+export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFailures, showFailures = true }: PluginBuildsProps) {
   const hasBuildsData = buildTimeline.length > 0 || buildDurations.length > 0 || buildFailures.length > 0;
 
   if (loading && !hasBuildsData) return <TwoColumnSkeleton />;
@@ -42,7 +44,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
           </div>
         </Card>
       )}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 ${showFailures ? 'lg:grid-cols-2' : ''} gap-6`}>
         <Card>
           <div className="flex items-center justify-between mb-3">
             <SectionHeading>Build Duration</SectionHeading>
@@ -59,6 +61,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
             />
           ) : <ReportEmpty text="No build duration data yet" />}
         </Card>
+        {showFailures && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <SectionHeading>Recent Build Failures</SectionHeading>
@@ -68,6 +71,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
             <div className="space-y-3">{buildFailures.slice(0, MAX_BUILD_FAILURE_ROWS).map((f) => (<div key={`${f.plugin_name}-${f.last_seen}`} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100">{f.plugin_name}</p><p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5">{f.error_message}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{f.occurrences}x &middot; {fmtDate(f.last_seen)}</p></div>))}</div>
           ) : <ReportEmpty text="No build failures" />}
         </Card>
+        )}
       </div>
     </>
   );

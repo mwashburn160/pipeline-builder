@@ -120,7 +120,7 @@ describe('effectiveEntitlements', () => {
   const bundles = [
     { id: 'seat_pack', name: 'Seat Pack', description: '', grants: { seats: 5 }, prices: { monthly: 2500, annual: 25000 }, stackable: true, availableForTiers: ['pro'], isActive: true, sortOrder: 0 },
     { id: 'pipeline_pack', name: 'Pipeline Pack', description: '', grants: { pipelines: 10 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['pro'], isActive: true, sortOrder: 1 },
-    { id: 'audit_log', name: 'Audit Log', description: '', grants: {}, features: ['audit_log'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
+    { id: 'bulk_operations', name: 'Bulk Operations', description: '', grants: {}, features: ['bulk_operations'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
   ] as never[];
 
   it('adds stacked grants (3× seat_pack ⇒ +15 seats over the base 10)', () => {
@@ -139,10 +139,10 @@ describe('effectiveEntitlements', () => {
 
   it('unions feature-bundle flags and ignores unknown bundles', () => {
     const { limits, features } = effectiveEntitlements('developer', [
-      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'bulk_operations', quantity: 1 },
       { bundleId: 'nope', quantity: 5 },
     ], bundles);
-    expect(features).toContain('audit_log');
+    expect(features).toContain('bulk_operations');
     expect(limits.seats).toBe(10); // unchanged
   });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { TabBar } from '@/components/ui/TabBar';
 import { PluginOverview } from '../PluginOverview';
 import { PluginBuilds } from '../PluginBuilds';
@@ -41,11 +41,19 @@ export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
     <>
       <TabBar items={PLUGIN_TABS} activeId={subTab} onSelect={(id) => setSubTab(id as PluginSubTab)} />
 
+      {/* The team rollup reaches the build reports; the plugin INVENTORY is
+          per-organization by design, so say so rather than imply it rolled up. */}
+      {filters.includeDescendants && subTab !== 'builds' && (
+        <p className="text-xs text-gray-500 dark:text-gray-400" role="note">
+          Plugin inventory is per-organization — the team rollup applies to the Builds reports.
+        </p>
+      )}
+
       {subTab === 'overview' && (
         <PluginOverview loading={loading} pluginSummary={data.pluginSummary} distribution={data.distribution} />
       )}
       {subTab === 'builds' && (
-        <PluginBuilds loading={loading} buildTimeline={data.buildTimeline} buildDurations={data.buildDurations} buildFailures={data.buildFailures} />
+        <PluginBuilds loading={loading} buildTimeline={data.buildTimeline} buildDurations={data.buildDurations} buildFailures={data.buildFailures} showFailures={!!filters.systemAdmin} />
       )}
       {subTab === 'versions' && (
         <PluginVersions loading={loading} pluginVersions={data.pluginVersions} />

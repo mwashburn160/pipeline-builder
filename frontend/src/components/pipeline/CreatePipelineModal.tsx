@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ShieldCheck, Sparkles, Lock } from 'lucide-react';
-import { useFeatures } from '@/hooks/useFeatures';
+import { Plus, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { FeatureLock } from '@/components/ui/FeatureLock';
 import type { BuilderProps, Visibility } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
 import { Badge } from '@/components/ui/Badge';
@@ -55,7 +56,8 @@ export default function CreatePipelineModal({
   // AI generation is a paid feature. The two AI tabs (Git URL, From prompt) hit a
   // server-side `requireFeature('ai_generation')` gate — pre-gate them with an
   // upsell so an unentitled org sees why, instead of a 403 dead-end on submit.
-  const aiEnabled = useFeatures().isEnabled('ai_generation');
+  // (`useFeatureGate` carries the superadmin bypass, same as the nav.)
+  const aiEnabled = useFeatureGate('ai_generation').entitled;
   // Preselect `org` — the backend's create default for pipelines (a pipeline is
   // a team asset); `private` stays an explicit opt-in personal draft.
   const [visibility, setVisibility] = useState<Visibility>('org');
@@ -345,7 +347,12 @@ export default function CreatePipelineModal({
 
 
       {aiGated ? (
-        <AiUpsell />
+        <div className="space-y-2">
+          <FeatureLock flag="ai_generation" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Or use the <span className="font-medium">Upload</span> or <span className="font-medium">Wizard</span> tabs to build a pipeline without AI.
+          </p>
+        </div>
       ) : activeTab === 'upload' ? (
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />
       ) : activeTab === 'ai' ? (
@@ -401,30 +408,5 @@ export default function CreatePipelineModal({
         </div>
       )}
     </Modal>
-  );
-}
-
-/**
- * Upsell shown in place of the AI generation tabs when the org lacks the
- * `ai_generation` entitlement — mirrors the DORA/advanced_reporting gate so the
- * user sees why the feature is unavailable instead of a 403 on submit. The other
- * create modes (Upload, Wizard) stay available on their own tabs.
- */
-function AiUpsell() {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
-      <Lock className="w-5 h-5 shrink-0 mt-0.5" />
-      <div>
-        <div className="flex items-center gap-1.5 font-medium">
-          <Sparkles className="w-4 h-4" /> AI generation isn&apos;t included in your current plan
-        </div>
-        <p className="mt-1 text-amber-800 dark:text-amber-300">
-          Generating a pipeline from a Git URL or a prompt needs the AI Generation feature, available on the Pro,
-          Team, and Enterprise tiers (or as an add-on). Upgrade your plan to unlock it — or use the
-          <span className="font-medium"> Upload</span> or <span className="font-medium">Wizard</span> tabs to build a
-          pipeline without AI.
-        </p>
-      </div>
-    </div>
   );
 }

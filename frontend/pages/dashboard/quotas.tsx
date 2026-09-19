@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useFetch } from '@/hooks/useFetch';
+import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -14,7 +17,12 @@ import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/Quotas
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
+
+/** One org in the sysadmin picker. */
+type PickerOrg = { id: string; name: string; slug?: string };
+
+/** Picker page size; a typed filter re-queries the server for the rest. */
+const ORG_PICKER_LIMIT = 200;
 
 // ---------------------------------------------------------------------------
 // Main Page
@@ -22,9 +30,10 @@ import { runQuery } from '@/lib/query-cache';
 
 /** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
 export default function QuotasPage() {
-  // Viewing quotas requires `quotas:read` (superadmins bypass). Members hold it
-  // in their base bundle. Mutation controls below stay sysadmin-only.
-  const { accessDenied, user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard({ requirePermission: 'quotas:read' });
+  // Viewing quotas requires `quotas:read` (declared once, in page-access.ts via
+  // the nav entry; superadmins bypass). Members hold it in their base bundle.
+  // Mutation controls below stay sysadmin-only.
+  const { accessDenied, user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard();
   const { organizations } = useAuth();
   const toast = useToast();
 
@@ -37,21 +46,6 @@ export default function QuotasPage() {
   // a team manages billing at its parent, so the link is suppressed there.
   const canManageBilling = (isAdmin || can('billing:manage')) && !activeOrgIsTeam;
 
-  const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
-  // Total org count reported by the server (may exceed the page we hold). Drives
-  // the "showing X of Y — refine" hint so a sysadmin knows the picker is capped
-  // and that typing in the filter re-queries the server for the rest.
-  const [orgTotal, setOrgTotal] = useState(0);
-  // Mirror of `platformOrgs` for reads inside `fetchOrg` — keeps that callback
-  // from depending on `platformOrgs`, which would re-create it every time the
-  // org list loads and re-run the selected-org fetch (a redundant double fetch).
-  const platformOrgsRef = useRef(platformOrgs);
-  useEffect(() => { platformOrgsRef.current = platformOrgs; }, [platformOrgs]);
-  // Request-generation guard for fetchOrg: rapidly selecting org A then B fires
-  // overlapping fetches, and whichever RESOLVES last would otherwise win —
-  // showing (and letting a sysadmin edit) the wrong org's quotas. Only the
-  // latest invocation is allowed to apply data / clear `loading`.
-  const orgReqIdRef = useRef(0);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   // Org the admin is switching to while the current one has unsaved edits.
   const [pendingOrgSwitch, setPendingOrgSwitch] = useState<string | null>(null);
@@ -59,8 +53,6 @@ export default function QuotasPage() {
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0, aiCalls: 0 });
@@ -73,101 +65,86 @@ export default function QuotasPage() {
   const serverTierPresets = useFeatures().tierPresets;
   const tierPresets = useMemo(() => buildTierPresets(serverTierPresets), [serverTierPresets]);
 
-  // System-admin only: orgs at >= 80% on any quota dimension. Refetched
-  // alongside the org list so the banner updates after edits.
-  const [atRisk, setAtRisk] = useState<Array<{
-    orgId: string;
-    name: string;
-    type: QuotaType;
-    used: number;
-    limit: number;
-    percent: number;
-  }>>([]);
-  const fetchAtRisk = useCallback(async () => {
-    if (!isSuperAdmin) return;
+  // System-admin only: orgs at >= 80% on any quota dimension. Re-read after
+  // edits and usage resets so the banner stays current. Admin diagnostic —
+  // a failure just shows no banner.
+  const atRiskQ = useFetch(async () => {
+    if (!isSuperAdmin) return [];
     try {
       const res = await api.getAtRiskQuotas();
-      if (res.success && res.data) setAtRisk(res.data.atRisk);
-    } catch { /* admin-only diagnostic — silently skip */ }
+      return res.success && res.data ? res.data.atRisk : [];
+    } catch {
+      return [];
+    }
   }, [isSuperAdmin]);
+  const atRisk = atRiskQ.data ?? [];
+  const fetchAtRisk = atRiskQ.refetch;
 
   // Org owner/admin (non-sysadmin): their OWN org's at-risk dimensions, via the
   // tenancy-scoped endpoint — powers the "approaching limit" callout in the
   // read-only view so an owner sees what's near cap without sysadmin. Gated on
-  // the admin/owner role (members don't get the callout).
+  // the admin/owner role (members don't get the callout). Best-effort.
   const canViewOwnAtRisk = !isSuperAdmin && isAdmin;
-  const [ownAtRisk, setOwnAtRisk] = useState<AtRiskDimension[]>([]);
-  const fetchOwnAtRisk = useCallback(async () => {
-    if (!canViewOwnAtRisk || !user?.organizationId) return;
+  const ownAtRiskQ = useFetch(async (): Promise<AtRiskDimension[]> => {
+    if (!canViewOwnAtRisk || !user?.organizationId) return [];
     try {
       const res = await api.getOrgAtRisk(user.organizationId);
-      if (res.success && res.data) setOwnAtRisk(res.data.atRisk);
-    } catch { /* best-effort admin diagnostic — silently skip */ }
+      return res.success && res.data ? res.data.atRisk : [];
+    } catch {
+      return [];
+    }
   }, [canViewOwnAtRisk, user?.organizationId]);
-  useEffect(() => { fetchOwnAtRisk(); }, [fetchOwnAtRisk]);
+  const ownAtRisk = ownAtRiskQ.data ?? [];
 
-  // Request-generation guard for the org search: typing re-queries the server,
-  // and a slower response for an older term must not replace a newer one.
-  const orgListReqIdRef = useRef(0);
-  const fetchAllOrgs = useCallback(async (search?: string) => {
-    if (!isSuperAdmin) return;
-    const reqId = ++orgListReqIdRef.current;
-    try {
-      // Page size is capped (the server default is ~10). We hold one page and
-      // surface the total via `orgTotal`; a `search` term re-queries the server
-      // so orgs beyond the held page stay reachable by name — not just the ones
-      // that happened to land in the first page.
-      const q = (search ?? '').trim();
-      const res = await runQuery(queries.listOrganizations({ limit: 200, ...(q ? { search: q } : {}) }));
-      if (reqId !== orgListReqIdRef.current) return;
-      const raw = res.data?.organizations || [];
-      const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
-      setPlatformOrgs(orgs);
-      setOrgTotal(res.data?.pagination?.total ?? orgs.length);
-      // Seed the default selection with a functional updater so this callback
-      // need not depend on `selectedOrgId` — otherwise picking a different org in
-      // the sidebar would re-create fetchAllOrgs and refetch the whole org list.
-      if (orgs.length > 0) setSelectedOrgId((cur) => cur || orgs[0].id);
-    } catch {
-      if (reqId !== orgListReqIdRef.current) return;
-      try {
-        const res = await api.getAllOrgQuotas();
-        if (reqId !== orgListReqIdRef.current) return;
-        const quotaOrgs = (res.data?.organizations || []) as OrgQuotaResponse[];
-        const orgs = quotaOrgs.map((o) => ({ id: o.orgId, name: o.name, slug: o.slug }));
-        setPlatformOrgs(orgs);
-        setOrgTotal(orgs.length);
-        if (orgs.length > 0) setSelectedOrgId((cur) => cur || orgs[0].id);
-      } catch {
-        // Both unavailable
-      }
-    }
-  }, [isSuperAdmin]);
+  // Sysadmin org picker. Page size is capped; a typed term (debounced) re-queries
+  // the server so orgs beyond the held page stay reachable by name. Through the
+  // shared cache, so an older term's late answer can't replace a newer one — the
+  // query key IS the term. If the org directory is unavailable, fall back to
+  // the quota service's own org list.
+  const debouncedSearch = useDebounce(searchFilter.trim(), 300);
+  const orgsQ = useQuery(isSuperAdmin
+    ? queries.listOrganizations({ limit: ORG_PICKER_LIMIT, ...(debouncedSearch ? { search: debouncedSearch } : {}) })
+    : null);
+  const fallbackQ = useFetch(async (): Promise<PickerOrg[] | null> => {
+    if (!isSuperAdmin || !orgsQ.error) return null;
+    const res = await api.getAllOrgQuotas();
+    return ((res.data?.organizations || []) as OrgQuotaResponse[]).map((o) => ({ id: o.orgId, name: o.name, slug: o.slug }));
+  }, [isSuperAdmin, !!orgsQ.error]);
+  const platformOrgs: PickerOrg[] = useMemo(() => {
+    if (orgsQ.error) return fallbackQ.data ?? [];
+    return (orgsQ.data?.data?.organizations ?? []).map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
+  }, [orgsQ.data, orgsQ.error, fallbackQ.data]);
+  // Total org count reported by the server (may exceed the page we hold). Drives
+  // the "showing X of Y — refine" hint so a sysadmin knows the picker is capped.
+  const orgTotal = orgsQ.error ? platformOrgs.length : (orgsQ.data?.data?.pagination?.total ?? platformOrgs.length);
 
-  const fetchOrg = useCallback(async (orgId: string) => {
-    const reqId = ++orgReqIdRef.current;
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = isSuperAdmin
-        ? await api.getOrgQuotas(orgId)
-        : await api.getOwnQuotas();
-      // Discard a superseded response: a slower fetch for a previously-selected
-      // org must not overwrite the org the user has since switched to.
-      if (reqId !== orgReqIdRef.current) return;
-      const quota = (res.data?.quota || res.data) as OrgQuotaResponse;
-      // Resolve sidebar metadata via the REF (not the closure) so this callback
-      // does not depend on `platformOrgs` — depending on it re-created fetchOrg
-      // when the list loaded and fetched the selected org's quotas twice.
-      const sidebarOrg = platformOrgsRef.current.find((o) => o.id === (orgId || quota.orgId));
-      applyOrgData(quota, { orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
-    } catch {
-      if (reqId !== orgReqIdRef.current) return;
-      setLoadError('Failed to load quotas. The service may be unavailable.');
-    } finally {
-      if (reqId === orgReqIdRef.current) setLoading(false);
-    }
-  }, [isSuperAdmin]);
+  // Seed the default selection once the first page lands.
+  useEffect(() => {
+    if (platformOrgs.length > 0) setSelectedOrgId((cur) => cur || platformOrgs[0].id);
+  }, [platformOrgs]);
+
+  // The selected org's quotas (sysadmin: any org; everyone else: their own).
+  // useFetch drops a superseded response, so selecting Alpha then Beta always
+  // shows Beta even when Alpha's read resolves last.
+  const quotaOrgId = isSuperAdmin ? selectedOrgId : user?.organizationId;
+  const orgQ = useFetch(async (): Promise<{ orgId: string; quota: OrgQuotaResponse } | null> => {
+    if (!quotaOrgId) return null;
+    const res = isSuperAdmin ? await api.getOrgQuotas(quotaOrgId) : await api.getOwnQuotas();
+    return { orgId: quotaOrgId, quota: (res.data?.quota || res.data) as OrgQuotaResponse };
+  }, [quotaOrgId, isSuperAdmin]);
+  const loading = orgQ.loading;
+  const loadError = orgQ.error ? 'Failed to load quotas. The service may be unavailable.' : null;
+  const retryOrg = orgQ.refetch;
+
+  // A freshly read org seeds the view + the edit form.
+  const loadedOrg = orgQ.data;
+  useEffect(() => {
+    if (!loadedOrg) return;
+    const sidebarOrg = platformOrgs.find((o) => o.id === loadedOrg.orgId);
+    applyOrgData(loadedOrg.quota, { orgId: loadedOrg.orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
+    // Seeds on a NEW read only — a picker-page change must not reset edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedOrg]);
 
   function applyOrgData(
     d: OrgQuotaResponse,
@@ -187,25 +164,6 @@ export default function QuotasPage() {
     setDirty(false);
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));
   }
-
-  useEffect(() => {
-    if (isSuperAdmin) fetchAtRisk();
-  }, [fetchAtRisk, isSuperAdmin]);
-
-  // Debounced org fetch: the empty-term run on mount does the initial load; a
-  // typed term re-queries the server (300ms debounce) so orgs past the held page
-  // are reachable by name instead of silently truncated at the cap.
-  useEffect(() => {
-    if (!isSuperAdmin) return;
-    const delay = searchFilter ? 300 : 0;
-    const t = setTimeout(() => { fetchAllOrgs(searchFilter); }, delay);
-    return () => clearTimeout(t);
-  }, [searchFilter, isSuperAdmin, fetchAllOrgs]);
-
-  useEffect(() => {
-    const orgId = isSuperAdmin ? selectedOrgId : user?.organizationId;
-    if (orgId) fetchOrg(orgId);
-  }, [selectedOrgId, isSuperAdmin, user?.organizationId, fetchOrg]);
 
   function handleEditChange(key: DisplayedQuotaType, value: number) {
     setEditValues((prev) => ({ ...prev, [key]: value }));
@@ -292,7 +250,7 @@ export default function QuotasPage() {
         orgData={orgData}
         loading={loading}
         loadError={loadError}
-        onRetry={() => { if (user.organizationId) fetchOrg(user.organizationId); }}
+        onRetry={retryOrg}
         activeOrgIsTeam={activeOrgIsTeam}
         canManageBilling={canManageBilling}
         atRisk={ownAtRisk}
@@ -338,7 +296,7 @@ export default function QuotasPage() {
       handleSave={handleSave}
       handleEditChange={handleEditChange}
       handleTierChange={handleTierChange}
-      fetchOrg={fetchOrg}
+      onRetryOrg={retryOrg}
       fetchAtRisk={fetchAtRisk}
       onResetUsage={handleResetUsage}
     />

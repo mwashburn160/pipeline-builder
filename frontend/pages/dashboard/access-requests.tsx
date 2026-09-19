@@ -10,16 +10,23 @@
  * server-side by the same rules that authorize deciding and revoking, so this page
  * never shows a request the viewer couldn't act on.
  *
- * Two deliberate asymmetries:
+ * Confirmation, and why it differs per action:
  *   - APPROVE asks for confirmation and restates exactly what is being granted.
  *     Consent that isn't informed isn't consent.
- *   - DENY and END SESSION act immediately. Stopping access must never be harder
- *     than allowing it.
+ *   - END SESSION asks once too — never with a step-up, so stopping access is
+ *     never harder than allowing it (both are one confirm). Ending a session
+ *     can't be undone: the operator needs a new request, and a new consent, to
+ *     get back in, so a stray click must not do it.
+ *   - DENY acts immediately: a pending request costs nobody anything to refuse.
+ *
+ * Each list is paged server-side (newest first), so a long history is reachable
+ * page by page instead of silently truncated.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { KeyRound, MonitorPlay, RefreshCw, Send, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -28,13 +35,15 @@ import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Pagination } from '@/components/ui/Pagination';
+import { RetryError } from '@/components/ui/RetryError';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { formatRelativeTime } from '@/lib/relative-time';
-import type { ImpersonationRequestDto } from '@/lib/api/domains/admin';
+import type { ImpersonationListView, ImpersonationRequestDto } from '@/lib/api/domains/admin';
 
 /** Session length, for the approval summary. Mirrors the platform's session TTL. */
 const SESSION_MINUTES = 15;
@@ -58,38 +67,75 @@ const STATUS_LABEL: Record<string, string> = {
   undeliverable: 'Nobody could be asked',
 };
 
+/** Rows per page for each list. */
+const PAGE_SIZE = 10;
+
+/**
+ * One server-paged view of impersonation requests. Re-reads when the viewer's
+ * identity or active org changes (what they may act on changes with it).
+ */
+function useRequestView(view: ImpersonationListView, enabled: boolean, identity: string) {
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const q = useFetch(
+    async (signal) => {
+      if (!enabled) return null;
+      const res = await api.listImpersonationRequests(view, { limit, offset }, { signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Could not load access requests');
+      return res.data;
+    },
+    [enabled, identity, offset, limit],
+  );
+  return {
+    requests: q.data?.requests ?? [],
+    total: q.data?.pagination.total ?? 0,
+    loading: q.loading && !q.data,
+    error: q.error,
+    refetch: q.refetch,
+    pager: { limit, offset, setOffset, setLimit: (n: number) => { setLimit(n); setOffset(0); } },
+  };
+}
+
+type RequestView = ReturnType<typeof useRequestView>;
+
+/** Pager under a list — only when there is more than one page. */
+function ViewPager({ view }: { view: RequestView }) {
+  if (view.total <= view.pager.limit) return null;
+  return (
+    <Pagination
+      pagination={{ limit: view.pager.limit, offset: view.pager.offset, total: view.total }}
+      onPageChange={view.pager.setOffset}
+      onPageSizeChange={view.pager.setLimit}
+      pageSizeOptions={[10, 25, 50, 100]}
+    />
+  );
+}
+
 export default function AccessRequestsPage() {
   const { isReady, user, isReadOnly } = useAuthGuard();
   const toast = useToast();
 
-  const [toDecide, setToDecide] = useState<ImpersonationRequestDto[]>([]);
-  const [sessions, setSessions] = useState<ImpersonationRequestDto[]>([]);
-  const [mine, setMine] = useState<ImpersonationRequestDto[]>([]);
+  const enabled = isReady && !!user;
+  const identity = `${user?.id ?? ''}:${user?.organizationId ?? ''}`;
+  const toDecideView = useRequestView('to-decide', enabled, identity);
+  const sessionsView = useRequestView('sessions', enabled, identity);
+  const mineView = useRequestView('mine', enabled, identity);
+  const toDecide = toDecideView.requests;
+  const sessions = sessionsView.requests;
+  const mine = mineView.requests;
+  const loadError = toDecideView.error ?? sessionsView.error ?? mineView.error;
+
   const [redeeming, setRedeeming] = useState<ImpersonationRequestDto | null>(null);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<ImpersonationRequestDto | null>(null);
+  const [ending, setEnding] = useState<ImpersonationRequestDto | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [d, s, m] = await Promise.all([
-        api.listImpersonationRequests('to-decide'),
-        api.listImpersonationRequests('sessions'),
-        api.listImpersonationRequests('mine'),
-      ]);
-      if (d.success && d.data) setToDecide(d.data.requests);
-      if (s.success && s.data) setSessions(s.data.requests);
-      if (m.success && m.data) setMine(m.data.requests);
-      setError(null);
-    } catch (e) {
-      setError(formatError(e, 'Could not load access requests'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { if (isReady && user) void load(); }, [isReady, user?.id, user?.organizationId, load]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => {
+    toDecideView.refetch();
+    sessionsView.refetch();
+    mineView.refetch();
+  };
 
   const decide = async (req: ImpersonationRequestDto, approve: boolean) => {
     setBusyId(req.id);
@@ -108,7 +154,7 @@ export default function AccessRequestsPage() {
     } finally {
       setBusyId(null);
       setConfirming(null);
-      void load();
+      load();
     }
   };
 
@@ -131,7 +177,8 @@ export default function AccessRequestsPage() {
       }
     } finally {
       setBusyId(null);
-      void load();
+      setEnding(null);
+      load();
     }
   };
 
@@ -148,7 +195,7 @@ export default function AccessRequestsPage() {
     } catch (e) {
       if (isStale(e)) toast.info('That request can no longer be opened. It may have expired.');
       else setError(formatError(e));
-      void load();
+      load();
     } finally {
       setRedeeming(null);
     }
@@ -164,13 +211,14 @@ export default function AccessRequestsPage() {
       title="Access requests"
       subtitle="Who has asked to view an account, and who is viewing one now"
       actions={
-        <Button type="button" variant="secondary" onClick={() => { setLoading(true); void load(); }} disabled={loading}>
+        <Button type="button" variant="secondary" onClick={load} disabled={toDecideView.loading || sessionsView.loading}>
           <RefreshCw className="w-4 h-4 mr-1.5" /> Refresh
         </Button>
       }
     >
       <div className="space-y-6">
         {error && <ErrorAlert message={error} />}
+        {loadError && <RetryError message={formatError(loadError, 'Could not load access requests')} onRetry={load} />}
 
         <ReadOnlyNotice show={isReadOnly} />
 
@@ -178,9 +226,9 @@ export default function AccessRequestsPage() {
           icon={KeyRound}
           title="Waiting for your decision"
           description={`Approving lets the requester see that account, read-only, for ${SESSION_MINUTES} minutes.`}
-          actions={toDecide.length > 0 ? <Badge color="yellow">{toDecide.length} pending</Badge> : undefined}
+          actions={toDecideView.total > 0 ? <Badge color="yellow">{toDecideView.total} pending</Badge> : undefined}
         >
-          {loading ? (
+          {toDecideView.loading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
               <LoadingSpinner size="sm" /> Loading…
             </div>
@@ -235,6 +283,7 @@ export default function AccessRequestsPage() {
               ))}
             </ul>
           )}
+          <ViewPager view={toDecideView} />
         </SectionCard>
 
         <SectionCard
@@ -242,7 +291,7 @@ export default function AccessRequestsPage() {
           title="Live sessions"
           description="Read-only sessions in progress that you can end. Ending one takes effect on its next request."
         >
-          {loading ? (
+          {sessionsView.loading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
               <LoadingSpinner size="sm" /> Loading…
             </div>
@@ -268,7 +317,7 @@ export default function AccessRequestsPage() {
                     variant="danger"
                     readOnly={isReadOnly}
                     disabled={busyId === s.id}
-                    onClick={() => void revoke(s)}
+                    onClick={() => setEnding(s)}
                   >
                     End session
                   </Button>
@@ -276,10 +325,11 @@ export default function AccessRequestsPage() {
               ))}
             </ul>
           )}
+          <ViewPager view={sessionsView} />
         </SectionCard>
         {/* Only people who ask for access have requests of their own — most
             users never will, so the section is hidden rather than empty. */}
-        {!loading && mine.length > 0 && (
+        {!mineView.loading && mineView.total > 0 && (
           <SectionCard
             icon={Send}
             title="Your requests"
@@ -308,6 +358,7 @@ export default function AccessRequestsPage() {
                 );
               })}
             </ul>
+            <ViewPager view={mineView} />
           </SectionCard>
         )}
       </div>
@@ -322,6 +373,24 @@ export default function AccessRequestsPage() {
           onConfirmed={(token) => redeem(redeeming, token)}
           onClose={() => setRedeeming(null)}
         />
+      )}
+
+      {ending && (
+        <ConfirmDialog
+          title="End this session?"
+          confirmLabel="End session"
+          tone="danger"
+          loading={busyId === ending.id}
+          onCancel={() => setEnding(null)}
+          onConfirm={() => void revoke(ending)}
+        >
+          <p>
+            <strong>{who(ending.requester)}</strong> stops seeing{' '}
+            <strong>{isYou(ending.target.id) ? 'your account' : `${ending.target.name}'s account`}</strong>{' '}
+            on their next request.
+          </p>
+          <p>This can&apos;t be undone — to look again they must ask again, and be approved again.</p>
+        </ConfirmDialog>
       )}
 
       {confirming && (

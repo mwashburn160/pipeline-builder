@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import type { MessageListFilters } from '@/lib/api/domains/messages';
 import type { Message, MessageType, MessagePriority } from '@/types';
 import { acquireLiveUnreadSource, setUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
 import { useAsyncCallback } from './useAsync';
@@ -23,6 +24,10 @@ import { usePolling } from './usePolling';
  * a tab could look empty while the server held matching messages).
  */
 export type MessageView = 'all' | 'announcements' | 'conversations';
+
+/** Server-side narrowing applied to whichever view is active (search is its
+ *  own argument because the page debounces it separately). */
+export type MessageFilters = Omit<MessageListFilters, 'search'>;
 
 /** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
@@ -73,9 +78,11 @@ export const MESSAGE_PAGE_SIZE = 25;
  *   value. Changing it refetches page 0 server-side.
  * @param view - Which slice to load. Each maps to its own endpoint; changing it
  *   refetches page 0 against that endpoint.
+ * @param filters - Read-state / priority / channel narrowing, applied server-side
+ *   to the active view; changing it refetches page 0.
  * @returns Message state, action callbacks, and unread count
  */
-export function useMessages(orgId?: string | null, search = '', view: MessageView = 'all'): UseMessagesReturn {
+export function useMessages(orgId?: string | null, search = '', view: MessageView = 'all', filters: MessageFilters = {}): UseMessagesReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,16 +99,25 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // fetchMessages and must always hit the CURRENTLY selected endpoint.
   const viewRef = useRef(view);
   viewRef.current = view;
+  // …and for the filters. `filterKey` is the effect dependency, so an inline
+  // `{}` literal from the caller doesn't refetch on every render.
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const filterKey = JSON.stringify([filters.isRead, filters.priority, filters.channel]);
   // Current page contents, readable from the (stable) SSE handler.
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
 
   /** Fetch one page of the ACTIVE view from its own endpoint. */
   const fetchPage = useCallback((offset: number) => {
+    const { isRead, priority, channel } = filtersRef.current;
     const params = {
       limit: MESSAGE_PAGE_SIZE,
       offset,
       ...(searchRef.current ? { search: searchRef.current } : {}),
+      ...(isRead !== undefined ? { isRead } : {}),
+      ...(priority ? { priority } : {}),
+      ...(channel ? { channel } : {}),
     };
     if (viewRef.current === 'announcements') return api.getAnnouncements(params);
     if (viewRef.current === 'conversations') return api.getConversations(params);
@@ -257,13 +273,13 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, [deleteRaw]);
 
-  // Fetch messages on mount AND whenever the (debounced) search term or the
-  // active view changes — fetchMessages is stable and reads both from refs, so
-  // this resets to page 0 for the new query/endpoint without churning the
-  // SSE/poll effects.
+  // Fetch messages on mount AND whenever the (debounced) search term, the
+  // active view or the filters change — fetchMessages is stable and reads all
+  // three from refs, so this resets to page 0 for the new query/endpoint without
+  // churning the SSE/poll effects.
   useEffect(() => {
     fetchMessages();
-  }, [fetchMessages, search, view]);
+  }, [fetchMessages, search, view, filterKey]);
 
   // Sync SSE-provided unread count into local state
   useEffect(() => {

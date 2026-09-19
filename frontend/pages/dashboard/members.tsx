@@ -6,6 +6,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { hasPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
+import { useFetch } from '@/hooks/useFetch';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
@@ -41,7 +42,8 @@ import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 
 export default function MembersPage() {
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'members:manage' });
+  // The read gate (`members:manage`) comes from the nav entry via page-access.
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard();
   // Capability to manage members — role admins/owners hold it via their bundle,
   // and so do custom-role members granted `members:manage`. `can()` is
   // read-only-aware (false under read-only impersonation) — use it for the WRITE
@@ -147,39 +149,29 @@ export default function MembersPage() {
   const activeOrgCanHaveTeams = activeOrgIsRoot && (activeOrg?.tier === 'team' || activeOrg?.tier === 'enterprise');
   // Descendant teams this org parents (org → team hierarchy) — drives the Teams
   // list + the "Manage teams" gate. Best-effort; admins of a root org only.
-  const [teams, setTeams] = useState<{ orgId: string; orgName: string }[]>([]);
-  const [teamsLoadWarning, setTeamsLoadWarning] = useState(false);
+  // Only root orgs can parent teams — skip the lookup when the active org is
+  // itself a team (the banner shows the "is a team" branch regardless).
+  // Best-effort: a failure surfaces a brief note, never blanks the page.
+  // `refetch` runs after creating a team so the list (and the "Manage teams"
+  // button it gates) refresh without a full page reload.
+  const teamsQ = useFetch(async (signal) => {
+    if (!user?.organizationId || !canManageMembers || !activeOrgIsRoot) return [];
+    return (await api.getOrganizationTeams(user.organizationId, { signal })).data?.teams ?? [];
+  }, [user?.organizationId, canManageMembers, activeOrgIsRoot]);
+  const teams = teamsQ.data ?? [];
+  const teamsLoadWarning = !!teamsQ.error;
   const childTeamCount = teams.length;
-  // Bumped after creating a team so the list (and the "Manage teams" button it
-  // gates) refresh without a full page reload.
-  const [teamCountTick, setTeamCountTick] = useState(0);
-  useEffect(() => {
-    // Only root orgs can parent teams — skip the lookup when the active org is
-    // itself a team (the banner shows the "is a team" branch regardless).
-    if (!user?.organizationId || !canManageMembers || !activeOrgIsRoot) return;
-    let cancelled = false;
-    setTeamsLoadWarning(false);
-    void api.getOrganizationTeams(user.organizationId)
-      .then((res) => { if (!cancelled) setTeams(res.data?.teams ?? []); })
-      .catch(() => { if (!cancelled) setTeamsLoadWarning(true); }); // best-effort — surface a brief note
-    return () => { cancelled = true; };
-  }, [user?.organizationId, canManageMembers, activeOrgIsRoot, teamCountTick]);
 
   // Pooled seat usage for the whole account (distinct members + pending invites
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so
   // this is account-wide even when viewing a team. Best-effort; admins only.
-  const [seatUsage, setSeatUsage] = useState<{ limit: number; used: number } | null>(null);
-  const [seatLoadWarning, setSeatLoadWarning] = useState(false);
-  useEffect(() => {
-    if (!user?.organizationId || !canManageMembers) return;
-    let cancelled = false;
-    setSeatLoadWarning(false);
-    void api.getOrganizationSeatUsage(user.organizationId)
-      .then((res) => { if (!cancelled && res.data) setSeatUsage(res.data); })
-      .catch(() => { if (!cancelled) setSeatLoadWarning(true); }); // best-effort — surface a brief note
-    return () => { cancelled = true; };
-    // Re-check on any membership change (total shifts on add/remove/reactivate).
+  // Re-checked on any membership change (total shifts on add/remove/reactivate).
+  const seatQ = useFetch(async (signal) => {
+    if (!user?.organizationId || !canManageMembers) return null;
+    return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
   }, [user?.organizationId, canManageMembers, list.pagination.total]);
+  const seatUsage = seatQ.data;
+  const seatLoadWarning = !!seatQ.error;
 
   // Switch the active org context to a team so its members can be managed
   // directly (mirrors the org switcher). The page re-renders in the new scope.
@@ -346,7 +338,7 @@ export default function MembersPage() {
       setNewOrgName('');
       setCreateOrgOpen(false);
       await refreshUser();          // pulls the new org into the org-switcher list
-      setTeamCountTick((t) => t + 1); // refresh the team-count banner + Manage-teams button
+      teamsQ.refetch(); // refresh the team-count banner + Manage-teams button
       toast.success(parentOrgId
         ? `Team "${name}" created — switch to it from the organization switcher (bottom-left)`
         : `Organization "${name}" created`);

@@ -69,6 +69,45 @@ function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): vo
   }
 }
 
+/**
+ * Deepest row a caller may page to on GET /failed and GET /dlq. Each page reads
+ * `offset + limit` entries from every source queue (BullMQ ranges start at the
+ * head of a set), so an unbounded offset would be an unbounded Redis range read.
+ */
+const QUEUE_MAX_PAGE_DEPTH = intFromEnv('PLUGIN_QUEUE_MAX_PAGE_DEPTH', 5000);
+
+/** Max rows per page on GET /failed and GET /dlq (parity with read routes). */
+const QUEUE_MAX_PAGE_LIMIT = 200;
+
+/** Parse + clamp `limit`/`offset` for the paged queue listings. */
+function parseQueuePage(query: Record<string, unknown>): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(1, parseQueryInt(query.limit, 50)), QUEUE_MAX_PAGE_LIMIT);
+  const offset = Math.min(Math.max(0, parseQueryInt(query.offset, 0)), Math.max(0, QUEUE_MAX_PAGE_DEPTH - limit));
+  return { limit, offset };
+}
+
+/** Newest-first order over a merged multi-queue read (finished, else enqueued). */
+const newestFirst = (a: Job, b: Job): number =>
+  ((b.finishedOn ?? b.timestamp ?? 0) - (a.finishedOn ?? a.timestamp ?? 0));
+
+/**
+ * One page of a merged, tenant-filtered job listing. `window` holds the first
+ * `offset + limit + 1` rows of every source already merged newest-first, so the
+ * page is a slice of a stable global order and the extra row tells us whether
+ * another page exists. `total` is exact for system admins (the queue counts
+ * cover every tenant); a tenant-scoped caller's total can't be known without
+ * scanning every tenant's jobs, so it is omitted and `hasMore` drives paging.
+ */
+function pageOf<T extends Job>(
+  window: T[],
+  { limit, offset }: { limit: number; offset: number },
+  total: number | undefined,
+): { page: T[]; pagination: { total?: number; limit: number; offset: number; hasMore: boolean } } {
+  const page = window.slice(offset, offset + limit);
+  const hasMore = total !== undefined ? offset + page.length < total : window.length > offset + limit;
+  return { page, pagination: { ...(total !== undefined ? { total } : {}), limit, offset, hasMore } };
+}
+
 /** Resolve a build job's owning org: the top-level `orgId`, falling back to the
  *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
 const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
@@ -143,30 +182,29 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // matching the sibling retry/replay writes so the queue surface uses ONE gate
   // for org-scoped ops. System admins see all orgs; other holders of
   // plugins:write see only their own org's jobs (tenant-isolation filter below).
+  //
+  // Paged with `limit` (≤200) + `offset` (≤ QUEUE_MAX_PAGE_DEPTH): every tier's
+  // failed set contributes its newest `offset + limit + 1` rows, merged
+  // newest-first, so a page is a slice of one global order across tiers — a
+  // noisy tier can't crowd out another tier's jobs on a later page.
   router.get('/failed', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
-    // Clamp: an unbounded limit feeds queue.getJobs(0, N-1) across every tier queue —
-    // a caller could force a massive Redis range read. Max 200 (parity with read routes).
-    const limit = Math.min(parseQueryInt(req.query.limit, 50), 200);
-    // Read a smaller per-tier slice (limit / tierCount, rounded up) then
-    // oversample by 1 so we never return less than `limit` after filtering.
-    // Truncate after the tenant-isolation filter so a noisy tier can't
-    // crowd out another tier's visible jobs.
+    const paging = parseQueuePage(req.query as Record<string, unknown>);
     const tiers = getAllTierQueues();
-    const perTierSlice = Math.max(1, Math.ceil(limit / Math.max(tiers.length, 1)) + 1);
-    const failedByTier = await Promise.all(
-      tiers.map(({ queue }) => queue.getJobs(['failed'], 0, perTierSlice - 1)),
-    );
-    const failedJobs = failedByTier.flat();
+    const callerIsSysAdmin = isSystemAdmin(req);
+    const [failedByTier, counts] = await Promise.all([
+      Promise.all(tiers.map(({ queue }) => queue.getJobs(['failed'], 0, paging.offset + paging.limit))),
+      callerIsSysAdmin ? Promise.all(tiers.map(({ queue }) => queue.getJobCounts('failed'))) : Promise.resolve(null),
+    ]);
 
     // Tenant isolation: non-system admins only see their own org's failed jobs.
     // Without this filter, an org admin could see another tenant's failure
     // metadata (plugin names, error messages).
-    const callerIsSysAdmin = isSystemAdmin(req);
-    const visibleJobs = (callerIsSysAdmin
-      ? failedJobs
-      : failedJobs.filter((job) => jobBelongsToOrg(job.data, orgId))).slice(0, limit);
+    const merged = failedByTier.flat().sort(newestFirst);
+    const visible = callerIsSysAdmin ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
+    const total = counts ? counts.reduce((acc, c) => acc + (c.failed ?? 0), 0) : undefined;
+    const { page, pagination } = pageOf(visible, paging, total);
 
-    const jobs = visibleJobs.map((job) => ({
+    const jobs = page.map((job) => ({
       id: job.id,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
@@ -177,7 +215,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
     }));
 
-    return sendSuccess(res, 200, { jobs, total: jobs.length });
+    return sendSuccess(res, 200, { jobs, pagination });
   }));
 
   /**
@@ -235,22 +273,26 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // Access: gated by `requirePermission('plugins:write')` (route middleware) —
   // same org-scoped gate as GET /failed. System admins see all orgs; other
   // plugins:write holders see only their own org (tenant-isolation filter below).
+  // Paged exactly like /failed: BullMQ applies the range to EACH state set, so
+  // every state contributes its newest `offset + limit + 1` rows before the
+  // newest-first merge + slice.
   router.get('/dlq', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
-    const limit = Math.min(parseQueryInt(req.query.limit, 50), 200); // clamp — see /failed
+    const paging = parseQueuePage(req.query as Record<string, unknown>);
     const dlq = getDeadLetterQueue();
-    // Oversample (2x) so per-tenant filtering for non-system admins still
-    // returns up to `limit` rows in the common case where most DLQ entries
-    // belong to other orgs.
-    const oversample = isSystemAdmin(req) ? limit : limit * 2;
-    const allJobs = await dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, oversample - 1);
-
-    // Tenant isolation  same model as /failed above.
+    const states = ['waiting', 'delayed', 'active', 'completed', 'failed'] as const;
     const callerIsSysAdmin = isSystemAdmin(req);
-    const visibleJobs = (callerIsSysAdmin
-      ? allJobs
-      : allJobs.filter((job) => jobBelongsToOrg(job.data, orgId))).slice(0, limit);
+    const [allJobs, counts] = await Promise.all([
+      dlq.getJobs([...states], 0, paging.offset + paging.limit),
+      callerIsSysAdmin ? dlq.getJobCounts(...states) : Promise.resolve(null),
+    ]);
 
-    const jobs = visibleJobs.map((job) => ({
+    // Tenant isolation — same model as /failed above.
+    const merged = [...allJobs].sort(newestFirst);
+    const visible = callerIsSysAdmin ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
+    const total = counts ? states.reduce((acc, st) => acc + (counts[st] ?? 0), 0) : undefined;
+    const { page, pagination } = pageOf(visible, paging, total);
+
+    const jobs = page.map((job) => ({
       id: job.id,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
@@ -263,7 +305,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
     }));
 
-    return sendSuccess(res, 200, { jobs, total: jobs.length });
+    return sendSuccess(res, 200, { jobs, pagination });
   }));
 
   // Access: `requireSystemAdmin` (route middleware) — the purge discards every

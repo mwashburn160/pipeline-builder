@@ -28,7 +28,11 @@ so every stored event is hash-chained and scrubbed the same way.
 
 Query the trail via `GET /audit` (admin-only; org admins are forced to their own
 org, sysadmins may filter any org) or the dashboard **Audit** page at
-`/dashboard/audit`. Records auto-expire via a MongoDB TTL index after
+`/dashboard/audit`. Filters: `action`, `actorId`, `impersonatorId`, `targetType`,
+`targetId`, `groupId`, `requestId`, `outcome`, `from`/`to`, and — sysadmin only —
+`orgId` and `affectedOrgId`. Every one is also a URL parameter of the Audit page,
+and the ids on each row narrow the list to that actor, impersonator, target or
+group. Records auto-expire via a MongoDB TTL index after
 `config.audit.retentionDays` days (default 90, overridable via
 `AUDIT_RETENTION_DAYS`).
 
@@ -126,7 +130,7 @@ subset a remote service may emit is `REMOTE_AUDIT_ACTIONS` in
 | SAML sign-in | A successful SAML sign-in is a plain `user.login` with `details.method = 'saml'` — it is the same kind of session, and splitting it would fracture every "who signed in" query. The REFUSAL gets its own action, because SAML fails in ways that are security events rather than someone mistyping a password: `sso.saml.refused` with `details.reason` — `idp_initiated` (an unsolicited assertion: login CSRF), `replay` (an assertion presented twice), `invalid_assertion` (signature, issuer, audience or validity window), `domain_not_verified`, `platform_admin`, `seat_limit`, `invalid_state`, `no_email`, plus the configuration states. `sso.saml.certificate.rotate` records a change to the org's trusted IdP signing certificates — `details` carries the fingerprints before and after and whether an overlap window is now `open`, never the certificates themselves. See [SAML 2.0](authentication.md#saml-20) |
 | SCIM provisioning | `org.scim.user.create`, `org.scim.user.update`, `org.scim.user.activate`, `org.scim.user.deactivate`, `org.scim.user.delete`, `org.scim.group.create`, `org.scim.group.update`, `org.scim.group.members`, `org.scim.group.delete` — the identity provider's [SCIM 2.0 client](authentication.md#scim-20-provisioning) changed the roster or a directory group. `org.scim.refused` — a SCIM request was turned away (`outcome: 'failure'`, `details.reason`) |
 | Dashboards & alerts | `dashboard.create/update/delete/restore/purge/clone`, `alert.destination.create/update/delete/restore/purge/test`, `alert.rule.create/update/delete/restore/purge`. Delete is a SOFT delete: the row is restorable from "recently deleted" until the retention sweep hard-deletes it. `…restore` records bringing one back, `…purge` records destroying a tombstone by hand ahead of the sweep — both re-verify the actor's password (step-up) first |
-| Admin / sysadmin | `admin.user.create/update/delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `org.kms.orphaned`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.org.quota.override`, `admin.org.ai-config.update`, `admin.user.features.update`, `admin.impersonate.start`, `admin.impersonate.request/approve/deny/revoke/breakglass`, `admin.org.namespace.render` |
+| Admin / sysadmin | `admin.user.create/update/delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `org.kms.orphaned`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.org.ai-config.update`, `admin.user.features.update`, `admin.impersonate.start`, `admin.impersonate.request/approve/deny/revoke/breakglass`, `admin.org.namespace.render` |
 | Denied access | `authz.denied` — emitted by the shared permission gate when a state-changing (non-GET) request is rejected, so probing / privilege-escalation attempts leave a trail (`outcome: 'failure'`). Also emitted by `requireInternalService` for a refused INTERNAL route (`/internal/*`, the quota usage counters, the entity-event / audit ingests, the entitlement sync legs), with `required` naming the services that route admits — paired with the `internal_route_refused_total{service,route,reason,caller}` counter, whose `reason` distinguishes a user token from a wrong caller |
 
 **Access keys** deserve a note: a key is opaque, so no service ever sees it —

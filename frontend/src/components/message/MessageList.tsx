@@ -163,8 +163,13 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                       {msg.channel}
                     </span>
                   )}
+                  {/* The dot is the visual cue; the sr-only text carries it for
+                      screen readers, which can't perceive a colour. */}
                   {isUnreadFor(msg, currentOrgId) && (
-                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="inline-flex items-center">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" aria-hidden="true" />
+                      <span className="sr-only">Unread</span>
+                    </span>
                   )}
                 </div>
               </div>

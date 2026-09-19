@@ -1,25 +1,43 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { GitBranch, Puzzle, AlertTriangle, Gauge, Trophy } from 'lucide-react';
+import { GitBranch, Puzzle, Gauge, Trophy } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { useFetch } from '@/hooks/useFetch';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { DateRangePicker, AutoRefresh } from '@/components/reports/ReportHelpers';
-import { PipelinesTab } from '@/components/reports/tabs/PipelinesTab';
-import { PluginsTab } from '@/components/reports/tabs/PluginsTab';
-import { DoraTab } from '@/components/reports/tabs/DoraTab';
-import { ScorecardTab } from '@/components/reports/tabs/ScorecardTab';
+import { RetryError } from '@/components/ui/RetryError';
+import { DateRangePicker, AutoRefresh, TwoColumnSkeleton } from '@/components/reports/ReportHelpers';
 import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import {
   useReportRetention, useIngestHealth, type SharedFilters, type TabDataStatus,
 } from '@/components/reports/useReportData';
-import { useFeatures } from '@/hooks/useFeatures';
 import { hasPermission } from '@/lib/auth-helpers';
 import api from '@/lib/api';
+
+// Only one top tab shows at a time, so each is its own chunk: the page ships the
+// shell + the active tab instead of all four report bundles up front.
+const tabLoading = () => <TwoColumnSkeleton />;
+const PipelinesTab = dynamic(() => import('@/components/reports/tabs/PipelinesTab').then((m) => m.PipelinesTab), { loading: tabLoading });
+const PluginsTab = dynamic(() => import('@/components/reports/tabs/PluginsTab').then((m) => m.PluginsTab), { loading: tabLoading });
+const DoraTab = dynamic(() => import('@/components/reports/tabs/DoraTab').then((m) => m.DoraTab), { loading: tabLoading });
+const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTab').then((m) => m.ScorecardTab), { loading: tabLoading });
+
+/**
+ * Billing add-on that widens each window: the Retention Pack (every tier)
+ * raises standard-event retention; the DORA-History pack raises DORA's.
+ */
+const EXTEND_EVENT_RETENTION_HREF = '/dashboard/billing?highlight=retention_pack';
+const EXTEND_DORA_RETENTION_HREF = '/dashboard/billing?highlight=dora_history_pack';
+
+/** The absolute report ceiling — past it no pack helps, so no "extend" link. */
+const MAX_REPORT_RANGE_DAYS = 730;
 
 // ─── Tab Config ─────────────────────────────────────────
 type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard';
@@ -95,10 +113,13 @@ function rangeCapFromError(error: string | null): number | null {
 
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
-  const { accessDenied, user, isReady, isAuthenticated, can, isReadOnly } = useAuthGuard({ requirePermission: 'reports:read' });
+  // Read gate (`reports:read`) comes from the nav entry via page-access.
+  const { accessDenied, user, isReady, can, isReadOnly, isSuperAdmin } = useAuthGuard();
   // DORA / advanced delivery analytics is a paid-tier entitlement. Gates the tab
   // body (non-entitled → upsell teaser) and the fetches (skip to avoid a 403).
-  const doraEnabled = useFeatures().isEnabled('advanced_reporting');
+  // The shared gate folds in the superadmin bypass and the loaded state.
+  const doraGate = useFeatureGate('advanced_reporting');
+  const doraEnabled = doraGate.entitled;
 
   // `?tab=` on load and on browser back/forward; shallow URL write-back (the
   // active tab component keys its own fetch off its filters).
@@ -119,7 +140,6 @@ export default function ReportsPage() {
   // Org → team rollup: only admins/owners can aggregate child-team analytics, and
   // the toggle only appears when the org actually parents teams.
   const [includeDescendants, setIncludeDescendants] = useState(false);
-  const [hasTeams, setHasTeams] = useState(false);
   const canRollup = can('reports:rollup');
   // The Scorecard roll-up reads GET /pipelines[/:id]/scorecard, which the pipeline
   // service gates on `pipelines:read` — a custom role with `reports:read` but no
@@ -128,7 +148,9 @@ export default function ReportsPage() {
   const canReadPipelines = can('pipelines:read');
   const visibleTopTabs = TOP_TABS.filter((t) => t.id !== 'scorecard' || canReadPipelines);
 
-  // Per-tab effective date-range caps (event vs DORA retention), read once.
+  // Per-tab effective date-range caps (event vs DORA retention), read once from
+  // the reports:read-only retention endpoint (so a Retention Pack shows without
+  // Advanced Reporting).
   const retention = useReportRetention();
   // Ingestion freshness for the event-driven tabs — range-independent, so it is
   // read once (and on manual refresh) rather than per filter change.
@@ -163,22 +185,33 @@ export default function ReportsPage() {
   // A range error is handled by the clamp note, not the red banner (no dead-end).
   const isRangeError = rangeCapFromError(status.error) != null;
 
+  // Is the active cap the org's retention (buyable) rather than the fixed
+  // ceiling or a tighter server cap? Only then is "Extend retention" useful.
+  const horizonDays = topTab === 'dora' ? retention.doraDays : retention.eventDays;
+  const capIsRetention = horizonDays !== -1 && horizonDays < MAX_REPORT_RANGE_DAYS && effectiveMax === baseMax;
+  const extendHref = capIsRetention
+    ? (topTab === 'dora' ? EXTEND_DORA_RETENTION_HREF : EXTEND_EVENT_RETENTION_HREF)
+    : undefined;
+
+  // ONE scope for every panel: the rollup switch is threaded through every
+  // rollup-aware report on every tab, not just some of them.
   const filters: SharedFilters = useMemo(
-    () => ({ dateFrom: clampedFrom, dateTo, interval: timeInterval, includeDescendants }),
-    [clampedFrom, dateTo, timeInterval, includeDescendants],
+    () => ({ dateFrom: clampedFrom, dateTo, interval: timeInterval, includeDescendants, systemAdmin: isSuperAdmin }),
+    [clampedFrom, dateTo, timeInterval, includeDescendants, isSuperAdmin],
   );
 
   // Detect whether the active org parents any teams (subtree larger than self),
   // so the rollup toggle only shows when there's something to roll up.
+  // Best-effort: a failed read just means no toggle.
   const activeOrgId = user?.organizationId;
-  useEffect(() => {
-    if (!isReady || !canRollup || !activeOrgId) return;
-    let cancelled = false;
-    void api.getOrganizationDescendants(activeOrgId)
-      .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
-      .catch(() => { /* best-effort — no toggle if it fails */ });
-    return () => { cancelled = true; };
-  }, [isReady, activeOrgId, canRollup]);
+  const { data: hasTeams } = useFetch(
+    async () => {
+      if (!isReady || !canRollup || !activeOrgId) return false;
+      const res = await api.getOrganizationDescendants(activeOrgId);
+      return (res.data?.orgIds?.length ?? 0) > 1;
+    },
+    [isReady, activeOrgId, canRollup],
+  );
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -192,8 +225,8 @@ export default function ReportsPage() {
       maxWidth="7xl"
       actions={
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 justify-end">
-          {canRollup && hasTeams && (topTab === 'pipelines' || topTab === 'dora') && (
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its teams">
+          {canRollup && hasTeams && topTab !== 'scorecard' && (
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate analytics across this organization and its teams">
               <Checkbox
                 checked={includeDescendants}
                 onChange={(e) => setIncludeDescendants(e.target.checked)}
@@ -230,7 +263,14 @@ export default function ReportsPage() {
               );
             })}
           </div>
-          <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
+          <DateRangePicker
+            from={dateFrom}
+            to={dateTo}
+            onFromChange={setDateFrom}
+            onToChange={setDateTo}
+            maxRangeDays={effectiveMax}
+            extendHref={extendHref}
+          />
           <FilterSelect value={timeInterval} onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')} aria-label="Report time interval">
             <option value="day">Daily</option>
             <option value="week">Weekly</option>
@@ -282,27 +322,30 @@ export default function ReportsPage() {
         {topTab !== 'scorecard' && (clamped || isRangeError) && (
           <p className="text-xs text-gray-500 dark:text-gray-400" role="status">
             Showing the last {effectiveMax} days — the maximum for {tabNoun} reports.
+            {extendHref && (
+              <>{' '}<Link href={extendHref} className="action-link">Extend retention</Link></>
+            )}
           </p>
         )}
 
         {/* Inline error + retry — a failed fetch would otherwise look like empty
             data. Range errors are handled by the clamp note above, not here. */}
         {status.error && !status.loading && !isRangeError && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{status.error}</span>
-            <button onClick={status.refetch} className="underline hover:no-underline shrink-0">Retry</button>
-          </div>
+          <RetryError message={status.error} onRetry={status.refetch} />
         )}
 
         {topTab === 'pipelines' && <PipelinesTab filters={filters} onStatus={onStatus} />}
         {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
-        {topTab === 'dora' && (
+        {/* The entitled tabs wait for the entitlement verdict, so an entitled org
+            never sees a flash of the upsell. */}
+        {(topTab === 'dora' || topTab === 'scorecard') && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'dora' && doraGate.isLoaded && (
           // Marking an outcome is a write gated on `pipelines:write`. Checked with
           // `hasPermission` (not `can()`, which folds in read-only impersonation) so
           // a read-only session still SEES the controls, disabled with the reason.
           <DoraTab filters={filters} enabled={doraEnabled} canMark={hasPermission(user, 'pipelines:write')} markReadOnly={isReadOnly} onStatus={onStatus} />
         )}
-        {topTab === 'scorecard' && canReadPipelines && (
+        {topTab === 'scorecard' && canReadPipelines && doraGate.isLoaded && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
         )}
 

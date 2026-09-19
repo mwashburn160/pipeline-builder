@@ -13,6 +13,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
+import type { PipelineSummary } from '@/lib/api/domains/pipelines';
 import { Pipeline, BuilderProps, Visibility } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
@@ -23,8 +25,9 @@ import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySele
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
-  /** The pipeline record to edit (may be partial; full data is fetched on mount). */
-  pipeline: Pipeline;
+  /** The row to edit — a list summary is enough (the list omits `props`); the
+   *  full record, `props` included, is fetched by id on mount. */
+  pipeline: PipelineSummary;
   /** `pipelines:publish` — required for the `public` rung of the visibility ladder. */
   canPublish: boolean;
   /** Callback to close the modal. */
@@ -73,11 +76,14 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   // Fetch full pipeline data by ID to ensure description/keywords are populated.
   // useEntityFetch only re-fetches when `id` changes, so stale re-mounts during
   // the 1.5s success-close window won't overwrite user edits.
+  // No list-row fallback: the row lacks `props`, and seeding the builder with
+  // an empty config would let a save wipe the pipeline's real one.
   const fetchPipeline = useCallback(async (id: string): Promise<Pipeline> => {
     const response = await api.getPipelineById(id);
-    return response.data?.pipeline ?? pipeline;
-  }, [pipeline]);
-  const { entity: fullPipeline, fetching } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline, pipeline);
+    if (!response.data?.pipeline) throw new Error(formatError(response, 'Failed to load pipeline'));
+    return response.data.pipeline;
+  }, []);
+  const { entity: fullPipeline, fetching, error: fetchError } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline);
 
   // Reset wizard/preview state and seed editable fields when the fetched
   // pipeline changes (parent may keep us mounted within the close window).
@@ -100,8 +106,9 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     scrollRef.current?.scrollTo(0, 0);
   }, [currentStep]);
 
-  // Resolved pipeline data (fetched by ID, or fallback to list data)
-  const p = fullPipeline ?? pipeline;
+  // The full record (fetched by id); null until it lands.
+  const p = fullPipeline;
+  const loadingRecord = fetching || !p;
 
   const resolveProps = (): BuilderProps | null => {
     return formRef.current?.getProps() ?? null;
@@ -172,8 +179,8 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     if (!parsedProps) return;
 
     // Get description/keywords from form state
-    const desc = formRef.current?.getDescription() ?? p.description ?? '';
-    const kw = formRef.current?.getKeywords() ?? p.keywords?.join(', ') ?? '';
+    const desc = formRef.current?.getDescription() ?? p?.description ?? '';
+    const kw = formRef.current?.getKeywords() ?? p?.keywords?.join(', ') ?? '';
 
     const response = await saveAsync({
       pipelineName: parsedProps.pipelineName,
@@ -187,6 +194,8 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
     if (response?.success) {
       setSuccess('Pipeline updated successfully!');
+      // Every cached pipeline list (palette, home, deployments drift) is stale now.
+      invalidate.pipelines();
       onSaved();
       setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
     }
@@ -263,7 +272,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       <Button
         variant="secondary"
         onClick={handlePreview}
-        disabled={loading || fetching}
+        disabled={loading || loadingRecord}
       >
         {showPreview ? 'Refresh JSON' : 'Edit JSON'}
       </Button>
@@ -274,19 +283,19 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
         </Button>
 
         {currentStep > 0 && (
-          <Button variant="secondary" onClick={handlePrevious} disabled={loading || fetching}>
+          <Button variant="secondary" onClick={handlePrevious} disabled={loading || loadingRecord}>
             <ChevronLeft className="w-4 h-4 mr-1" />
             Previous
           </Button>
         )}
 
         {!isLastStep ? (
-          <Button onClick={handleNext} disabled={loading || fetching}>
+          <Button onClick={handleNext} disabled={loading || loadingRecord}>
             Next
             <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         ) : (
-          <Button onClick={handleSave} disabled={loading || fetching}>
+          <Button onClick={handleSave} disabled={loading || loadingRecord}>
             {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
           </Button>
         )}
@@ -309,7 +318,9 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       <SuccessAlert message={success} className="mb-4" />
 
 
-      {fetching ? (
+      {!p && fetchError ? (
+        <ErrorAlert message={formatError(fetchError, 'Failed to load pipeline')} />
+      ) : loadingRecord || !p ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
       ) : (
         <>
