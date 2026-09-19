@@ -140,6 +140,15 @@ describe('orgMembersService.listTeams', () => {
     expect(mockUserOrgFind).not.toHaveBeenCalled();
   });
 
+  it('reads only LIVE teams — a soft-deleted team never reaches the roster', async () => {
+    mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA']);
+    orgFindReturns([{ _id: 'teamA', name: 'Alpha', parentOrgId: 'ctx' }]);
+
+    await orgMembersService.listTeams('ctx');
+
+    expect((mockOrgFind.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({ deletedAt: null });
+  });
+
   it('returns [] for a flat org', async () => {
     mockExpandOrgScope.mockResolvedValue(['ctx']);
     expect(await orgMembersService.listTeams('ctx')).toEqual({ teams: [] });

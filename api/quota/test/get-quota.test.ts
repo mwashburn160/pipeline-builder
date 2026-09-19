@@ -99,6 +99,14 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
 const mockFind = jest.fn();
 const mockFindById = jest.fn();
 
+/**
+ * `Organization.find(...).select(...).lean()` resolving to `rows` — the shape of
+ * the single self-or-children hierarchy lookup every own-org read now issues.
+ */
+function lookupRows(rows: unknown[]) {
+  return { select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(rows) }) };
+}
+
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     find: mockFind,
@@ -186,13 +194,13 @@ describe('GET /quotas (own org)', () => {
 
   it('returns own org quotas from JWT orgId', async () => {
     const org = makeOrg();
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(org) }) });
+    mockFind.mockReturnValue(lookupRows([org]));
 
     const req = mockReq({ user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockFindById).toHaveBeenCalledWith('org-123');
+    expect(mockFind).toHaveBeenCalledWith({ $or: [{ _id: 'org-123' }, { parentOrgId: 'org-123', deletedAt: null }] });
     expect(mockSendSuccess).toHaveBeenCalledWith(
       res, 200,
       expect.objectContaining({ quota: expect.objectContaining({ orgId: 'org-123' }) }),
@@ -200,7 +208,7 @@ describe('GET /quotas (own org)', () => {
   });
 
   it('returns default quotas for unknown org', async () => {
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) });
+    mockFind.mockReturnValue(lookupRows([]));
 
     const req = mockReq({ user: { organizationId: 'unknown-org' } });
     const res = mockRes();
@@ -225,7 +233,7 @@ describe('GET /quotas (own org)', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB down')) }) });
+    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB down')) }) });
 
     const req = mockReq({ user: { organizationId: 'org-123' } });
     const res = mockRes();
@@ -312,7 +320,7 @@ describe('GET /quotas/:orgId', () => {
 
   it('returns quotas for a specific org', async () => {
     const org = makeOrg();
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(org) }) });
+    mockFind.mockReturnValue(lookupRows([org]));
 
     const req = mockReq({ params: { orgId: 'org-123' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
@@ -325,7 +333,7 @@ describe('GET /quotas/:orgId', () => {
   });
 
   it('returns default response when org not found', async () => {
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) });
+    mockFind.mockReturnValue(lookupRows([]));
 
     const req = mockReq({ params: { orgId: 'missing-org' }, user: { organizationId: 'missing-org' } });
     const res = mockRes();
@@ -345,7 +353,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
 
   it('returns status for a valid quota type', async () => {
     const org = makeOrg();
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(org) }) });
+    mockFind.mockReturnValue(lookupRows([org]));
 
     const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
@@ -361,7 +369,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   });
 
   it('returns default values when org not found', async () => {
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) });
+    mockFind.mockReturnValue(lookupRows([]));
 
     const req = mockReq({ params: { orgId: 'unknown', quotaType: 'pipelines' }, user: { organizationId: 'unknown' } });
     const res = mockRes();
@@ -389,7 +397,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) });
+    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) });
 
     const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();

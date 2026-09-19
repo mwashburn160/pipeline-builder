@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, fetchParentOrgId, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, fetchOrgNames, fetchParentOrgId, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('org-hierarchy-client');
@@ -41,5 +41,25 @@ export async function resolveParentOrgId(orgId: string): Promise<string | undefi
       error: errorMessage(err),
     });
     throw err;
+  }
+}
+
+/**
+ * Best-effort display name for one org (the parent a team inherits rules from),
+ * via platform's service-only `POST /organization/names`. Returns undefined on
+ * any failure — a label enrichment must never fail the read it decorates.
+ */
+export async function resolveOrgName(orgId: string): Promise<string | undefined> {
+  try {
+    const { services } = Config.get('server');
+    const names = await fetchOrgNames([orgId], {
+      service: { host: services.platformHost, port: services.platformPort },
+      serviceName: 'compliance',
+      authOrgId: SYSTEM_ORG_ID,
+    });
+    return names[orgId.toLowerCase()];
+  } catch (err) {
+    logger.warn('Org name lookup failed; inherited rules will show the org id', { orgId, error: errorMessage(err) });
+    return undefined;
   }
 }

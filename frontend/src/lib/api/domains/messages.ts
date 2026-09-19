@@ -13,6 +13,14 @@ import type { ApiResponse, Message, MessageAttachment, MessageType, MessagePrior
  * makes a request that is transparently retried (e.g. the api-core 401→refresh
  * recursion, which reuses the same headers) land as ONE message instead of two.
  */
+/** One org the compose picker may offer (from `GET /messages/recipients/orgs`). */
+export interface RecipientOrg {
+  orgId: string;
+  name: string;
+  /** A team (child org) rather than the account's root org. */
+  isTeam: boolean;
+}
+
 function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -96,7 +104,13 @@ export function messagesApi(core: ApiCore) {
       return core.request<ApiResponse<{ count: number }>>('/api/messages/unread/count');
     },
 
-    /** Get all messages in a thread */
+    /** Orgs the caller may start a conversation with: every org in their
+     *  account (root + teams, own org included). Requires `messages:write`. */
+    getRecipientOrgs: async () => {
+      return core.request<ApiResponse<{ orgs: RecipientOrg[] }>>('/api/messages/recipients/orgs');
+    },
+
+        /** Get all messages in a thread */
     getThread: async (id: string) => {
       return core.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`);
     },

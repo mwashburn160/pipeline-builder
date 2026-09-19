@@ -21,11 +21,19 @@ import {
   resolveEffectiveImpersonationPolicy,
   resolveImpersonationPolicy,
 } from '../helpers/impersonation-policy.js';
+import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 import { updateImpersonationPolicySchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-impersonation-policy');
+
+/** Add the stricter parent's display name next to `inheritedFrom`, so the UI
+ *  needn't resolve an org the admin may not be able to read. */
+async function withInheritedFromName<T extends { inheritedFrom?: string }>(policy: T): Promise<T & { inheritedFromName?: string }> {
+  const inheritedFromName = policy.inheritedFrom ? await getOrgName(policy.inheritedFrom) : undefined;
+  return inheritedFromName ? { ...policy, inheritedFromName } : policy;
+}
 
 /**
  * Tenancy for both reads and writes: sysadmin, an admin of this org, or an admin
@@ -47,7 +55,7 @@ export const getImpersonationPolicy = withController('Get impersonation policy',
   // tightened by its parent (strictest wins), so returning only `own` would let
   // an admin set `open` and never learn why it isn't open. Always resolved
   // server-side — a client must never re-derive defaults or inheritance.
-  sendSuccess(res, 200, await resolveEffectiveImpersonationPolicy(id));
+  sendSuccess(res, 200, await withInheritedFromName(await resolveEffectiveImpersonationPolicy(id)));
 });
 
 export const updateImpersonationPolicy = withController('Update impersonation policy', async (req, res) => {
@@ -103,7 +111,7 @@ export const updateImpersonationPolicy = withController('Update impersonation po
   sendSuccess(
     res,
     200,
-    effective,
+    await withInheritedFromName(effective),
     overridden
       ? 'Impersonation policy updated — but a parent organization requires a stricter policy, which applies instead'
       : 'Impersonation policy updated',

@@ -352,7 +352,9 @@ class OrgMembersService {
     const teamIds = subtree.filter((id) => id !== contextOrgId);
     if (teamIds.length === 0) return { teams: [] };
 
-    const orgs = await Organization.find({ _id: { $in: teamIds.map(toOrgId) } })
+    // `expandOrgScope` is already the live scope; the filter here keeps the
+    // roster honest against a team deleted between the two reads.
+    const orgs = await Organization.find({ _id: { $in: teamIds.map(toOrgId) }, deletedAt: null })
       .select('_id name parentOrgId').lean();
     const teams: TeamSummary[] = orgs.map((o) => {
       const parent = o.parentOrgId;

@@ -73,6 +73,9 @@ const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveOrgLineage: mockResolveOrgLineage,
   expandOrgScope: mockExpandOrgScope,
+  hasAnyChildOrg: jest.fn(),
+  isAncestorOrg: jest.fn(),
+  getOrgName: jest.fn(),
 }));
 
 const mockPooledSeatUsage = jest.fn<(...a: unknown[]) => Promise<{ limit: number; used: number }>>();

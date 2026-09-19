@@ -21,6 +21,7 @@ import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen } from '../helpers/bootstrap-admin.js';
 import { canAdministerOrg, requireAuth, withController } from '../helpers/controller-helper.js';
 import { DEFAULT_MFA_GRACE_DAYS, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
+import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization, User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
@@ -62,7 +63,10 @@ async function enrolment(orgId: string): Promise<{ members: number; enrolled: nu
 
 /** The wire shape — dates as ISO strings, and the grace deadline spelled out so
  *  the member-facing banner needs no second call. */
-function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>>) {
+async function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>>) {
+  // Name the parent that imposes the requirement, so the UI needn't resolve an
+  // org the admin may not be able to read.
+  const inheritedFromName = policy.inheritedFrom ? await getOrgName(policy.inheritedFrom) : undefined;
   return {
     requireMfa: policy.requireMfa,
     enforced: policy.enforced,
@@ -71,6 +75,7 @@ function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>>) {
     ...(policy.graceUntil ? { graceUntil: policy.graceUntil.toISOString() } : {}),
     ...(policy.requiredSince ? { requiredSince: policy.requiredSince.toISOString() } : {}),
     ...(policy.inheritedFrom ? { inheritedFrom: policy.inheritedFrom } : {}),
+    ...(inheritedFromName ? { inheritedFromName } : {}),
     defaultGraceDays: DEFAULT_MFA_GRACE_DAYS,
   };
 }
@@ -88,7 +93,7 @@ export const getMfaPolicy = withController('Get MFA policy', async (req, res) =>
   // and never learn why members are still being asked for a second factor. The
   // enrolment counts ride along so the grace-period decision has a number.
   const [policy, counts] = await Promise.all([resolveEffectiveMfaPolicy(id), enrolment(id)]);
-  sendSuccess(res, 200, { ...view(policy), enrolment: counts });
+  sendSuccess(res, 200, { ...(await view(policy)), enrolment: counts });
 });
 
 export const updateMfaPolicy = withController('Update MFA policy', async (req, res) => {
@@ -162,7 +167,7 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
   logger.info('MFA policy updated', { orgId: id, by: req.user!.sub, requireMfa: effective.own, enforced: effective.enforced });
 
   sendSuccess(
-    res, 200, view(effective),
+    res, 200, await view(effective),
     effective.inheritedFrom
       ? 'Two-factor policy updated — a parent organization also requires it, and that requirement applies as well'
       : 'Two-factor policy updated',

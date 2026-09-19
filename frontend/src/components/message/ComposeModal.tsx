@@ -48,10 +48,10 @@ interface ComposeModalProps {
    *  platform-operator capability, so it stays sysadmin-only even for
    *  `messages:write` holders. */
   isSuperAdmin: boolean;
-  /** Other orgs/teams the user can message (e.g. teams they belong to). Feeds the
+  /** Other orgs/teams the user can message (every org in their account). Feeds the
    *  team typeahead in the full-compose recipient picker (value = org id, label =
-   *  name) and the support-only datalist. */
-  recipientSuggestions?: ReadonlyArray<{ value: string; label: string }>;
+   *  name, `isTeam` marks a team) and the support-only datalist. */
+  recipientSuggestions?: ReadonlyArray<{ value: string; label: string; isTeam?: boolean }>;
   /** Recently-messaged orgs (most-recent first) for a one-tap quick-pick above the
    *  recipient field. Value = org id, label = name. */
   recentRecipients?: ReadonlyArray<{ value: string; label: string }>;
@@ -111,12 +111,14 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   // id — feeds both the picker (so a recent org's NAME resolves) and the datalist.
   const mergedSuggestions = (() => {
     const seen = new Set<string>();
-    const out: { value: string; label: string }[] = [];
+    const out: { value: string; label: string; isTeam?: boolean }[] = [];
+    // Team-ness comes from the account listing; a recent chip carries only a name.
+    const teamIds = new Set(recipientSuggestions.filter((o) => o.isTeam).map((o) => o.value.toLowerCase()));
     for (const o of [...recentRecipients, ...recipientSuggestions]) {
       const k = o.value.toLowerCase();
       if (seen.has(k)) continue;
       seen.add(k);
-      out.push({ value: o.value, label: o.label });
+      out.push({ value: o.value, label: o.label, ...(teamIds.has(k) && { isTeam: true }) });
     }
     return out;
   })();
@@ -443,7 +445,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
               ))}
               {mergedSuggestions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.label}
+                  {opt.isTeam ? `${opt.label} (team)` : opt.label}
                 </option>
               ))}
             </datalist>

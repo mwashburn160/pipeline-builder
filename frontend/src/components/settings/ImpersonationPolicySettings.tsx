@@ -114,7 +114,10 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
           )}
           {policy.resolved && policy.inheritedFrom && (
             <Callout variant="neutral">
-              Your parent organization requires a stricter policy, so <strong>{LABEL[policy.policy]}</strong> applies here
+              {policy.inheritedFromName
+                ? <>The parent organization <strong>{policy.inheritedFromName}</strong> requires</>
+                : 'Your parent organization requires'}{' '}
+              a stricter policy, so <strong>{LABEL[policy.policy]}</strong> applies here
               {policy.policy !== policy.own.policy ? ` even though this organization is set to ${LABEL[policy.own.policy]}` : ''}.
             </Callout>
           )}

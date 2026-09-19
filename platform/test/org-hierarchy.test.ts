@@ -6,31 +6,38 @@
 // chains the resolver uses.
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 jest.unstable_mockModule('../src/models/index.js', () => {
-  const orgs = new Map<string, { _id: string; parentOrgId: string | null }>();
+  type Row = { _id: string; parentOrgId: string | null; deletedAt?: Date | null; name?: string };
+  const orgs = new Map<string, Row>();
   const Organization = {
-    __set(list: Array<{ _id: string; parentOrgId: string | null }>) {
+    __set(list: Row[]) {
       orgs.clear();
       for (const o of list) orgs.set(o._id, o);
     },
     findById(id: unknown) {
       return { select: () => ({ lean: async () => orgs.get(String(id)) ?? null }) };
     },
-    find(query: { parentOrgId?: { $in?: unknown[] } }) {
+    // Honors the `deletedAt: null` (live-only) filter the downward walk sends.
+    find(query: { parentOrgId?: { $in?: unknown[] }; deletedAt?: null }) {
       const set = new Set((query.parentOrgId?.$in ?? []).map(String));
+      const liveOnly = 'deletedAt' in query && query.deletedAt === null;
       return {
         select: () => ({
-          lean: async () => [...orgs.values()].filter(o => o.parentOrgId && set.has(String(o.parentOrgId))),
+          lean: async () => [...orgs.values()].filter(o =>
+            o.parentOrgId && set.has(String(o.parentOrgId)) && (!liveOnly || !o.deletedAt)),
         }),
       };
+    },
+    async exists(query: { parentOrgId: string }) {
+      return [...orgs.values()].some(o => o.parentOrgId === query.parentOrgId) ? { _id: 'x' } : null;
     },
   };
   return { Organization };
 });
 
-const { resolveOrgLineage, expandOrgScope, isAncestorOrg } = await import('../src/helpers/org-hierarchy.js');
+const { resolveOrgLineage, expandOrgScope, isAncestorOrg, hasAnyChildOrg, getOrgName } = await import('../src/helpers/org-hierarchy.js');
 
 const { Organization } = (await import('../src/models/index.js')) as unknown as {
-  Organization: { __set(list: Array<{ _id: string; parentOrgId: string | null }>): void };
+  Organization: { __set(list: Array<{ _id: string; parentOrgId: string | null; deletedAt?: Date | null; name?: string }>): void };
 };
 
 // root ──┬── teamA ── subA
@@ -127,5 +134,39 @@ describe('isAncestorOrg', () => {
       { _id: 'b', parentOrgId: null },
     ]);
     expect(await isAncestorOrg('a', 'b')).toBe(false);
+  });
+});
+
+describe('LIVE vs. ALL — soft-deleted teams', () => {
+  beforeEach(() => {
+    Organization.__set([
+      { _id: 'root', parentOrgId: null, name: 'Root' },
+      { _id: 'live', parentOrgId: 'root', name: 'Live team' },
+      { _id: 'gone', parentOrgId: 'root', name: 'Gone team', deletedAt: new Date() },
+    ]);
+  });
+
+  it('expandOrgScope (rollups, seats, propagation) excludes a soft-deleted team', async () => {
+    expect(await expandOrgScope('root')).toEqual(['root', 'live']);
+  });
+
+  it('the upward walk still resolves a soft-deleted team through its parent (restore/export authz)', async () => {
+    expect(await isAncestorOrg('root', 'gone')).toBe(true);
+    expect(await resolveOrgLineage('gone')).toEqual({ parentOrgId: 'root', rootOrgId: 'root' });
+  });
+
+  it('hasAnyChildOrg sees soft-deleted children too', async () => {
+    Organization.__set([
+      { _id: 'root', parentOrgId: null },
+      { _id: 'gone', parentOrgId: 'root', deletedAt: new Date() },
+    ]);
+    expect(await hasAnyChildOrg('root')).toBe(true);
+    expect(await hasAnyChildOrg('gone')).toBe(false);
+  });
+
+  it('getOrgName resolves live and soft-deleted orgs; undefined for none', async () => {
+    expect(await getOrgName('gone')).toBe('Gone team');
+    expect(await getOrgName(null)).toBeUndefined();
+    expect(await getOrgName('nope')).toBeUndefined();
   });
 });

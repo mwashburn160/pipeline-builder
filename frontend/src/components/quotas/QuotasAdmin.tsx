@@ -92,6 +92,11 @@ export function QuotasAdmin({
   onResetUsage: () => Promise<void>;
 }) {
   const toast = useToast();
+  // A TEAM's tier is inherited and its limits are pooled at the root (the quota
+  // service rejects tier/limit writes to a team) — show it read-only with a
+  // jump to the root instead of the editors.
+  const pooledTeam = orgData?.pool && !orgData.pool.isRoot ? orgData.pool : null;
+  const canEdit = isSuperAdmin && !pooledTeam;
   // Usage-reset confirm modal (sysadmin operational action).
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -115,6 +120,11 @@ export function QuotasAdmin({
         <span className={`w-1.5 h-1.5 rounded-full ${tierPresets[editTier].color}`} />
         {tierPresets[editTier].label}
       </span>
+      {orgData.pool && (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+          {orgData.pool.isRoot ? `Pool root · ${orgData.pool.orgCount - 1} team${orgData.pool.orgCount - 1 !== 1 ? 's' : ''}` : 'Team'}
+        </span>
+      )}
     </div>
   ) : undefined;
 
@@ -129,12 +139,16 @@ export function QuotasAdmin({
       >
         Reset usage
       </Button>
-      <Button variant="secondary" size="xs" onClick={handleReset} disabled={!dirty}>
-        Discard
-      </Button>
-      <Button size="xs" onClick={handleSave} disabled={!dirty || saving}>
-        {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save'}
-      </Button>
+      {canEdit && (
+        <>
+          <Button variant="secondary" size="xs" onClick={handleReset} disabled={!dirty}>
+            Discard
+          </Button>
+          <Button size="xs" onClick={handleSave} disabled={!dirty || saving}>
+            {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save'}
+          </Button>
+        </>
+      )}
     </div>
   ) : undefined;
 
@@ -237,18 +251,44 @@ export function QuotasAdmin({
               </p>
             )}
 
+            {!loading && pooledTeam && (
+              <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4" role="note">
+                <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                  Pooled at {pooledTeam.rootOrgName || pooledTeam.rootOrgId}
+                </h3>
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  This is a team. Its tier is inherited and its limits are the root organization&apos;s shared caps; the
+                  usage shown is the combined total across the root and all {pooledTeam.orgCount - 1} of its teams. Change
+                  the tier or limits on the root organization.
+                </p>
+                <Button
+                  variant="link"
+                  onClick={() => handleSelectOrg(pooledTeam.rootOrgId)}
+                  className="mt-2 text-sm font-medium"
+                >
+                  View {pooledTeam.rootOrgName || pooledTeam.rootOrgId}&apos;s quotas
+                </Button>
+              </div>
+            )}
+            {!loading && orgData?.pool?.isRoot && isSuperAdmin && (
+              <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+                Pooled across this organization and its {orgData.pool.orgCount - 1} team{orgData.pool.orgCount - 1 !== 1 ? 's' : ''}:
+                usage is the combined total, and these limits bind all of them.
+              </p>
+            )}
+
             {/* Always-correct current tier — includes tiers (e.g. `unlimited`)
                 that the selector below never highlights. */}
             {!loading && orgData && (
               <CurrentTierPanel
                 tier={orgData.tier || 'developer'}
                 pendingTier={editTier}
-                selectorBelow={isSuperAdmin}
+                selectorBelow={canEdit}
               />
             )}
 
-            {/* Tier selector — system admin only */}
-            {!loading && orgData && isSuperAdmin && (
+            {/* Tier selector — system admin only, never for a pooled team */}
+            {!loading && orgData && canEdit && (
               <div className="mb-8">
                 <div className="mb-3">
                   <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -299,7 +339,7 @@ export function QuotasAdmin({
             <div className="mb-8">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                 Quota Usage
-                {isSuperAdmin && (
+                {canEdit && (
                   <span className="font-normal normal-case tracking-normal ml-2 text-gray-400 dark:text-gray-500">
                     — edit each limit in its card
                   </span>
@@ -324,7 +364,7 @@ export function QuotasAdmin({
                       key={key}
                       quotaKey={key}
                       quota={orgData.quotas[key]}
-                      canManage={isSuperAdmin}
+                      canManage={canEdit}
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
                     />

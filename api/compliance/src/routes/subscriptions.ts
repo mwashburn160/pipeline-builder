@@ -20,6 +20,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
+import { resolveOrgName } from '../helpers/org-hierarchy-client.js';
 import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import {
@@ -403,7 +404,16 @@ export function createSubscriptionRoutes(): Router {
     // Include the parent's `propagateToChildren` rules for a team, matching what
     // actually blocks at upload/validate time (validate.ts reads the same claim).
     const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
-    const rules = await complianceRuleService.findAllEnforced(orgId, target, parentOrgId);
+    const enforced = await complianceRuleService.findAllEnforced(orgId, target, parentOrgId);
+
+    // Inherited rules carry `inherited` + `sourceOrgId` from the service; add
+    // the parent's display name (one best-effort lookup, only when any exist).
+    const sourceOrgName = parentOrgId && enforced.some((r) => r.inherited)
+      ? await resolveOrgName(parentOrgId)
+      : undefined;
+    const rules = sourceOrgName
+      ? enforced.map((r) => (r.inherited ? { ...r, sourceOrgName } : r))
+      : enforced;
 
     ctx.log('COMPLETED', 'Listed all enforced rules', { count: rules.length });
     return sendSuccess(res, 200, { rules, total: rules.length });

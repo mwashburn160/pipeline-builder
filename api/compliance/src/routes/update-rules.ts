@@ -5,6 +5,7 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, ge
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
+import { rejectIfInheritedRule } from '../helpers/inherited-rule-guard.js';
 import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
 
@@ -32,7 +33,11 @@ export function createUpdateRuleRoutes(): Router {
 
     try {
       const updated = await complianceRuleService.update(id, updateData, orgId, userId);
-      if (!updated) return sendEntityNotFound(res, 'Rule');
+      if (!updated) {
+        // Not in the caller's org — a team editing its parent's propagated rule gets a clear 403.
+        if (await rejectIfInheritedRule(req, res, id)) return;
+        return sendEntityNotFound(res, 'Rule');
+      }
 
       ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });
 

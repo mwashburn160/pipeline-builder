@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useFormState } from '@/hooks/useFormState';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -10,10 +10,9 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { useToast } from '@/components/ui/Toast';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
+import { EligibleParentPicker, type ParentOrgOption } from '@/components/teams/EligibleParentPicker';
 import api from '@/lib/api';
-import { invalidate, queries } from '@/lib/api-cache';
-import { runQuery } from '@/lib/query-cache';
-import type { Organization } from '@/types';
+import { invalidate } from '@/lib/api-cache';
 import type { OrgTier } from './ChangeTierDialog';
 
 interface CreateOrganizationFlowProps {
@@ -70,22 +69,13 @@ function CreateOrganizationModal({ onClose, onCreated }: {
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<OrgTier>('developer');
   // Defaults to a top-level org (matching the "New Organization" label); check
-  // the Team box to instead nest under a parent. Parent candidates are the
-  // existing root orgs.
+  // the Team box to instead nest under a parent. Parent candidates come from a
+  // server-side search over the ELIGIBLE roots only (team/enterprise tier), so
+  // the picker can't offer a parent the backend would refuse.
   const [createAsSubOrg, setCreateAsSubOrg] = useState(false);
-  const [parentOrgId, setParentOrgId] = useState('');
-  const [parentOptions, setParentOptions] = useState<Organization[]>([]);
+  const [parent, setParent] = useState<ParentOrgOption | null>(null);
+  const parentOrgId = parent?.id ?? '';
   const createForm = useFormState();
-
-  // Load the root orgs that can act as a parent for a team.
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await runQuery(queries.listOrganizations({ limit: 200 }));
-        setParentOptions((res.data?.organizations ?? []).filter((o) => !o.parentOrgId));
-      } catch { /* best-effort — the team option simply won't have parents to pick */ }
-    })();
-  }, []);
 
   const handleCreateOrg = async () => {
     const name = newOrgName.trim();
@@ -94,10 +84,10 @@ function CreateOrganizationModal({ onClose, onCreated }: {
       createForm.setError('Choose a parent organization for the team (or uncheck to create a top-level org).');
       return;
     }
+    // A team inherits its parent's tier, so none is sent for one.
     const result = await createForm.run(() => api.createOrganization({
       name,
-      tier: newOrgTier,
-      ...(createAsSubOrg && parentOrgId ? { parentOrgId } : {}),
+      ...(createAsSubOrg && parentOrgId ? { parentOrgId } : { tier: newOrgTier }),
     }));
     if (result !== null) {
       // Every cached org list (audit page, quota picker, IdP roster, this very
@@ -142,20 +132,22 @@ function CreateOrganizationModal({ onClose, onCreated }: {
             disabled={createForm.loading}
           />
         </div>
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
-          <Select
-            value={newOrgTier}
-            onChange={(e) => setNewOrgTier(e.target.value as OrgTier)}
-            className="text-sm"
-            disabled={createForm.loading}
-          >
-            <option value="developer">Developer</option>
-            <option value="pro">Pro</option>
-            <option value="team">Team</option>
-            <option value="enterprise">Enterprise</option>
-          </Select>
-        </div>
+        {!createAsSubOrg && (
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
+            <Select
+              value={newOrgTier}
+              onChange={(e) => setNewOrgTier(e.target.value as OrgTier)}
+              className="text-sm"
+              disabled={createForm.loading}
+            >
+              <option value="developer">Developer</option>
+              <option value="pro">Pro</option>
+              <option value="team">Team</option>
+              <option value="enterprise">Enterprise</option>
+            </Select>
+          </div>
+        )}
 
         {/* Team toggle — defaults OFF (top-level org). When on, pick the parent. */}
         <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
@@ -167,30 +159,13 @@ function CreateOrganizationModal({ onClose, onCreated }: {
           />
           <span>
             <strong>Team</strong> — nest this organization under a parent org.
-            Uncheck to create a standalone top-level organization.
+            Uncheck to create a standalone top-level organization. A team inherits
+            its parent&apos;s tier, seats and quotas.
           </span>
         </label>
 
         {createAsSubOrg && (
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Parent organization</label>
-            <Select
-              value={parentOrgId}
-              onChange={(e) => setParentOrgId(e.target.value)}
-              className="text-sm"
-              disabled={createForm.loading}
-            >
-              <option value="">Select a parent organization…</option>
-              {parentOptions.map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
-            </Select>
-            {parentOptions.length === 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                No top-level organizations available to nest under — uncheck above to create one.
-              </p>
-            )}
-          </div>
+          <EligibleParentPicker value={parent} onChange={setParent} disabled={createForm.loading} />
         )}
       </div>
       {createForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createForm.error}</p>}

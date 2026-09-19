@@ -212,6 +212,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               slug: o.slug,
               role: o.role as UserOrgMembership['role'],
               parentOrgId: o.parentOrgId,
+              parentOrgName: o.parentOrgName,
+              ...(o.viaAncestor ? { viaAncestor: true } : {}),
               tier: o.tier as UserOrgMembership['tier'],
               childOrgCount: o.childOrgCount ?? 0,
             }));

@@ -227,6 +227,40 @@ describe('ComplianceRuleService', () => {
       expect(svc.findActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
       expect(result).toHaveLength(1);
     });
+
+    it('marks the parent\'s propagated rules as inherited with their source org (team view)', async () => {
+      jest.spyOn(svc, 'findActiveByOrgAndTarget').mockResolvedValue([
+        { id: 'own', orgId: 'team-1', scope: 'org' },
+        { id: 'inh', orgId: 'root-1', scope: 'org' },
+        { id: 'pub', orgId: 'system', scope: 'published' },
+      ] as never);
+
+      const result = await svc.findAllEnforced('team-1', 'plugin', 'root-1');
+
+      expect(result.map((r) => [r.id, r.inherited, r.sourceOrgId])).toEqual([
+        ['own', undefined, undefined],
+        ['inh', true, 'root-1'],
+        ['pub', undefined, undefined],
+      ]);
+    });
+
+    it('marks nothing inherited for a root (no parent)', async () => {
+      jest.spyOn(svc, 'findActiveByOrgAndTarget').mockResolvedValue([{ id: 'own', orgId: 'root-1' }] as never);
+      const result = await svc.findAllEnforced('root-1', 'plugin');
+      expect(result[0].inherited).toBeUndefined();
+    });
+  });
+
+  describe('isInheritedRule', () => {
+    it('true when the parent owns a live propagating rule with that id', async () => {
+      selectResult = [{ id: 'r-1' }];
+      expect(await svc.isInheritedRule('r-1', 'root-1')).toBe(true);
+    });
+
+    it('false when no such parent rule exists', async () => {
+      selectResult = [];
+      expect(await svc.isInheritedRule('r-1', 'root-1')).toBe(false);
+    });
   });
 
   describe('recordHistory', () => {

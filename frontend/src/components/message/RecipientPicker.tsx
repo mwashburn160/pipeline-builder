@@ -15,6 +15,8 @@ export interface TeamOption {
   value: string;
   label: string;
   title?: string;
+  /** A team (child org) in the caller's account — labelled as such in the list. */
+  isTeam?: boolean;
 }
 
 /** Minimal member shape the user typeahead needs. */
@@ -260,6 +262,11 @@ export function RecipientPicker({
                 >
                   <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   <span className="truncate">{opt.label}</span>
+                  {opt.isTeam && (
+                    <span className="ml-auto shrink-0 text-[10px] font-medium uppercase tracking-wide rounded px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                      Team
+                    </span>
+                  )}
                 </button>
               ))
             )}

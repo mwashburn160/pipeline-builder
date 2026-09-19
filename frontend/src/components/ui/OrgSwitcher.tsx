@@ -26,6 +26,11 @@ function nestOrgs(orgs: UserOrgMembership[]): Array<{ org: UserOrgMembership; de
   return out;
 }
 
+/** "Team of Acme" when the parent's name is known, else plain "Team". */
+function teamCaption(org: UserOrgMembership): string {
+  return org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team';
+}
+
 interface OrgSwitcherProps {
   /** Extra classes appended to the root container. */
   className?: string;
@@ -161,11 +166,25 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
               }`}
             >
-              {depth > 0
+              {depth > 0 || org.parentOrgId
                 ? <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />
                 : <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />}
-              <span className="truncate flex-1 text-left">{org.name}</span>
-              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{depth > 0 ? 'team' : org.role}</span>
+              <span className="flex-1 min-w-0 text-left">
+                <span className="block truncate">{org.name}</span>
+                {/* A team listed at the top level (the user isn't a member of its
+                    parent) must still read as a team, not an account. */}
+                {depth === 0 && org.parentOrgId && (
+                  <span className="block truncate text-[11px] font-normal text-gray-400 dark:text-gray-500">
+                    {teamCaption(org)}
+                  </span>
+                )}
+              </span>
+              <span
+                className="text-xs text-gray-400 dark:text-gray-500 shrink-0"
+                title={org.viaAncestor ? 'Admin access through the parent organization — not a member of this team' : undefined}
+              >
+                {org.viaAncestor ? 'via parent' : depth > 0 ? 'team' : org.role}
+              </span>
               {isActive && <Check className="w-4 h-4 text-blue-500 shrink-0" />}
             </button>
           );
@@ -245,8 +264,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           {activeIsTeam ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
         </span>
         <span className="flex-1 min-w-0 text-left">
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-            {activeIsTeam ? 'Team' : 'Organization'}
+          <span className="block truncate text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            {activeIsTeam && activeOrg ? teamCaption(activeOrg) : 'Organization'}
           </span>
           <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
             {activeName}

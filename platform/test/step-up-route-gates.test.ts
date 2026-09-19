@@ -40,6 +40,7 @@ const HANDLERS = [
   'getOrganizationMembers', 'checkOrganizationMembership', 'getOrganizationTeams', 'getMemberTeams',
   'addMemberToOrganization', 'bulkAddMemberToTeams', 'removeMemberFromOrganization', 'transferOrganizationOwnership',
   'deactivateMember', 'activateMember', 'deleteOrganization', 'restoreOrganization', 'exportOrganization',
+  'listDeletedTeams', 'deleteTeam', 'moveOrganization',
   'getOrganizationRoles', 'createOrganizationRole', 'updateOrganizationRole', 'deleteOrganizationRole',
   'addRoleMember', 'removeRoleMember', 'listOrgDomains', 'addOrgDomain', 'verifyOrgDomain', 'setOrgDomainMode',
   'deleteOrgDomain', 'listOrgJoinRequests', 'decideOrgJoinRequest',
@@ -99,6 +100,15 @@ describe('step-up route gates', () => {
     const mw = chain(organizationRouter, 'put', '/:id');
     expect(mw).toContain('requireStepUp');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
+  });
+
+  it('team delete and org move require step-up after auth; the deleted-team list does not', () => {
+    for (const [method, path] of [['delete', '/:id/teams/:teamId'], ['post', '/:id/move']] as const) {
+      const mw = chain(organizationRouter, method, path);
+      expect(mw).toContain('requireStepUp');
+      expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    }
+    expect(chain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
   });
 
   it('POST /user/generate-token is NOT step-up gated (unattended token renewal)', () => {

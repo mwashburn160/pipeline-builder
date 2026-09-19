@@ -198,7 +198,9 @@ describe('OrganizationsPage — extracted components', () => {
     render(<OrganizationsPage />);
 
     fireEvent.click(screen.getByRole('button', { name: /New Organization/ }));
-    await waitFor(() => expect(apiMock.listOrganizations).toHaveBeenCalledWith({ limit: 200 }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+    // The team-parent search runs only when "Team" is chosen — a top-level
+    // create issues no org listing.
+    expect(apiMock.listOrganizations).not.toHaveBeenCalled();
     fireEvent.change(screen.getByPlaceholderText('e.g. acme-platform'), { target: { value: 'gamma' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Organization' }));
 
@@ -206,6 +208,13 @@ describe('OrganizationsPage — extracted components', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Organization "gamma" created'));
     expect(listPage.refresh).toHaveBeenCalled();
     expect(await screen.findByText('setup-step:developer')).toBeInTheDocument();
+  });
+
+  it('never offers a team a tier change — its tier is inherited from its root', () => {
+    listPage.data = [{ ...org, id: 'team-b', parentOrgId: 'org-a', parentOrgName: 'Acme' }];
+    render(<OrganizationsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: /Change tier/ })).not.toBeInTheDocument();
   });
 
   it('changes tier via the row menu → tier dialog → step-up', async () => {

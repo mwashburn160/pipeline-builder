@@ -30,6 +30,7 @@ export function QuotasReadOnly({
   loadError = null,
   onRetry,
   activeOrgIsTeam,
+  activeOrgHasTeams = false,
   canManageBilling,
   atRisk = [],
 }: {
@@ -41,6 +42,9 @@ export function QuotasReadOnly({
   /** Re-run the quota fetch. */
   onRetry?: () => void;
   activeOrgIsTeam: boolean;
+  /** The active org is a root with teams: its numbers are the pool it shares
+   *  with them (the same figures each team sees). */
+  activeOrgHasTeams?: boolean;
   /** Viewer can act on billing (owner/admin or `billing:manage`) → offer the
    *  upgrade path instead of "contact a sysadmin". */
   canManageBilling: boolean;
@@ -93,6 +97,15 @@ export function QuotasReadOnly({
             <p className="text-sm text-blue-800 dark:text-blue-200">
               This is a team. The limits below are your organization&apos;s shared caps, and the usage shown is the combined
               total across all of its teams. Limits are managed by an admin at the parent organization.
+            </p>
+          </div>
+        )}
+        {activeOrgHasTeams && !activeOrgIsTeam && (
+          <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
+            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Pooled across your organization and its teams</h3>
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Your teams share these limits with your organization. The usage shown is the combined total across the
+              organization and all of its teams, the same figures each team sees.
             </p>
           </div>
         )}

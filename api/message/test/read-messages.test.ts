@@ -53,6 +53,13 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
   },
 }));
 
+const mockListReachableOrgs = jest.fn<(...args: unknown[]) => unknown>();
+jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
+  listReachableOrgs: mockListReachableOrgs,
+  isRecipientReachable: jest.fn(async () => true),
+  isTargetUserReachable: jest.fn(async () => true),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
@@ -386,5 +393,27 @@ describe('GET /messages/:id/thread', () => {
     await handler(req, res);
 
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Message ID is required', 'MISSING_REQUIRED_FIELD');
+  });
+});
+
+describe('GET /messages/recipients/orgs', () => {
+  const handler = getHandler(readRouter, 'get', '/recipients/orgs');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns the caller account\'s reachable orgs as { orgs }', async () => {
+    const orgs = [
+      { orgId: 'root-1', name: 'Acme', isTeam: false },
+      { orgId: 'org-1', name: 'Platform team', isTeam: true },
+    ];
+    mockListReachableOrgs.mockResolvedValue(orgs);
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockListReachableOrgs).toHaveBeenCalledWith('org-1');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { orgs } }));
   });
 });

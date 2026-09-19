@@ -20,6 +20,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Pagination } from '@/components/ui/Pagination';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import { InheritedBadge } from './InheritedBadge';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -106,6 +107,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
           {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
+          {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
           {rule.tags?.length > 0 && (
             <div className="flex gap-1 mt-1">
               {rule.tags.slice(0, 3).map(tag => (
@@ -168,9 +170,13 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       header: 'Actions',
       headerClassName: 'text-right',
       cellClassName: 'text-right',
-      render: (rule) => (
+      render: (rule) => {
+        // A parent-propagated rule is owned (and editable) only by its source
+        // org; the API refuses team-side mutations, so offer none here.
+        const canMutate = !!onEdit && !rule.inherited;
+        return (
         <div className="flex items-center justify-end gap-1">
-          {onEdit && (
+          {canMutate && (
             <IconButton
               restTone={rule.isActive ? 'success' : 'default'}
               onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
@@ -185,18 +191,19 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
               <History className="h-4 w-4" />
             </IconButton>
           )}
-          {onEdit && (
+          {canMutate && onEdit && (
             <IconButton tone="primary" onClick={() => onEdit(rule)} title="Edit" aria-label="Edit rule">
               <Pencil className="h-4 w-4" />
             </IconButton>
           )}
-          {onEdit && (
+          {canMutate && (
             <IconButton tone="danger" onClick={() => del.open(rule)} title="Delete" aria-label="Delete rule">
               <Trash2 className="h-4 w-4" />
             </IconButton>
           )}
         </div>
-      ),
+        );
+      },
     },
   ];
 

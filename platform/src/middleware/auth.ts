@@ -4,6 +4,7 @@
 import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
+import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
 import type { RefreshSession } from '../models/index.js';
@@ -51,9 +52,13 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
   let organizationName: string | undefined;
 
   if (orgId) {
-    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId), isActive: true }).lean();
-    if (membership) {
-      role = membership.role as OrgMemberRole;
+    // A membership row OR admin authority inherited from an ancestor — the same
+    // rule switch-org and token issuance apply, so a parent admin working inside
+    // a team stays in it across a refresh instead of being bounced to their
+    // first membership.
+    const authority = await resolveOrgAuthority(userId, orgId);
+    if (authority) {
+      role = authority.role;
       organizationId = orgId;
       const org = await Organization.findById(toOrgId(orgId)).select('name').lean();
       organizationName = org?.name;

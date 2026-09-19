@@ -268,7 +268,8 @@ export default function OrganizationsPage() {
               canIdp={can('org:idp')}
               onKms={() => setKmsOrg(org)}
               onIdp={() => setIdpOrg(org)}
-              onTier={() => setTierOrg(org)}
+              // A team's tier is its root's (pooled), so only roots get a tier edit.
+              onTier={org.parentOrgId ? undefined : () => setTierOrg(org)}
               onNamespace={() => setPendingYamlOrg(org)}
               onDelete={() => del.open(org)}
             />

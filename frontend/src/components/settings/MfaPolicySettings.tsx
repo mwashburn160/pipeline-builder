@@ -119,8 +119,10 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
         <div className="space-y-4">
           {policy.inheritedFrom && (
             <Callout variant="neutral">
-              A parent organization already requires two-factor authentication, so it applies to
-              this organization&apos;s members whatever is set here.
+              {policy.inheritedFromName
+                ? <>The parent organization <strong>{policy.inheritedFromName}</strong> already requires</>
+                : 'A parent organization already requires'}{' '}
+              two-factor authentication, so it applies to this organization&apos;s members whatever is set here.
             </Callout>
           )}
           {policy.requireMfa && policy.graceUntil && !policy.enforced && (

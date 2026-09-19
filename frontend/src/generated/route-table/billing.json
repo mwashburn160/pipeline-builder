@@ -874,6 +874,21 @@
     ]
   },
   {
+    "method": "GET",
+    "path": "/billing/subscriptions/by-org/:orgId/billable",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "POST",
     "path": "/billing/subscriptions/checkout",
     "auth": true,

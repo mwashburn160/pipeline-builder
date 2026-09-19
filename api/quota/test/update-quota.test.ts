@@ -141,7 +141,7 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
 // incrementUsage short-circuits (no DB walk). Hierarchy logic is covered by
 // its own helper tests; these route tests stay focused on per-org increment.
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
-  getParentOrgId: async () => undefined,
+  findOrgWithHierarchy: async () => ({ self: null, hasChildren: false }),
   resolveRootOrgId: async (id: string) => id,
   expandOrgScope: async (id: string) => [id],
 }));
@@ -244,6 +244,43 @@ describe('PUT /quotas/:orgId (update org)', () => {
     expect(org.quotas.plugins).toBe(500);
     expect(org.quotas.pipelines).toBe(50);
     expect(org.save).toHaveBeenCalled();
+  });
+
+  it('rejects a tier write to a TEAM org with 400 (tier is pooled at the root)', async () => {
+    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
+    mockFindById.mockResolvedValue(org);
+
+    const req = mockReq({ params: { orgId: 'team-1' }, body: { tier: 'pro' }, user: { organizationId: 'team-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('is a team'), 'VALIDATION_ERROR');
+    expect(org.save).not.toHaveBeenCalled();
+    expect(org.tier).toBe('developer');
+  });
+
+  it('rejects a quota-limit write to a TEAM org with 400', async () => {
+    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
+    mockFindById.mockResolvedValue(org);
+
+    const req = mockReq({ params: { orgId: 'team-1' }, body: { quotas: { plugins: 5 } }, user: { organizationId: 'team-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('pooled at its root'), 'VALIDATION_ERROR');
+    expect(org.save).not.toHaveBeenCalled();
+  });
+
+  it('still allows a name-only edit on a TEAM org', async () => {
+    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
+    mockFindById.mockResolvedValue(org);
+
+    const req = mockReq({ params: { orgId: 'team-1' }, body: { name: 'Renamed' }, user: { organizationId: 'team-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(org.save).toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalled();
   });
 
   it('returns 404 when org not found', async () => {

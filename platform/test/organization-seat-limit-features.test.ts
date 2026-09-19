@@ -57,6 +57,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     setTier: (...a: unknown[]) => mockSetTier(...a),
     checkTierOvercap: (...a: unknown[]) => mockCheckTierOvercap(...a),
   },
+  orgHierarchyService: {},
   changedAiProviderFields: () => [],
 }));
 

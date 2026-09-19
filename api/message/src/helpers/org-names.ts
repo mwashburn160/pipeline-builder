@@ -50,7 +50,7 @@ function nameLookupOptions() {
  * first and batches the misses into ONE platform call. Fail-soft: a transport
  * error leaves the misses unresolved (absent from the map).
  */
-async function resolveOrgNames(orgIds: Iterable<string>): Promise<Map<string, string>> {
+export async function resolveOrgNames(orgIds: Iterable<string>): Promise<Map<string, string>> {
   const wanted = [...new Set([...orgIds].map((id) => id.toLowerCase()))].filter((id) => id && id !== '*');
   const out = new Map<string, string>();
   const misses: string[] = [];

@@ -599,7 +599,15 @@ export async function softDeleteOrg(
     // the refresh-session slots blocks a silent re-issue.
     const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
       .select('userId').session(session).lean();
-    bumpedMemberIds = memberships.map((m) => m.userId);
+    // Plus anyone working in the org on INHERITED authority (a parent-org admin
+    // who opened this team — no membership row, see helpers/org-authority.ts):
+    // their session is pinned by `lastActiveOrgId`, and must be cut just the same.
+    const inheritedSessions = await User.find({ lastActiveOrgId: String(orgId) })
+      .select('_id').session(session).lean();
+    const byId = new Map<string, Types.ObjectId>();
+    for (const m of memberships) byId.set(String(m.userId), m.userId);
+    for (const u of inheritedSessions) byId.set(String(u._id), u._id as Types.ObjectId);
+    bumpedMemberIds = [...byId.values()];
     if (bumpedMemberIds.length > 0) {
       await User.updateMany(
         { _id: { $in: bumpedMemberIds } },

@@ -59,6 +59,20 @@ export interface OrganizationDetail extends Organization {
   pendingDeletion?: boolean;
   deletedAt?: string;
   purgeAfter?: string;
+  /** Sysadmin read only: the org's live teams (empty for a team or a flat root). */
+  teams?: OrgTeamRef[];
+}
+
+/** A team as named in a hierarchy listing. */
+export interface OrgTeamRef {
+  orgId: string;
+  orgName: string;
+}
+
+/** A soft-deleted team still inside its retention window (restorable until `purgeAfter`). */
+export interface DeletedTeam extends OrgTeamRef {
+  deletedAt: string;
+  purgeAfter: string;
 }
 
 /** An org row from the sysadmin list, extended with soft-delete state. The list
@@ -131,6 +145,18 @@ export function organizationsApi(core: ApiCore) {
           headers: core.stepUpHeader(stepUpToken),
         },
       );
+    },
+
+    /** POST /organization/:id/move — sysadmin reparenting (step-up). `parentOrgId`
+     *  names an eligible root (team/enterprise tier) to nest under, or `null` to
+     *  make the org top-level. The backend refuses (400) moves that would break
+     *  the one-level hierarchy, e.g. nesting a root that still has teams. */
+    moveOrganization: async (id: string, parentOrgId: string | null, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ parentOrgId }),
+        headers: core.stepUpHeader(stepUpToken),
+      });
     },
 
     /** Get a single org by id. Used by the sysadmin org-detail page.
@@ -218,6 +244,22 @@ export function organizationsApi(core: ApiCore) {
      *  "also add to teams" picker when adding a member. */
     getOrganizationTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`, { signal: opts?.signal });
+    },
+
+    /** GET /organization/:id/teams/deleted — the org's soft-deleted teams still
+     *  inside their retention window (`org:settings`). Live listings exclude them. */
+    listDeletedTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ teams: DeletedTeam[] }>>(`/api/organization/${orgId}/teams/deleted`, { signal: opts?.signal });
+    },
+
+    /** DELETE /organization/:id/teams/:teamId — a parent admin soft-deletes one
+     *  of its teams (`org:settings` + step-up). Restorable with
+     *  {@link restoreOrganization} on the team id until its purge date. */
+    deleteTeam: async (orgId: string, teamId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/teams/${teamId}`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
     },
 
     /** Pooled seat usage for the account (root): distinct active members + pending
@@ -690,6 +732,8 @@ export interface EffectiveImpersonationPolicyDto {
   own: { policy: ImpersonationPolicy; allowSelfApproval: boolean };
   /** Set when a parent org forces a stricter policy than `own`. */
   inheritedFrom?: string;
+  /** Display name of `inheritedFrom`, when resolvable. */
+  inheritedFromName?: string;
   /** False when the parent couldn't be read; the policy is then the strictest. */
   resolved: boolean;
 }

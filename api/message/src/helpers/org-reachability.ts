@@ -4,12 +4,14 @@
 import {
   createLogger,
   errorMessage,
+  fetchOrgDescendants,
   fetchOrgMembership,
   fetchParentOrgId,
   resolveRootOrgIdWith,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
+import { resolveOrgNames } from './org-names.js';
 
 const logger = createLogger('org-reachability');
 
@@ -82,6 +84,49 @@ export async function isRecipientReachable(callerOrgId: string, recipientOrgId: 
     });
     return false;
   }
+}
+
+/** One org a member may start a conversation with (see {@link listReachableOrgs}). */
+export interface ReachableOrg {
+  orgId: string;
+  /** Display name (falls back to the id when platform can't resolve it). */
+  name: string;
+  /** True for a team (child org); false for the account's root org. */
+  isTeam: boolean;
+}
+
+/**
+ * Every org in the caller's ACCOUNT — the root plus all of its teams, the caller's
+ * own org included — i.e. exactly the concrete orgs {@link isRecipientReachable}
+ * admits besides the system support inbox (which the UI addresses through the
+ * support aliases, not as an org). Built from the same root resolution as the
+ * send gate, so the list can never offer an org the gate would refuse.
+ *
+ * Fail-soft: a listing is a convenience, not a gate — on a hierarchy lookup
+ * failure it degrades to the caller's own org (the send gate still decides).
+ */
+export async function listReachableOrgs(callerOrgId: string): Promise<ReachableOrg[]> {
+  const caller = callerOrgId.toLowerCase();
+  let rootOrgId = caller;
+  let orgIds = [caller];
+  try {
+    rootOrgId = (await resolveRootOrgId(caller)).toLowerCase();
+    // Token scoped to the root so platform's `/descendants` access check (own
+    // org) admits the read; `undefined` ⇒ the root has no teams.
+    const subtree = await fetchOrgDescendants(rootOrgId, { ...hierarchyOptions(), authOrgId: rootOrgId });
+    orgIds = subtree ? [...new Set(subtree.map((id) => id.toLowerCase()))] : [rootOrgId];
+    if (!orgIds.includes(caller)) orgIds.push(caller);
+  } catch (err) {
+    logger.warn('Reachable-org listing failed; offering only the caller org', {
+      callerOrgId: caller,
+      error: errorMessage(err),
+    });
+    rootOrgId = caller;
+    orgIds = [caller];
+  }
+
+  const names = await resolveOrgNames(orgIds);
+  return orgIds.map((orgId) => ({ orgId, name: names.get(orgId) ?? orgId, isTeam: orgId !== rootOrgId }));
 }
 
 /**

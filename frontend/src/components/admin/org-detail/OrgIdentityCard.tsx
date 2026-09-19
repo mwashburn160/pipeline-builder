@@ -59,6 +59,7 @@ export function OrgIdentityCard({
   const [tierError, setTierError] = useState<string | null>(null);
 
   const currentTier = (org.tier ?? 'developer') as Tier;
+  const isTeam = !!org.parentOrgId;
 
   const openEdit = () => {
     setName(org.name ?? '');
@@ -119,20 +120,25 @@ export function OrgIdentityCard({
         <div className="flex items-center gap-3">
           <button type="button" onClick={openEdit} className="action-link text-sm">Edit</button>
           {/* Selecting a different tier opens the step-up confirmation; the
-              current tier is a no-op so a stray click never prompts. */}
-          <FilterSelect
-            value={currentTier}
-            onChange={(e) => {
-              const next = e.target.value as Tier;
-              if (next !== currentTier) setPendingTier(next);
-            }}
-            className="text-xs"
-            aria-label="Change pricing tier"
-          >
-            {TIER_KEYS.map((tier) => (
-              <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
-            ))}
-          </FilterSelect>
+              current tier is a no-op so a stray click never prompts. A team's
+              tier is its root's, so it is never offered an edit here. */}
+          {isTeam ? (
+            <span className="text-xs text-gray-500 dark:text-gray-400">Tier inherited from parent</span>
+          ) : (
+            <FilterSelect
+              value={currentTier}
+              onChange={(e) => {
+                const next = e.target.value as Tier;
+                if (next !== currentTier) setPendingTier(next);
+              }}
+              className="text-xs"
+              aria-label="Change pricing tier"
+            >
+              {TIER_KEYS.map((tier) => (
+                <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
+              ))}
+            </FilterSelect>
+          )}
         </div>
       </div>
       <ErrorAlert message={tierError} onDismiss={() => setTierError(null)} />

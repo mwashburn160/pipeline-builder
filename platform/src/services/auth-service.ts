@@ -7,6 +7,7 @@ import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
+import { type OrgAuthority, resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type UserDocument } from '../models/index.js';
@@ -267,21 +268,20 @@ class AuthService {
   }
 
   /**
-   * Verify the user has an active membership in the target org and update
-   * their `lastActiveOrgId`. Returns the user (with tokenVersion selected
-   * for re-issuing tokens) on success, or null when membership doesn't
-   * exist / is inactive.
+   * Verify the user may work inside the target org and update their
+   * `lastActiveOrgId`. Authority is an active membership there OR admin
+   * authority inherited from an ancestor org (a parent admin opening one of its
+   * teams) — the one rule in helpers/org-authority.ts that token issuance
+   * applies too, so the switch and the token it produces can't disagree.
+   * Nothing is written to the team's roster for inherited authority.
+   *
+   * Returns the user (with tokenVersion selected for re-issuing tokens) plus the
+   * resolved authority on success, or null when the caller holds none there or
+   * the org is soft-deleted.
    */
-  async switchActiveOrg(userId: string, organizationId: string) {
-    // `organizationId` is a plain ObjectId field; `organizationId` arrives here
-    // as a hex string (route body), so cast it via toOrgId so the membership
-    // filter matches the stored ObjectId.
-    const membership = await UserOrganization.findOne({
-      userId,
-      organizationId: toOrgId(organizationId),
-      isActive: true,
-    }).lean();
-    if (!membership) return null;
+  async switchActiveOrg(userId: string, organizationId: string): Promise<{ user: UserDocument; authority: OrgAuthority } | null> {
+    const authority = await resolveOrgAuthority(userId, organizationId);
+    if (!authority) return null;
 
     // Refuse to make a SOFT-DELETED (tombstoned) org the active one — mirrors
     // the token chokepoint (`resolveMembership`), which won't scope a token to a
@@ -294,7 +294,8 @@ class AuthService {
     await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
     // `+isSuperAdmin` — switching orgs reissues a JWT and must preserve
     // the sysadmin claim. Schema marks the field `select: false`.
-    return User.findById(userId).select('+tokenVersion +isSuperAdmin');
+    const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
+    return user ? { user, authority } : null;
   }
 
   /**

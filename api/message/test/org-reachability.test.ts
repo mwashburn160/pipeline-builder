@@ -29,19 +29,27 @@ const SYSTEM_ORG = '000000000000000000000001';
 const mockResolveRoot = jest.fn<(orgId: string, cb: unknown) => Promise<string>>();
 // Platform membership probe backing `isTargetUserReachable`.
 const mockFetchMembership = jest.fn<(orgId: string, userId: string, opts: unknown) => Promise<boolean | undefined>>();
+// Platform subtree listing + name enrichment backing `listReachableOrgs`.
+const mockFetchDescendants = jest.fn<(orgId: string, opts: unknown) => Promise<string[] | undefined>>();
+const mockResolveOrgNames = jest.fn<(ids: Iterable<string>) => Promise<Map<string, string>>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_ID: SYSTEM_ORG,
   fetchParentOrgId: jest.fn(),
   resolveRootOrgIdWith: (orgId: string, cb: unknown) => mockResolveRoot(orgId, cb),
   fetchOrgMembership: (orgId: string, userId: string, opts: unknown) => mockFetchMembership(orgId, userId, opts),
+  fetchOrgDescendants: (orgId: string, opts: unknown) => mockFetchDescendants(orgId, opts),
+}));
+
+jest.unstable_mockModule('../src/helpers/org-names.js', () => ({
+  resolveOrgNames: (ids: Iterable<string>) => mockResolveOrgNames(ids),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 
-const { isRecipientReachable, isTargetUserReachable } = await import('../src/helpers/org-reachability.js');
+const { isRecipientReachable, isTargetUserReachable, listReachableOrgs } = await import('../src/helpers/org-reachability.js');
 
 describe('isRecipientReachable', () => {
   beforeEach(() => {
@@ -147,5 +155,58 @@ describe('isTargetUserReachable', () => {
     const ok = await isTargetUserReachable('org-1', 'user-42');
 
     expect(ok).toBe(true);
+  });
+});
+
+describe('listReachableOrgs', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockResolveOrgNames.mockImplementation(async (ids) =>
+      new Map([...ids].filter((id) => id !== 'team-x').map((id) => [id, `Name ${id}`])));
+  });
+
+  it('a team sees its whole account: the root (isTeam false) and every team (isTeam true)', async () => {
+    mockResolveRoot.mockResolvedValue('root-1');
+    mockFetchDescendants.mockResolvedValue(['root-1', 'team-a', 'team-b']);
+
+    const orgs = await listReachableOrgs('TEAM-A');
+
+    expect(mockResolveRoot).toHaveBeenCalledWith('team-a', expect.any(Function));
+    // Descendants are read with a token scoped to the ROOT (platform access check).
+    expect(mockFetchDescendants).toHaveBeenCalledWith('root-1', expect.objectContaining({ authOrgId: 'root-1' }));
+    expect(orgs).toEqual([
+      { orgId: 'root-1', name: 'Name root-1', isTeam: false },
+      { orgId: 'team-a', name: 'Name team-a', isTeam: true },
+      { orgId: 'team-b', name: 'Name team-b', isTeam: true },
+    ]);
+  });
+
+  it('every listed org passes the send gate (same root)', async () => {
+    mockResolveRoot.mockResolvedValue('root-1');
+    mockFetchDescendants.mockResolvedValue(['root-1', 'team-a']);
+    const orgs = await listReachableOrgs('team-a');
+    for (const o of orgs) expect(await isRecipientReachable('team-a', o.orgId)).toBe(true);
+  });
+
+  it('a flat org lists only itself (no teams)', async () => {
+    mockResolveRoot.mockResolvedValue('org-1');
+    mockFetchDescendants.mockResolvedValue(undefined);
+
+    expect(await listReachableOrgs('org-1')).toEqual([{ orgId: 'org-1', name: 'Name org-1', isTeam: false }]);
+  });
+
+  it('falls back to the raw id when a name is unresolved', async () => {
+    mockResolveRoot.mockResolvedValue('root-1');
+    mockFetchDescendants.mockResolvedValue(['root-1', 'team-x']);
+
+    const orgs = await listReachableOrgs('root-1');
+    expect(orgs[1]).toEqual({ orgId: 'team-x', name: 'team-x', isTeam: true });
+  });
+
+  it('degrades to the caller org alone when the hierarchy lookup fails', async () => {
+    mockResolveRoot.mockRejectedValue(new Error('platform down'));
+
+    expect(await listReachableOrgs('team-a')).toEqual([{ orgId: 'team-a', name: 'Name team-a', isTeam: false }]);
+    expect(mockFetchDescendants).not.toHaveBeenCalled();
   });
 });

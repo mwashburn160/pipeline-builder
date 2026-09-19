@@ -41,6 +41,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string; parentOrgId?: string }>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveOrgLineage: mockResolveOrgLineage,
+  // org-authority walks up for inherited admin authority; a flat org has no parent.
+  getParentOrgId: async () => undefined,
 }));
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));

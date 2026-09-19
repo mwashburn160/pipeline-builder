@@ -66,6 +66,9 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 const { switchOrg, refresh, logout } = await import('../src/controllers/auth.js');
 
+/** A plain membership in the destination org. */
+const MEMBER = { role: 'member', via: 'membership', permissionOrgIds: ['org-to'] };
+
 function makeRes() {
   const res: any = { locals: {} };
   res.status = jest.fn().mockReturnValue(res);
@@ -83,7 +86,7 @@ beforeEach(() => {
 
 describe('switchOrg — org.switch audit', () => {
   it('emits org.switch with destination org as affectedOrgId and from/to in details', async () => {
-    mockSwitchActiveOrg.mockResolvedValue({ _id: 'u1', lastActiveOrgId: 'org-to' });
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1', lastActiveOrgId: 'org-to' }, authority: MEMBER });
 
     const req: any = { user: { sub: 'u1', organizationId: 'org-from' }, headers: {}, body: { organizationId: 'org-to' } };
     const res = makeRes();
@@ -92,6 +95,23 @@ describe('switchOrg — org.switch audit', () => {
     expect(mockAudit).toHaveBeenCalledWith(req, 'org.switch', expect.objectContaining({
       affectedOrgId: 'org-to',
       details: { fromOrgId: 'org-from', toOrgId: 'org-to' },
+    }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('records the ancestor whose admin membership let a parent admin into a team', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({
+      user: { _id: 'u1' },
+      authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
+    });
+
+    const req: any = { user: { sub: 'u1', organizationId: 'root-1' }, headers: {}, body: { organizationId: 'team-1' } };
+    const res = makeRes();
+    await (switchOrg as any)(req, res);
+
+    expect(mockAudit).toHaveBeenCalledWith(req, 'org.switch', expect.objectContaining({
+      affectedOrgId: 'team-1',
+      details: { fromOrgId: 'root-1', toOrgId: 'team-1', via: 'ancestor', inheritedFromOrgId: 'root-1' },
     }));
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -110,7 +130,7 @@ describe('switchOrg — org.switch audit', () => {
 describe('switchOrg — session slot', () => {
   it('re-issues within the caller\'s refresh-session slot instead of opening a new one', async () => {
     const user = { _id: 'u1' };
-    mockSwitchActiveOrg.mockResolvedValue(user);
+    mockSwitchActiveOrg.mockResolvedValue({ user, authority: MEMBER });
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
 
@@ -121,7 +141,7 @@ describe('switchOrg — session slot', () => {
   });
 
   it('401s when the caller\'s slot is gone', async () => {
-    mockSwitchActiveOrg.mockResolvedValue({ _id: 'u1' });
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
     mockRenewSessionTokens.mockResolvedValue(null);
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);

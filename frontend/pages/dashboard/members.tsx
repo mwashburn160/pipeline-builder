@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { UserPlus, Users, Building2, Network } from 'lucide-react';
+import { UserPlus, Users, Building2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { hasPermission } from '@/lib/auth-helpers';
@@ -14,11 +14,11 @@ import { useDelete } from '@/hooks/useDelete';
 import { useMemberRoles } from '@/hooks/useMemberRoles';
 import { useMemberTeams } from '@/hooks/useMemberTeams';
 import { TeamMemberAccess } from '@/components/members/TeamMemberAccess';
+import { TeamsCard } from '@/components/teams/TeamsCard';
 import { useToast } from '@/components/ui/Toast';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Card } from '@/components/ui/Card';
 import { Callout } from '@/components/ui/Callout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -54,6 +54,12 @@ export default function MembersPage() {
   // left the page permanently empty during an investigation.
   const canManageMembers = can('members:manage');
   const canViewMembers = hasPermission(user, 'members:manage');
+  // Team lifecycle + settings. Creating, exporting, deleting and restoring a team
+  // all ride `org:settings` at the API (POST /organization, /export,
+  // DELETE /teams/:teamId, /restore); the Manage drawer shows whichever of a
+  // team's settings this viewer may edit.
+  const canOrgSettings = can('org:settings');
+  const canManageTeamSettings = canOrgSettings || can('org:impersonation') || can('org:idp');
   const { refreshUser, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -160,6 +166,24 @@ export default function MembersPage() {
   const teams = teamsQ.data ?? [];
   const teamsLoadWarning = !!teamsQ.error;
   const childTeamCount = teams.length;
+  // Soft-deleted teams still inside their retention window. Read for any root
+  // whose admin may restore them — NOT only while `hasChildOrgs`: deleting the
+  // last team drops `childOrgCount` to 0, and its restore must stay reachable.
+  const deletedTeamsQ = useFetch(async (signal) => {
+    if (!user?.organizationId || !canOrgSettings || !activeOrgIsRoot) return [];
+    return (await api.listDeletedTeams(user.organizationId, { signal })).data?.teams ?? [];
+  }, [user?.organizationId, canOrgSettings, activeOrgIsRoot]);
+  const deletedTeams = deletedTeamsQ.data ?? [];
+
+  /** After a team is created, renamed, deleted or restored: re-read both lists
+   *  and the session's org list (`childOrgCount` + the switcher). */
+  const { refetch: refetchTeams } = teamsQ;
+  const { refetch: refetchDeletedTeams } = deletedTeamsQ;
+  const refreshTeams = useCallback(async () => {
+    await refreshUser();
+    refetchTeams();
+    refetchDeletedTeams();
+  }, [refreshUser, refetchTeams, refetchDeletedTeams]);
 
   // Pooled seat usage for the whole account (distinct members + pending invites
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so
@@ -173,14 +197,16 @@ export default function MembersPage() {
   const seatLoadWarning = !!seatQ.error;
 
   // Switch the active org context to a team so its members can be managed
-  // directly (mirrors the org switcher). The page re-renders in the new scope.
+  // directly (mirrors the org switcher). A parent admin may open any of its
+  // teams without a membership row there. A refusal is a toast naming the team,
+  // never a silent no-op.
   const switchTeam = async (team: { orgId: string; orgName: string }) => {
     try {
       await switchOrganization(team.orgId);
       toast.success(`Switched to ${team.orgName}`);
       router.replace(router.asPath);
     } catch (err) {
-      toast.error(formatError(err, 'Failed to switch team'));
+      toast.error(`Couldn't open ${team.orgName}: ${formatError(err, 'the switch was refused')}`);
     }
   };
 
@@ -338,8 +364,7 @@ export default function MembersPage() {
       setCreateOrgOpen(false);
       // Pulls the new org into the switcher and bumps `childOrgCount`, which
       // reveals the Teams list + Manage-teams action (re-running the teams read).
-      await refreshUser();
-      teamsQ.refetch();
+      await refreshTeams();
       toast.success(parentOrgId
         ? `Team "${name}" created — switch to it from the organization switcher (bottom-left)`
         : `Organization "${name}" created`);
@@ -377,7 +402,7 @@ export default function MembersPage() {
               org (a team can't parent sub-teams). Top-level orgs are created by
               a system admin from the Organizations page. Disabled (not hidden) on
               ineligible tiers so the feature is discoverable as an upsell. */}
-          {activeOrgIsRoot && canManageMembers && (
+          {activeOrgIsRoot && canOrgSettings && (
             <Button
               variant="secondary"
               onClick={() => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); }}
@@ -422,38 +447,22 @@ export default function MembersPage() {
         </Callout>
       )}
 
-      {/* Teams list — the org's teams. Open one to manage its
-          members directly; or add an existing member to teams via the
-          per-member "Manage teams" action below. */}
-      {hasChildOrgs && teams.length > 0 && (
-        <Card className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-gray-400" /> Teams <span className="text-gray-400 font-normal">({teams.length})</span>
-            </h2>
-            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Teams of {activeOrg?.name}</span>
-          </div>
-          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-            {teams.map((t) => (
-              <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
-                <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{t.orgName}</span>
-                <div className="flex items-center gap-3 shrink-0">
-                  <button
-                    onClick={() => { setTeamMemberEmail(''); teamAddForm.reset(); setAddToTeam(t); }}
-                    className="action-link text-xs inline-flex items-center gap-1"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" /> Add member
-                  </button>
-                  <button onClick={() => void switchTeam(t)} className="action-link text-xs">Open →</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            <strong>Open</strong> a team to manage its members directly, or add an existing member to teams with the
-            <Network className="w-3 h-3 inline mx-0.5 -mt-0.5" /> action on each member row.
-          </p>
-        </Card>
+      {/* Teams list — the org's teams, each openable, manageable in place and
+          deletable; plus the recently-deleted teams still restorable. Shown
+          while there are deleted teams even when no live team remains. */}
+      {orgId && ((hasChildOrgs && teams.length > 0) || (canOrgSettings && deletedTeams.length > 0)) && (
+        <TeamsCard
+          parentOrgId={orgId}
+          parentOrgName={activeOrg?.name}
+          teams={teams}
+          deletedTeams={deletedTeams}
+          canManageMembers={canManageMembers}
+          canOrgSettings={canOrgSettings}
+          canManageSettings={canManageTeamSettings}
+          onOpen={(t) => void switchTeam(t)}
+          onAddMember={(t) => { setTeamMemberEmail(''); teamAddForm.reset(); setAddToTeam(t); }}
+          onChanged={refreshTeams}
+        />
       )}
 
       {(teamsLoadWarning || seatLoadWarning) && (

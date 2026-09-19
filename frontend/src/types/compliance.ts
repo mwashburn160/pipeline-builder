@@ -67,6 +67,13 @@ export interface ComplianceRule {
   /** Soft-delete tombstone metadata (present on rows returned by list-deleted). */
   deletedAt?: string;
   deletedBy?: string;
+  /** Enforced view only: a rule the team inherits from its parent
+   *  (`propagateToChildren`). Read-only in the team — only the source org edits it. */
+  inherited?: boolean;
+  /** Org that owns an inherited rule. */
+  sourceOrgId?: string;
+  /** Display name of {@link sourceOrgId}, when the API could resolve it. */
+  sourceOrgName?: string;
 }
 
 export interface ComplianceRuleHistoryEntry {

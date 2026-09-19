@@ -5,7 +5,8 @@
  * Sysadmin org-detail page.
  *
  * Consolidates everything a sysadmin needs about a single org onto one
- * surface: identity (name, slug, description), tier, the member roster, KMS
+ * surface: identity (name, slug, description), tier, its place in the org →
+ * team hierarchy (parent, teams, move), the member roster, KMS
  * binding, IdP / SSO config, seats, entitlements and quotas, and the
  * namespace-YAML / export / delete operations. Each card owns its own writes
  * (and their step-up); this shell owns the reads, each through `useFetch`, so a
@@ -30,6 +31,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
 import { OrgIdentityCard } from '@/components/admin/org-detail/OrgIdentityCard';
+import { OrgHierarchyCard } from '@/components/admin/org-detail/OrgHierarchyCard';
 import { OrgMemberRoster } from '@/components/admin/org-detail/OrgMemberRoster';
 import { OrgSeatsCard } from '@/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '@/components/admin/org-detail/OrgOperationsCard';
@@ -141,6 +143,8 @@ export default function OrgDetailPage() {
           {activeTab === 'configuration' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <OrgIdentityCard org={org} onChanged={orgQ.refetch} onShowMembers={() => changeTab('members')} />
+
+              <OrgHierarchyCard org={org} onChanged={orgQ.refetch} />
 
               <Card>
                 <div className="flex items-start justify-between mb-3">

@@ -14,6 +14,8 @@ export { userProfileService, type PreferencesPatch, type UserPreferencesView } f
 export { userAdminService } from './user-admin-service.js';
 export { invitationService } from './invitation-service.js';
 export { orgMembersService } from './org-members-service.js';
+export { orgHierarchyService } from './org-hierarchy-service.js';
+export type { DeletedTeam } from './org-hierarchy-service.js';
 export type { MemberTeam, BulkAddResult, TeamSummary } from './org-members-service.js';
 export {
   seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions,

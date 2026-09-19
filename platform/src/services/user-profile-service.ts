@@ -8,6 +8,7 @@ import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -56,6 +57,9 @@ interface MembershipInfo {
   joinedAt?: string;
   /** Parent org id when this org is a team (org → team hierarchy); omitted for root orgs. */
   parentOrgId?: string;
+  /** The parent's display name (teams only) — lets the switcher label a team
+   *  whose parent the user is not a member of. */
+  parentOrgName?: string;
   /** Org's quota tier — lets the UI gate tier-gated actions (e.g. only team/enterprise roots may parent teams). */
   tier?: string;
   /** Live (not soft-deleted) teams nested directly under this org. The UI shows
@@ -63,6 +67,9 @@ interface MembershipInfo {
    *  only when this is > 0, without a per-page descendants lookup. Nesting is
    *  one level deep, so direct children are all descendants. */
   childOrgCount: number;
+  /** Set on a row synthesized for a team the user may enter on admin authority
+   *  INHERITED from its parent — no membership row exists (see listOrganizations). */
+  viaAncestor?: true;
 }
 
 interface ProfileData {
@@ -109,29 +116,53 @@ class UserProfileService {
   }
 
   /**
-   * Return all org memberships for a user as a flat array, sorted by
-   * `joinedAt` (oldest first — keeps "Personal org" at the top of the
-   * dashboard switcher).
+   * Every org the user can switch into, as a flat array:
+   *   1. their membership rows, sorted by `joinedAt` (oldest first — keeps
+   *      "Personal org" at the top of the dashboard switcher);
+   *   2. then one `viaAncestor: true` row per LIVE team of an org they
+   *      administer (active `admin`/`owner` membership in a live parent) where
+   *      they have NO membership row — the teams switch-org admits them to on
+   *      inherited authority (helpers/org-authority.ts), with the role that
+   *      session gets (`admin`). These rows are synthesized for the switcher
+   *      only: no `UserOrganization` row exists, so seats, rosters and every
+   *      membership read are unaffected.
+   *
+   * Three reads regardless of size: memberships, their orgs, and the live
+   * children of those orgs (which yields both `childOrgCount` and the
+   * inherited-team rows). Parent names of member teams whose parent the user
+   * isn't in cost one more read, only when there are such teams.
    */
   async listOrganizations(userId: string): Promise<MembershipInfo[]> {
     const memberships = await UserOrganization.find({ userId }).sort({ joinedAt: 1 }).lean();
     const orgIds = memberships.map(m => m.organizationId);
-    const orgs = orgIds.length > 0
-      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId tier').lean()
-      : [];
+    if (orgIds.length === 0) return [];
+    const orgs = await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId tier deletedAt').lean();
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
     // `parentOrgId` is stored as a string id (see the Organization model).
-    const childCounts = orgIds.length > 0
-      ? await Organization.aggregate<{ _id: string; n: number }>([
-        { $match: { parentOrgId: { $in: orgIds.map(String) }, deletedAt: null } },
-        { $group: { _id: '$parentOrgId', n: { $sum: 1 } } },
-      ])
-      : [];
-    const childCountByOrg = new Map(childCounts.map(c => [String(c._id), c.n]));
+    const children = await Organization.find({ parentOrgId: { $in: orgIds.map(String) }, deletedAt: null })
+      .select('_id name slug parentOrgId tier').lean();
+    const childCountByOrg = new Map<string, number>();
+    for (const c of children) {
+      const parent = String(c.parentOrgId);
+      childCountByOrg.set(parent, (childCountByOrg.get(parent) ?? 0) + 1);
+    }
 
-    return memberships.map(m => {
+    // Parent names: from orgs already in hand, reading only the parents the
+    // user isn't a member of.
+    const nameById = new Map(orgs.map(o => [o._id.toString(), o.name]));
+    const missingParents = [...new Set(
+      orgs.map(o => (o.parentOrgId ? String(o.parentOrgId) : undefined))
+        .filter((p): p is string => !!p && !nameById.has(p)),
+    )];
+    if (missingParents.length > 0) {
+      const parents = await Organization.find({ _id: { $in: missingParents.map(toOrgId) } }).select('_id name').lean();
+      for (const p of parents) nameById.set(p._id.toString(), p.name);
+    }
+
+    const rows: MembershipInfo[] = memberships.map(m => {
       const org = orgMap.get(m.organizationId.toString());
       const parentOrgId = org?.parentOrgId ? String(org.parentOrgId) : undefined;
+      const parentOrgName = parentOrgId ? nameById.get(parentOrgId) : undefined;
       return {
         organizationId: m.organizationId.toString(),
         organizationName: org?.name || 'Unknown',
@@ -140,10 +171,40 @@ class UserProfileService {
         isActive: m.isActive,
         joinedAt: m.joinedAt?.toISOString(),
         ...(parentOrgId && { parentOrgId }),
+        ...(parentOrgName && { parentOrgName }),
         ...(org?.tier && { tier: org.tier as string }),
         childOrgCount: childCountByOrg.get(m.organizationId.toString()) ?? 0,
       };
     });
+
+    // Inherited-authority teams (the same rule switch-org applies).
+    const memberOrgIds = new Set(orgIds.map(String));
+    const administered = new Set(
+      memberships
+        .filter(m => m.isActive && (m.role === 'admin' || m.role === 'owner'))
+        .map(m => m.organizationId.toString())
+        .filter(id => !orgMap.get(id)?.deletedAt),
+    );
+    for (const team of children) {
+      const teamId = team._id.toString();
+      const parentOrgId = String(team.parentOrgId);
+      if (!administered.has(parentOrgId) || memberOrgIds.has(teamId)) continue;
+      const parentOrgName = nameById.get(parentOrgId);
+      rows.push({
+        organizationId: teamId,
+        organizationName: team.name,
+        slug: team.slug,
+        role: 'admin',
+        isActive: true,
+        parentOrgId,
+        ...(parentOrgName && { parentOrgName }),
+        ...(team.tier && { tier: team.tier as string }),
+        // Nesting is one level deep: a team never parents teams.
+        childOrgCount: 0,
+        viaAncestor: true,
+      });
+    }
+    return rows;
   }
 
   /**

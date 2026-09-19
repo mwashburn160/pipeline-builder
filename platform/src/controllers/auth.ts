@@ -359,8 +359,11 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   if (!organizationId) return sendError(res, 400, 'organizationId is required');
 
   const fromOrgId = req.user?.organizationId;
-  const user = await authService.switchActiveOrg(userId, organizationId);
-  if (!user) return sendError(res, 403, 'You are not an active member of this organization');
+  // Membership in the org, or admin authority inherited from an ancestor (a
+  // parent admin opening one of its teams) — see helpers/org-authority.ts.
+  const switched = await authService.switchActiveOrg(userId, organizationId);
+  if (!switched) return sendError(res, 403, 'You are not an active member of this organization');
+  const { user, authority } = switched;
 
   const sessionId = (req.user as AccessTokenPayload).sid;
   // A scoped caller keeps its scope across the switch (never widened).
@@ -379,7 +382,13 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // the destination org so it surfaces in that org's audit view.
   audit(req, 'org.switch', {
     affectedOrgId: organizationId,
-    details: { fromOrgId, toOrgId: organizationId },
+    details: {
+      fromOrgId,
+      toOrgId: organizationId,
+      // An inherited-authority switch names the ancestor whose admin membership
+      // let the actor in — the team's roster does not show them.
+      ...(authority.via === 'ancestor' ? { via: 'ancestor', inheritedFromOrgId: authority.inheritedFromOrgId } : {}),
+    },
   });
 
   // Same slot, new token pair — the browser's cookie is rotated in place.

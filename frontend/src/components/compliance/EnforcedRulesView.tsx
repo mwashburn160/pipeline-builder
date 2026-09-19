@@ -8,6 +8,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import api from '@/lib/api';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
+import { InheritedBadge } from './InheritedBadge';
 
 export default function EnforcedRulesView() {
   const [rules, setRules] = useState<ComplianceRule[]>([]);
@@ -102,6 +103,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
       <>
         <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
         {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
+        {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
       </>
     ),
   },

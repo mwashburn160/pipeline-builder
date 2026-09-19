@@ -30,6 +30,9 @@ import {
   activateMember,
   deleteOrganization,
   restoreOrganization,
+  listDeletedTeams,
+  deleteTeam,
+  moveOrganization,
   exportOrganization,
   getOrganizationRoles,
   createOrganizationRole,
@@ -196,6 +199,12 @@ router.patch('/:id/tier', requireAuth, requireSystemAdmin, requireStepUp, audite
  *  the window. Restorable via POST /:id/restore until then. */
 router.delete('/:id', requireAuth, requireSystemAdmin, requireStepUp, audited('org.soft_delete'), deleteOrganization);
 
+/** POST /organization/:id/move - Reparent an org (sysadmin only): a team to
+ *  another root, a team out as a standalone root (`parentOrgId: null`), or a
+ *  root with no teams in under a root. Re-syncs tier, entitlements, quota
+ *  seeding and seats; step-up gated like the other sysadmin org mutations. */
+router.post('/:id/move', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.org.move'), moveOrganization);
+
 /** POST /organization/:id/restore - Restore a soft-deleted org within its
  *  retention window. `requirePermission('org:settings')` is the capability gate;
  *  the controller's `canAdministerOrg` is the tenancy gate (sysadmin or an
@@ -292,6 +301,16 @@ router.post('/:id/members/bulk-add', requireAuth, requirePermission('members:man
 
 /** GET /organization/:id/teams - Descendant team roster (no member context). */
 router.get('/:id/teams', requireAuth, getOrganizationTeams);
+
+/** GET /organization/:id/teams/deleted - Soft-deleted teams of :id still inside
+ *  their retention window (restorable via POST /:teamId/restore).
+ *  `org:settings` is the capability gate; `canAdministerOrg(:id)` the tenancy gate. */
+router.get('/:id/teams/deleted', requireAuth, requirePermission('org:settings'), listDeletedTeams);
+
+/** DELETE /organization/:id/teams/:teamId - A parent admin soft-deletes one of
+ *  its own teams (same retention window + snapshot as sysadmin DELETE /:id).
+ *  Step-up gated like every org delete. 404 unless :teamId's parent is :id. */
+router.delete('/:id/teams/:teamId', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.team.delete'), deleteTeam);
 
 /** GET /organization/:id/member/:memberId/teams - Descendant teams annotated
  *  with the member's membership (manage-teams view). */

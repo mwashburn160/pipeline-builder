@@ -55,6 +55,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     updateAIConfig: (...a: unknown[]) => mockUpdateAIConfig(...a),
     update: (...a: unknown[]) => mockUpdateOrg(...a),
   },
+  orgHierarchyService: {},
   changedAiProviderFields: (body: Record<string, unknown>) => Object.keys(body ?? {}),
 }));
 

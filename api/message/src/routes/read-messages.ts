@@ -18,6 +18,7 @@ import { withRoute, incrementQuotaFromCtx, createProtectedRoute } from '@pipelin
 import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
+import { listReachableOrgs } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
 import { messageService, type InboxFilters } from '../services/message-service.js';
 
@@ -39,6 +40,7 @@ function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: Inbox
  *   GET /messages/announcements — List announcements only
  *   GET /messages/conversations — List conversations only
  *   GET /messages/unread/count  — Get unread message count
+ *   GET /messages/recipients/orgs — Orgs the caller may start a conversation with
  *   GET /messages/:id           — Get single message by ID
  *   GET /messages/:id/thread    — Get all messages in a thread
  */
@@ -174,6 +176,19 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
     const messages = await enrichWithOrgNames(deleted);
     return sendSuccess(res, 200, { messages });
+  }));
+
+  // GET /messages/recipients/orgs — every org in the caller's account (root +
+  // teams, own org included) the compose picker may offer, as
+  // `{ orgs: [{ orgId, name, isTeam }] }`. Derived from the same root resolution
+  // as the create route's cross-tenant send gate, so it never lists an org that
+  // gate would refuse. Gated on `messages:write` — the authority sending needs;
+  // a read-only member has nothing to compose. Registered before `/:id`.
+  router.get('/recipients/orgs', ...protect, requirePermission('messages:write'), withRoute(async ({ res, ctx, orgId }) => {
+    const orgs = await listReachableOrgs(orgId);
+    ctx.log('COMPLETED', 'Listed reachable recipient orgs', { count: orgs.length });
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
+    return sendSuccess(res, 200, { orgs });
   }));
 
   // GET /messages/:id — Get single message

@@ -71,6 +71,19 @@ export interface OrgQuotaResponse {
   tier: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   isDefault?: boolean;
+  /**
+   * Present when the org belongs to an org → team pool (a root with teams, or a
+   * team). `quotas` (except storageBytes) and `tier` are then the ROOT's pooled
+   * caps against the whole subtree's usage. Absent for a flat org.
+   */
+  pool?: {
+    rootOrgId: string;
+    rootOrgName: string;
+    /** True when this org IS the pool root (false ⇒ a team). */
+    isRoot: boolean;
+    /** Root + every team in the pool. */
+    orgCount: number;
+  };
 }
 
 /** Build all three quota summaries, falling back to config defaults. */

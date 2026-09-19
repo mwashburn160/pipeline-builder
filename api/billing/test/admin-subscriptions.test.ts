@@ -44,6 +44,7 @@ const mockSubscriptionFindById = jest.fn<(...args: unknown[]) => any>();
 const mockSubscriptionCountDocuments = jest.fn<(...args: unknown[]) => Promise<number>>();
 
 const mockSubscriptionDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
+const mockSubscriptionExists = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
@@ -51,6 +52,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
     findById: mockSubscriptionFindById,
     countDocuments: mockSubscriptionCountDocuments,
     deleteMany: mockSubscriptionDeleteMany,
+    exists: mockSubscriptionExists,
   },
 }));
 
@@ -751,6 +753,30 @@ describe('PUT /admin/subscriptions/:id', () => {
     await handler(req, res);
 
     expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid field', 'VALIDATION_ERROR');
+  });
+});
+
+describe('GET /subscriptions/by-org/:orgId/billable (org-move guard)', () => {
+  const handler = getHandler('get', '/subscriptions/by-org/:orgId/billable');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsSystemAdmin.mockReturnValue(true);
+  });
+
+  it('reports a billable subscription across every manageable status', async () => {
+    mockSubscriptionExists.mockResolvedValue({ _id: 'sub-1' });
+    const res = mockRes();
+    await handler(mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'svc' } }), res);
+    expect(mockSubscriptionExists).toHaveBeenCalledWith({ orgId: 'org-9', status: { $in: ['active', 'trialing', 'past_due'] } });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { billable: true });
+  });
+
+  it('reports none when the org has no manageable subscription', async () => {
+    mockSubscriptionExists.mockResolvedValue(null);
+    const res = mockRes();
+    await handler(mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'svc' } }), res);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { billable: false });
   });
 });
 

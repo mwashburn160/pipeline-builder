@@ -43,6 +43,7 @@ const mockOrgUpdateOne = jest.fn();
 const mockSnapshotCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgFind = jest.fn();
 const mockUserUpdateMany = jest.fn();
+const mockUserFind = jest.fn();
 const mockPatUpdateMany = jest.fn();
 const mockServiceAccountFind = jest.fn<(...a: unknown[]) => unknown>();
 
@@ -55,7 +56,15 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   default: { findById: (...a: unknown[]) => mockOrgFindById(...a), updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a) },
 }));
 jest.unstable_mockModule('../src/models/deleted-org-snapshot.js', () => ({ __esModule: true, default: { create: (...a: unknown[]) => mockSnapshotCreate(...a) } }));
-jest.unstable_mockModule('../src/models/user.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) } }));
+jest.unstable_mockModule('../src/models/user.js', () => ({
+  __esModule: true,
+  default: {
+    updateMany: (...a: unknown[]) => mockUserUpdateMany(...a),
+    // Sessions working in the org on INHERITED authority (no membership row) are
+    // found by `lastActiveOrgId` and cut too.
+    find: (...a: unknown[]) => mockUserFind(...a),
+  },
+}));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ __esModule: true, default: { find: (...a: unknown[]) => mockUserOrgFind(...a) } }));
 jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a) } }));
 // Service accounts (#2): the tombstone also revokes their keys — they hold no
@@ -86,6 +95,8 @@ beforeEach(() => {
   mockSnapshotCreate.mockResolvedValue({ _id: 'snap-1' });
   mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ userId: 'u1' }, { userId: 'u2' }]) }) }) });
   mockUserUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
+  // No one working in the org on inherited (parent-admin) authority by default.
+  mockUserFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) });
   mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
   // One service account in the org, holding one live key.
   mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'sa-1' }]) }) });
@@ -123,6 +134,18 @@ describe('softDeleteOrg', () => {
     expect(patFilter).toEqual({ userId: { $in: ['u1', 'u2'] }, organizationId: 'org-acme', revoked: false });
     expect(patUpdate.$set.revoked).toBe(true);
     expect(patUpdate.$set.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('also cuts sessions working in the org on INHERITED authority (pinned by lastActiveOrgId), once each', async () => {
+    // u2 is a member AND pinned; parent-admin has no membership row at all.
+    mockUserFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ _id: 'u2' }, { _id: 'parent-admin' }]) }) }) });
+
+    const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+
+    expect(mockUserFind).toHaveBeenCalledWith({ lastActiveOrgId: 'org-acme' });
+    const [uFilter] = mockUserUpdateMany.mock.calls[0] as [any, any];
+    expect(uFilter).toEqual({ _id: { $in: ['u1', 'u2', 'parent-admin'] } });
+    expect(result.membersInvalidated).toBe(3);
   });
 
   it('does NOT revoke member PATs when the org has no active members', async () => {

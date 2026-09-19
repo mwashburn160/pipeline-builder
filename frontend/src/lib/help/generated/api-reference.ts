@@ -585,7 +585,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id",
-              "Get an organization, with a page of its member roster (?membersLimit= 1–500, default 100; ?membersOffset=) — memberCount is always the full total",
+              "Get an organization, with a page of its member roster (?membersLimit= 1–500, default 100; ?membersOffset=) — memberCount is always the full total. For a sysadmin it also carries the hierarchy: parentOrgId, parentOrgName and teams: [{ orgId, orgName }] (live teams)",
               "— (own org / managed team / sysadmin)"
             ],
             [
@@ -597,7 +597,20 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/organization/:id",
-              "Delete an organization (+ step-up)",
+              "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. Refused (400) while it has live teams",
+              "system admin"
+            ],
+            [
+              "POST",
+              "/organization/:id/restore",
+              "Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (409) and room in the account's pooled seats (409), and re-syncs the root's tier + entitlements",
+              "org:settings (own org / managed team)"
+            ],
+            [
+              "POST",
+              "/organization/:id/move",
+              "Reparent (+ step-up). Body `{ parentOrgId: string \\",
+              "null }: a team to another eligible root (team/enterprise tier), a team out as a standalone root (null), or a root with no teams (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (400/404), a move over the destination's seat cap (409), and nesting a root that still has a billable subscription (409, cancel it first; 503 if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with -1 quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → { organization }` (the detail DTO with hierarchy)",
               "system admin"
             ],
             [
@@ -642,8 +655,20 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id/teams",
-              "List descendant teams",
+              "List live descendant teams (soft-deleted teams are excluded here, from /:id/member/:memberId/teams and from /:id/descendants)",
               "— (member)"
+            ],
+            [
+              "GET",
+              "/organization/:id/teams/deleted",
+              "Soft-deleted teams of :id still inside their retention window → { teams: [{ orgId, orgName, deletedAt, purgeAfter }] }, newest first. Restore with POST /organization/:teamId/restore",
+              "org:settings (admin of :id)"
+            ],
+            [
+              "DELETE",
+              "/organization/:id/teams/:teamId",
+              "A parent admin soft-deletes one of its own teams (+ step-up) — the same snapshot + retention window as the sysadmin delete → 202 { deletedAt, purgeAfter, snapshotId }. 404 unless the team's direct parent is :id. The team leaves the live scope at once: its members stop counting against pooled seats and it drops out of team lists and rollups",
+              "org:settings (admin of :id)"
             ],
             [
               "GET",
@@ -724,8 +749,15 @@ export const apiReferenceTopic: HelpTopic = {
               "GET \\",
               "PATCH",
               "/organization/:id/mfa-policy",
-              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes, plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
+              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes (inheritedFrom + inheritedFromName, the parent's id and name, when a parent's requirement applies), plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
               "org:settings"
+            ],
+            [
+              "GET \\",
+              "PATCH",
+              "/organization/:id/impersonation-policy",
+              "Read / change whether platform operators may view as this org's members (open, consent, denied) and allowSelfApproval. Returns the EFFECTIVE policy (strictest across the org and its ancestors) with the org's own setting; when a parent's stricter policy applies, inheritedFrom + inheritedFromName name it. The write is step-up gated",
+              "org:impersonation"
             ]
           ]
         },
@@ -884,6 +916,18 @@ export const apiReferenceTopic: HelpTopic = {
               "/auth/logout",
               "End the current session's slot and clear the refresh cookie",
               "— (auth), + X-Pb-Client"
+            ],
+            [
+              "POST",
+              "/auth/switch-org",
+              "Re-scope the current session to { organizationId } (same slot, same assurance). Allowed with a membership there or admin authority inherited from a parent org — a parent admin can open its teams as admin with no roster entry (see Authentication → parent-admin access). 403 otherwise",
+              "— (auth)"
+            ],
+            [
+              "GET",
+              "/user/organizations",
+              "Orgs the caller can switch into: membership rows (organizationId, organizationName, slug, role, isActive, joinedAt, parentOrgId, parentOrgName, tier, childOrgCount), then one viaAncestor: true row (role: 'admin') per live team of an org they administer but aren't a member of",
+              "— (auth)"
             ],
             [
               "POST",

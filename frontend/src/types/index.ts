@@ -104,6 +104,8 @@ export interface OrgMfaPolicy {
   requiredSince?: string;
   /** Set when a PARENT org's requirement is what's in force here. */
   inheritedFrom?: string;
+  /** Display name of `inheritedFrom`, when resolvable. */
+  inheritedFromName?: string;
   /** Grace period offered by default when turning the requirement on. */
   defaultGraceDays: number;
   /**
@@ -177,6 +179,12 @@ export interface UserOrgMembership {
   role: 'owner' | 'admin' | 'member';
   /** Parent org id when this org is a team (org → team hierarchy); absent for top-level orgs. */
   parentOrgId?: string;
+  /** Parent org's display name (teams only) — names the parent when the user
+   *  isn't a member of it, so the team can't pass for a top-level org. */
+  parentOrgName?: string;
+  /** No membership row: the user reaches this team as an admin of its parent
+   *  (inherited authority). It isn't on the team's roster and uses no seat. */
+  viaAncestor?: boolean;
   /** Org's quota tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
   tier?: 'developer' | 'pro' | 'team' | 'enterprise';
   /** Live teams nested under this org (0 for a flat org or a team). Read through
@@ -285,6 +293,19 @@ export interface OrgQuotaResponse {
   tier?: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   isDefault?: boolean;
+  /**
+   * Present when the org belongs to an org → team pool (a root with teams, or a
+   * team). `quotas` (except storageBytes) and `tier` are then the ROOT's pooled
+   * caps against the whole subtree's usage. Absent for a flat org.
+   */
+  pool?: {
+    rootOrgId: string;
+    rootOrgName: string;
+    /** True when this org IS the pool root (false ⇒ a team). */
+    isRoot: boolean;
+    /** Root + every team in the pool. */
+    orgCount: number;
+  };
 }
 
 /**

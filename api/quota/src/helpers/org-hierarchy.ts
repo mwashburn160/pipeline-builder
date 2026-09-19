@@ -11,8 +11,8 @@
  * Org `_id`s in that collection are ObjectId (platform-written) except string
  * ids like the well-known `'system'` org, so lookups cast via {@link toOrgId}.
  *
- * Every org is flat today (`parentOrgId` null), so `resolveRootOrgId` returns
- * the input and `expandOrgScope` returns `[self]` — no-ops until orgs get parents.
+ * A flat org (no parent, no teams) resolves in the single
+ * {@link findOrgWithHierarchy} query and never walks the tree.
  */
 
 import {
@@ -25,18 +25,50 @@ import { Organization } from '../models/organization.js';
 
 /**
  * Fetch a single org's direct parent id (cast-aware), or undefined when the org
- * is a root (no `parentOrgId`) or does not exist. Exported so the quota service
- * can cheaply short-circuit pooling for flat orgs with a single-field read
- * before ever walking the hierarchy.
+ * is a root (no `parentOrgId`) or does not exist.
  */
 export async function getParentOrgId(orgId: string): Promise<string | undefined> {
   const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').lean();
   return toOrgIdString((org as { parentOrgId?: unknown } | null)?.parentOrgId);
 }
 
-/** Fetch the direct child org ids of every org in `frontier`. */
+/** One org's own row plus its position in the org → team hierarchy. */
+export interface OrgHierarchyLookup<T> {
+  /** The org's own row (with the requested fields), or null when it does not exist. */
+  self: T | null;
+  /** Direct parent id, or undefined for a root / flat org. */
+  parentOrgId?: string;
+  /** True when at least one org names this org as its parent. */
+  hasChildren: boolean;
+}
+
+/**
+ * Read an org's own row AND learn whether it sits in a hierarchy in ONE query:
+ * `{ _id: self } ∪ { live teams of self }`. A flat org (no parent, no teams) —
+ * the common case — therefore costs exactly this single round trip; only an org
+ * with a parent or with teams goes on to walk the tree. `fields` is the extra
+ * projection for the self row (`parentOrgId` is always selected).
+ */
+export async function findOrgWithHierarchy<T extends object>(
+  orgId: string,
+  fields: string,
+): Promise<OrgHierarchyLookup<T>> {
+  const rows = await Organization.find({ $or: [{ _id: toOrgId(orgId) }, { parentOrgId: orgId, deletedAt: null }] })
+    .select(`${fields} parentOrgId`.trim())
+    .lean() as unknown as Array<T & { _id?: unknown; parentOrgId?: unknown }>;
+  let self: (T & { parentOrgId?: unknown }) | null = null;
+  let hasChildren = false;
+  for (const row of rows) {
+    if (toOrgIdString(row._id) === orgId) self = row;
+    else hasChildren = true;
+  }
+  return { self, parentOrgId: toOrgIdString(self?.parentOrgId), hasChildren };
+}
+
+/** Fetch the direct LIVE child org ids of every org in `frontier` (a
+ *  soft-deleted team leaves the pool, matching the platform's scope). */
 async function getChildOrgIds(frontier: string[]): Promise<string[]> {
-  const children = await Organization.find({ parentOrgId: { $in: frontier } })
+  const children = await Organization.find({ parentOrgId: { $in: frontier }, deletedAt: null })
     .select('_id')
     .lean();
   return children

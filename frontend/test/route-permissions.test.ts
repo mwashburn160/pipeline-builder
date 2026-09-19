@@ -184,6 +184,12 @@ const CONTROLS: Control[] = [
     routes: ['message POST /messages', 'message DELETE /messages/:id'],
   },
   {
+    control: 'Compose recipient list (account orgs + teams)',
+    file: 'pages/dashboard/messages.tsx',
+    permissions: ['messages:write'],
+    routes: ['message GET /messages/recipients/orgs'],
+  },
+  {
     control: 'Message reads',
     file: 'src/lib/nav.ts',
     permissions: ['messages:read'],
@@ -388,6 +394,70 @@ const CONTROLS: Control[] = [
       'platform DELETE /organization/:id/service-accounts/:accountId',
     ],
   },
+  // ── Teams, managed from their parent (Members → Teams) ────────────────────
+  {
+    control: 'Create a team (Members → Create Team)',
+    file: 'pages/dashboard/members.tsx',
+    permissions: ['org:settings'],
+    routes: ['platform POST /organization'],
+  },
+  {
+    control: 'Export / delete a team, list and restore deleted teams (Members → Teams)',
+    file: 'pages/dashboard/members.tsx',
+    gateFiles: ['src/components/teams/TeamsCard.tsx'],
+    permissions: ['org:settings'],
+    stepUp: true,
+    routes: [
+      'platform GET /organization/:id/export',
+      'platform DELETE /organization/:id/teams/:teamId',
+      'platform GET /organization/:id/teams/deleted',
+      'platform POST /organization/:id/restore',
+    ],
+  },
+  {
+    control: 'Rename a team / edit its two-factor policy (team settings drawer)',
+    file: 'src/components/teams/TeamSettingsDrawer.tsx',
+    gateFiles: ['src/components/settings/MfaPolicySettings.tsx'],
+    permissions: ['org:settings'],
+    stepUp: true,
+    routes: ['platform PATCH /organization/:id/identity', 'platform PATCH /organization/:id/mfa-policy'],
+  },
+  {
+    control: 'Edit a team\'s impersonation policy (team settings drawer)',
+    file: 'src/components/teams/TeamSettingsDrawer.tsx',
+    gateFiles: ['src/components/settings/ImpersonationPolicySettings.tsx'],
+    permissions: ['org:impersonation'],
+    stepUp: true,
+    routes: ['platform PATCH /organization/:id/impersonation-policy'],
+  },
+  {
+    control: 'Connect / edit / disconnect a team\'s SSO (team settings drawer)',
+    file: 'src/components/teams/TeamSettingsDrawer.tsx',
+    gateFiles: [
+      'src/components/settings/OrgSsoSettings.tsx',
+      'src/components/settings/OrgSamlSettings.tsx',
+      'src/components/settings/SsoDisconnect.tsx',
+    ],
+    permissions: ['org:idp'],
+    // Enforced inside the handlers (`requireOwnOrgSso`); the drawer renders the
+    // `sso` FeatureLock in place of the editors.
+    features: ['sso'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'platform PUT /organization/:id/idp',
+      'platform PATCH /organization/:id/idp',
+      'platform DELETE /organization/:id/idp',
+    ],
+  },
+  {
+    control: 'Move an organization in the hierarchy (sysadmin drill-down)',
+    file: 'src/components/admin/org-detail/OrgHierarchyCard.tsx',
+    // Sysadmin-only route on a sysadmin-only page.
+    permissions: [],
+    stepUp: true,
+    routes: ['platform POST /organization/:id/move'],
+  },
   {
     control: 'Edit an org\'s name / slug / description (sysadmin drill-down)',
     file: 'src/components/admin/org-detail/OrgIdentityCard.tsx',
@@ -573,7 +643,6 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   'platform POST /observability/alert-rules/:id/purge': 'Recently-deleted panel on the alert-rules page (observability:write) + global step-up resume.',
   'platform POST /observability/alert-destinations/:id/restore': 'Recently-deleted panel on the alert-destinations page (observability:write) + global step-up resume.',
   'platform POST /observability/alert-destinations/:id/purge': 'Recently-deleted panel on the alert-destinations page (observability:write) + global step-up resume.',
-  'platform POST /organization/:id/restore': 'Sysadmin organizations page — restore a soft-deleted org; step-up only.',
 
   // ── Own-account security (step-up), Settings → profile sections ───────────
   'platform POST /user/change-password': 'Profile → password section; step-up only (the user is acting on their own account).',
@@ -591,7 +660,6 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   // ── Org administration (step-up), gated by permissions already mapped ─────
   'platform DELETE /organization/:id': 'Sysadmin org drill-down / All Organizations — soft-delete an org; systemAdmin + step-up.',
   'platform PATCH /organization/:id/transfer-owner': 'Org settings — transfer ownership; owner-gated + step-up.',
-  'platform PATCH /organization/:id/mfa-policy': 'Org settings → MFA policy section; `org:settings` + step-up.',
   'platform PUT /organization/ai-config': 'Org settings → AI provider config; `org:settings` + step-up.',
 
   // ── Sysadmin-only surfaces (systemAdmin + step-up, some strong-factor) ────

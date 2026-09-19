@@ -18,7 +18,8 @@ export function RowActionsMenu({
   canIdp: boolean;
   onKms: () => void;
   onIdp: () => void;
-  onTier: () => void;
+  /** Omitted for a team — its tier is inherited from its root, never edited. */
+  onTier?: () => void;
   onNamespace: () => void;
   onDelete: () => void;
 }) {
@@ -109,9 +110,11 @@ export function RowActionsMenu({
               <ShieldCheck className="w-3.5 h-3.5 text-gray-400" /> SSO / IdP config
             </button>
           )}
-          <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
-            <Layers className="w-3.5 h-3.5 text-gray-400" /> Change tier
-          </button>
+          {onTier && (
+            <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
+              <Layers className="w-3.5 h-3.5 text-gray-400" /> Change tier
+            </button>
+          )}
           <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
             <FileDown className="w-3.5 h-3.5 text-gray-400" /> Namespace YAML
           </button>

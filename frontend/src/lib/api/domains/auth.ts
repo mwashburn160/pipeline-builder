@@ -205,15 +205,16 @@ export function authApi(core: ApiCore) {
         method: 'POST',
         body: JSON.stringify({ organizationId }),
       });
-      if (result.data) {
-        core.setTokens({ accessToken: result.data.accessToken, expiresIn: result.data.expiresIn });
-      }
+      // A 2xx without a token would leave the session in the OLD org while the
+      // caller reports a switch — fail loudly instead.
+      if (!result.data?.accessToken) throw new Error(result.message || 'Could not switch organization');
+      core.setTokens({ accessToken: result.data.accessToken, expiresIn: result.data.expiresIn });
       return result;
     },
 
     /** List all organizations the current user belongs to. */
     getUserOrganizations: async () => {
-      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; tier?: string; childOrgCount: number }> }>>('/api/user/organizations');
+      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; parentOrgName?: string; tier?: string; childOrgCount: number; viaAncestor?: boolean }> }>>('/api/user/organizations');
     },
 
     /**

@@ -61,6 +61,9 @@ export interface OrganizationDocument extends Document {
    * service can roll usage up to the root for the shared-cap check.
    */
   parentOrgId?: string | null;
+  /** Soft-delete marker (written by the platform). A soft-deleted team leaves
+   *  the quota pool, matching the platform's live-only subtree. */
+  deletedAt?: Date | null;
 }
 
 // Schema
@@ -109,6 +112,8 @@ const organizationSchema = new Schema<OrganizationDocument>( {
   slug: { type: String, required: true },
   // Org → team hierarchy parent (null = root). Indexed for descendant lookups.
   parentOrgId: { type: String, default: null, index: true },
+  // Declared so hierarchy filters on it aren't stripped as unknown paths.
+  deletedAt: { type: Date, default: null },
   // Enum derived from api-core's VALID_TIERS so a new tier surfaces here automatically.
   tier: { type: String, enum: [...VALID_TIERS], default: 'developer' },
   quotas: {

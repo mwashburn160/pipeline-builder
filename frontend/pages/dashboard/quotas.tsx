@@ -39,7 +39,8 @@ export default function QuotasPage() {
   // A team (child org) draws from its ROOT's pooled quota: the quota service
   // already reports the root's shared limit + the whole subtree's usage here,
   // so the numbers are correct — we just label them as pooled and read-only.
-  const { isChildOrg: activeOrgIsTeam } = useOrgHierarchy();
+  // A root with teams sees the same pooled figures (its own usage + every team's).
+  const { isChildOrg: activeOrgIsTeam, hasChildOrgs: activeOrgHasTeams } = useOrgHierarchy();
   // Can this viewer act on billing? (owner/admin role, or a custom group granted
   // `billing:manage`.) Drives the "Upgrade your plan" link in the read-only view;
   // a team manages billing at its parent, so the link is suppressed there.
@@ -251,6 +252,7 @@ export default function QuotasPage() {
         loadError={loadError}
         onRetry={retryOrg}
         activeOrgIsTeam={activeOrgIsTeam}
+        activeOrgHasTeams={activeOrgHasTeams}
         canManageBilling={canManageBilling}
         atRisk={ownAtRisk}
       />

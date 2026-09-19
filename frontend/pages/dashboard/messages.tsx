@@ -6,6 +6,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useMessages, type MessageView, type MessageFilters } from '@/hooks/useMessages';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useFetch } from '@/hooks/useFetch';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
@@ -284,6 +285,22 @@ export default function MessagesPage() {
     }
   }, [isSuperAdmin, currentOrgId]);
 
+  // Compose recipients: every org in the caller's account (root + teams), from
+  // the message service's own reachability listing — the same set its send gate
+  // admits, not just the orgs this user happens to belong to. Fetched only while
+  // composing, and only for `messages:write` holders (the endpoint's gate).
+  const recipientOrgsQ = useFetch(async () => {
+    if (!canWrite || !showCompose) return [];
+    const res = await api.getRecipientOrgs();
+    return res.data?.orgs ?? [];
+  }, [canWrite, showCompose, currentOrgId]);
+  const recipientSuggestions = useMemo(
+    () => (recipientOrgsQ.data ?? [])
+      .filter((o) => o.orgId.toLowerCase() !== currentOrgId)
+      .map((o) => ({ value: o.orgId, label: o.name, isTeam: o.isTeam })),
+    [recipientOrgsQ.data, currentOrgId],
+  );
+
   // Upload one attachment; returns its metadata (id linked on send).
   const uploadAttachment = useCallback(async (file: File) => {
     const res = await api.uploadAttachment(file);
@@ -487,9 +504,7 @@ export default function MessagesPage() {
         onUploadAttachment={uploadAttachment}
         recentRecipients={recentRecipients}
         searchRecipients={isSuperAdmin ? searchRecipients : undefined}
-        recipientSuggestions={organizations
-          .filter((o) => o.id.toLowerCase() !== currentOrgId)
-          .map((o) => ({ value: o.id, label: o.name }))}
+        recipientSuggestions={recipientSuggestions}
       />
       )}
 

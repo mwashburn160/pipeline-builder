@@ -88,3 +88,16 @@ describe('MfaPolicySettings — who is ready', () => {
     expect(screen.getByTestId('stepup-details')).toHaveTextContent(/7 of 10 today/i);
   });
 });
+
+describe('MfaPolicySettings — inherited requirement', () => {
+  it('names the parent organization that imposes the requirement', async () => {
+    await renderPanel(policy({ requireMfa: true, enforced: true, inheritedFrom: 'root-1', inheritedFromName: 'Acme Corp' }));
+    const callout = screen.getByText('Acme Corp').closest('div')!;
+    expect(callout).toHaveTextContent(/the parent organization acme corp already requires two-factor authentication/i);
+  });
+
+  it('falls back to generic copy when the parent\'s name is absent', async () => {
+    await renderPanel(policy({ requireMfa: true, enforced: true, inheritedFrom: 'root-1' }));
+    expect(screen.getByText(/a parent organization already requires two-factor authentication/i)).toBeInTheDocument();
+  });
+});

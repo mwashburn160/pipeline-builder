@@ -14,9 +14,14 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
 import type { QuotaTier } from '../models/organization.js';
 import { incCounter } from '../observability/metrics.js';
-import { organizationService, changedAiProviderFields } from '../services/index.js';
+import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
-import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED } from '../services/org-errors.js';
+import {
+  ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED,
+  ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE,
+  ORG_MOVE_SYSTEM, ORG_MOVE_DELETED, ORG_MOVE_SELF, ORG_MOVE_CYCLE, ORG_MOVE_HAS_TEAMS, ORG_MOVE_TARGET_NOT_FOUND,
+  ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
+} from '../services/org-errors.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
@@ -92,6 +97,8 @@ export const getOrganizationById = withController('Get organization', async (req
   const org = await organizationService.getById(id, {
     membersLimit: Number.isNaN(membersLimit) ? undefined : membersLimit,
     membersOffset: Number.isNaN(membersOffset) ? undefined : membersOffset,
+    // The sysadmin org-detail page shows where the org sits: parent name + live teams.
+    includeHierarchy: isSystemAdmin(req),
   });
   if (!org) return sendError(res, 404, 'Organization not found');
 
@@ -295,11 +302,13 @@ export const deleteOrganization = withController('Delete organization', async (r
 
   // A root org with live teams must not be deleted directly — it would orphan
   // the teams (dangling `parentOrgId`) and their pooled seats/usage. Require the
-  // teams be removed first. `expandOrgScope` returns `[self]` for a flat org or
-  // a team (no descendants), so this only blocks a root that still has teams.
+  // teams be removed first (DELETE /:id/teams/:teamId) or reparented
+  // (POST /:teamId/move). `expandOrgScope` is the LIVE scope: `[self]` for a flat
+  // org or a team, and soft-deleted teams don't block — they can only be
+  // restored while their parent is live (see orgHierarchyService.prepareTeamRestore).
   const scope = await expandOrgScope(id);
   if (scope.length > 1) {
-    return sendError(res, 400, 'This organization has teams — delete or move its teams before deleting it');
+    return sendError(res, 400, 'This organization has teams — delete each team, or move it to another organization or out as a standalone organization, before deleting this one');
   }
 
   // SOFT-delete instead of the immediate destructive cascade: capture a durable
@@ -373,6 +382,10 @@ export const restoreOrganization = withController('Restore organization', async 
     details: { membersInvalidated: restored.membersInvalidated },
   });
   sendSuccess(res, 200, { organization: restored }, 'Organization restored');
+}, {
+  [ORG_RESTORE_PARENT_GONE]: { status: 409, message: 'This team\'s parent organization is deleted — restore the parent first' },
+  [ORG_RESTORE_PARENT_INELIGIBLE]: { status: 409, message: 'This team\'s parent organization can no longer hold teams (it is a team itself, or its plan no longer includes teams)' },
+  [ORG_SEAT_LIMIT]: { status: 409, message: 'Restoring this team would put the account over its seat limit — free seats or add a seat pack first' },
 });
 
 /**
@@ -546,6 +559,124 @@ export const getOrganizationFeatureEntitlements = withController('Get organizati
   }
   const featureEntitlements = await pooledFeatureEntitlements(id);
   sendSuccess(res, 200, { featureEntitlements });
+});
+
+// Team lifecycle (parent-admin self-serve) + reparenting (sysadmin)
+
+/**
+ * GET /organization/:id/teams/deleted — soft-deleted teams of `:id` still inside
+ * their retention window (restorable via `POST /:teamId/restore`). Capability
+ * `org:settings` at the route; tenancy `canAdministerOrg(:id)` here.
+ */
+export const listDeletedTeams = withController('List deleted teams', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  if (!(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'You can only view the teams of an organization you administer');
+  }
+  sendSuccess(res, 200, await orgHierarchyService.listDeletedTeams(id));
+});
+
+/**
+ * DELETE /organization/:id/teams/:teamId — a parent admin soft-deletes one of
+ * its own teams. The same soft-delete as the sysadmin `DELETE /:id` (recovery
+ * snapshot, tombstone + `purgeAfter` retention window, every session scoped to
+ * the team cut). The team leaves the LIVE scope at once, so its members stop
+ * counting against the account's pooled seats and it drops out of team lists
+ * and rollups; `POST /:teamId/restore` brings it back (re-checking seats).
+ * 404 unless the team's DIRECT parent is `:id`.
+ */
+export const deleteTeam = withController('Delete team', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  const teamId = getParam(req.params, 'teamId')!;
+  if (!(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'You can only delete a team of an organization you administer');
+  }
+  const team = await orgHierarchyService.getTeamParent(teamId);
+  if (!team || team.parentOrgId !== id) throw new Error(ORG_TEAM_NOT_FOUND);
+
+  const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
+  const result = await softDeleteOrg(teamId, actorOrgId, req.user!.sub);
+
+  logger.info(`Team ${teamId} of ${id} soft-deleted by ${req.user!.sub}`, {
+    purgeAfter: result.purgeAfter, snapshotId: result.snapshotId, membersInvalidated: result.membersInvalidated,
+  });
+  audit(req, 'org.team.delete', {
+    targetType: 'organization',
+    targetId: teamId,
+    affectedOrgId: teamId,
+    details: {
+      parentOrgId: id,
+      purgeAfter: result.purgeAfter,
+      snapshotId: result.snapshotId,
+      membersInvalidated: result.membersInvalidated,
+    },
+  });
+  sendSuccess(
+    res,
+    202,
+    { deletedAt: result.deletedAt, purgeAfter: result.purgeAfter, snapshotId: result.snapshotId },
+    `Team scheduled for deletion. It can be restored until ${result.purgeAfter.toISOString()}.`,
+  );
+}, {
+  [ORG_TEAM_NOT_FOUND]: { status: 404, message: 'Team not found' },
+  [ORG_NOT_FOUND]: { status: 404, message: 'Team not found' },
+  [ORG_ALREADY_DELETED]: { status: 409, message: 'Team is already scheduled for deletion' },
+  [ORG_SNAPSHOT_FAILED]: { status: 502, message: 'Could not capture the recovery snapshot — the team was NOT deleted. Retry once the datastore recovers.' },
+});
+
+/**
+ * POST /organization/:id/move — sysadmin reparent. Body `{ parentOrgId: string | null }`:
+ * a team to another root, a team out as a standalone root (`null`), or a root
+ * with no teams in under a root. Tier, entitlements, quota seeding and seats are
+ * re-synced for the new account (see orgHierarchyService.move). Returns the
+ * updated org.
+ */
+export const moveOrganization = withController('Move organization', async (req, res) => {
+  if (!requireSystemAdmin(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  const raw = (req.body as { parentOrgId?: unknown } | undefined)?.parentOrgId;
+  if (raw !== null && (typeof raw !== 'string' || !/^[a-f0-9]{24}$/i.test(raw))) {
+    return sendError(res, 400, 'parentOrgId must be an organization id, or null to make the organization standalone');
+  }
+
+  const moved = await orgHierarchyService.move(id, raw as string | null);
+  audit(req, 'admin.org.move', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: {
+      fromParentOrgId: moved.fromParentOrgId,
+      toParentOrgId: moved.toParentOrgId,
+      tier: moved.tier,
+      membersInvalidated: moved.membersInvalidated,
+    },
+  });
+  logger.info(`Organization ${id} moved by system admin ${req.user!.sub}`, moved);
+
+  const organization = await organizationService.getById(id, { includeHierarchy: true });
+  if (!organization) return sendError(res, 404, 'Organization not found');
+  sendSuccess(
+    res,
+    200,
+    { organization },
+    moved.toParentOrgId ? 'Organization moved' : 'Organization is now a standalone organization',
+  );
+}, {
+  [ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [ORG_MOVE_TARGET_NOT_FOUND]: { status: 404, message: 'Destination organization not found' },
+  [ORG_MOVE_SYSTEM]: { status: 400, message: 'The system organization cannot be moved or hold teams' },
+  [ORG_MOVE_DELETED]: { status: 409, message: 'This organization is scheduled for deletion — restore it before moving it' },
+  [ORG_MOVE_SELF]: { status: 400, message: 'An organization cannot be its own parent' },
+  [ORG_MOVE_CYCLE]: { status: 400, message: 'The destination is inside this organization — that would create a cycle' },
+  [ORG_MOVE_HAS_TEAMS]: { status: 400, message: 'This organization has teams (including any pending deletion) — an organization with teams cannot become a team. Move or delete its teams first' },
+  [ORG_MOVE_TARGET_NOT_ROOT]: { status: 400, message: 'The destination is itself a team — teams can only be nested one level deep' },
+  [ORG_MOVE_TARGET_TIER]: { status: 400, message: 'The destination\'s plan does not include teams — it must be on the Team or Enterprise plan' },
+  [ORG_MOVE_NOOP]: { status: 400, message: 'The organization is already there' },
+  [ORG_MOVE_BILLED]: { status: 409, message: 'This organization still has an active subscription — cancel it before making the organization a team (its plan would pool under the new parent)' },
+  [ORG_MOVE_BILLING_UNVERIFIED]: { status: 503, message: 'Could not confirm with billing that this organization has no active subscription — try again shortly' },
+  [ORG_SEAT_LIMIT]: { status: 409, message: 'This move would put the destination account over its seat limit' },
 });
 
 // Current User's Organization

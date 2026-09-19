@@ -4,6 +4,7 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { rejectIfInheritedRule } from '../helpers/inherited-rule-guard.js';
 import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -15,7 +16,11 @@ export function createDeleteRuleRoutes(): Router {
     if (!id) return sendBadRequest(res, 'Rule ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     const deleted = await complianceRuleService.delete(id, orgId, userId);
-    if (!deleted) return sendEntityNotFound(res, 'Rule');
+    if (!deleted) {
+      // Not in the caller's org — a team deleting its parent's propagated rule gets a clear 403.
+      if (await rejectIfInheritedRule(req, res, id)) return;
+      return sendEntityNotFound(res, 'Rule');
+    }
 
     ctx.log('COMPLETED', 'Deleted compliance rule', { id, name: deleted.name });
 

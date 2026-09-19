@@ -103,6 +103,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
+const mockListReachableOrgs = jest.fn<(...args: unknown[]) => unknown>();
+jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
+  listReachableOrgs: mockListReachableOrgs,
+  isRecipientReachable: jest.fn(async () => true),
+  isTargetUserReachable: jest.fn(async () => true),
+}));
+
 const { createDeleteMessageRoutes } = await import('../src/routes/delete-message.js');
 const { createUpdateMessageRoutes } = await import('../src/routes/update-message.js');
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
@@ -290,5 +297,26 @@ describe.each([
 
     expect(status).not.toHaveBeenCalledWith(403);
     expect(status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('GET /messages/recipients/orgs — requires messages:write (the send authority)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('403s a read-only caller (messages:read only) without listing', async () => {
+    const { res, status } = makeRes();
+    await runRoute(readRouter, 'get', '/recipients/orgs', makeReq({ user: { permissions: ['messages:read'] } }), res);
+
+    expect(status).toHaveBeenCalledWith(403);
+    expect(mockListReachableOrgs).not.toHaveBeenCalled();
+  });
+
+  it('lists for a caller with messages:write', async () => {
+    mockListReachableOrgs.mockResolvedValue([{ orgId: 'org-1', name: 'Org', isTeam: false }]);
+    const { res, status } = makeRes();
+    await runRoute(readRouter, 'get', '/recipients/orgs', makeReq({ user: { permissions: ['messages:write'] } }), res);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockListReachableOrgs).toHaveBeenCalledWith('org-1');
   });
 });

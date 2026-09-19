@@ -89,7 +89,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Messaging | `messages:read`, `messages:write` | |
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |
 | Registry | `registry:read`, `registry:write` | **Super Admin only** — never grantable to a custom Role |
-| Org settings | `org:settings` | General org settings + AI provider config |
+| Org settings | `org:settings` | General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export) |
 | SSO / IdP | `org:idp` | Per-org SSO/IdP configuration, **OIDC and SAML** (protocol selector, connection, certificates, attribute mapping) — **sensitive** (controls login); split out of `org:settings` |
 | KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
 | Impersonation | `org:impersonation` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org:settings` so a role that manages general settings cannot also open the org to impersonation |

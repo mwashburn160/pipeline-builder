@@ -178,6 +178,7 @@ jest.unstable_mockModule('../src/helpers/org-names.js', () => ({
 jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   isRecipientReachable: async () => true,
   isTargetUserReachable: async () => true,
+  listReachableOrgs: async () => [],
 }));
 
 await import('../src/index.js');

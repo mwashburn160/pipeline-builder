@@ -11,6 +11,7 @@ import { config } from '../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
+import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
@@ -241,15 +242,26 @@ async function rolePermissionsFor(userId: string, organizationId: Types.ObjectId
   return [...perms];
 }
 
+/** Union of {@link rolePermissionsFor} across several orgs (inherited authority
+ *  carries the ancestor's Roles plus any the user also holds in the team). */
+async function rolePermissionsForOrgs(userId: string, orgIds: readonly string[]): Promise<string[]> {
+  if (orgIds.length === 1) return rolePermissionsFor(userId, toOrgId(orgIds[0]));
+  const perms = new Set<string>();
+  for (const id of orgIds) for (const p of await rolePermissionsFor(userId, toOrgId(id))) perms.add(p);
+  return [...perms];
+}
+
 /**
  * Membership context for ONE specific org, or `undefined` when the user has no
- * live membership there. No fallback to any other org — see
+ * live membership there (nor admin authority inherited from an ancestor). No fallback to any other org — see
  * {@link resolveMembership} for the login path that does fall back, and
  * {@link issueImpersonationToken} for the caller that must NOT.
  */
 async function resolveOrgMembership(userId: string, orgId: string): Promise<MembershipContext | undefined> {
-  const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId), isActive: true }).lean();
-  if (!membership) return undefined;
+  // A live membership row OR admin authority inherited from an ancestor org (a
+  // parent admin working inside a team) — see helpers/org-authority.ts.
+  const authority = await resolveOrgAuthority(userId, orgId);
+  if (!authority) return undefined;
   const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
   // CHOKEPOINT: refuse to scope a token to a SOFT-DELETED org. The org is
   // being torn down (retention window) — treat it as gone. Combined with the
@@ -271,9 +283,9 @@ async function resolveOrgMembership(userId: string, orgId: string): Promise<Memb
   return {
     organizationId: orgId,
     organizationName: org.name,
-    role: membership.role as OrgMemberRole,
+    role: authority.role,
     tier: org.tier,
-    rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
+    rolePermissions: await rolePermissionsForOrgs(userId, authority.permissionOrgIds),
     ...(mfa?.requireMfa ? { mfaRequired: true } : {}),
     ...(mfa?.enforced ? { mfaEnforced: true } : {}),
     ...(await accountContext(orgId, org)),

@@ -73,6 +73,17 @@ export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
 export type ComplianceRuleUpdate = Partial<Omit<ComplianceRule, 'id' | 'createdAt' | 'createdBy'>>;
 
 /**
+ * A rule as the merged enforced view returns it. Rules a team inherits from its
+ * parent (`propagateToChildren`) carry their origin so the UI can badge them and
+ * keep them read-only; the team cannot edit or delete them.
+ */
+export type EnforcedRule = ComplianceRule & {
+  inherited?: true;
+  /** Org that owns (and alone may edit) an inherited rule. */
+  sourceOrgId?: string;
+};
+
+/**
  * Build a `ComplianceRuleInsert` copying the evaluable body of a source rule
  * (priority/target/severity/tags/scope/field/operator/value/conditions/…), with
  * `overrides` for the per-clone bits (orgId, name, policyId, forkedFromRuleId,
@@ -344,16 +355,46 @@ export class ComplianceRuleService extends CrudService<
   /**
    * Feature #6: Get all enforced rules for an org (org rules + active subscribed rules merged).
    */
-  async findAllEnforced(orgId: string, target?: RuleTarget, parentOrgId?: string): Promise<ComplianceRule[]> {
+  async findAllEnforced(orgId: string, target?: RuleTarget, parentOrgId?: string): Promise<EnforcedRule[]> {
     const targets: RuleTarget[] = target ? [target] : ['plugin', 'pipeline'];
-    const allRules: ComplianceRule[] = [];
+    const allRules: EnforcedRule[] = [];
 
     for (const t of targets) {
       const rules = await this.findActiveByOrgAndTarget(orgId, t, parentOrgId);
-      allRules.push(...rules);
+      // A rule owned by the parent can only have arrived through the
+      // `propagateToChildren` merge — mark its origin (the org's own rules and
+      // subscribed published rules are never owned by the parent).
+      for (const rule of rules) {
+        allRules.push(parentOrgId && rule.orgId === parentOrgId
+          ? { ...rule, inherited: true, sourceOrgId: parentOrgId }
+          : rule);
+      }
     }
 
     return allRules;
+  }
+
+  /**
+   * True when `id` is a live rule that `parentOrgId` propagates to its teams —
+   * i.e. a rule a team sees (and is bound by) but does not own. Lets the
+   * update/delete routes answer a team's attempt with a clear 403 instead of a
+   * bare not-found. Reads the parent's row under sysadmin scope (outside the
+   * team's RLS), exactly like the enforcement merge in
+   * {@link findActiveByOrgAndTarget}.
+   */
+  async isInheritedRule(id: string, parentOrgId: string): Promise<boolean> {
+    const rows = await runWithTenantContext({ isSuperAdmin: true }, () =>
+      withTenantTx(async (tx) => tx
+        .select({ id: schema.complianceRule.id })
+        .from(schema.complianceRule)
+        .where(and(
+          eq(schema.complianceRule.id, id),
+          eq(schema.complianceRule.orgId, parentOrgId),
+          isNull(schema.complianceRule.deletedAt),
+          eq(schema.complianceRule.propagateToChildren, true),
+        ))
+        .limit(1)));
+    return rows.length > 0;
   }
 
   /**

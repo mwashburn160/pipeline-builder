@@ -205,7 +205,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Organization",
-              "org.create, org.update, org.soft_delete, org.restore, org.switch, org.member.add, org.member.remove, org.member.deactivate, org.member.activate, org.ownership.transfer"
+              "org.create, org.update, org.soft_delete, org.restore, org.team.delete (a parent admin soft-deleted one of its own teams; details.parentOrgId, purgeAfter, snapshotId, membersInvalidated), org.switch (an inherited-authority switch into a team adds details.via: 'ancestor' and details.inheritedFromOrgId), org.member.add, org.member.remove, org.member.deactivate, org.member.activate, org.ownership.transfer"
             ],
             [
               "Invitations",
@@ -237,7 +237,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Admin / sysadmin",
-              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.seatLimit.update, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.impersonate.request/approve/deny/revoke/breakglass, admin.org.namespace.render"
+              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.move (sysadmin reparent — details.fromParentOrgId / toParentOrgId, null = standalone root, the resulting tier, membersInvalidated), admin.org.seatLimit.update, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.impersonate.request/approve/deny/revoke/breakglass, admin.org.namespace.render"
             ],
             [
               "Denied access",

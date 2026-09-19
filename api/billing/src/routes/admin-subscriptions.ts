@@ -77,6 +77,7 @@ function toBillingEventResponse(event: {
  * Registers:
  * - GET /admin/subscriptions      -- list all subscriptions (paginated)
  * - PUT /admin/subscriptions/:id  -- admin override on a subscription
+ * - GET /subscriptions/by-org/:orgId/billable -- org-move guard (sysadmin / service token)
  * - DELETE /subscriptions/by-org/:orgId -- org-cascade hook (sysadmin / service token)
  * - GET /admin/events             -- list billing events (paginated)
  * @returns Express Router
@@ -323,6 +324,25 @@ export function createAdminSubscriptionRoutes(): Router {
       return sendSuccess(res, 200, {
         subscription: buildSubscriptionResponse(subscription),
       });
+    }, { requireOrgId: false }),
+  );
+
+  // GET /billing/subscriptions/by-org/:orgId/billable — org-move guard.
+  // Sysadmin / service-token only. Answers whether the org still holds a
+  // billable (manageable) subscription, so the platform refuses to nest a paying
+  // root under another account — pooled billing would otherwise leave that
+  // subscription charging for an org that no longer owns its plan. Read-only.
+  router.get(
+    '/subscriptions/by-org/:orgId/billable',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
+    withRoute(async ({ req, res }) => {
+      const targetOrgId = getParam(req.params, 'orgId');
+      if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      const billable = await Subscription.exists({
+        orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      });
+      return sendSuccess(res, 200, { billable: !!billable });
     }, { requireOrgId: false }),
   );
 

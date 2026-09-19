@@ -14,6 +14,9 @@ const mockOrgFindById = jest.fn();
 const mockOrgFindOne = jest.fn();
 const mockUserOrgFind = jest.fn();
 const mockUserUpdateMany = jest.fn();
+const mockPrepareTeamRestore = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockOrgFind = jest.fn();
+const mockGetOrgName = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decryptSecret: jest.fn(),
@@ -43,16 +46,28 @@ jest.unstable_mockModule('mongoose', () => {
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn(), QuotaType: {} }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { quota: { tier: {} } } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getOrgName: (...a: unknown[]) => mockGetOrgName(...a),
+  expandOrgScope: jest.fn(),
+  resolveOrgLineage: jest.fn(),
+}));
+jest.unstable_mockModule('../src/services/org-hierarchy-service.js', () => ({
+  orgHierarchyService: { prepareTeamRestore: (...a: unknown[]) => mockPrepareTeamRestore(...a) },
+}));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a), findOne: (...a: unknown[]) => mockOrgFindOne(...a) },
+  Organization: {
+    findById: (...a: unknown[]) => mockOrgFindById(...a),
+    findOne: (...a: unknown[]) => mockOrgFindOne(...a),
+    find: (...a: unknown[]) => mockOrgFind(...a),
+  },
   User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a), updateOne: jest.fn() },
-  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: jest.fn() },
+  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: jest.fn(), countDocuments: jest.fn(async () => 0) },
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
-  OrgIdpConfig: { find: jest.fn(), exists: jest.fn() },
+  OrgIdpConfig: { find: jest.fn(), exists: jest.fn(async () => null) },
   Role: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn(), deleteMany: jest.fn() },
   RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), deleteMany: jest.fn() },
 }));
@@ -97,6 +112,39 @@ describe('organizationService.restore', () => {
     expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 1 });
   });
 
+  it('a TEAM restore runs the parent/seat checks and re-syncs tier + entitlements before un-tombstoning', async () => {
+    const save = jest.fn();
+    const set = jest.fn();
+    const doc: any = { _id: { toString: () => 'team-1' }, name: 'Blue', parentOrgId: 'root-1', deletedAt: new Date(), purgeAfter: new Date(), save, set };
+    mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
+    mockPrepareTeamRestore.mockResolvedValue({ tier: 'enterprise', featureEntitlements: ['sso'] });
+
+    await organizationService.restore('team-1', 'admin-1');
+
+    expect(mockPrepareTeamRestore).toHaveBeenCalledWith('team-1', 'root-1', expect.anything());
+    expect(set).toHaveBeenCalledWith({ tier: 'enterprise', featureEntitlements: ['sso'] });
+    expect(doc.deletedAt).toBeNull();
+    expect(save).toHaveBeenCalled();
+  });
+
+  it('a refused TEAM restore leaves the tombstone in place', async () => {
+    const save = jest.fn();
+    const doc: any = { _id: { toString: () => 'team-1' }, parentOrgId: 'root-1', deletedAt: new Date(), purgeAfter: new Date(), save, set: jest.fn() };
+    mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
+    mockPrepareTeamRestore.mockRejectedValue(new Error('ORG_SEAT_LIMIT'));
+
+    await expect(organizationService.restore('team-1', 'admin-1')).rejects.toThrow('ORG_SEAT_LIMIT');
+    expect(doc.deletedAt).not.toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('a ROOT restore does not run the team checks', async () => {
+    const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save: jest.fn() };
+    mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
+    await organizationService.restore('org-acme');
+    expect(mockPrepareTeamRestore).not.toHaveBeenCalled();
+  });
+
   it('returns null when there is no soft-deleted org (already purged / never deleted)', async () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(null) });
 
@@ -114,5 +162,42 @@ describe('organizationService.update — soft-delete guard', () => {
     const result = await organizationService.update('org-acme', { name: 'New' });
     expect(result).toBeNull();
     expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe('organizationService.getById — includeHierarchy (sysadmin detail)', () => {
+  const membersChain = { populate: () => ({ sort: () => ({ skip: () => ({ limit: () => ({ lean: async () => [] }) }) }) }) };
+
+  beforeEach(() => {
+    (mockUserOrgFind as any).mockReturnValue(membersChain);
+  });
+
+  it('adds the parent\'s name and the LIVE direct teams', async () => {
+    mockOrgFindById.mockReturnValue({ populate: () => ({ lean: async () => ({ _id: { toString: () => 'team-1' }, name: 'Blue', parentOrgId: 'root-1', createdAt: new Date(), updatedAt: new Date() }) }) });
+    mockGetOrgName.mockResolvedValue('Root');
+    mockOrgFind.mockReturnValue({ select: () => ({ sort: () => ({ lean: async () => [] }) }) });
+
+    const org = await organizationService.getById('team-1', { includeHierarchy: true });
+
+    expect(org).toMatchObject({ parentOrgId: 'root-1', parentOrgName: 'Root', teams: [] });
+    expect(mockOrgFind).toHaveBeenCalledWith({ parentOrgId: 'team-1', deletedAt: null });
+  });
+
+  it('lists a root\'s live teams; omits parentOrgName for a root', async () => {
+    mockOrgFindById.mockReturnValue({ populate: () => ({ lean: async () => ({ _id: { toString: () => 'root-1' }, name: 'Root', createdAt: new Date(), updatedAt: new Date() }) }) });
+    mockGetOrgName.mockResolvedValue(undefined);
+    mockOrgFind.mockReturnValue({ select: () => ({ sort: () => ({ lean: async () => [{ _id: 't1', name: 'Blue' }, { _id: 't2', name: 'Red' }] }) }) });
+
+    const org = await organizationService.getById('root-1', { includeHierarchy: true });
+
+    expect(org).toMatchObject({ parentOrgId: null, teams: [{ orgId: 't1', orgName: 'Blue' }, { orgId: 't2', orgName: 'Red' }] });
+    expect(org).not.toHaveProperty('parentOrgName');
+  });
+
+  it('omits the hierarchy fields when not asked', async () => {
+    mockOrgFindById.mockReturnValue({ populate: () => ({ lean: async () => ({ _id: { toString: () => 'root-1' }, name: 'Root' }) }) });
+    const org = await organizationService.getById('root-1');
+    expect(org).not.toHaveProperty('teams');
+    expect(mockOrgFind).not.toHaveBeenCalled();
   });
 });

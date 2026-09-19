@@ -1,0 +1,124 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Sysadmin org detail → Hierarchy: the parent (or "Top-level organization"),
+ * the live teams, and the step-up gated move to an eligible root / to top-level.
+ */
+
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { OrgHierarchyCard } from '../src/components/admin/org-detail/OrgHierarchyCard';
+import { OrgIdentityCard } from '../src/components/admin/org-detail/OrgIdentityCard';
+import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
+
+const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
+jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn() } }));
+jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (
+    <div role="dialog" aria-label="step-up">
+      <p>{action}</p>
+      <button type="button" onClick={() => onConfirmed('step-up-token')}>Verify</button>
+    </div>
+  ),
+}));
+
+const listOrganizations = jest.fn();
+const moveOrganization = jest.fn();
+jest.mock('@/lib/api', () => ({
+  __esModule: true,
+  default: {
+    listOrganizations: (...a: unknown[]) => listOrganizations(...a),
+    moveOrganization: (...a: unknown[]) => moveOrganization(...a),
+  },
+}));
+
+const base = (over: Partial<OrganizationDetail> = {}): OrganizationDetail => ({
+  id: 'org-9', name: 'Platform', ownerId: 'u', memberCount: 3, createdAt: '', updatedAt: '', members: [], ...over,
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  listOrganizations.mockImplementation(async (p: { tier: string }) => ({
+    success: true,
+    data: {
+      organizations: p.tier === 'enterprise'
+        ? [{ id: 'root-2', name: 'Globex', parentOrgId: null }, { id: 'org-9', name: 'Platform', parentOrgId: null }]
+        : [],
+      pagination: { total: 1, offset: 0, limit: 20, hasMore: false },
+    },
+  }));
+  moveOrganization.mockResolvedValue({ success: true, data: { organization: {} } });
+});
+
+describe('OrgHierarchyCard', () => {
+  it('links a team\'s parent', () => {
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })} onChanged={jest.fn()} />);
+    expect(screen.getByRole('link', { name: 'Acme' })).toHaveAttribute('href', '/dashboard/admin/orgs/root-1');
+  });
+
+  it('marks a root top-level and links its live teams', () => {
+    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn()} />);
+    expect(screen.getByText('Top-level organization')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Data' })).toHaveAttribute('href', '/dashboard/admin/orgs/t1');
+  });
+
+  it('moves a team under an eligible root after step-up', async () => {
+    const onChanged = jest.fn();
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
+
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Destination organization' }));
+    // The org being moved is never offered as its own parent.
+    expect(screen.queryByRole('option', { name: /platform/i })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('option', { name: /globex/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+
+    expect(await screen.findByText('Move Platform under Globex')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(moveOrganization).toHaveBeenCalledWith('org-9', 'root-2', 'step-up-token'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('makes a team top-level with a null parent', async () => {
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
+    fireEvent.click(screen.getByRole('radio', { name: /make top-level/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(moveOrganization).toHaveBeenCalledWith('org-9', null, 'step-up-token'));
+  });
+
+  it('surfaces the backend\'s 400 message', async () => {
+    moveOrganization.mockRejectedValue(new Error('Target organization is not on a Team or Enterprise plan'));
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
+    fireEvent.click(screen.getByRole('radio', { name: /make top-level/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+    expect(await screen.findByText('Target organization is not on a Team or Enterprise plan')).toBeInTheDocument();
+  });
+
+  it('refuses to nest a root that still has teams, and offers no top-level move for a root', () => {
+    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
+    expect(screen.getByText(/has teams, so it can.t be nested/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /make top-level/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled();
+  });
+});
+
+describe('OrgIdentityCard — team tier', () => {
+  it('offers a root a tier change', () => {
+    render(<OrgIdentityCard org={base({ tier: 'team' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    expect(screen.getByRole('combobox', { name: 'Change pricing tier' })).toBeInTheDocument();
+  });
+
+  it('never offers a team one — its tier is its root\'s', () => {
+    render(<OrgIdentityCard org={base({ tier: 'team', parentOrgId: 'root-1' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    expect(screen.queryByRole('combobox', { name: 'Change pricing tier' })).not.toBeInTheDocument();
+    expect(screen.getByText('Tier inherited from parent')).toBeInTheDocument();
+  });
+});

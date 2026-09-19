@@ -4,6 +4,7 @@
 import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
+import { orgHierarchyService } from './org-hierarchy-service.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
@@ -12,6 +13,7 @@ import {
   type FeatureDelta,
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
+import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
@@ -77,6 +79,8 @@ interface OrgWithMembers extends Omit<OrgSummary, 'memberCount'> {
   parentOrgId?: string | null;
   isTeam: boolean;
   rootOrgId: string;
+  /** Sysadmin detail only (`includeHierarchy`): the LIVE direct teams. */
+  teams?: Array<{ orgId: string; orgName: string }>;
 }
 
 interface CreateOrgInput {
@@ -295,7 +299,7 @@ class OrganizationService {
    */
   async getById(
     id: string,
-    opts: { membersLimit?: number; membersOffset?: number } = {},
+    opts: { membersLimit?: number; membersOffset?: number; includeHierarchy?: boolean } = {},
   ): Promise<OrgWithMembers | null> {
     const org = await Organization.findById(toOrgId(id))
       .populate('owner', 'username email')
@@ -350,6 +354,22 @@ class OrganizationService {
       pendingDeletion: Boolean(org.deletedAt),
       ...(org.deletedAt ? { deletedAt: org.deletedAt } : {}),
       ...(org.purgeAfter ? { purgeAfter: org.purgeAfter } : {}),
+      ...(opts.includeHierarchy ? await this.hierarchyOf(org._id.toString(), parentOrgId ? String(parentOrgId) : null) : {}),
+    };
+  }
+
+  /** The parent's name and the LIVE direct teams, for the sysadmin org detail. */
+  private async hierarchyOf(
+    orgId: string,
+    parentOrgId: string | null,
+  ): Promise<{ parentOrgName?: string; teams: Array<{ orgId: string; orgName: string }> }> {
+    const [parentOrgName, teamDocs] = await Promise.all([
+      getOrgName(parentOrgId),
+      Organization.find({ parentOrgId: orgId, deletedAt: null }).select('_id name').sort({ name: 1 }).lean(),
+    ]);
+    return {
+      ...(parentOrgName ? { parentOrgName } : {}),
+      teams: teamDocs.map((t) => ({ orgId: String(t._id), orgName: t.name })),
     };
   }
 
@@ -463,6 +483,14 @@ class OrganizationService {
     const result = await withMongoTransaction(async (session) => {
       const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
       if (!org) return null;
+
+      // A TEAM comes back into its parent's account: the parent must still be
+      // able to hold it, its members re-enter the pooled seat count, and the
+      // root's tier/entitlements (not propagated while it was deleted) re-sync.
+      if (org.parentOrgId) {
+        const resync = await orgHierarchyService.prepareTeamRestore(id, String(org.parentOrgId), session);
+        org.set(resync);
+      }
 
       org.deletedAt = null;
       org.purgeAfter = null;

@@ -1269,6 +1269,47 @@ Policy changes count in `platform_mfa_policy_changes_total{requireMfa}`.
 
 ---
 
+## Switching organizations and parent-admin access to teams
+
+A session is scoped to ONE organization at a time; `POST /auth/switch-org`
+(`{ organizationId }`) re-issues the current session's tokens — same refresh-session
+slot, same assurance — scoped to another org. The caller may switch into an org
+when they hold **authority there**, resolved by one rule
+(`platform/src/helpers/org-authority.ts`) that switch-org, token issuance and the
+refresh path all apply, so the three can never disagree:
+
+1. **A membership** — an active `UserOrganization` row in that org. The session
+   gets that row's role and the permissions of the Roles held there.
+2. **Admin authority inherited from an ancestor** — an active `admin` or `owner`
+   membership in a **live** parent (the same rule `canAdministerOrg` applies to a
+   request made from the parent). This is how a root-org admin "opens" one of its
+   teams without being on the team:
+   - the session's role in the team is **`admin`**, never `owner` — ownership is a
+     designation of one org and is not conferred downward;
+   - its permissions are the parent Roles' bundle (the authority actually held),
+     unioned with any Roles the person also holds in the team;
+   - **nothing is written**: no membership row appears on the team's roster, no
+     seat is consumed, and the authority lasts only while the parent membership
+     qualifies — removal or demotion bumps `tokenVersion`, and the next issuance
+     re-resolves it;
+   - a direct `admin`/`owner` row in the team wins outright; a direct plain
+     `member` row loses to the inherited admin (otherwise a parent admin sitting
+     on a team as a member would have less authority inside it than over it).
+
+Authority never flows UP (a team admin gets nothing in the parent) or ACROSS
+(separate accounts still require a membership). A soft-deleted org can never be
+switched into, and a soft-deleted parent confers nothing. When the team is later
+soft-deleted or moved, every session scoped to it — members and inherited
+sessions alike (found by `lastActiveOrgId`) — is invalidated.
+
+`GET /user/organizations` lists the membership rows first, then one row per live
+team the caller may open on inherited authority, marked `viaAncestor: true` with
+`role: 'admin'`; each team row carries `parentOrgName`. The switch is audited as
+`org.switch`; an inherited-authority switch adds `details.via: 'ancestor'` and
+`details.inheritedFromOrgId`.
+
+---
+
 ## Domain-based org join (P2b)
 
 Separate from SSO, an org can let people with a **verified company email domain**

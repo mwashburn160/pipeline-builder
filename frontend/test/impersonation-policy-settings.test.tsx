@@ -69,6 +69,16 @@ describe('ImpersonationPolicySettings', () => {
     expect(screen.getByRole('radio', { name: /^open/i })).toBeChecked();
   });
 
+  it('names the parent organization when the server resolves it', async () => {
+    getImpersonationPolicy.mockResolvedValue({
+      success: true,
+      data: policy({ own: { policy: 'open', allowSelfApproval: true }, inheritedFrom: 'parent-org', inheritedFromName: 'Acme Corp' }),
+    });
+    render(<ImpersonationPolicySettings orgId="team-1" readOnly={false} />);
+    const callout = (await screen.findByText('Acme Corp')).closest('div')!;
+    expect(callout).toHaveTextContent(/the parent organization acme corp requires a stricter policy/i);
+  });
+
   it('warns when the parent\'s setting couldn\'t be read', async () => {
     getImpersonationPolicy.mockResolvedValue({ success: true, data: policy({ resolved: false }) });
     render(<ImpersonationPolicySettings orgId="team-1" readOnly={false} />);

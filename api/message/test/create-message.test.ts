@@ -63,6 +63,7 @@ const mockIsTargetUserReachable = jest.fn<(recipientOrgId: string, userId: strin
 jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   isRecipientReachable: mockIsRecipientReachable,
   isTargetUserReachable: mockIsTargetUserReachable,
+  listReachableOrgs: async () => [],
 }));
 
 // create-message + read-messages import attachmentService (which pulls in

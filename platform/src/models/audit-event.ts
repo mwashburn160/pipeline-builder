@@ -145,6 +145,10 @@ export const ALL_AUDIT_ACTIONS = [
   // `admin.org.delete` event emitted by the purge sweep.
   'org.soft_delete',
   'org.restore',
+  // A parent-org admin soft-deleted one of its own teams (DELETE
+  // /organization/:id/teams/:teamId) — same retention window as
+  // `org.soft_delete`; `details.parentOrgId` names the parent it was deleted from.
+  'org.team.delete',
   // Organization membership mutations (controllers/organization-members.ts).
   // `affectedOrgId` carries the org being mutated; `targetId` is the user
   // being added/removed/modified. Privilege changes are surfaced separately
@@ -204,6 +208,10 @@ export const ALL_AUDIT_ACTIONS = [
   'admin.user.update',
   'admin.user.delete',
   'admin.org.delete',
+  // Sysadmin reparent (POST /organization/:id/move): `details` carries
+  // `fromParentOrgId` / `toParentOrgId` (null = standalone root), the resulting
+  // tier and how many sessions scoped to the org were invalidated.
+  'admin.org.move',
   // GDPR portability export. Emitted from controllers/organization.ts
   // when a sysadmin downloads an org's full data dump (before deletion or
   // on customer request).
