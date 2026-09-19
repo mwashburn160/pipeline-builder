@@ -213,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: o.role as UserOrgMembership['role'],
               parentOrgId: o.parentOrgId,
               tier: o.tier as UserOrgMembership['tier'],
+              childOrgCount: o.childOrgCount ?? 0,
             }));
             setOrganizations((prev) => keepIfUnchanged(prev, orgs));
           } catch {

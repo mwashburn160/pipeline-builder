@@ -6,6 +6,7 @@ import { FeatureLock } from '@/components/ui/FeatureLock';
 import { RetryError } from '@/components/ui/RetryError';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { fmtNum, formatBytes } from '@/lib/format';
 import { formatError } from '@/lib/constants';
 import type { TeamUsageRow } from '@/lib/api/domains/billing';
@@ -36,21 +37,25 @@ const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
 /**
  * Per-team usage breakdown (feature `team_usage_analytics`). Shows each team's
  * CURRENT-period usage across quota dimensions + seats — usage only, since
- * limits pool at the account root. Not entitled → an upsell; entitled but no
- * teams → a hint; entitled with teams → the table.
+ * limits pool at the account root. Renders nothing for an org that parents no
+ * teams (there's nothing to break down); otherwise not entitled → an upsell,
+ * entitled → the table.
  */
 export function TeamUsageCard() {
   // The gate carries the superadmin bypass and the "not on your plan" copy; the
   // route itself is `requireFeature('team_usage_analytics')`.
   const gate = useFeatureGate('team_usage_analytics');
+  const { hasChildOrgs } = useOrgHierarchy();
   const entitled = gate.isLoaded && gate.entitled;
   const { data, loading, error, refetch } = useFetch(
-    async (signal) => (entitled ? (await api.getTeamUsage({ includeDescendants: true }, { signal })).data?.teams ?? [] : null),
-    [entitled],
+    async (signal) => (entitled && hasChildOrgs
+      ? (await api.getTeamUsage({ includeDescendants: true }, { signal })).data?.teams ?? []
+      : null),
+    [entitled, hasChildOrgs],
   );
   const teams = data ?? [];
 
-  if (!gate.isLoaded) return null;
+  if (!hasChildOrgs || !gate.isLoaded) return null;
 
   if (!gate.entitled) {
     return (
@@ -70,16 +75,6 @@ export function TeamUsageCard() {
       <Card>
         <h3 className="text-sm font-semibold text-[var(--pb-text)] mb-2">Team usage</h3>
         <RetryError message={formatError(error, 'Failed to load team usage.')} onRetry={refetch} />
-      </Card>
-    );
-  }
-
-  // Entitled but a single-org account (no teams) — nothing to break down yet.
-  if (teams.length <= 1) {
-    return (
-      <Card>
-        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
-        <p className="text-sm text-[var(--pb-text-muted)] mt-1">Create teams under your organization to see per-team usage.</p>
       </Card>
     );
   }

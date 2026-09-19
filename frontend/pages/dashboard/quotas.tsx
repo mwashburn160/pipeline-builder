@@ -5,7 +5,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useAuth } from '@/hooks/useAuth';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useFeatures } from '@/hooks/useFeatures';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -34,13 +34,12 @@ export default function QuotasPage() {
   // the nav entry; superadmins bypass). Members hold it in their base bundle.
   // Mutation controls below stay sysadmin-only.
   const { accessDenied, user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard();
-  const { organizations } = useAuth();
   const toast = useToast();
 
   // A team (child org) draws from its ROOT's pooled quota: the quota service
   // already reports the root's shared limit + the whole subtree's usage here,
   // so the numbers are correct — we just label them as pooled and read-only.
-  const activeOrgIsTeam = !!organizations.find((o) => o.id === user?.organizationId)?.parentOrgId;
+  const { isChildOrg: activeOrgIsTeam } = useOrgHierarchy();
   // Can this viewer act on billing? (owner/admin role, or a custom group granted
   // `billing:manage`.) Drives the "Upgrade your plan" link in the read-only view;
   // a team manages billing at its parent, so the link is suppressed there.

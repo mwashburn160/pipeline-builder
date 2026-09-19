@@ -329,7 +329,7 @@ What the parent ↔ team relationship adds on top of plain organizations:
 
 A user can belong to several organizations and teams at once and acts within one at a time (switch with the org switcher).
 
-**Creating / managing teams** — on the dashboard **Members** page, an admin of a root org uses **Create Team** to nest a new team and **Manage teams** (per member) to add or remove a member across the org's teams in one step. Via the API, `POST /api/organization` accepts a `parentOrgId`, and `POST /api/organization/:id/members/bulk-add` adds a user to several teams at once.
+**Creating / managing teams** — on the dashboard **Members** page, an admin of a root org uses **Create Team** to nest a new team and **Manage teams** (per member) to add or remove a member across the org's teams in one step. Via the API, `POST /api/organization` accepts a `parentOrgId`, and `POST /api/organization/:id/members/bulk-add` adds a user to several teams at once. Team-only UI (the Teams list, **Manage teams**, the "Include child teams" rollup toggles on Reports and Executions, and the per-team usage and cost-by-team breakdowns on Billing) appears only once an org actually has a team. `GET /api/user/organizations` reports each membership's `childOrgCount` for this purpose; **Create Team** itself is always shown on an eligible root org.
 
 ### Feature Tiers
 

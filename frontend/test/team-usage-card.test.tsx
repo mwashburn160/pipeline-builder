@@ -3,6 +3,9 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TeamUsageCard } from '../src/components/billing/TeamUsageCard';
+import { mockOrgHierarchy } from './helpers/pageMocks';
+
+jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
 let mockEnabled = true;
 jest.mock('@/hooks/useFeatures', () => ({
@@ -20,6 +23,7 @@ const teams = (rows: any[]) => ({ data: { teams: rows } });
 
 beforeEach(() => {
   mockEnabled = true;
+  mockOrgHierarchy({ childOrgCount: 2 });
   getTeamUsage.mockReset().mockResolvedValue(teams([]));
 });
 
@@ -46,18 +50,27 @@ describe('TeamUsageCard', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
-  it('shows the create-teams hint when entitled but single-org', async () => {
-    getTeamUsage.mockResolvedValue(teams([{ orgId: 'root', name: 'Root', seats: 6, usage: {} }]));
-    render(<TeamUsageCard />);
-    expect(await screen.findByText(/create teams under your organization/i)).toBeInTheDocument();
+  it('renders nothing — no upsell, no request — for an org with no teams', () => {
+    mockOrgHierarchy({ childOrgCount: 0 });
+    const { container } = render(<TeamUsageCard />);
+    expect(container).toBeEmptyDOMElement();
+    expect(getTeamUsage).not.toHaveBeenCalled();
+  });
+
+  it('hides the upsell too when an unentitled org has no teams', () => {
+    mockEnabled = false;
+    mockOrgHierarchy({ childOrgCount: 0 });
+    const { container } = render(<TeamUsageCard />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows a retryable error when the load fails, and reloads on Retry', async () => {
     getTeamUsage.mockRejectedValueOnce(new Error('boom'));
     render(<TeamUsageCard />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-    getTeamUsage.mockResolvedValue(teams([{ orgId: 'root', name: 'Root', seats: 6, usage: {} }]));
-    expect(await screen.findByText(/create teams under your organization/i)).toBeInTheDocument();
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    getTeamUsage.mockResolvedValue(teams([{ orgId: 'team-a', name: 'Team A', seats: 2, usage: {} }]));
+    fireEvent.click(retry);
+    expect(await screen.findByText('Team A')).toBeInTheDocument();
     expect(getTeamUsage).toHaveBeenCalledTimes(2);
   });
 });

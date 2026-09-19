@@ -6,7 +6,7 @@ import { GitBranch, Puzzle, Gauge, Trophy } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
-import { useFetch } from '@/hooks/useFetch';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -19,7 +19,6 @@ import {
   useReportRetention, useIngestHealth, type SharedFilters, type TabDataStatus,
 } from '@/components/reports/useReportData';
 import { hasPermission } from '@/lib/auth-helpers';
-import api from '@/lib/api';
 
 // Only one top tab shows at a time, so each is its own chunk: the page ships the
 // shell + the active tab instead of all four report bundles up front.
@@ -200,18 +199,9 @@ export default function ReportsPage() {
     [clampedFrom, dateTo, timeInterval, includeDescendants, isSuperAdmin],
   );
 
-  // Detect whether the active org parents any teams (subtree larger than self),
-  // so the rollup toggle only shows when there's something to roll up.
-  // Best-effort: a failed read just means no toggle.
-  const activeOrgId = user?.organizationId;
-  const { data: hasTeams } = useFetch(
-    async () => {
-      if (!isReady || !canRollup || !activeOrgId) return false;
-      const res = await api.getOrganizationDescendants(activeOrgId);
-      return (res.data?.orgIds?.length ?? 0) > 1;
-    },
-    [isReady, activeOrgId, canRollup],
-  );
+  // The rollup toggle only shows when the active org parents teams — there's
+  // nothing to roll up otherwise.
+  const { hasChildOrgs: hasTeams } = useOrgHierarchy();
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

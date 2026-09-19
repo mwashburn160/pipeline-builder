@@ -97,3 +97,39 @@ export function mockAuthGuard(overrides: Partial<PageAuthGuard> = {}): PageAuthG
 export function authGuardModule() {
   return { __esModule: true, useAuthGuard: () => current };
 }
+
+// ---------------------------------------------------------------------------
+// useOrgHierarchy — the active org's place in the org → team hierarchy.
+
+export interface PageOrgHierarchy {
+  activeOrg: undefined;
+  isChildOrg: boolean;
+  hasChildOrgs: boolean;
+  childOrgCount: number;
+  parentOrgId: string | undefined;
+}
+
+let currentHierarchy: PageOrgHierarchy = {
+  activeOrg: undefined, isChildOrg: false, hasChildOrgs: false, childOrgCount: 0, parentOrgId: undefined,
+};
+
+/**
+ * Set what the mocked `useOrgHierarchy()` returns. Default: a flat org (no
+ * parent, no teams) — hierarchy surfaces hidden. `{ childOrgCount: n }` makes
+ * it a parent; `{ parentOrgId }` makes it a team.
+ */
+export function mockOrgHierarchy(overrides: { childOrgCount?: number; parentOrgId?: string } = {}): PageOrgHierarchy {
+  const childOrgCount = overrides.childOrgCount ?? 0;
+  currentHierarchy = {
+    activeOrg: undefined,
+    isChildOrg: !!overrides.parentOrgId,
+    hasChildOrgs: childOrgCount > 0,
+    childOrgCount,
+    parentOrgId: overrides.parentOrgId,
+  };
+  return currentHierarchy;
+}
+
+export function orgHierarchyModule() {
+  return { __esModule: true, useOrgHierarchy: () => currentHierarchy };
+}

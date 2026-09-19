@@ -12,7 +12,7 @@
  *
  * Cards:
  *   1. Quota health — % used per type with breach-warning badges
- *   2. Pending invitations + member count
+ *   2. Pending invitations + member count (+ team count when the org parents teams)
  *   3. Compliance pulse — last 3 blocked entries (if any)
  *   4. Billing snapshot — current plan + period days elapsed
  */
@@ -20,13 +20,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  BarChart3, Mail, Shield, CreditCard, AlertTriangle, Activity, ArrowRight,
+  BarChart3, Mail, Shield, CreditCard, AlertTriangle, Activity, ArrowRight, Building2,
 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
@@ -58,6 +59,9 @@ interface Props {
 export function OrgAdminHome({ organizationId }: Props) {
   const { isEnabled } = useFeatures();
   const billingEnabled = isEnabled('billing');
+  // Hierarchy tiles render only where they mean something: a team count when
+  // the org parents teams, a "pooled" note when it IS a team.
+  const { isChildOrg, hasChildOrgs, childOrgCount } = useOrgHierarchy();
   const [quotas, setQuotas] = useState<OrgQuotaResponse | null>(null);
   const [pendingInvites, setPendingInvites] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -129,7 +133,12 @@ export function OrgAdminHome({ organizationId }: Props) {
             <BarChart3 className="w-4 h-4 text-gray-400" />
             Quota health
           </h3>
-          <Link href="/dashboard/quotas" className="action-link text-xs">Manage →</Link>
+          <div className="flex items-center gap-3">
+            {isChildOrg && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">Pooled across the parent organization</span>
+            )}
+            <Link href="/dashboard/quotas" className="action-link text-xs">Manage →</Link>
+          </div>
         </div>
         {loading && !quotas && <LoadingSpinner size="sm" />}
         {quotas && (
@@ -171,11 +180,11 @@ export function OrgAdminHome({ organizationId }: Props) {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
               <Mail className="w-4 h-4 text-gray-400" />
-              Team
+              Members
             </h3>
             <Link href="/dashboard/members" className="action-link text-xs">Manage members →</Link>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className={`grid ${hasChildOrgs ? 'grid-cols-3' : 'grid-cols-2'} gap-3 text-sm`}>
             <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
               <div className="text-xs text-gray-500 dark:text-gray-400">Pending invitations</div>
               <div className={`mt-1 text-2xl font-semibold ${pendingInvites > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-gray-100'}`}>
@@ -193,6 +202,17 @@ export function OrgAdminHome({ organizationId }: Props) {
                 {memberCount ?? '—'}
               </div>
             </div>
+            {hasChildOrgs && (
+              <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
+                <div className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                  <Building2 className="w-3 h-3" aria-hidden="true" /> Teams
+                </div>
+                <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{childOrgCount}</div>
+                <Link href="/dashboard/members" className="action-link text-xs inline-flex items-center gap-1 mt-1">
+                  View <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+            )}
           </div>
         </Card>
 

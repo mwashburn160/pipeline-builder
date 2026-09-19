@@ -22,7 +22,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import { useIngestHealth } from '@/components/reports/useReportData';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useFetch } from '@/hooks/useFetch';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useQuery } from '@/hooks/useQuery';
 import { useExecutionStatusStream } from '@/hooks/useExecutionStatusStream';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -39,7 +39,6 @@ import { DateRangePicker } from '@/components/reports/ReportHelpers';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
-import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import type { ExecutionCountRow } from '@/types';
 
@@ -85,24 +84,11 @@ export default function ExecutionsPage() {
 
   // Live updates: the reporting service pushes an `execution-updated` SSE frame to
   // this org whenever new pipeline events are ingested — refetch on receipt so the
-  // table stays current without polling. `refetch` is stable from useFetch.
+  // table stays current without polling. `refetch` is stable from useQuery.
   const { connected: liveConnected } = useExecutionStatusStream(user?.organizationId ?? null, refetch);
 
-  // Detect whether the active org parents any teams (subtree larger than self).
-  // Best-effort: a failure just means no rollup toggle.
-  const activeOrgId = user?.organizationId;
-  const { data: hasTeams } = useFetch(
-    async () => {
-      if (!isReady || !canRollup || !activeOrgId) return false;
-      try {
-        const res = await api.getOrganizationDescendants(activeOrgId);
-        return (res.data?.orgIds?.length ?? 0) > 1;
-      } catch {
-        return false;
-      }
-    },
-    [isReady, activeOrgId, canRollup],
-  );
+  // The rollup toggle only shows when the active org parents teams.
+  const { hasChildOrgs: hasTeams } = useOrgHierarchy();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

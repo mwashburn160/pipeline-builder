@@ -40,7 +40,7 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | PATCH | `/user/profile` | Update the current user's profile |
 | DELETE | `/user/account` | Delete the current user's account (step-up) |
 | POST | `/user/change-password` | Change password (step-up) |
-| GET | `/user/organizations` | List organizations the user belongs to |
+| GET | `/user/organizations` | List organizations the user belongs to (each with `parentOrgId`, `tier`, and `childOrgCount`, the live teams it parents) |
 | POST | `/user/generate-token` | Mint a stored machine credential in its own machine session |
 | GET | `/user/tokens` | List recent token-issuance history |
 | GET | `/user/sessions` | List signed-in devices + stored machine credentials |

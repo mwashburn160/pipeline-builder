@@ -3,6 +3,9 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import { BillingDashboard } from '../src/components/billing/BillingDashboard';
+import { mockOrgHierarchy } from './helpers/pageMocks';
+
+jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
 const getBillingSummary = jest.fn();
 const listBillingInvoices = jest.fn();
@@ -37,6 +40,7 @@ beforeEach(() => {
   getBillingSummary.mockReset();
   listBillingInvoices.mockReset().mockResolvedValue(invoices);
   getBillingAllocation.mockReset().mockResolvedValue(allocation([])); // no subtree by default
+  mockOrgHierarchy(); // flat org by default
 });
 
 describe('BillingDashboard', () => {
@@ -60,7 +64,8 @@ describe('BillingDashboard', () => {
     expect(screen.queryByText('Amounts billed')).not.toBeInTheDocument();
   });
 
-  it('renders the cost-by-team table when the subtree has >1 org', async () => {
+  it('renders the cost-by-team table when the org parents teams', async () => {
+    mockOrgHierarchy({ childOrgCount: 1 });
     getBillingSummary.mockResolvedValue(summary(1));
     getBillingAllocation.mockResolvedValue(allocation([
       { orgId: 'root', driverUnits: 6, sharePct: 75, grossCents: 3675, discountCents: 0, creditCents: 1500, taxCents: 0, netCents: 2175 },
@@ -72,7 +77,16 @@ describe('BillingDashboard', () => {
     expect(screen.getByText('75%')).toBeInTheDocument();
   });
 
-  it('hides the cost-by-team table for a single-org account', async () => {
+  it('skips the allocation request and hides cost-by-team for an org with no teams', async () => {
+    getBillingSummary.mockResolvedValue(summary(1));
+    render(<BillingDashboard />);
+    await screen.findByText('Amounts billed');
+    expect(getBillingAllocation).not.toHaveBeenCalled();
+    expect(screen.queryByText('Cost by team')).not.toBeInTheDocument();
+  });
+
+  it('hides cost-by-team when a parent org\'s allocation holds a single row', async () => {
+    mockOrgHierarchy({ childOrgCount: 1 });
     getBillingSummary.mockResolvedValue(summary(1));
     getBillingAllocation.mockResolvedValue(allocation([{ orgId: 'root', driverUnits: 6, sharePct: 100, grossCents: 4900, discountCents: 0, creditCents: 2000, taxCents: 0, netCents: 2900 }]));
     render(<BillingDashboard />);

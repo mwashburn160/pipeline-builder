@@ -3,7 +3,7 @@ import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useAuth } from '@/hooks/useAuth';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
 import { useQuery } from '@/hooks/useQuery';
 import { useFetch } from '@/hooks/useFetch';
@@ -79,7 +79,6 @@ export default function BillingPage() {
   const router = useRouter();
   // The page's `billing:read` gate comes from its nav entry (page-access.ts).
   const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard();
-  const { organizations } = useAuth();
   // Whether the billing SERVICE is enabled in this deployment (`/api/billing/config`
   // probe). Replaces the old `features.isEnabled('billing')` gate — `'billing'` is
   // NOT a FeatureFlag, so that check was always false and this page redirected/span
@@ -92,8 +91,7 @@ export default function BillingPage() {
   // quota pool and add-ons all belong to the account boundary. A team (child
   // org) admin manages members within their team but cannot change the plan or
   // buy add-ons — those are managed from the parent org. Sysadmins are exempt.
-  const activeOrg = organizations.find((o) => o.id === user?.organizationId);
-  const activeOrgIsTeam = !!activeOrg?.parentOrgId;
+  const { isChildOrg: activeOrgIsTeam } = useOrgHierarchy();
   // Plan/add-on changes unlock on the `billing:manage` capability (or org-admin
   // role, which holds it in its bundle) — so a custom-group member granted the
   // perm can manage billing. Still root-only: teams manage billing at the parent.

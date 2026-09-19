@@ -179,6 +179,9 @@ export interface UserOrgMembership {
   parentOrgId?: string;
   /** Org's quota tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
   tier?: 'developer' | 'pro' | 'team' | 'enterprise';
+  /** Live teams nested under this org (0 for a flat org or a team). Read through
+   *  `useOrgHierarchy` — it decides whether hierarchy surfaces render at all. */
+  childOrgCount: number;
 }
 
 // The runtime user guards now live in `@/lib/auth-helpers` (a `.ts` file can't

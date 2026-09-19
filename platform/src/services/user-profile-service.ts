@@ -58,6 +58,11 @@ interface MembershipInfo {
   parentOrgId?: string;
   /** Org's quota tier — lets the UI gate tier-gated actions (e.g. only team/enterprise roots may parent teams). */
   tier?: string;
+  /** Live (not soft-deleted) teams nested directly under this org. The UI shows
+   *  its hierarchy surfaces (team lists, rollup toggles, per-team breakdowns)
+   *  only when this is > 0, without a per-page descendants lookup. Nesting is
+   *  one level deep, so direct children are all descendants. */
+  childOrgCount: number;
 }
 
 interface ProfileData {
@@ -115,6 +120,14 @@ class UserProfileService {
       ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId tier').lean()
       : [];
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
+    // `parentOrgId` is stored as a string id (see the Organization model).
+    const childCounts = orgIds.length > 0
+      ? await Organization.aggregate<{ _id: string; n: number }>([
+        { $match: { parentOrgId: { $in: orgIds.map(String) }, deletedAt: null } },
+        { $group: { _id: '$parentOrgId', n: { $sum: 1 } } },
+      ])
+      : [];
+    const childCountByOrg = new Map(childCounts.map(c => [String(c._id), c.n]));
 
     return memberships.map(m => {
       const org = orgMap.get(m.organizationId.toString());
@@ -128,6 +141,7 @@ class UserProfileService {
         joinedAt: m.joinedAt?.toISOString(),
         ...(parentOrgId && { parentOrgId }),
         ...(org?.tier && { tier: org.tier as string }),
+        childOrgCount: childCountByOrg.get(m.organizationId.toString()) ?? 0,
       };
     });
   }

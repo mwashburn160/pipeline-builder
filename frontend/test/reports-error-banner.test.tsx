@@ -35,6 +35,7 @@ jest.mock('next/router', () => ({
 }));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
+jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
 const getExecutionCount = jest.fn();
 const getSuccessRate = jest.fn();
@@ -48,7 +49,6 @@ jest.mock('@/lib/api', () => ({
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
     listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
     getReportEnvironments: jest.fn().mockResolvedValue({ data: { environments: [] } }),
-    getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
   },
 }));
 

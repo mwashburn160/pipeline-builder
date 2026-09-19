@@ -7,6 +7,7 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 import { hasPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
 import { useFetch } from '@/hooks/useFetch';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
@@ -53,7 +54,7 @@ export default function MembersPage() {
   // left the page permanently empty during an investigation.
   const canManageMembers = can('members:manage');
   const canViewMembers = hasPermission(user, 'members:manage');
-  const { refreshUser, organizations, switchOrganization } = useAuth();
+  const { refreshUser, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
   const orgId = user?.organizationId;
@@ -136,8 +137,8 @@ export default function MembersPage() {
   const [newOrgName, setNewOrgName] = useState('');
   // Teams nest one level: only a root org can parent a team, so the "Create
   // Team" action only appears when the active org is itself a root.
-  const activeOrg = organizations.find(o => o.id === user?.organizationId);
-  const activeOrgIsRoot = !!activeOrg && !activeOrg.parentOrgId;
+  const { activeOrg, isChildOrg, hasChildOrgs } = useOrgHierarchy();
+  const activeOrgIsRoot = !!activeOrg && !isChildOrg;
   // Can this viewer buy capacity? Seat packs are purchased at the root (pooled
   // billing), so only offer the "add a seat pack" link to a root-org admin (or a
   // custom group granted `billing:manage`). A plain member sees the text, not a link.
@@ -148,16 +149,14 @@ export default function MembersPage() {
   // tier picker never mattered (a team always inherits the parent's tier).
   const activeOrgCanHaveTeams = activeOrgIsRoot && (activeOrg?.tier === 'team' || activeOrg?.tier === 'enterprise');
   // Descendant teams this org parents (org → team hierarchy) — drives the Teams
-  // list + the "Manage teams" gate. Best-effort; admins of a root org only.
-  // Only root orgs can parent teams — skip the lookup when the active org is
-  // itself a team (the banner shows the "is a team" branch regardless).
-  // Best-effort: a failure surfaces a brief note, never blanks the page.
-  // `refetch` runs after creating a team so the list (and the "Manage teams"
-  // button it gates) refresh without a full page reload.
+  // list + the "Manage teams" gate. Fetched only when the org actually parents
+  // teams (`hasChildOrgs`), for admins who can act on them. Best-effort: a
+  // failure surfaces a brief note, never blanks the page. Creating a team calls
+  // `refreshUser()`, which flips `hasChildOrgs` and so re-runs this read.
   const teamsQ = useFetch(async (signal) => {
-    if (!user?.organizationId || !canManageMembers || !activeOrgIsRoot) return [];
+    if (!user?.organizationId || !canManageMembers || !hasChildOrgs) return [];
     return (await api.getOrganizationTeams(user.organizationId, { signal })).data?.teams ?? [];
-  }, [user?.organizationId, canManageMembers, activeOrgIsRoot]);
+  }, [user?.organizationId, canManageMembers, hasChildOrgs]);
   const teams = teamsQ.data ?? [];
   const teamsLoadWarning = !!teamsQ.error;
   const childTeamCount = teams.length;
@@ -211,7 +210,7 @@ export default function MembersPage() {
 
   // Manage teams (org → team hierarchy: a member can belong to multiple teams).
   // Only meaningful when the active org is a root that parents teams.
-  const canManageTeams = activeOrgIsRoot && childTeamCount > 0;
+  const canManageTeams = hasChildOrgs && childTeamCount > 0;
   const memberTeams = useMemberTeams({ orgId });
 
   // Transfer ownership. Click-through path mirrors the delete-org flow:
@@ -337,8 +336,10 @@ export default function MembersPage() {
     if (result !== null) {
       setNewOrgName('');
       setCreateOrgOpen(false);
-      await refreshUser();          // pulls the new org into the org-switcher list
-      teamsQ.refetch(); // refresh the team-count banner + Manage-teams button
+      // Pulls the new org into the switcher and bumps `childOrgCount`, which
+      // reveals the Teams list + Manage-teams action (re-running the teams read).
+      await refreshUser();
+      teamsQ.refetch();
       toast.success(parentOrgId
         ? `Team "${name}" created — switch to it from the organization switcher (bottom-left)`
         : `Organization "${name}" created`);
@@ -414,16 +415,17 @@ export default function MembersPage() {
         );
       })()}
 
-      {activeOrg?.parentOrgId && (
+      {isChildOrg && (
         <Callout variant="neutral" icon={Building2} className="mb-4">
-          This organization is a <strong>team</strong> nested under a parent organization. Its members, quotas, and billing are scoped here.
+          This organization is a <strong>team</strong> nested under a parent organization. Its members are managed here;
+          quotas, seats and billing are pooled across the parent organization.
         </Callout>
       )}
 
       {/* Teams list — the org's teams. Open one to manage its
           members directly; or add an existing member to teams via the
           per-member "Manage teams" action below. */}
-      {activeOrgIsRoot && teams.length > 0 && (
+      {hasChildOrgs && teams.length > 0 && (
         <Card className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
@@ -517,7 +519,7 @@ export default function MembersPage() {
           button on the roster above: that roster is this org's own members, whom a
           parent admin can't view (same org). Admins of a root org with teams only —
           the server re-checks authority on every request. */}
-      {isAdmin && activeOrgIsRoot && teams.length > 0 && user && (
+      {isAdmin && hasChildOrgs && teams.length > 0 && user && (
         <div className="mt-6">
           <TeamMemberAccess teams={teams} currentUserId={user.id} readOnly={isReadOnly} />
         </div>

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { useFetch } from '@/hooks/useFetch';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
@@ -53,15 +54,18 @@ export function BillingDashboard() {
 
   // Summary + cost-by-team for the range. useFetch drops a superseded range's
   // late answer, so a rapid range change can't paint stale totals.
+  const { hasChildOrgs } = useOrgHierarchy();
   const { data: overview, loading } = useFetch(async (signal) => {
     const [s, alloc] = await Promise.all([
       api.getBillingSummary(range, { signal }).catch(() => null),
-      // Cost-by-team showback — only meaningful for a rollup-capable admin of a
-      // parent org with teams; 400s / single-org silently yield nothing.
-      api.getBillingAllocation({ ...range, includeDescendants: true }, { signal }).catch(() => null),
+      // Cost-by-team showback — only asked for when the org parents teams; a
+      // viewer without rollup rights 400s, which silently yields nothing.
+      hasChildOrgs
+        ? api.getBillingAllocation({ ...range, includeDescendants: true }, { signal }).catch(() => null)
+        : null,
     ]);
     return { summary: s?.data ?? null, allocation: alloc?.data ?? null };
-  }, [from, to]);
+  }, [from, to, hasChildOrgs]);
   const summary: BillingSummary | null = overview?.summary ?? null;
   const allocation: BillingAllocation | null = overview?.allocation ?? null;
 
@@ -201,7 +205,7 @@ export function BillingDashboard() {
         )}
       </Card>
 
-      {allocation && allocation.rows.length > 1 && (
+      {hasChildOrgs && allocation && allocation.rows.length > 1 && (
         <Card className="overflow-x-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-[var(--pb-text)]">Cost by team</h3>
