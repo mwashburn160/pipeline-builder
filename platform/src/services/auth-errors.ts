@@ -70,3 +70,15 @@ export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';
 /** A machine session (a stored credential from generate-token) was presented on
  *  POST /auth/refresh, which only renews interactive sessions. → 401 */
 export const MACHINE_SESSION_NOT_REFRESHABLE = 'MACHINE_SESSION_NOT_REFRESHABLE';
+
+/** The active org requires MFA (#8) and its grace period has passed, but the
+ *  session being minted is only `aal: 1`. Thrown by `mintTokens`, the single
+ *  issuance chokepoint, and mapped to 401 `MFA_REQUIRED` by every controller
+ *  that issues or re-issues a session — the client's answer is to enrol a factor
+ *  or sign in again with one, never to retry the same credential. */
+export const MFA_REQUIRED_FOR_ORG = 'MFA_REQUIRED_FOR_ORG';
+
+/** `POST /organization/:id/mfa-policy` tried to turn "require MFA" ON for the
+ *  SYSTEM org while the bootstrap-admin exception is still open — which would
+ *  lock out the only account that can close it. → 409 */
+export const MFA_BOOTSTRAP_STILL_OPEN = 'MFA_BOOTSTRAP_STILL_OPEN';

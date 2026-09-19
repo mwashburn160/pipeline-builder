@@ -19,19 +19,86 @@
  * before these are called) and its `surface` audit tag.
  */
 
+import crypto from 'crypto';
 import { createLogger, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
-import { orgIdpService } from '../services/org-idp-service.js';
+import { incCounter } from '../observability/metrics.js';
+import { IDP_OIDC_INCOMPLETE, IDP_SAML_INCOMPLETE, IGM_PROVIDER_UNSUPPORTED } from '../services/idp-mapping-errors.js';
+import { type OrgIdpConfigDto, orgIdpService } from '../services/org-idp-service.js';
 import { orgIdpCreateSchema, orgIdpPatchSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-idp-ops');
+
+/** SHA-256 fingerprint of a certificate, over its base64 payload so the PEM
+ *  wrapper and whitespace don't change it. Short-form for the audit trail: the
+ *  certificate itself is public, but the audit row wants an identifier, not a
+ *  20-line blob. */
+function certFingerprint(cert: string): string {
+  const payload = cert.replace(/-----(BEGIN|END)[A-Z ]+-----/g, '').replace(/\s+/g, '');
+  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 32);
+}
+
+/**
+ * Record a change to the org's trusted SAML signing certificates (#4).
+ *
+ * Kept separate from the surrounding `admin.org-idp.upsert` because a
+ * certificate swap is the one IdP edit that decides, on its own, whose
+ * assertions this org will accept — including the moment a rotation's overlap
+ * window opens and (more importantly) whether it was ever closed. A no-op write
+ * records nothing, so the trail shows rotations, not saves.
+ */
+function auditCertificateRotation(
+  req: Request,
+  orgId: string,
+  before: readonly string[],
+  after: readonly string[],
+  surface: IdpSurface,
+): void {
+  const beforePrints = before.map(certFingerprint);
+  const afterPrints = after.map(certFingerprint);
+  if (beforePrints.join(',') === afterPrints.join(',')) return;
+  audit(req, 'sso.saml.certificate.rotate', {
+    targetType: 'org-idp-config',
+    targetId: orgId,
+    affectedOrgId: orgId,
+    details: {
+      surface,
+      before: beforePrints,
+      after: afterPrints,
+      // > 1 means an overlap window is OPEN: assertions signed by either
+      // certificate are accepted until the retiring one is removed.
+      overlap: afterPrints.length > 1,
+    },
+  });
+  incCounter('platform_saml_certificate_rotations_total', { overlap: afterPrints.length > 1 ? 'open' : 'closed' });
+  logger.info('SAML IdP certificates changed', { orgId, before: beforePrints.length, after: afterPrints.length });
+}
+
+/** The certificates currently trusted, for the before/after comparison above. */
+function certsOf(config: OrgIdpConfigDto | null): string[] {
+  return config?.samlCertificates ?? [];
+}
 
 /** Which route family invoked the operation — recorded on the audit event so the
  *  trail distinguishes an operator acting FOR a customer from the customer's own
  *  admin acting for themselves. */
 export type IdpSurface = 'admin' | 'self-service';
+
+/**
+ * Typed write errors → HTTP status, shared by both IdP surfaces.
+ *
+ * The completeness rules are enforced on the RESULTING document in the service
+ * (Mongoose can't express "required when `protocol` has this value"), so they
+ * surface as thrown codes rather than as Zod issues and need mapping here or
+ * they'd read as a 500 for what is plainly a bad request.
+ */
+export const ORG_IDP_ERROR_MAP = {
+  [IDP_SAML_INCOMPLETE]: { status: 400, message: 'A SAML configuration needs the identity provider\'s entity ID, SSO URL and at least one signing certificate' },
+  [IDP_OIDC_INCOMPLETE]: { status: 400, message: 'An OIDC configuration needs a provider, client ID and client secret' },
+  [IGM_PROVIDER_UNSUPPORTED]: { status: 400, message: 'This identity provider issues no group claims, so a groups claim cannot be set for it' },
+} as const;
 
 /** Read one org's config. A missing config is a NORMAL state (most orgs never
  *  set one up), so this is 200 with `config: null` rather than 404 — a 404
@@ -84,8 +151,9 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
       targetType: 'org-idp-config',
       targetId: orgId,
       affectedOrgId: orgId,
-      details: { provider: config.provider, surface },
+      details: { protocol: config.protocol, provider: config.provider, surface },
     });
+    auditCertificateRotation(req, orgId, certsOf(existing), certsOf(config), surface);
     sendSuccess(res, 200, { config });
   } catch (err) {
     if (reserved) releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger));
@@ -98,6 +166,10 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
   const parsed = validateBody(orgIdpPatchSchema, req.body, res);
   if (!parsed) return;
 
+  // Read the trusted certificates BEFORE the write so a rotation can be told
+  // from a save that happened to include the same list.
+  const before = certsOf(await orgIdpService.findByOrg(orgId));
+
   const config = await orgIdpService.patch(orgId, req.user!.sub as string, parsed);
   if (!config) {
     sendError(res, 404, 'IdP config not found for org');
@@ -107,8 +179,9 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
     targetType: 'org-idp-config',
     targetId: orgId,
     affectedOrgId: orgId,
-    details: { surface },
+    details: { protocol: config.protocol, surface },
   });
+  auditCertificateRotation(req, orgId, before, certsOf(config), surface);
   sendSuccess(res, 200, { config });
 }
 

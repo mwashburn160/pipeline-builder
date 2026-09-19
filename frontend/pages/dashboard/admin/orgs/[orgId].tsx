@@ -425,12 +425,21 @@ export default function OrgDetailPage() {
               <dl className="text-sm space-y-1.5">
                 <div>
                   <dt className="text-gray-500 dark:text-gray-400">Provider</dt>
-                  <dd><code className="text-xs">{idp.provider}</code> {idp.enabled ? <Badge color="green">enabled</Badge> : <Badge color="yellow">disabled</Badge>}</dd>
+                  {/* A SAML config has no named provider — it is identified by
+                      its protocol and the IdP's entity ID (#4). */}
+                  <dd><code className="text-xs">{idp.protocol === 'saml' ? 'saml' : idp.provider}</code> {idp.enabled ? <Badge color="green">enabled</Badge> : <Badge color="yellow">disabled</Badge>}</dd>
                 </div>
-                <div>
-                  <dt className="text-gray-500 dark:text-gray-400">Client ID</dt>
-                  <dd><CopyableId value={idp.clientId} size="sm" /></dd>
-                </div>
+                {idp.protocol === 'saml' ? (
+                  <div>
+                    <dt className="text-gray-500 dark:text-gray-400">IdP entity ID</dt>
+                    <dd className="break-all"><CopyableId value={idp.samlEntityId ?? ''} size="sm" /></dd>
+                  </div>
+                ) : (
+                  <div>
+                    <dt className="text-gray-500 dark:text-gray-400">Client ID</dt>
+                    <dd><CopyableId value={idp.clientId ?? ''} size="sm" /></dd>
+                  </div>
+                )}
                 {idp.discoveryUrl && (
                   <div>
                     <dt className="text-gray-500 dark:text-gray-400">Discovery URL</dt>

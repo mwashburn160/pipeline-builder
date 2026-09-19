@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -70,6 +70,10 @@ import {
   getImpersonationPolicy,
   updateImpersonationPolicy,
 } from '../controllers/org-impersonation-policy.js';
+import {
+  getMfaPolicy,
+  updateMfaPolicy,
+} from '../controllers/org-mfa-policy.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
@@ -160,6 +164,19 @@ router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), au
 router.get('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), getImpersonationPolicy);
 router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), requireStepUp, audited('org.update'), updateImpersonationPolicy);
 
+/** GET/PATCH /organization/:id/mfa-policy — whether this org requires two-factor
+ *  authentication of its members (#8), with the grace period that follows
+ *  turning it on, and whether the org's own IdP enforces MFA (which is what
+ *  makes an SSO sign-in count as MFA-grade).
+ *
+ *  Gated on `org:settings` — unlike impersonation and IdP/KMS, this is an
+ *  ordinary org-security setting an admin manages, not a separate authority. The
+ *  WRITE additionally requires step-up: turning the requirement OFF removes a
+ *  control for everyone in the org, so it must not be reachable from a session
+ *  alone. Tenancy is `canAdministerOrg` in the controller, as on the siblings. */
+router.get('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), getMfaPolicy);
+router.patch('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
+
 // -- Domain-based join (P2b) — owner/admin manage verified domains + approve
 //    join requests. Gated by `org:settings` (capability) + `canAdministerOrg`
 //    (tenancy) in each controller, same as the identity route above.
@@ -238,14 +255,22 @@ router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntit
 /** GET /organization/:id/idp - Read own-org IdP config (config: null if unset) */
 router.get('/:id/idp', requireAuth, requirePermission('org:idp'), getOwnOrgIdpConfig);
 
+/*
+ * ASSURANCE (#8) on every IdP WRITE, self-serve and fleet alike: whoever
+ * controls an org's IdP can sign in as any of its members, so the session must
+ * be MFA-grade (`minAssurance: 2`) and the confirmation must be earned by a
+ * SECOND FACTOR (`STRONG_STEP_UP_METHODS`) rather than by re-entering the
+ * password the session was opened with. Reading the config is unchanged.
+ */
+
 /** PUT /organization/:id/idp - Upsert own-org IdP config (step-up: secret-bearing) */
-router.put('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), putOwnOrgIdpConfig);
+router.put('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), putOwnOrgIdpConfig);
 
 /** PATCH /organization/:id/idp - Partial update of own-org IdP config (step-up) */
-router.patch('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), patchOwnOrgIdpConfig);
+router.patch('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), patchOwnOrgIdpConfig);
 
 /** DELETE /organization/:id/idp - Remove own-org IdP config (step-up) */
-router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.delete'), deleteOwnOrgIdpConfig);
+router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.delete'), deleteOwnOrgIdpConfig);
 
 /*
  * IdP group → Role mappings (3a) — what the IdP's groups are worth inside the

@@ -480,6 +480,63 @@ the registry's own `x5c`-against-bundle check).
 
 ---
 
+## IdP SAML signing certificates (per org)
+
+Unlike every secret above, this one is **not ours** — it belongs to the
+customer's identity provider, and their IdP administrator decides when it
+changes. What we own is the **trust list**: the certificates an org's config says
+may have signed an assertion. That list is what makes the rotation a non-event.
+
+The overlap window is the list holding **two certificates** — the incoming one
+and the outgoing one. While both are listed, assertions signed by either verify,
+so the cutover costs nobody a failed sign-in and the order does not matter (every
+listed certificate is tried). Up to three are accepted; more than that is a trust
+list turning into a place old keys go to hide.
+
+**Who does this:** an org admin holding `org:idp`, on **Settings → Single
+Sign-On**, with a step-up confirmation — or a platform operator on their behalf
+through `/admin/org-idp/:orgId`. There is no env value, no Secret and no
+restart: the list is read per sign-in, so a change takes effect on the next one.
+
+**Steps**
+
+1. Get the new certificate from the IdP (its metadata document is the reliable
+   source — in Okta *Sign On → SAML Signing Certificates*, in Entra
+   *Single sign-on → SAML Certificates → Download Certificate (Base64)*).
+2. **Open the window:** paste it into *Signing certificate(s)* **alongside** the
+   current one (blank line between them; PEM or bare base64, both accepted) and
+   save. The editor says how many certificates it detected and warns that a
+   rotation window is open.
+3. Tell the IdP administrator to cut over — activate the new certificate at the
+   IdP. Sign-ins keep working throughout, whichever certificate signs them.
+4. Verify: sign in through the IdP; the audit trail shows `user.login` with
+   `details.method = 'saml'` and `platform_saml_signins_total{result="success"}`
+   advances. A rejection here shows as `sso.saml.refused` with
+   `details.reason = "invalid_assertion"`.
+5. **Close the window:** remove the retired certificate and save. Leaving it
+   listed means the old key can still sign a valid assertion — which is the
+   whole point of rotating away from it.
+
+Each save that changes the list is audited as `sso.saml.certificate.rotate`,
+carrying the fingerprints before and after and whether an overlap window is now
+`open`; `platform_saml_certificate_rotations_total{overlap}` counts them. An
+unclosed window is visible as an `open` rotation with no `closed` one following.
+
+**Rollback** — before step 5 the old certificate is still trusted, so reverting
+is just telling the IdP to switch back. After step 5, re-add it (keep a copy
+until the window is closed and verified).
+
+**Compromise response** — if the IdP's signing key is compromised, do NOT open a
+window: replace the list with the new certificate alone, in one save, so the
+compromised key stops being trusted immediately. A handful of in-flight sign-ins
+fail and are retried.
+
+**Proof** — `platform/test/saml-service.test.ts` ("certificate rotation
+overlap") verifies assertions signed by either certificate while both are
+trusted, and refuses the retired one once the list is trimmed.
+
+---
+
 ## SCIM tokens — *applies once SCIM provisioning ships (roadmap #3b)*
 
 SCIM bearer tokens are per-org, created and revoked through the org's SSO admin

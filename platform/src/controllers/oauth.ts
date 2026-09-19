@@ -8,6 +8,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
@@ -508,6 +509,9 @@ export const OAUTH_ERROR_MAP = {
   [OAUTH_MICROSOFT_TENANT_NOT_PINNED]: { status: 400, message: 'Microsoft sign-in is not available: the platform must be configured with a specific Microsoft tenant.' },
   [OAUTH_INVALID_ID_TOKEN]: { status: 401, message: 'The sign-in provider returned a token for a different client or account' },
   [ACCOUNT_EMAIL_UNVERIFIED]: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then link this provider.' },
+  // A social sign-in is single-factor (#8), so it cannot open a session in an
+  // org that requires MFA once the grace period has passed.
+  ...MFA_POLICY_ERROR_MAP,
 } as const;
 
 /**

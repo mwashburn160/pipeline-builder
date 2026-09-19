@@ -3,6 +3,7 @@
 
 import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
+import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
 import type { RefreshSession } from '../models/index.js';
@@ -286,6 +287,20 @@ export async function requireAuth(
       // Session token: reject if minted before the last "invalidate all sessions"
       // / role / permission / membership change.
       return sendError(res, 401, 'Session invalid');
+    }
+
+    // BOOTSTRAP-ADMIN ENROLMENT SESSION (#8, revision 4). Platform is the one
+    // service that must still ADMIT such a token — it hosts enrolment, sign-out
+    // and the setup routes `init-platform.sh` calls — so the allowlist lives
+    // here rather than in api-core, which simply refuses the flag outright
+    // everywhere else. Fail-closed: anything not named in the list is refused.
+    if (decoded.mfaEnrollmentPending === true && !bootstrapSessionMayReach(req)) {
+      incCounter('platform_mfa_enforcement_refused_total', { reason: 'bootstrap_session' });
+      return sendError(
+        res, 403,
+        'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
+        ErrorCode.MFA_ENROLLMENT_REQUIRED,
+      );
     }
 
     // Trust the JWT claims verbatim (role/organizationId/organizationName/

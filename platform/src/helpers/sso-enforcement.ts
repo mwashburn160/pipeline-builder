@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SSO enforcement policy — the glue that decides WHEN the per-org OIDC engine
- * (services/oidc-service.ts) actually governs a login.
+ * SSO enforcement policy — the glue that decides WHEN a per-org federation
+ * engine (services/oidc-service.ts, services/saml-service.ts) actually governs a
+ * login. The gates are protocol-independent on purpose: SAML ships INSIDE the
+ * existing `sso` entitlement, so nothing about "may this org federate?" changes
+ * when an admin moves the protocol selector.
  *
  * Two independent gates must BOTH hold for enforcement:
  *   1. `config.enabled` on the org's OrgIdpConfig (the admin turned SSO on), AND
@@ -21,8 +24,10 @@ import { requireOrgScope } from './controller-helper.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
 import { OrgDomain, Organization } from '../models/index.js';
+import type { IdpProtocol } from '../models/org-idp-config.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';
+import type { SamlLoginConfig } from '../services/saml-service.js';
 
 /** Extract the lowercased domain from an email, or null if it isn't one. */
 export function emailDomain(email: string): string | null {
@@ -118,17 +123,53 @@ export async function requireOwnOrgSso(
 }
 
 /**
+ * Which protocol an org's ENFORCED IdP speaks (#4), or a typed
+ * {@link import('../services/oidc-service.js').OIDC_ERROR_MAP} error describing
+ * why enforcement doesn't apply at all. The two protocol-specific resolvers
+ * below re-check the same gates, so this is the DISPATCH, never the gate.
+ */
+export async function getEnforcedIdpProtocol(orgId: string): Promise<IdpProtocol> {
+  const cfg = await orgIdpService.findByOrg(orgId);
+  if (!cfg) throw new Error('OIDC_NOT_CONFIGURED');
+  if (!cfg.enabled) throw new Error('OIDC_DISABLED');
+  if (!(await isSsoEntitled(orgId))) throw new Error('OIDC_NOT_ENTITLED');
+  return cfg.protocol;
+}
+
+/**
  * Resolve the ENFORCED OIDC login config for an org, or throw a typed
  * {@link import('../services/oidc-service.js').OIDC_ERROR_MAP} error describing
  * why enforcement doesn't apply. Used by the SSO initiate + callback routes.
+ *
+ * An org federating over SAML is refused here (`OIDC_PROTOCOL_MISMATCH`) rather
+ * than handed a config with an empty client id: the caller wants the OIDC flow,
+ * and this org does not speak it.
  */
 export async function getEnforcedLoginConfig(orgId: string): Promise<OidcLoginConfig> {
   const cfg = await orgIdpService.getLoginConfig(orgId);
   if (!cfg) throw new Error('OIDC_NOT_CONFIGURED');
   if (!cfg.enabled) throw new Error('OIDC_DISABLED');
   if (!(await isSsoEntitled(orgId))) throw new Error('OIDC_NOT_ENTITLED');
-  // Strip the `enabled` flag — the login config carries only what the flow uses.
-  const { enabled: _enabled, ...loginCfg } = cfg;
+  if (cfg.protocol === 'saml') throw new Error('OIDC_PROTOCOL_MISMATCH');
+  // Strip the flags — the login config carries only what the flow uses.
+  const { enabled: _enabled, protocol: _protocol, ...loginCfg } = cfg;
+  return loginCfg;
+}
+
+/**
+ * Resolve the ENFORCED SAML login config for an org, or throw a typed
+ * {@link import('../services/saml-service.js').SAML_ERROR_MAP} error. The SAML
+ * twin of {@link getEnforcedLoginConfig}: the SAME two gates (the admin enabled
+ * SSO, and the org is `sso`-entitled) decide both protocols, because SAML ships
+ * inside the existing SSO entitlement rather than as an add-on of its own.
+ */
+export async function getEnforcedSamlConfig(orgId: string): Promise<SamlLoginConfig> {
+  const cfg = await orgIdpService.getSamlLoginConfig(orgId);
+  if (!cfg) throw new Error('SAML_NOT_CONFIGURED');
+  if (cfg.protocol !== 'saml') throw new Error('SAML_PROTOCOL_MISMATCH');
+  if (!cfg.enabled) throw new Error('SAML_DISABLED');
+  if (!(await isSsoEntitled(orgId))) throw new Error('SAML_NOT_ENTITLED');
+  const { enabled: _enabled, protocol: _protocol, ...loginCfg } = cfg;
   return loginCfg;
 }
 
@@ -143,7 +184,7 @@ export async function getEnforcedLoginConfig(orgId: string): Promise<OidcLoginCo
  */
 export async function findSsoEnforcementForEmail(
   email: string,
-): Promise<{ orgId: string; provider: string } | null> {
+): Promise<{ orgId: string; provider: string; protocol: IdpProtocol } | null> {
   const domain = emailDomain(email);
   if (!domain) return null;
 
@@ -155,7 +196,10 @@ export async function findSsoEnforcementForEmail(
     if (!(await ownsVerifiedDomain(orgId, domain))) continue;
     if (await isSsoEntitled(orgId)) {
       const cfg = await orgIdpService.findByOrg(orgId);
-      return { orgId, provider: cfg?.provider ?? 'generic-oidc' };
+      const protocol = cfg?.protocol ?? 'oidc';
+      // `provider` is what the client shows the user ("Continue with …"); a SAML
+      // config has no named provider, so it identifies itself by its protocol.
+      return { orgId, protocol, provider: protocol === 'saml' ? 'saml' : (cfg?.provider ?? 'generic-oidc') };
     }
   }
   return null;
@@ -183,7 +227,7 @@ export async function rejectIfSsoEnforced(
     res, 403,
     'This account must sign in with single sign-on (SSO).',
     'SSO_REQUIRED',
-    { orgId: enforcement.orgId, provider: enforcement.provider },
+    { orgId: enforcement.orgId, provider: enforcement.provider, protocol: enforcement.protocol },
   );
   return true;
 }

@@ -31,8 +31,10 @@
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 import { audit } from '../helpers/audit.js';
+import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController, type ErrorMap } from '../helpers/controller-helper.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { User } from '../models/index.js';
@@ -160,6 +162,9 @@ export const registerVerify = withController('Passkey register verify', async (r
     targetId: userId,
     details: { passkeyId: passkey.id, name: passkey.name, backedUp: passkey.backedUp },
   });
+  // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
+  // good, even if this passkey is later removed.
+  await closeBootstrapExceptionOnEnrolment(req, userId);
   meter('register', 'success');
   sendSuccess(res, 201, { passkey });
 }, WEBAUTHN_ERROR_MAP);
@@ -313,7 +318,10 @@ export const loginVerify = withController('Passkey login verify', async (req, re
     return;
   }
 
-  // Identical to the password path: an INTERACTIVE session, `amr: ['webauthn']`.
+  // Identical to the password path: an INTERACTIVE session, `amr: ['webauthn']`
+  // — and `aal: 2` (#8). A passkey is verified with user verification REQUIRED
+  // (see the WebAuthn service), so a single ceremony proves both the credential
+  // and the person, which is what MFA-grade asks for.
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
     auth: signInAuth('webauthn'),
@@ -328,4 +336,4 @@ export const loginVerify = withController('Passkey login verify', async (req, re
   incCounter('platform_logins_total');
   meter('login', 'success');
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
-}, WEBAUTHN_ERROR_MAP);
+}, { ...WEBAUTHN_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });

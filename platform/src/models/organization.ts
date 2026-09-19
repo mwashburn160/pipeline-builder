@@ -62,6 +62,37 @@ export interface OrganizationDocument extends Document {
   impersonationPolicy?: 'open' | 'consent' | 'denied';
   /** Stored self-approval flag. Same absent-value rule as `impersonationPolicy`. */
   allowSelfApproval?: boolean;
+  /**
+   * Org policy "require MFA" (#8): every member's session scoped to this org
+   * must be `aal: 2` (a passkey, password + authenticator code, or SSO through
+   * an IdP marked as enforcing MFA) or it is refused AT ISSUANCE — no route ever
+   * re-checks it. Absent means off; read only through
+   * `helpers/mfa-policy.ts#resolveEffectiveMfaPolicy`, which owns the default and
+   * the ancestor walk (a parent org's requirement applies to its teams).
+   */
+  requireMfa?: boolean;
+  /** When `requireMfa` was last turned ON. Stamped by the policy route so the
+   *  grace deadline is derived rather than trusted from a client. */
+  mfaRequiredSince?: Date;
+  /**
+   * End of the grace period that follows enabling `requireMfa`. Until it passes,
+   * members are TOLD (the claim and the banner) but not refused, so an org can
+   * turn the policy on without locking out everyone who hasn't enrolled yet.
+   * Absent with `requireMfa` on means the requirement bites immediately.
+   */
+  mfaGraceUntil?: Date;
+  /**
+   * The org states that its OWN IdP enforces MFA, so an SSO sign-in through it
+   * is `aal: 2`.
+   *
+   * A per-provider setting rather than a derived one because providers do not
+   * send `amr` reliably — most OIDC IdPs send none at all, and a SAML assertion's
+   * `AuthnContextClassRef` is whatever the IdP was configured to say. The org
+   * administers its own IdP, so its statement is the best available evidence; it
+   * lives here (beside the requirement it feeds) rather than on the IdP config,
+   * and applies to whichever protocol that config speaks.
+   */
+  idpEnforcesMfa?: boolean;
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -303,6 +334,21 @@ const organizationSchema = new Schema<OrganizationDocument>(
     // false, every challenge goes to the org's admins. Same no-default rule as
     // above, for the same reason.
     allowSelfApproval: {
+      type: Boolean,
+    },
+    // Org policy "require MFA" (#8). Same no-default rule as the two above:
+    // orgs are read with `.lean()`, so a schema default would never fire for an
+    // existing document. The default lives in `resolveEffectiveMfaPolicy`.
+    requireMfa: {
+      type: Boolean,
+    },
+    mfaRequiredSince: {
+      type: Date,
+    },
+    mfaGraceUntil: {
+      type: Date,
+    },
+    idpEnforcesMfa: {
       type: Boolean,
     },
     owner: {

@@ -6,6 +6,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
+import { MAX_MFA_GRACE_DAYS } from '../helpers/mfa-policy.js';
 import { PASSWORD_RULES } from '../models/user.js';
 
 /**
@@ -225,6 +226,25 @@ export const updateImpersonationPolicySchema = z
     message: 'Provide impersonationPolicy or allowSelfApproval to update',
   });
 
+/**
+ * `PATCH /organization/:id/mfa-policy` (#8).
+ *
+ * `graceDays` is only meaningful while TURNING the requirement on — it is what
+ * the deadline is computed from, server-side, so a client can never post a
+ * deadline of its own choosing (or one in the past). Omitting it takes the
+ * default; `0` makes the requirement bite immediately.
+ */
+export const updateMfaPolicySchema = z
+  .object({
+    requireMfa: z.boolean().optional(),
+    graceDays: z.number().int().min(0).max(MAX_MFA_GRACE_DAYS).optional(),
+    idpEnforcesMfa: z.boolean().optional(),
+  })
+  .strict()
+  .refine((d) => d.requireMfa !== undefined || d.idpEnforcesMfa !== undefined, {
+    message: 'Provide requireMfa or idpEnforcesMfa to update',
+  });
+
 export const updateOrgIdentitySchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
@@ -363,11 +383,79 @@ const groupsClaimSchema = z.string().trim().min(1).max(128)
 const GOOGLE_GROUPS_MESSAGE =
   'Group-to-Role mapping is not available for Google: Google\'s OIDC tokens carry no group claim. Use a generic OIDC or Cognito identity provider for just-in-time Role mapping.';
 
+/** Which protocol the org federates over (#4). Mirrors `IdpProtocol` in
+ *  models/org-idp-config.ts. */
+const idpProtocolSchema = z.enum(['oidc', 'saml']);
+
+/** A SAML IdP's `entityID`. It is a URI by convention but the spec only says
+ *  "a string up to 1024 characters", and real IdPs do emit non-URL values
+ *  (Entra's `https://sts.windows.net/<tenant>/` alongside ADFS's bare urns), so
+ *  only length is constrained. */
+const samlEntityIdSchema = z.string().trim().min(1).max(1024);
+
+/** The IdP's SSO endpoint. Must be https — an AuthnRequest carries the user's
+ *  session to it and the assertion comes back through the browser. */
+const samlSsoUrlSchema = z.string().trim().url().refine(
+  (u) => u.startsWith('https://'),
+  { message: 'The identity provider SSO URL must use https' },
+);
+
+/** One IdP signing certificate: PEM or bare base64, capped so a paste accident
+ *  can't push an unbounded blob into the config. Shape is checked by
+ *  node-saml at use time — it is the authority on what it can parse. */
+const samlCertificateSchema = z.string().trim().min(64).max(20_000);
+
+/** Up to three trusted certificates. Three is one more than a rotation needs
+ *  (outgoing + incoming), which leaves room for an IdP that publishes a spare
+ *  without letting the trust list grow into a place old keys go to hide. */
+const samlCertificatesSchema = z.array(samlCertificateSchema).max(3);
+
+/** Assertion attribute names. Long URI-shaped names are the norm (Entra,
+ *  Shibboleth), so this is length-bounded rather than pattern-bound. */
+const samlAttributeNameSchema = z.string().trim().max(256);
+
+const samlAttributesSchema = z.object({
+  email: samlAttributeNameSchema.optional(),
+  name: samlAttributeNameSchema.optional(),
+  groups: samlAttributeNameSchema.optional(),
+}).strict();
+
+/**
+ * Per-protocol required fields.
+ *
+ * `protocol` is OPTIONAL on the wire because the OIDC editor and the SAML editor
+ * are separate surfaces on one settings page and neither sends the other's
+ * fields: omitted means "leave the stored protocol alone", which the service
+ * honours. For VALIDATION an omitted protocol is treated as `oidc`, since the
+ * only body that omits it is the OIDC editor's — and the service's
+ * `assertProtocolComplete` is the backstop that checks the RESULTING document
+ * either way.
+ */
+function requiredFieldsPresent(data: {
+  protocol?: 'oidc' | 'saml';
+  provider?: string;
+  clientId?: string;
+  clientSecret?: string;
+  samlEntityId?: string;
+  samlSsoUrl?: string;
+  samlCertificates?: string[];
+}): boolean {
+  if (data.protocol === 'saml') {
+    return !!data.samlEntityId && !!data.samlSsoUrl && (data.samlCertificates?.length ?? 0) > 0;
+  }
+  return !!data.provider && !!data.clientId && !!data.clientSecret;
+}
+
 export const orgIdpCreateSchema = z.object({
   orgId: z.string().min(1),
-  provider: idpProviderSchema,
-  clientId: z.string().min(1),
-  clientSecret: z.string().min(1),
+  protocol: idpProtocolSchema.optional(),
+  provider: idpProviderSchema.optional(),
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
+  samlEntityId: samlEntityIdSchema.optional(),
+  samlSsoUrl: samlSsoUrlSchema.optional(),
+  samlCertificates: samlCertificatesSchema.optional(),
+  samlAttributes: samlAttributesSchema.optional(),
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
@@ -377,22 +465,30 @@ export const orgIdpCreateSchema = z.object({
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
 }).refine(
-  data => data.provider !== 'generic-oidc' || !!data.discoveryUrl,
+  requiredFieldsPresent,
+  { message: 'An OIDC config requires provider, clientId and clientSecret; a SAML config requires samlEntityId, samlSsoUrl and at least one certificate', path: ['protocol'] },
+).refine(
+  data => data.protocol === 'saml' || data.provider !== 'generic-oidc' || !!data.discoveryUrl,
   { message: 'discoveryUrl is required for generic-oidc provider', path: ['discoveryUrl'] },
 ).refine(
-  data => data.provider !== 'cognito' || (!!data.region && !!data.userPoolId),
+  data => data.protocol === 'saml' || data.provider !== 'cognito' || (!!data.region && !!data.userPoolId),
   { message: 'region and userPoolId are required for cognito provider', path: ['userPoolId'] },
 ).refine(
-  data => !data.groupsClaim || (data.provider !== 'google' && data.provider !== 'github'),
+  data => !data.groupsClaim || data.protocol === 'saml' || (data.provider !== 'google' && data.provider !== 'github'),
   { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
 );
 
 /** Partial update of an org IdP config. Every field optional; unset fields
  *  are left untouched by the service. */
 export const orgIdpPatchSchema = z.object({
+  protocol: idpProtocolSchema.optional(),
   provider: idpProviderSchema.optional(),
   clientId: z.string().optional(),
   clientSecret: z.string().optional(),
+  samlEntityId: samlEntityIdSchema.optional(),
+  samlSsoUrl: samlSsoUrlSchema.optional(),
+  samlCertificates: samlCertificatesSchema.optional(),
+  samlAttributes: samlAttributesSchema.optional(),
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
@@ -401,9 +497,31 @@ export const orgIdpPatchSchema = z.object({
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
 }).refine(
-  data => !data.groupsClaim || (data.provider !== 'google' && data.provider !== 'github'),
+  data => !data.groupsClaim || data.protocol === 'saml' || (data.provider !== 'google' && data.provider !== 'github'),
   { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
 );
+
+// SAML login flow (#4)
+
+/**
+ * What an IdP POSTs to the ACS. `RelayState` is optional ON THE WIRE — an
+ * IdP-initiated response simply has none — and its ABSENCE is exactly what the
+ * controller refuses, so validation must let it through to be refused there with
+ * its own reason rather than collapsing it into a generic 400.
+ *
+ * The size cap is generous: a signed assertion carrying group memberships for a
+ * large directory runs to tens of kilobytes, and the global 1 MB body limit is
+ * the real backstop.
+ */
+export const samlAcsSchema = z.object({
+  SAMLResponse: z.string().min(1).max(500_000),
+  RelayState: z.string().max(512).optional(),
+});
+
+/** The landing page redeeming the ACS's one-time handoff. */
+export const samlCompleteSchema = z.object({
+  handoff: z.string().min(1).max(256),
+});
 
 // IdP group → Role mapping (3a)
 

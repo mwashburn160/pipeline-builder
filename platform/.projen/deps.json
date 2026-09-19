@@ -114,6 +114,11 @@
       "type": "build"
     },
     {
+      "name": "xml-crypto",
+      "version": "6.2.0",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-kms",
       "version": "3.1101.0",
       "type": "runtime"
@@ -121,6 +126,11 @@
     {
       "name": "@aws-sdk/client-sesv2",
       "version": "3.1101.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@node-saml/node-saml",
+      "version": "5.1.0",
       "type": "runtime"
     },
     {

@@ -5,8 +5,10 @@ import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthH
 import type { TokenScope } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
+import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail, recordBootstrapSession } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
@@ -187,7 +189,13 @@ export const login = withController('Login', async (req, res) => {
 
   // Early gate: if the identifier is itself an email whose domain is SSO-forced,
   // turn it away before processing the password at all.
-  if (body.identifier.includes('@') && await rejectIfSsoEnforced(res, body.identifier)) return;
+  //
+  // NEVER for the bootstrap admin (#8): SSO refuses superadmins outright, so a
+  // verified, SSO-enforced domain matching their address would close BOTH
+  // sign-in paths and leave the install with no way in at all.
+  if (body.identifier.includes('@')
+    && !isBootstrapSuperAdminEmail(body.identifier)
+    && await rejectIfSsoEnforced(res, body.identifier)) return;
 
   const user = await authService.findByCredentials(body.identifier, body.password);
   if (!user) {
@@ -202,7 +210,8 @@ export const login = withController('Login', async (req, res) => {
 
   // Post-credential gate: closes the username-login bypass of the email-identifier
   // early gate above — a covered account can't password-login by username either.
-  if (await rejectIfSsoEnforced(res, user.email)) return;
+  // Same bootstrap-admin carve-out, for the same reason.
+  if (!isBootstrapSuperAdminEmail(user.email) && await rejectIfSsoEnforced(res, user.email)) return;
 
   // SECOND FACTOR. For an account with an authenticator app the password is only
   // half the credential, so this returns a short-lived, single-use challenge
@@ -231,20 +240,37 @@ export const login = withController('Login', async (req, res) => {
     });
   }
 
+  // BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). A fresh install has one admin
+  // and no factor, so the org policy that would otherwise apply to the system
+  // org cannot apply to them yet. They get a limited `aal: 1` session that
+  // reaches only enrolment, sign-out and the setup routes; it closes for good at
+  // their first enrolment. Resolved AFTER the TOTP branch on purpose — an admin
+  // with an authenticator app has already closed it, and must take the normal
+  // second-factor path.
+  const bootstrapPending = await isBootstrapExceptionOpen(user);
+
   // Password sign-in opens an INTERACTIVE session (`amr: ['pwd']`).
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
     auth: signInAuth('pwd'),
     client: clientInfoOf(req),
+    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
   });
+
+  if (bootstrapPending) await recordBootstrapSession(req, user._id.toString(), user.email);
 
   audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
   // Counter consumed by the Platform Overview dashboard's "logins/min" panel.
   incCounter('platform_logins_total');
   // Browser: the refresh token leaves as an HttpOnly cookie and never appears
-  // in this body. CLI/CI: unchanged, both tokens in the body.
-  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
-});
+  // in this body. CLI/CI: unchanged, both tokens in the body. The enrolment flag
+  // rides along so the UI can send the admin straight to enrolment instead of
+  // letting them discover the limit one 403 at a time.
+  sendSuccess(res, 200, {
+    ...deliverSessionTokens(req, res, tokens),
+    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
+  });
+}, { ...MFA_POLICY_ERROR_MAP });
 
 /**
  * Refresh tokens. POST /auth/refresh
@@ -286,6 +312,11 @@ export const refresh = withController('Refresh', async (req, res) => {
   }
 
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
+}, {
+  // A session opened before the org turned "require MFA" on stops refreshing
+  // once the grace period ends — that IS the enforcement (see `mintTokens`), and
+  // the client's answer is to sign in again with a second factor.
+  ...MFA_POLICY_ERROR_MAP,
 });
 
 /**
@@ -357,6 +388,9 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // A caller whose token predates the identity claims can't have its assurance
   // inherited — fail closed and make it re-authenticate.
   [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot be re-issued — please sign in again' },
+  // Switching INTO an org that requires MFA is refused for an aal-1 session; the
+  // person stays where they were and enrols first.
+  ...MFA_POLICY_ERROR_MAP,
 });
 
 /**

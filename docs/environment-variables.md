@@ -81,7 +81,8 @@ This reference documents every environment variable across the Pipeline Builder 
 | `AUTH_REFRESH_COOKIE_PATH` | `/api/auth/refresh` | Path the browser's refresh cookie is scoped to, as the **browser** sees it (nginx strips `/api` before proxying, so this is the public path). Change only when the UI is served under a different public prefix. |
 | `AUTH_COOKIE_SECURE` | `true` | `Secure` on the refresh cookie. Every shipped target terminates TLS in front of the gateway and browsers accept `Secure` on `http://localhost`, so leave this on. Set `false` **only** for a plain-http deployment on a non-localhost hostname, where the browser would otherwise drop the cookie and no session could refresh. |
 | `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
-| `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. |
+| `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the **bootstrap-admin MFA exception** applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See [Assurance levels and required MFA](authentication.md#assurance-levels-and-required-mfa). |
+| `MFA_RECOVER_OPERATOR` | — | Default `--operator` for the `scripts/mfa-recover.js` factor-reset command — who is running it, recorded as the audit actor. Only read by that command; the flag wins when both are given, and the command refuses to run with neither (an audit row for a factor reset is worth little without a name). |
 
 ### User-token signing (ES256) — platform only
 
@@ -145,6 +146,12 @@ deployment. The redirect URI to register in each provider's console is
 | `OAUTH_CALLBACK_BASE_URL` | `${PLATFORM_FRONTEND_URL}` | OAuth redirect origin (each handler appends `/auth/callback/<provider>`) |
 | `OAUTH_STATE_TTL_MS` | `600000` | OAuth state (CSRF) token TTL (10 min) |
 | `OAUTH_CLEANUP_INTERVAL_MS` | `60000` | Stale state cleanup interval |
+| `OAUTH_MAX_PENDING_STATES` | `1000` | Cap on the in-memory pending-state fallback (used only when Redis is unset) |
+| `OIDC_DOC_CACHE_TTL_MS` | `3600000` | OIDC discovery / JWKS document cache TTL |
+| `SAML_CLOCK_SKEW_MS` | `60000` | Skew tolerated on a SAML assertion's `NotBefore` / `NotOnOrAfter`. Sized for ordinary NTP drift between the IdP and this deployment — raising it accepts staler assertions |
+| `SAML_REQUEST_TTL_MS` | `600000` | How long an unanswered SAML `AuthnRequest` stays valid — i.e. how long a person has to finish signing in at their IdP |
+| `SAML_ASSERTION_REPLAY_TTL_MS` | `600000` | Floor on how long a **spent** assertion id is remembered for replay refusal. The real window is the assertion's own `NotOnOrAfter` when that is longer (capped at 12 h) |
+| `SAML_HANDOFF_TTL_MS` | `120000` | Lifetime of the one-time handoff the SAML ACS hands the browser — the few seconds it takes to follow one redirect |
 
 ### Device authorization (CLI sign-in)
 

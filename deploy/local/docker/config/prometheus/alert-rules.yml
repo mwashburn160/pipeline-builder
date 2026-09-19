@@ -321,6 +321,61 @@ groups:
           summary: "Billing entitlement drift persisting"
           description: "The entitlement reconciler keeps finding stored entitlements out of sync with the source of truth ({{ $value | humanize }}/sec over 15m, sustained 30m). Usually self-heals; a persistent signal means a sync leg is stuck — inspect the reconciler logs."
 
+      # ---- Auth: SAML assertions being rejected ----
+      # `platform_saml_signins_total{result}` counts every SAML sign-in outcome.
+      # Rejections are NOT all equal, so this fires on the ones that mean something
+      # is wrong rather than on a person mistyping: an expired or rotated-away
+      # signing certificate (`invalid_assertion`), unsolicited assertions
+      # (`idp_initiated` — someone using their IdP's app launcher, or a login-CSRF
+      # attempt), and replays. A steady rate here is a BROKEN CONNECTION: every
+      # affected user is locked out, so it warns quickly.
+      - alert: SamlAssertionRejections
+        expr: sum by (result) (rate(platform_saml_signins_total{result=~"invalid_assertion|replay|idp_initiated"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "SAML assertions being rejected ({{ $labels.result }})"
+          description: "{{ $value | humanize }} SAML rejections/sec of type {{ $labels.result }} over 5m, sustained 10m. `invalid_assertion` usually means the identity provider rotated its signing certificate without the new one being added here (see runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org); `idp_initiated` means people are starting sign-in at the identity provider, which is refused by design; `replay` means an assertion was presented twice. Filter the audit log on `sso.saml.refused` for the affected org."
+
+      # ---- Auth: bootstrap-admin MFA exception used long after install (#8) ----
+      # The bootstrap admin (BOOTSTRAP_SUPERADMIN_EMAILS, system org) may hold a
+      # single-factor session ONLY until they enrol a passkey or an authenticator
+      # app; the exception then closes permanently. A fresh install finishes in
+      # minutes, so `late="true"` means either a setup that stalled without ever
+      # enrolling a factor, or someone using the exception as a way in. Both need
+      # a person to look: enrol a factor (which closes it) or investigate.
+      - alert: MfaBootstrapSessionLate
+        expr: sum(increase(platform_mfa_bootstrap_session_total{late="true"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Bootstrap-admin MFA exception used more than 24h after install"
+          description: "The install's bootstrap administrator signed in on the pre-enrolment exception more than 24 hours after the platform was installed, so they still have NO second factor. Filter the audit log on `auth.mfa.bootstrap_session`. Enrol a passkey or an authenticator app on that account — the exception closes permanently at the first enrolment."
+
+      # ---- Auth: MFA enforcement refusals (#8) ----
+      # Every refusal by an assurance gate: a weak session on a route that needs a
+      # second factor, a stale one past `maxAge`, a machine credential on a
+      # human-only route, or a bootstrap enrolment session reaching outside its
+      # allowlist. A steady trickle is people meeting the policy for the first
+      # time; a sustained burst usually means a route was gated before its users
+      # could enrol, or that automation is pointed at a human-only endpoint.
+      - alert: MfaEnforcementRefusalBurst
+        expr: sum by (reason) (rate(platform_mfa_enforcement_refused_total[5m]) + rate(mfa_enforcement_refused_total[5m])) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Sustained MFA enforcement refusals ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} refusals/sec of type {{ $labels.reason }} over 5m, sustained 15m. `machine_principal` means a service account or API key is calling a human-only route — point it at the machine equivalent. `weak_session` means people have not enrolled a factor yet; check the org's grace deadline before tightening further. `bootstrap_session` means the install's admin is still un-enrolled."
+
       # ---- Auth: failed-login burst (credential stuffing / brute force) ----
       # platform_logins_failed_total is a platform-wide counter (no per-IP/org
       # label), so this is a coarse "someone is hammering login" signal. Warn on a

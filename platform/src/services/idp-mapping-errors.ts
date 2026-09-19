@@ -34,3 +34,15 @@ export const IGM_FORBIDDEN_GRANT = 'IGM_FORBIDDEN_GRANT';
  * session with no membership — the same answer the invitation path gives.
  */
 export const JIT_SEAT_LIMIT = 'JIT_SEAT_LIMIT';
+
+/**
+ * The config would be left unable to sign anyone in (#4).
+ *
+ * `protocol` decides which fields matter, and Mongoose can't express "required
+ * when another field has a given value" — so the write path refuses a SAML
+ * config missing its entity id / SSO URL / certificate, or an OIDC config
+ * missing its provider / client id / client secret, rather than storing a
+ * connection whose failure only shows up at somebody's next sign-in.
+ */
+export const IDP_SAML_INCOMPLETE = 'IDP_SAML_INCOMPLETE';
+export const IDP_OIDC_INCOMPLETE = 'IDP_OIDC_INCOMPLETE';

@@ -37,6 +37,10 @@ interface OAuthProviders {
   // `google`/`github` above double as SSO keys; these two are SSO-only.
   'generic-oidc'?: OAuthProviderData;
   'cognito'?: OAuthProviderData;
+  /** SAML 2.0 SSO (#4). One key for every SAML IdP: a SAML config has no named
+   *  provider, and the link is only ever matched together with its `issuer`
+   *  (the IdP's entity id), so two orgs on SAML never collide here. */
+  'saml'?: OAuthProviderData;
 }
 
 /**
@@ -66,6 +70,10 @@ export interface RefreshSession {
   amr: AuthMethod[];
   /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
   aal: AssuranceLevel;
+  /** The slot is a BOOTSTRAP-ADMIN ENROLMENT session (#8): it may reach only
+   *  enrolment, sign-out and the setup routes. Stored here, not derived per
+   *  token, so a refresh of the slot stays exactly as limited. */
+  mfaEnrollmentPending?: boolean;
   /** When that sign-in happened (JWT `auth_time`). Never reset by renewal. */
   authTime: Date;
   /** Short client summary ("Chrome on macOS") from the User-Agent — no raw header. */
@@ -158,6 +166,20 @@ export interface UserDocument extends Document {
    * the WebAuthn service ever reads it.
    */
   webauthnUserId?: string;
+  /**
+   * When the BOOTSTRAP-ADMIN MFA exception closed for this account (#8).
+   *
+   * A fresh install has exactly one admin and no enrolled factor, so requiring
+   * MFA would lock out the only person who can enrol one. Until this is set, a
+   * bootstrap admin's password sign-in yields an `aal: 1` session flagged
+   * `mfaEnrollmentPending` that can reach only enrolment, sign-out and the setup
+   * routes. Stamped the FIRST time any factor is enrolled — and never cleared,
+   * not even when that factor is later removed, because the account demonstrably
+   * had a way to enrol one and re-opening the hole would make it permanent by
+   * another name. Recovery after losing every factor is an operator command run
+   * with database access (`platform/src/scripts/mfa-recover.ts`), not a route.
+   */
+  mfaBootstrapClosedAt?: Date;
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -252,6 +274,7 @@ const userSchema = new Schema<UserDocument>(
         scope: { type: String },
         amr: { type: [String], required: true },
         aal: { type: Number, enum: [1, 2], required: true },
+        mfaEnrollmentPending: { type: Boolean },
         authTime: { type: Date, required: true },
         userAgent: { type: String },
         lastIp: { type: String },
@@ -282,6 +305,12 @@ const userSchema = new Schema<UserDocument>(
       // Sparse: almost no account has one until it registers a passkey.
       index: { unique: true, sparse: true },
     },
+    // Bootstrap-admin MFA exception, closed (see the interface JSDoc). No
+    // `select: false`: the login path must read it on every sign-in, and its
+    // value reveals nothing.
+    mfaBootstrapClosedAt: {
+      type: Date,
+    },
     oauth: {
       'google': oauthProviderSchema,
       'github': oauthProviderSchema,
@@ -294,6 +323,9 @@ const userSchema = new Schema<UserDocument>(
       // login re-matched by email instead of the oauth-id fast path.
       'generic-oidc': oauthProviderSchema,
       'cognito': oauthProviderSchema,
+      // SAML 2.0 SSO (#4) — subject is the assertion's NameID, issuer the IdP's
+      // entity id. Same strict-mode reason as the two above.
+      'saml': oauthProviderSchema,
     },
   },
   { timestamps: true },

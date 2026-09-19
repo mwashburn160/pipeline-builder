@@ -90,7 +90,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |
 | Registry | `registry:read`, `registry:write` | **Super Admin only** — never grantable to a custom Role |
 | Org settings | `org:settings` | General org settings + AI provider config |
-| SSO / IdP | `org:idp` | Per-org SSO/IdP (OIDC) configuration — **sensitive** (controls login); split out of `org:settings` |
+| SSO / IdP | `org:idp` | Per-org SSO/IdP configuration, **OIDC and SAML** (protocol selector, connection, certificates, attribute mapping) — **sensitive** (controls login); split out of `org:settings` |
 | KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
 | Impersonation | `org:impersonation` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org:settings` so a role that manages general settings cannot also open the org to impersonation |
 
@@ -151,7 +151,9 @@ the source can't prove coverage. Instead every gate middleware carries metadata
 and `buildRouteTable(app)` (api-core `middleware/route-table.ts`) walks the
 assembled Express app, resolving per method + path what runs before the handler:
 permissions, system-admin, service principal, the internal-route caller list,
-step-up, feature flag, token scope and the declared audit action. Each service logs a summary of its own table at
+step-up (and, where it names them, which factors may earn it), the minimum
+assurance level and `maxAge`, feature flag, token scope and the declared audit
+action. Each service logs a summary of its own table at
 boot (`Route table built`).
 
 Every service (and platform) has a `test/route-coverage.test.ts` that fails when:
@@ -236,9 +238,12 @@ team is not in the subtree, and an admin of the user's *own* org does not qualif
 — that would be "any admin may view any of their members", which this is not.
 Members get nothing in either direction.
 
-Every caller must also pass a [step-up](authentication.md) re-authentication. The
-response is an access token carrying the target user's identity, valid for
-**15 minutes**. No refresh token is issued.
+Every caller must also hold an **MFA-grade session** and pass a
+[step-up](authentication.md#assurance-levels-and-required-mfa) earned by a
+**passkey or an authenticator code** — a password re-prompt proves nothing an
+attacker already holding the session doesn't have. The response is an access
+token carrying the target user's identity, valid for **15 minutes**. No refresh
+token is issued.
 
 When a parent-org admin opens a session, the team's admins are **notified** —
 they are informed, not asked.

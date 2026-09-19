@@ -3,8 +3,8 @@
 
 import type { AuthTokens, ApiResponse } from '@/types';
 import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS } from '../constants';
-import { ApiError, StepUpRequiredError } from './errors';
-import { API_URL, base64UrlDecode, isStepUpErrorCode } from './util';
+import { ApiError, MfaRequiredError, StepUpRequiredError } from './errors';
+import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode } from './util';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
  *  must never wait on the network longer than this. */
@@ -573,6 +573,25 @@ export class ApiCore {
       );
     }
 
+    // MFA refusal (#8): the session is genuinely valid, it is just not strong
+    // (or not recent) enough for this route. Handled BEFORE the refresh dance
+    // because a refresh can never raise a session's assurance — it would be a
+    // wasted round trip that fails identically — and before the sign-out paths
+    // below, because signing the person out would take away the very session
+    // they need in order to enrol a factor.
+    if (statusCode === 401 && isMfaErrorCode(data.code)) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mfa-required', {
+          detail: { code: data.code, message: data.message, endpoint },
+        }));
+      }
+      throw new MfaRequiredError(
+        data.message || 'Two-factor authentication is required',
+        String(data.code),
+        data.details,
+      );
+    }
+
     // Handle 401 - try to refresh token. Recurse into request() so the retry
     // inherits the full contract (step-up handling, 503-loop guard, Retry-After,
     // _retryCount cap) instead of duplicating a one-shot fetch here.
@@ -839,6 +858,17 @@ export class ApiCore {
           }));
         }
         throw new StepUpRequiredError(data.message || 'Step-up confirmation required', String(data.code), data.details);
+      }
+      // MFA refusal on a stream: same reasoning as request() — a refresh cannot
+      // raise assurance, so surface it as itself rather than bouncing the person
+      // through a re-auth that would fail the same way.
+      if (response.status === 401 && isMfaErrorCode(data.code)) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('mfa-required', {
+            detail: { code: data.code, message: data.message, endpoint },
+          }));
+        }
+        throw new MfaRequiredError(data.message || 'Two-factor authentication is required', String(data.code), data.details);
       }
       // 401: refresh the access token once and retry the stream (mirrors request()).
       if (response.status === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {

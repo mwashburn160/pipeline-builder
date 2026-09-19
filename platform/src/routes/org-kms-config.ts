@@ -10,7 +10,7 @@
  * without shelling into Mongo.
  */
 
-import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgKmsConfig,
@@ -28,10 +28,14 @@ const router: Router = Router({ mergeParams: true });
 // in practice while the capability check documents + future-proofs the KMS
 // authority. Superadmins bypass `requirePermission` via `hasPermission`.
 router.get('/', requireAuth, requirePermission('org:kms'), getOrgKmsConfig);
-// Mutations re-encrypt every per-org secret under a new CMK — gate on
-// step-up so a stolen session can't rotate the wrapping key.
-router.put('/', requireAuth, requirePermission('org:kms'), requireStepUp, audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
-router.delete('/', requireAuth, requirePermission('org:kms'), requireStepUp, audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
+// Mutations re-encrypt every per-org secret under a new CMK — gate on step-up so
+// a stolen session can't rotate the wrapping key, and on assurance (#8) so the
+// session itself is MFA-grade. Pointing an org at an attacker-controlled CMK is
+// as close to "read every secret this org has" as a single write gets, so the
+// step-up must be earned by a SECOND FACTOR (passkey or authenticator code), not
+// by re-typing the password the session already holds.
+router.put('/', requireAuth, requirePermission('org:kms'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
+router.delete('/', requireAuth, requirePermission('org:kms'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
 // POST /test — dry-run the proposed config without touching Mongo.
 // Read-only; no step-up needed (and we want operators to be able to
 // validate a CMK without having to re-prompt every time).

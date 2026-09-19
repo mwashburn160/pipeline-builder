@@ -27,6 +27,13 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   },
 }));
 
+// The service's DTO now carries the derived SAML service-provider URLs (#4), so
+// importing it loads `config`, which refuses to initialize without an encryption
+// key. Each test still sets a real per-test key below; this only gets the module
+// graph up.
+process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
+
 const { orgIdpService } = await import('../src/services/org-idp-service.js');
 
 // We exercise the REAL secret-encryption helper here; SECRET_ENCRYPTION_KEY

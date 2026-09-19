@@ -64,7 +64,20 @@ export type TokenUse = 'access' | 'api_key';
  */
 export type AuthMethod = 'pwd' | 'oauth' | 'sso' | 'webauthn' | 'stepup' | 'mfa';
 
-/** Authenticator assurance level. Every token is `1` until assurance levels ship. */
+/**
+ * Authenticator assurance level of the session a token speaks for (#8).
+ *
+ * - `1` — one factor: a password, a social sign-in, or SSO through an IdP the
+ *   org has NOT marked as enforcing MFA.
+ * - `2` — MFA-grade: a passkey asserted with user verification, a password plus
+ *   an authenticator-app code, or SSO through an IdP the org HAS marked as
+ *   enforcing MFA (providers don't send `amr` reliably, so the org's own
+ *   statement about its IdP is the signal).
+ *
+ * Fixed when the session is opened and stored on its refresh-session slot, so
+ * refresh / renewal / switch-org copy it verbatim and can never RAISE it —
+ * earning aal 2 always means authenticating again with a second factor.
+ */
 export type AssuranceLevel = 1 | 2;
 
 /** Runtime catalogs for the claim unions above (a union is erased at runtime). */
@@ -230,6 +243,24 @@ export interface JwtPayload {
   /** Epoch seconds of the sign-in that established the session (user principals).
    *  Never reset by refresh / renew / switch-org. */
   auth_time?: number;
+  /**
+   * The active org REQUIRES MFA and its grace period has passed (#8).
+   *
+   * Carried as a claim so no service has to look the policy up: the org policy
+   * is enforced where the token is ISSUED (a session scoped to such an org gets
+   * `aal: 2` or is refused), and this claim is the record of that decision, for
+   * UI copy and audit rather than for a second enforcement point.
+   */
+  mfaRequired?: boolean;
+  /**
+   * BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). Set only on a session opened by
+   * the install's bootstrap admin (`BOOTSTRAP_SUPERADMIN_EMAILS`, system org)
+   * while they still have no enrolled factor. Such a session is `aal: 1` and may
+   * reach ONLY enrolment, sign-out and the routes `init-platform.sh` calls;
+   * every other service refuses it outright (see `requireAuth`). The exception
+   * closes permanently at the first enrolment and never reopens.
+   */
+  mfaEnrollmentPending?: boolean;
   /** Per-org role in the active organization ('owner' | 'admin' | 'member'). Not a global role. */
   role: OrgRole;
   /** Derived: true when role is 'admin' or 'owner' in the active organization */

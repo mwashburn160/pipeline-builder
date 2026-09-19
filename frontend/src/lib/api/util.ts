@@ -26,5 +26,24 @@ export function isStepUpErrorCode(code?: string): boolean {
   return code === 'STEP_UP_REQUIRED'
     || code === 'STEP_UP_INVALID'
     || code === 'STEP_UP_MISMATCH'
-    || code === 'STEP_UP_REPLAY';
+    || code === 'STEP_UP_REPLAY'
+    // The confirmation was real but earned by the wrong factor (#8): the route
+    // demands a passkey or an authenticator code. Same handling — re-prompt —
+    // with the modal restricted to those two.
+    || code === 'STEP_UP_METHOD_REQUIRED';
+}
+
+/**
+ * True iff the backend refused because the SESSION is not strong enough (#8),
+ * rather than because it is invalid.
+ *
+ * These 401s must NOT be treated like an expired token: refreshing can never
+ * raise a session's assurance level or reset its sign-in time, so a refresh
+ * would burn a round trip and then fail again. The answer is to send the person
+ * to enrolment (`MFA_REQUIRED`) or to a fresh sign-in (`REAUTH_REQUIRED`) — and
+ * never to sign them out, which would lose the very session they need in order
+ * to enrol.
+ */
+export function isMfaErrorCode(code?: string): boolean {
+  return code === 'MFA_REQUIRED' || code === 'REAUTH_REQUIRED';
 }

@@ -10,12 +10,13 @@ import { verifyPlatformJwt, verifyRefreshJwt } from './jwt-options.js';
 import { config } from '../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import type { ClientInfo } from '../helpers/client-info.js';
+import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { RefreshSession, RefreshSessionKind, UserDocument } from '../models/user.js';
-import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
+import { MFA_REQUIRED_FOR_ORG, SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { signUserJwt } from '../services/token-signing/index.js';
 import type { AccessTokenPayload, RefreshTokenPayload } from '../types/index.js';
 
@@ -38,6 +39,12 @@ export interface MembershipContext {
    *  org — the union of those Roles' `permissions[]`. This IS the JWT
    *  `permissions` claim (single-source; superadmin ⇒ all). */
   rolePermissions?: readonly string[];
+  /** The org (or an ancestor) requires MFA (#8) — resolved once here and carried
+   *  as the `mfaRequired` claim. */
+  mfaRequired?: boolean;
+  /** The requirement is past its grace period, so a session scoped to this org
+   *  must be `aal: 2` or be refused at issuance. */
+  mfaEnforced?: boolean;
 }
 
 /**
@@ -56,13 +63,28 @@ export interface SessionAuth {
  * The auth context of a sign-in happening NOW via `method`.
  *
  * `mfa: true` appends the `mfa` method — a password sign-in that also presented
- * an authenticator-app code (or a recovery code) reads as `['pwd', 'mfa']`. The
- * assurance LEVEL stays 1 for now: raising it is #8's job (it defines what aal 2
- * means and which routes may demand it), and a token claiming aal 2 before any
- * gate understands it would be a claim nothing verifies.
+ * an authenticator-app code (or a recovery code) reads as `['pwd', 'mfa']`.
+ *
+ * ASSURANCE (#8) is decided here, at the one place a sign-in is described, so
+ * every caller gets the same answer and no controller can assert a level of its
+ * own. `aal: 2` for exactly three cases:
+ *   - `webauthn` — a passkey assertion, which the WebAuthn service verifies with
+ *     user verification REQUIRED, so the credential and the person were both
+ *     checked;
+ *   - `mfa: true` — a password (or provider) sign-in plus an authenticator-app
+ *     code or a recovery code;
+ *   - `idpMfa: true` — SSO through an IdP the org has marked as enforcing MFA.
+ *     Providers don't send `amr` reliably, so the org's statement about its own
+ *     provider is the evidence; see `Organization.idpEnforcesMfa`.
+ * Everything else — a password alone, a social sign-in, SSO through an unmarked
+ * IdP — is `aal: 1`.
  */
-export function signInAuth(method: Exclude<AuthMethod, 'stepup' | 'mfa'>, opts: { mfa?: boolean } = {}): SessionAuth {
-  return { amr: opts.mfa ? [method, 'mfa'] : [method], aal: 1, authTime: new Date() };
+export function signInAuth(
+  method: Exclude<AuthMethod, 'stepup' | 'mfa'>,
+  opts: { mfa?: boolean; idpMfa?: boolean } = {},
+): SessionAuth {
+  const aal: AssuranceLevel = method === 'webauthn' || opts.mfa === true || opts.idpMfa === true ? 2 : 1;
+  return { amr: opts.mfa ? [method, 'mfa'] : [method], aal, authTime: new Date() };
 }
 
 /**
@@ -85,6 +107,8 @@ interface AccessTokenOptions {
   tokenUse: TokenUse;
   scope?: TokenScope;
   sessionId?: string;
+  /** Bootstrap-admin enrolment session (#8) — see `JwtPayload.mfaEnrollmentPending`. */
+  mfaEnrollmentPending?: boolean;
 }
 
 /**
@@ -100,7 +124,7 @@ interface AccessTokenOptions {
 function createAccessTokenPayload(
   user: UserDocument,
   membership: MembershipContext | undefined,
-  { auth, tokenUse, scope, sessionId }: AccessTokenOptions,
+  { auth, tokenUse, scope, sessionId, mfaEnrollmentPending }: AccessTokenOptions,
 ): AccessTokenPayload {
   const role = scope ? 'member' : (membership?.role ?? 'member');
   const tier: QuotaTier = membership?.tier ?? 'developer';
@@ -144,6 +168,11 @@ function createAccessTokenPayload(
     ...(scope ? { scope } : {}),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
+    // Org policy "require MFA" (#8), decided at issuance and carried so that no
+    // service looks it up. Only ever `true`: an absent claim is the common case.
+    ...(membership?.mfaRequired ? { mfaRequired: true } : {}),
+    // Bootstrap-admin enrolment session — the narrow, self-closing exception.
+    ...(mfaEnrollmentPending ? { mfaEnrollmentPending: true } : {}),
     // The refresh-session slot this token was minted with — logout and
     // switch-org act on that slot. Absent on PATs and impersonation tokens.
     ...(sessionId ? { sid: sessionId } : {}),
@@ -227,12 +256,26 @@ async function resolveOrgMembership(userId: string, orgId: string): Promise<Memb
   // tokenVersion bump on soft-delete, this cuts off ALL access to the org
   // without any per-read `deletedAt` filtering elsewhere.
   if (!org || org.deletedAt) return undefined;
+  // Org policy "require MFA" (#8). Resolved HERE — the one place a token's
+  // active org is established — so every issuance path (sign-in, refresh,
+  // renewal, switch-org, key exchange) sees the same answer with no extra call
+  // site to keep in sync. A read failure degrades to "no requirement" rather
+  // than refusing every sign-in for the account; the policy is a hardening
+  // measure, not a kill switch.
+  let mfa: EffectiveMfaPolicy | undefined;
+  try {
+    mfa = await resolveEffectiveMfaPolicy(orgId);
+  } catch (error) {
+    logger.warn('MFA policy read failed; treating the org as not requiring MFA', { orgId, error });
+  }
   return {
     organizationId: orgId,
     organizationName: org.name,
     role: membership.role as OrgMemberRole,
     tier: org.tier,
     rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
+    ...(mfa?.requireMfa ? { mfaRequired: true } : {}),
+    ...(mfa?.enforced ? { mfaEnforced: true } : {}),
     ...(await accountContext(orgId, org)),
   };
 }
@@ -344,6 +387,7 @@ async function mintTokens(
   auth: SessionAuth,
   expiresIn?: number,
   scope?: TokenScope,
+  mfaEnrollmentPending?: boolean,
 ): Promise<MintedTokens> {
   let membership: MembershipContext | undefined;
   try {
@@ -355,6 +399,24 @@ async function mintTokens(
     logger.warn('Failed to resolve membership for token', { error });
   }
 
+  // ORG POLICY "REQUIRE MFA" (#8) — THE enforcement point. Every user token for
+  // a session goes through here (sign-in, refresh, renewal, switch-org), so a
+  // session scoped to an org past its grace period either carries `aal: 2` or is
+  // not minted at all. Refusing here rather than per route is what makes the
+  // policy total: it covers routes that don't exist yet, and services that never
+  // learn the policy exists.
+  //
+  // Two carve-outs, both deliberate:
+  //   - a SCOPED machine credential (`reporting:ingest` and friends) is not a
+  //     person's session; refusing it would take an org's automation down the
+  //     moment an admin enabled the policy, and such a token is already
+  //     least-privilege and refused by every `minAssurance` gate;
+  //   - the BOOTSTRAP-ADMIN enrolment session, which exists precisely so the
+  //     person can go and earn `aal: 2` (and cannot reach anything else).
+  if (membership?.mfaEnforced && !scope && !mfaEnrollmentPending && auth.aal < 2) {
+    throw new Error(MFA_REQUIRED_FOR_ORG);
+  }
+
   // Resolution order: caller override → per-tier override → global default.
   // The per-tier path lets compliance-driven customers (enterprise tiers)
   // narrow the stolen-token blast window without forcing every user to
@@ -364,7 +426,7 @@ async function mintTokens(
   const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
 
   const accessToken = await signUserJwt(
-    createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, sessionId }) as unknown as Record<string, unknown>,
+    createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, sessionId, mfaEnrollmentPending }) as unknown as Record<string, unknown>,
     { expiresIn: tokenExpiresIn },
   );
   const refreshToken = await generateRefreshToken(user, sessionId);
@@ -393,6 +455,13 @@ export interface NewSession {
   expiresIn?: number;
   /** Narrow capability scope (least-privilege machine token), fixed for the slot's life. */
   scope?: TokenScope;
+  /**
+   * Open this slot as a BOOTSTRAP-ADMIN ENROLMENT session (#8): `aal: 1`, flagged
+   * `mfaEnrollmentPending`, reaching only enrolment, sign-out and the setup
+   * routes. Stored on the slot so a refresh of it stays just as limited — the
+   * flag is part of what the session IS, not a property of one token.
+   */
+  mfaEnrollmentPending?: boolean;
 }
 
 /**
@@ -434,7 +503,7 @@ function refreshSessionsWith(slot: RefreshSession): Record<string, unknown> {
 export async function issueTokens(user: UserDocument, activeOrgId: string | undefined, session: NewSession): Promise<IssuedTokens> {
   const sessionId = crypto.randomBytes(12).toString('hex');
   const { tokens, refreshHash, historyEntry } = await mintTokens(
-    user, sessionId, activeOrgId, session.auth, session.expiresIn, session.scope,
+    user, sessionId, activeOrgId, session.auth, session.expiresIn, session.scope, session.mfaEnrollmentPending,
   );
   const slot: RefreshSession = {
     id: sessionId,
@@ -443,6 +512,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     createdAt: historyEntry.createdAt,
     lastUsedAt: historyEntry.createdAt,
     ...(session.scope ? { scope: session.scope } : {}),
+    ...(session.mfaEnrollmentPending ? { mfaEnrollmentPending: true } : {}),
     amr: session.auth.amr,
     aal: session.auth.aal,
     authTime: session.auth.authTime,
@@ -506,7 +576,9 @@ export async function renewSessionTokens(
   }
   const auth: SessionAuth = { amr: current.amr, aal: current.aal, authTime: new Date(current.authTime) };
 
-  const { tokens, refreshHash, historyEntry } = await mintTokens(user, slot.sessionId, activeOrgId, auth, mint.expiresIn, slotScope);
+  const { tokens, refreshHash, historyEntry } = await mintTokens(
+    user, slot.sessionId, activeOrgId, auth, mint.expiresIn, slotScope, current.mfaEnrollmentPending,
+  );
   const slotMatch = {
     id: slot.sessionId,
     kind: current.kind,
@@ -740,10 +812,11 @@ export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
  * `requireStepUp`, which verifies the `type: 'step-up'` + `jti` claims, binds
  * `sub` to the caller and consumes the `jti` once.
  *
- * A TOTP step-up additionally carries `mfa` in `amr`: it is the one method here
- * that proves possession of a second factor. (Whether a user-verified passkey
- * counts the same way is an assurance question #8 answers; until it does, the
- * claim stays narrow rather than asserting something no gate reads.)
+ * A TOTP or PASSKEY step-up additionally carries `mfa` in `amr`: those are the
+ * two methods that prove possession of a second factor, and #8 makes that
+ * readable — `requireStepUp({ methods: STRONG_STEP_UP_METHODS })` admits exactly
+ * these two on the most dangerous routes, where re-typing the password the
+ * session was already opened with proves nothing new.
  */
 export async function issueStepUpToken(
   userId: string,
@@ -754,7 +827,7 @@ export async function issueStepUpToken(
   const payload = {
     type: 'step-up' as const,
     sub: userId,
-    amr: (method === 'totp' ? ['stepup', 'mfa'] : ['stepup']) as AuthMethod[],
+    amr: (method === 'totp' || method === 'webauthn' ? ['stepup', 'mfa'] : ['stepup']) as AuthMethod[],
     // How the step-up was earned — recorded for audit (and later assurance
     // decisions). requireStepUp ignores it: every method yields the same gate.
     method,

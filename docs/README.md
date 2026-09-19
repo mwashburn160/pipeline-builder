@@ -71,7 +71,7 @@ Organizations, access, policy, and billing.
 | [Organizations & Teams](#organizations) | Isolation boundary, org creation, the org → team hierarchy |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, enforcement, session invalidation |
 | [Compliance](compliance.md) | Per-org rule engine — 18 operators, computed fields, enforcement, audit trail |
-| [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC / Cognito), just-in-time membership and SCIM 2.0 directory provisioning |
+| [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC or SAML 2.0), just-in-time membership and SCIM 2.0 directory provisioning |
 | [Audit Events](audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |
 | [Billing Providers](billing-providers.md) | Setup walkthroughs for Stripe + AWS Marketplace (keys, webhooks, entitlements, metering) |
 | [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise pooled caps (seats, pipelines, plugins, storage) |

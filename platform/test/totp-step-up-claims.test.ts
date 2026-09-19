@@ -36,25 +36,29 @@ const USER = '651111111111111111111111';
 beforeEach(() => { signed.length = 0; });
 
 describe('issueStepUpToken', () => {
-  it('adds `mfa` to amr for a TOTP step-up', async () => {
-    await issueStepUpToken(USER, 'totp');
-    expect(signed[0]).toMatchObject({ type: 'step-up', sub: USER, method: 'totp', amr: ['stepup', 'mfa'] });
+  it.each(['totp', 'webauthn'] as const)('adds `mfa` to amr for a %s step-up', async (method) => {
+    // The two SECOND FACTORS (#8) — the ones `STRONG_STEP_UP_METHODS` admits on
+    // the most dangerous routes. `mfa` in amr is what says so.
+    await issueStepUpToken(USER, method);
+    expect(signed[0]).toMatchObject({ type: 'step-up', sub: USER, method, amr: ['stepup', 'mfa'] });
     expect(typeof signed[0].jti).toBe('string');
   });
 
-  it.each(['password', 'webauthn', 'reauth'] as const)('leaves amr alone for a %s step-up', async (method) => {
+  it.each(['password', 'reauth'] as const)('leaves amr alone for a %s step-up', async (method) => {
+    // Re-entering the password, or re-running the provider sign-in, proves the
+    // SAME factor the session was opened with — not a second one.
     await issueStepUpToken(USER, method);
-    // Whether a user-verified passkey should count as MFA is an ASSURANCE
-    // question #8 answers; until it does, the claim stays narrow.
     expect(signed[0]).toMatchObject({ method, amr: ['stepup'] });
   });
 });
 
 describe('signInAuth', () => {
-  it('records the second factor in amr while leaving assurance at 1', () => {
-    expect(signInAuth('pwd', { mfa: true })).toMatchObject({ amr: ['pwd', 'mfa'], aal: 1 });
+  it('records the second factor in amr AND raises assurance to 2', () => {
+    expect(signInAuth('pwd', { mfa: true })).toMatchObject({ amr: ['pwd', 'mfa'], aal: 2 });
     expect(signInAuth('pwd')).toMatchObject({ amr: ['pwd'], aal: 1 });
-    expect(signInAuth('webauthn')).toMatchObject({ amr: ['webauthn'], aal: 1 });
+    // A passkey is verified with user verification required, so one ceremony
+    // proves both the credential and the person.
+    expect(signInAuth('webauthn')).toMatchObject({ amr: ['webauthn'], aal: 2 });
   });
 
   it('stamps the sign-in time it is called at', () => {

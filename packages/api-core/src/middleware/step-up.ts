@@ -30,13 +30,41 @@ import { sendError } from '../utils/response.js';
 const logger = createLogger('step-up');
 const HEADER = 'x-step-up-token';
 
+/**
+ * How a step-up token was earned. Mirrors platform's `StepUpMethod`; kept here
+ * as its own union so a verifier can name the factors it accepts without
+ * importing platform.
+ */
+export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
+
+/**
+ * The factors that count as a SECOND FACTOR, for routes that may only be
+ * unlocked by one (#8: impersonation, KMS, IdP settings, platform admin).
+ *
+ * A password or a provider re-auth proves the same single factor the session was
+ * already opened with, so on those routes they are not enough: the point is that
+ * someone holding only a stolen session — or only a stolen password — cannot
+ * proceed.
+ */
+export const STRONG_STEP_UP_METHODS: readonly StepUpMethod[] = ['webauthn', 'totp'];
+
 /** Payload of a platform-issued step-up token (see platform issueStepUpToken). */
 export interface StepUpTokenPayload {
   type: 'step-up';
   sub: string;
   jti: string;
+  /** Which factor earned it. Absent only on a token minted before the claim
+   *  existed, which a method-restricted gate treats as "not proven". */
+  method?: StepUpMethod;
   iat: number;
   exp: number;
+}
+
+/** Options for {@link requireStepUp}. */
+export interface RequireStepUpOptions {
+  /** Restrict which factors may earn the step-up (e.g. {@link STRONG_STEP_UP_METHODS}).
+   *  Omitted means any factor the platform will issue a token for. */
+  methods?: readonly StepUpMethod[];
 }
 
 /**
@@ -141,8 +169,37 @@ export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Pr
 /**
  * Express middleware: require a valid, caller-bound, single-use step-up token in
  * the `X-Step-Up-Token` header. Must run AFTER `requireAuth` (needs `req.user`).
+ *
+ * Use directly (`router.post('/x', requireAuth, requireStepUp, h)`) for the
+ * ordinary any-factor gate, or call it with `{ methods }` to demand that the
+ * confirmation was earned by a specific factor — `requireStepUp({ methods:
+ * STRONG_STEP_UP_METHODS })` on the routes where a password re-prompt is not a
+ * meaningful second proof.
  */
-export async function requireStepUp(req: Request, res: Response, next: NextFunction): Promise<void> {
+export function requireStepUp(req: Request, res: Response, next: NextFunction): Promise<void>;
+export function requireStepUp(options: RequireStepUpOptions): (req: Request, res: Response, next: NextFunction) => void;
+export function requireStepUp(
+  reqOrOptions: Request | RequireStepUpOptions,
+  res?: Response,
+  next?: NextFunction,
+): Promise<void> | ((req: Request, res: Response, next: NextFunction) => void) {
+  // The direct form RETURNS the promise (Express ignores it; a test awaits it),
+  // so composing the gate as `router.post('/x', requireStepUp, h)` behaves
+  // exactly as it did before the options form existed.
+  if (res && next && 'headers' in reqOrOptions) {
+    return _requireStepUp({}, reqOrOptions as Request, res, next);
+  }
+  const options = reqOrOptions as RequireStepUpOptions;
+  return tagRouteGate(
+    (reqInner: Request, resInner: Response, nextInner: NextFunction) => {
+      void _requireStepUp(options, reqInner, resInner, nextInner);
+    },
+    { kind: 'stepUp', ...(options.methods ? { methods: [...options.methods] } : {}) },
+  );
+}
+tagRouteGate(requireStepUp, { kind: 'stepUp' });
+
+async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: Response, next: NextFunction): Promise<void> {
   // Verified internal service principals are EXEMPT: step-up is a re-verify-the-
   // HUMAN gate (they replay a password-reverify token), which a service token
   // structurally cannot produce. Services already bypass `requirePermission` on
@@ -193,6 +250,19 @@ export async function requireStepUp(req: Request, res: Response, next: NextFunct
     return;
   }
 
+  // Factor restriction (#8). Checked BEFORE the jti is consumed, so a token
+  // earned by the wrong factor can still be spent on a route that accepts it —
+  // burning it here would make the refusal destructive as well as confusing.
+  if (options.methods && !(payload.method && options.methods.includes(payload.method))) {
+    sendError(
+      res, 401,
+      'This action must be confirmed with a passkey or an authenticator code',
+      'STEP_UP_METHOD_REQUIRED',
+      { methods: [...options.methods] },
+    );
+    return;
+  }
+
   try {
     if (!(await consumeStepUpJti(payload.jti, payload.exp))) {
       sendError(res, 401, 'Step-up token already used or expired', 'STEP_UP_REPLAY');
@@ -206,4 +276,3 @@ export async function requireStepUp(req: Request, res: Response, next: NextFunct
 
   next();
 }
-tagRouteGate(requireStepUp, { kind: 'stepUp' });

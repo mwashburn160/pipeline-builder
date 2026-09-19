@@ -8,6 +8,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -24,6 +29,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -40,6 +50,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -53,6 +65,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -69,6 +83,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -84,6 +103,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -107,6 +128,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -128,6 +151,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -151,6 +179,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -172,6 +202,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -195,6 +230,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -210,6 +250,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -231,6 +273,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -254,6 +301,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -275,6 +324,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -298,6 +352,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -311,6 +367,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -324,6 +382,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -339,6 +402,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -354,6 +422,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -377,6 +447,8 @@
       "reporting"
     ],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -390,6 +462,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -403,6 +477,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -418,6 +494,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -431,6 +509,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -446,6 +526,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -461,6 +543,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -476,6 +560,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -492,6 +578,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -508,6 +596,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -524,6 +614,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -539,6 +631,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -554,6 +648,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -570,6 +666,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -586,6 +684,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -599,6 +699,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -612,6 +714,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -627,6 +731,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -640,6 +746,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -656,6 +764,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -669,6 +779,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -684,6 +796,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -697,6 +811,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -710,12 +826,66 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
       "user.login",
       "user.login.failed"
     ]
+  },
+  {
+    "method": "POST",
+    "path": "/auth/sso/:orgId/saml/acs",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.saml.refused",
+      "sso.jit.provision",
+      "sso.jit.role.change",
+      "user.login.failed"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/auth/sso/:orgId/saml/complete",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.login"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/auth/sso/:orgId/saml/metadata",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
   },
   {
     "method": "POST",
@@ -726,6 +896,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -739,6 +911,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -755,6 +929,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -768,6 +944,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -784,6 +962,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -800,6 +980,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -813,6 +995,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -829,6 +1013,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -844,6 +1030,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -860,6 +1048,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -875,6 +1065,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -891,6 +1083,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -906,6 +1100,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -921,6 +1117,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -934,6 +1132,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -949,6 +1149,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -962,6 +1164,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -977,6 +1181,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -992,6 +1198,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1005,6 +1213,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1021,6 +1231,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1034,6 +1246,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1049,6 +1263,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1070,6 +1286,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1091,6 +1309,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1106,6 +1326,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1129,6 +1351,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1142,6 +1366,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1165,6 +1391,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1180,6 +1408,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1197,6 +1427,8 @@
       "compliance"
     ],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1218,6 +1450,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1239,6 +1473,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1262,6 +1498,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1277,6 +1515,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1290,6 +1530,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1305,6 +1547,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1328,6 +1572,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1351,6 +1597,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1372,6 +1620,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1395,6 +1645,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1418,6 +1670,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1441,6 +1695,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1464,6 +1720,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1479,6 +1737,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1500,6 +1760,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1521,6 +1783,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1544,6 +1808,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1567,6 +1833,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1590,6 +1858,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1605,6 +1875,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1618,6 +1890,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1639,6 +1913,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1660,6 +1936,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1681,6 +1959,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1702,6 +1982,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1723,6 +2005,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1744,6 +2028,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1767,6 +2053,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1782,6 +2070,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1803,6 +2093,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1818,6 +2110,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1833,6 +2127,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1846,6 +2142,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1861,6 +2159,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1882,6 +2182,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -1903,6 +2205,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1926,6 +2230,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1949,6 +2255,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1972,6 +2280,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -1995,6 +2305,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2008,6 +2320,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2029,6 +2343,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2052,6 +2368,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2075,6 +2396,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2096,6 +2419,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2119,6 +2447,11 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2142,6 +2475,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2163,6 +2498,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2186,6 +2523,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2209,6 +2548,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2232,6 +2573,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2253,6 +2596,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2276,6 +2621,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2297,6 +2644,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2313,6 +2662,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2326,6 +2677,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2347,6 +2700,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2370,6 +2725,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2393,6 +2750,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2416,6 +2775,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2431,6 +2792,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2452,10 +2815,60 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
       "org.member.add"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/organization/:id/mfa-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/organization/:id/mfa-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.mfa_policy.update"
     ]
   },
   {
@@ -2467,6 +2880,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2480,6 +2895,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2493,6 +2910,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2516,6 +2935,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2531,6 +2952,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2552,6 +2975,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2575,6 +3000,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2598,6 +3025,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2621,6 +3050,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2644,6 +3075,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2659,6 +3092,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2674,6 +3109,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2695,6 +3132,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2716,6 +3155,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2739,6 +3180,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2762,6 +3205,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2783,6 +3228,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2806,6 +3253,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2829,6 +3278,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2844,6 +3295,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2857,6 +3310,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2880,6 +3335,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2895,6 +3352,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2916,6 +3375,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -2931,6 +3392,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2944,6 +3407,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -2957,6 +3422,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -2972,6 +3439,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -2990,6 +3459,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3008,6 +3479,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3023,6 +3496,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3042,6 +3517,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3061,6 +3538,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3076,6 +3555,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3091,6 +3572,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3106,6 +3589,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3121,6 +3606,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3139,6 +3626,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3157,6 +3646,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3172,6 +3663,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3192,6 +3685,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [
       "scim"
@@ -3211,6 +3706,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3226,6 +3723,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3241,6 +3740,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3256,6 +3757,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3269,6 +3772,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3284,6 +3789,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3299,6 +3806,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3312,6 +3821,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3325,6 +3836,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3338,6 +3851,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3351,6 +3866,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3366,6 +3883,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3379,6 +3898,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3394,6 +3915,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3407,6 +3930,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3430,6 +3955,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3451,6 +3978,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3474,6 +4003,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3497,6 +4028,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": []
@@ -3518,6 +4051,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3541,6 +4076,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3564,6 +4101,8 @@
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
     "features": [],
     "scopes": [],
     "audit": [

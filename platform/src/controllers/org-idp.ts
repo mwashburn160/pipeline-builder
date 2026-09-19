@@ -17,7 +17,7 @@
  */
 
 import { sendSuccess } from '@pipeline-builder/api-core';
-import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
+import { ORG_IDP_ERROR_MAP, deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { orgIdpService } from '../services/org-idp-service.js';
 
@@ -41,13 +41,13 @@ export const getOrgIdpConfig = withController('Get org IdP config', async (req, 
 export const putOrgIdpConfig = withController('Put org IdP config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   await upsertOrgIdp(req, res, String(req.params.orgId), 'admin');
-});
+}, ORG_IDP_ERROR_MAP);
 
 /** PATCH /api/admin/org-idp/:orgId  partial update. */
 export const patchOrgIdpConfig = withController('Patch org IdP config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   await patchOrgIdp(req, res, String(req.params.orgId), 'admin');
-});
+}, ORG_IDP_ERROR_MAP);
 
 /** DELETE /api/admin/org-idp/:orgId  hard remove. */
 export const deleteOrgIdpConfig = withController('Delete org IdP config', async (req, res) => {

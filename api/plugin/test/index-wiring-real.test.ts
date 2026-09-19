@@ -100,7 +100,6 @@ const realServer = {
   ...(await import(`${API_SERVER}/route-wrapper.js`)),
   ...(await import(`${API_SERVER}/rate-limit-by-org.js`)),
   ...(await import(`${API_SERVER}/quota-helpers.js`)),
-  ...(await import(`${API_SERVER}/middleware.js`)),
 };
 
 const app = express();

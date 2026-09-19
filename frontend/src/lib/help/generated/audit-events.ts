@@ -220,6 +220,10 @@ export const auditEventsTopic: HelpTopic = {
               "org.idp.mapping.upsert, org.idp.mapping.delete — an IdP group → Role mapping was authored or removed (details carries the group + Role ids). sso.jit.provision — an SSO sign-in created the org membership; sso.jit.role.change — a later sign-in added/removed mapped Roles; sso.jit.refused — provisioning was turned away (details.reason, today seat_limit), which also refuses the sign-in"
             ],
             [
+              "SAML sign-in",
+              "A successful SAML sign-in is a plain user.login with details.method = 'saml' — it is the same kind of session, and splitting it would fracture every \"who signed in\" query. The REFUSAL gets its own action, because SAML fails in ways that are security events rather than someone mistyping a password: sso.saml.refused with details.reason — idp_initiated (an unsolicited assertion: login CSRF), replay (an assertion presented twice), invalid_assertion (signature, issuer, audience or validity window), domain_not_verified, platform_admin, seat_limit, invalid_state, no_email, plus the configuration states. sso.saml.certificate.rotate records a change to the org's trusted IdP signing certificates — details carries the fingerprints before and after and whether an overlap window is now open, never the certificates themselves. See SAML 2.0"
+            ],
+            [
               "SCIM provisioning",
               "org.scim.user.create, org.scim.user.update, org.scim.user.activate, org.scim.user.deactivate, org.scim.user.delete, org.scim.group.create, org.scim.group.update, org.scim.group.members, org.scim.group.delete — the identity provider's SCIM 2.0 client changed the roster or a directory group. org.scim.refused — a SCIM request was turned away (outcome: 'failure', details.reason)"
             ],

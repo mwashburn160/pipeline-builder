@@ -232,6 +232,11 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           action={pendingOp === 'save'
             ? `Rotate KMS binding for ${org.name} (re-encrypts AI keys + IdP secret)`
             : `Clear KMS binding for ${org.name} (fall back to shared master)`}
+          /* The KMS routes accept only a SECOND FACTOR (#8): pointing an org at
+             another key is close to "read every secret this org has", so a
+             password re-prompt — which an attacker holding the session may
+             already have — is not enough. */
+          requireStrongFactor
           onConfirmed={onStepUpConfirmed}
           onClose={() => setPendingOp(null)}
         />

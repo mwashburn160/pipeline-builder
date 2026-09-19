@@ -14,8 +14,14 @@ const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, ne
 const requireStepUp = tagged('requireStepUp');
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
-  requireStepUp,
+  // Both call shapes: the bare middleware, and the factor-restricted form
+  // (`requireStepUp({ methods })`) the most dangerous routes use (#8).
+  requireStepUp: Object.assign((...args: unknown[]) => (
+    args.length === 3 ? (requireStepUp as (...a: unknown[]) => unknown)(...args) : requireStepUp
+  ), { __mw: 'requireStepUp' }),
   requirePermission: () => tagged('requirePermission'),
+  requireAssurance: () => tagged('requireAssurance'),
+  STRONG_STEP_UP_METHODS: ['webauthn', 'totp'],
   // Route-table audit declaration — a tagged pass-through, so it shows up in the
   // middleware chain this test inspects without affecting the step-up ordering.
   audited: (..._actions: string[]) => tagged('audited'),
@@ -48,6 +54,7 @@ jest.unstable_mockModule('../src/controllers/org-idp-mappings.js', () => handler
   'listOrgIdpGroupMappings', 'createOrgIdpGroupMapping', 'updateOrgIdpGroupMapping', 'deleteOrgIdpGroupMapping',
 ]));
 jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () => handlers(['getImpersonationPolicy', 'updateImpersonationPolicy']));
+jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => handlers(['getMfaPolicy', 'updateMfaPolicy']));
 jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({ createLimiter: () => tagged('limiter'), userOrIpKey: () => 'k' }));
 
 const usersRouter = (await import('../src/routes/users.js')).default as any;

@@ -30,7 +30,7 @@
  */
 
 import { getParam } from '@pipeline-builder/api-core';
-import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
+import { ORG_IDP_ERROR_MAP, deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { requireAuth, withController } from '../helpers/controller-helper.js';
 import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
 
@@ -50,7 +50,7 @@ export const putOwnOrgIdpConfig = withController('Put own-org IdP config', async
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   await upsertOrgIdp(req, res, orgId, 'self-service');
-});
+}, ORG_IDP_ERROR_MAP);
 
 /** PATCH /organization/:id/idp — partial update of own-org IdP config. */
 export const patchOwnOrgIdpConfig = withController('Patch own-org IdP config', async (req, res) => {
@@ -58,7 +58,7 @@ export const patchOwnOrgIdpConfig = withController('Patch own-org IdP config', a
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   await patchOrgIdp(req, res, orgId, 'self-service');
-});
+}, ORG_IDP_ERROR_MAP);
 
 /** DELETE /organization/:id/idp — remove own-org IdP config. */
 export const deleteOwnOrgIdpConfig = withController('Delete own-org IdP config', async (req, res) => {

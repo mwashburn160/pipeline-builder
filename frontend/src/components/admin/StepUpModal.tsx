@@ -23,6 +23,16 @@ interface Props {
    *  call as the second argument; api methods that require step-up
    *  forward it via the `X-Step-Up-Token` header. */
   onConfirmed: (stepUpToken: string) => void | Promise<void>;
+  /**
+   * The route accepts ONLY a second factor (#8): a passkey or an
+   * authenticator-app code. Hides the password field and the provider buttons,
+   * which would mint a token the server refuses with `STEP_UP_METHOD_REQUIRED`.
+   *
+   * Set it on the routes whose backend gate names those methods — impersonation,
+   * KMS, IdP settings, platform-admin grants — and the layout also sets it when
+   * a refusal comes back with that code, so a stale tab re-prompts correctly.
+   */
+  requireStrongFactor?: boolean;
   onClose: () => void;
 }
 
@@ -62,7 +72,7 @@ function optionLabel(option: ReauthProvider): string {
  * `onConfirmed` and replayed by the caller's API call; the backend's
  * `requireStepUp` middleware enforces it.
  */
-export function StepUpModal({ action, onConfirmed, onClose }: Props) {
+export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, onClose }: Props) {
   const [factors, setFactors] = useState<AuthFactors | null>(null);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -176,10 +186,13 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
   }, [onClose]);
 
   const busy = submitting || pendingProvider !== null || passkeyPending || totpPending;
-  const hasPassword = factors?.hasPassword ?? false;
+  // On a strong-factor-only route the password and provider paths are hidden:
+  // they can still MINT a step-up token, but the server refuses it, so offering
+  // them would only produce a confusing second failure.
+  const hasPassword = !requireStrongFactor && (factors?.hasPassword ?? false);
   const hasPasskeys = (factors?.passkeyCount ?? 0) > 0;
   const hasTotp = factors?.hasTotp ?? false;
-  const providers = factors?.providers ?? [];
+  const providers = requireStrongFactor ? [] : (factors?.providers ?? []);
 
   return (
     <Modal
@@ -304,7 +317,25 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
               </div>
             )}
 
-            {!hasPassword && !hasPasskeys && !hasTotp && providers.length === 0 && (
+            {requireStrongFactor && (hasPasskeys || hasTotp) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                This action can only be confirmed with a passkey or an authenticator code —
+                a password isn&apos;t accepted here.
+              </p>
+            )}
+
+            {requireStrongFactor && !hasPasskeys && !hasTotp && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                This action can only be confirmed with a passkey or an authenticator app, and
+                this account has neither. Add one from{' '}
+                <a href="/dashboard/settings?tab=security#passkeys" className="action-link">
+                  Settings → Security
+                </a>
+                , then sign in again and retry.
+              </p>
+            )}
+
+            {!requireStrongFactor && !hasPassword && !hasPasskeys && !hasTotp && providers.length === 0 && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 This account has no way to confirm sensitive actions. Add a passkey
                 from{' '}

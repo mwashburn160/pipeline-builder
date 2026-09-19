@@ -47,6 +47,19 @@ export interface PendingStateStore<T> {
    *  life (so a mid-flow update can't extend it), and to keep a lookup index
    *  alive slightly longer than what it points at. */
   put(state: string, value: T, ttlMsOverride?: number): Promise<void>;
+  /**
+   * Write an entry ONLY if the key is not already present; returns whether this
+   * call is the one that claimed it.
+   *
+   * This is the "has it been used before?" primitive, as opposed to `put`'s
+   * "remember this": the SAML replay guard records each assertion id until the
+   * assertion expires, and the FIRST caller to claim an id is the only one
+   * allowed to proceed. It must therefore be atomic — a peek-then-put would let
+   * two concurrent replays of the same assertion both read "absent" — so the
+   * Redis path uses `SET … NX` and the in-memory fallback does its check and
+   * write in one synchronous block (no `await` in between).
+   */
+  putIfAbsent(state: string, value: T, ttlMsOverride?: number): Promise<boolean>;
   consume(state: string): Promise<T | null>;
   /** Read WITHOUT consuming — for multi-step flows (device authorization) whose
    *  state is polled and mutated before the single-use consume at the end. */
@@ -115,6 +128,27 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
       }
       evictOldestIfFull();
       mem.set(state, { value, expiresAt: Date.now() + entryTtl });
+    },
+
+    async putIfAbsent(state: string, value: T, ttlMsOverride?: number): Promise<boolean> {
+      const entryTtl = Math.max(1, Math.floor(ttlMsOverride ?? ttlMs));
+      const redis = await getRedisClient();
+      if (redis) {
+        try {
+          // ioredis variadic SET with millisecond expiry + NX. `null` means the
+          // key already existed, i.e. somebody claimed it first.
+          const res = await redis.set(key(state), JSON.stringify(value), 'PX', entryTtl, 'NX');
+          return res !== null;
+        } catch {
+          // Fall through to the local map — a Redis blip must not turn a replay
+          // guard into a hard outage; the in-process guard still holds.
+        }
+      }
+      const existing = mem.get(state);
+      if (existing && Date.now() <= existing.expiresAt) return false;
+      evictOldestIfFull();
+      mem.set(state, { value, expiresAt: Date.now() + entryTtl });
+      return true;
     },
 
     async consume(state: string): Promise<T | null> {

@@ -30,7 +30,10 @@ export type RouteGate =
   | { kind: 'servicePrincipal' }
   /** An INTERNAL route: user tokens refused outright, only these services admitted. */
   | { kind: 'internalService'; callers: readonly string[] }
-  | { kind: 'stepUp' }
+  | { kind: 'stepUp'; methods?: readonly string[] }
+  /** The whole SESSION must be MFA-grade (`requireAuth({ minAssurance })`), and
+   *  optionally no older than `maxAge` seconds. */
+  | { kind: 'assurance'; minAssurance: 1 | 2; maxAge?: number }
   | { kind: 'feature'; feature: string }
   | { kind: 'scope'; scope: string }
   | { kind: 'audit'; actions: readonly string[] };
@@ -130,6 +133,14 @@ export interface RouteTableEntry {
    */
   internalCallers: string[];
   stepUp: boolean;
+  /** When the step-up gate names the factors that may earn it (`['webauthn',
+   *  'totp']` on the most dangerous routes), the allowed methods. Empty means
+   *  any factor satisfies it. Sorted, so the generated table is stable. */
+  stepUpMethods: string[];
+  /** Highest `minAssurance` any gate in the chain demands; 0 when none does. */
+  minAssurance: 0 | 1 | 2;
+  /** Tightest `maxAge` (seconds) any assurance gate in the chain demands. */
+  maxAge?: number;
   features: string[];
   scopes: string[];
   audit: string[];
@@ -175,6 +186,8 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
     servicePrincipal: false,
     internalCallers: [],
     stepUp: false,
+    stepUpMethods: [],
+    minAssurance: 0,
     features: [],
     scopes: [],
     audit: [],
@@ -186,13 +199,22 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
       case 'systemAdmin': entry.systemAdmin = true; break;
       case 'servicePrincipal': entry.servicePrincipal = true; break;
       case 'internalService': for (const c of g.callers) if (!entry.internalCallers.includes(c)) entry.internalCallers.push(c); break;
-      case 'stepUp': entry.stepUp = true; break;
+      case 'stepUp':
+        entry.stepUp = true;
+        for (const m of g.methods ?? []) if (!entry.stepUpMethods.includes(m)) entry.stepUpMethods.push(m);
+        break;
+      case 'assurance':
+        // Several gates may apply; the STRICTEST wins, since every one of them runs.
+        if (g.minAssurance > entry.minAssurance) entry.minAssurance = g.minAssurance;
+        if (g.maxAge !== undefined) entry.maxAge = entry.maxAge === undefined ? g.maxAge : Math.min(entry.maxAge, g.maxAge);
+        break;
       case 'feature': if (!entry.features.includes(g.feature)) entry.features.push(g.feature); break;
       case 'scope': if (!entry.scopes.includes(g.scope)) entry.scopes.push(g.scope); break;
       case 'audit': for (const a of g.actions) if (!entry.audit.includes(a)) entry.audit.push(a); break;
     }
   }
   entry.internalCallers.sort();
+  entry.stepUpMethods.sort();
   return entry;
 }
 

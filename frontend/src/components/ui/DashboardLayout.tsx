@@ -16,6 +16,8 @@ import { LoadingPage } from './Loading';
 import { QuotaBanner } from './QuotaBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuthErrorBanner } from './AuthErrorBanner';
+import { MfaRequiredBanner } from './MfaRequiredBanner';
+import { MfaRequiredDialog } from './MfaRequiredDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AskPanel } from '@/components/ask/AskPanel';
@@ -69,14 +71,36 @@ export function DashboardLayout({
   // instead of a confusing generic "Authentication required" toast.
   // The modal acquires a fresh token; the user retries the action
   // manually (no auto-replay — we don't safely know which fn to retry).
-  const [stepUpFallback, setStepUpFallback] = useState<{ message: string } | null>(null);
+  const [stepUpFallback, setStepUpFallback] = useState<{ message: string; code: string } | null>(null);
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { message?: string };
-      setStepUpFallback({ message: detail?.message || 'Step-up confirmation required' });
+      const detail = (e as CustomEvent).detail as { message?: string; code?: string };
+      setStepUpFallback({
+        message: detail?.message || 'Step-up confirmation required',
+        code: detail?.code || 'STEP_UP_REQUIRED',
+      });
     };
     window.addEventListener('step-up-required', handler);
     return () => window.removeEventListener('step-up-required', handler);
+  }, []);
+
+  // Global catch-all for an MFA refusal (#8). A route answered 401 MFA_REQUIRED
+  // (the session is single-factor) or REAUTH_REQUIRED (it is strong but stale).
+  // Neither is an expired session, so the api client neither refreshes nor signs
+  // the person out — it dispatches `mfa-required` and we explain what happened
+  // and point at enrolment. Without this the request would surface as a bare
+  // "Unauthorized" toast on a session that is, in every other respect, fine.
+  const [mfaPrompt, setMfaPrompt] = useState<{ message: string; code: string } | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { message?: string; code?: string };
+      setMfaPrompt({
+        message: detail?.message || 'This action requires two-factor authentication',
+        code: detail?.code || 'MFA_REQUIRED',
+      });
+    };
+    window.addEventListener('mfa-required', handler);
+    return () => window.removeEventListener('mfa-required', handler);
   }, []);
 
   usePolling(pollUnreadCount, POLL_INTERVAL, { enabled: !hasLiveSource });
@@ -284,6 +308,7 @@ export function DashboardLayout({
 
           <ImpersonationBanner />
           <AuthErrorBanner />
+          <MfaRequiredBanner />
           <QuotaBanner />
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
@@ -305,16 +330,29 @@ export function DashboardLayout({
         {/* Global step-up fallback. Fires when ANY api method returns
             401 with a STEP_UP_* code — i.e. the user clicked a
             destructive action without a fresh step-up token. The modal
-            obtains one; the user re-clicks the original action. */}
+            obtains one; the user re-clicks the original action.
+            STEP_UP_METHOD_REQUIRED means the route accepts only a SECOND
+            FACTOR, so the modal hides the password and provider options. */}
         {stepUpFallback && (
           <StepUpModal
             action={`Re-confirm to retry. ${stepUpFallback.message}`}
+            requireStrongFactor={stepUpFallback.code === 'STEP_UP_METHOD_REQUIRED'}
             onConfirmed={() => {
               // The token is fresh now; the user must re-click their original
               // action. We don't auto-retry here because the api client throws
               // before we know which call to replay.
             }}
             onClose={() => setStepUpFallback(null)}
+          />
+        )}
+
+        {/* Global MFA refusal (#8) — explains the 401 and routes to enrolment
+            instead of leaving a bare "Unauthorized" toast on a live session. */}
+        {mfaPrompt && (
+          <MfaRequiredDialog
+            code={mfaPrompt.code}
+            message={mfaPrompt.message}
+            onClose={() => setMfaPrompt(null)}
           />
         )}
 

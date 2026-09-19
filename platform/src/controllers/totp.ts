@@ -28,8 +28,10 @@
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 import { audit } from '../helpers/audit.js';
+import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController, type ErrorMap } from '../helpers/controller-helper.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
@@ -146,6 +148,11 @@ export const activateTotp = withController('TOTP activate', async (req, res) => 
     targetId: userId,
     details: { stage: 'activated', recoveryCodes: result.recoveryCodes.length },
   });
+  // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
+  // good, even if this authenticator is later removed. Awaited, not
+  // fire-and-forget: the very next request may be the one that must no longer be
+  // limited, and the write is a single conditional update.
+  await closeBootstrapExceptionOnEnrolment(req, userId);
   meter('activate', 'success');
   // The codes are shown ONCE — only their hashes are stored.
   sendSuccess(res, 201, { recoveryCodes: result.recoveryCodes });
@@ -291,7 +298,9 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
 
   if (verification.method === 'recovery') auditRecoveryUsed(req, pending.userId, 'login', verification.recoveryCodesRemaining);
 
-  // Identical to the password path, with `mfa` added to `amr`.
+  // Identical to the password path, with `mfa` added to `amr` — and `aal: 2`,
+  // since a password plus an authenticator code (or a recovery code, which is
+  // the same factor's fallback) is exactly what MFA-grade means (#8).
   const tokens = await issueTokens(user, pending.orgId ?? user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
     auth: signInAuth('pwd', { mfa: true }),
@@ -310,7 +319,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     ...deliverSessionTokens(req, res, tokens),
     ...(verification.method === 'recovery' && { recoveryCodesRemaining: verification.recoveryCodesRemaining }),
   });
-}, TOTP_ERROR_MAP);
+}, { ...TOTP_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });
 
 /** A recovery code was spent. Its own action, because burning one is a signal an
  *  operator wants to see even when the sign-in itself was legitimate. */

@@ -415,6 +415,36 @@ export const envVariablesTopic: HelpTopic = {
               "OAUTH_CLEANUP_INTERVAL_MS",
               "60000",
               "Stale state cleanup interval"
+            ],
+            [
+              "OAUTH_MAX_PENDING_STATES",
+              "1000",
+              "Cap on the in-memory pending-state fallback (used only when Redis is unset)"
+            ],
+            [
+              "OIDC_DOC_CACHE_TTL_MS",
+              "3600000",
+              "OIDC discovery / JWKS document cache TTL"
+            ],
+            [
+              "SAML_CLOCK_SKEW_MS",
+              "60000",
+              "Skew tolerated on a SAML assertion's NotBefore / NotOnOrAfter. Sized for ordinary NTP drift between the IdP and this deployment — raising it accepts staler assertions"
+            ],
+            [
+              "SAML_REQUEST_TTL_MS",
+              "600000",
+              "How long an unanswered SAML AuthnRequest stays valid — i.e. how long a person has to finish signing in at their IdP"
+            ],
+            [
+              "SAML_ASSERTION_REPLAY_TTL_MS",
+              "600000",
+              "Floor on how long a spent assertion id is remembered for replay refusal. The real window is the assertion's own NotOnOrAfter when that is longer (capped at 12 h)"
+            ],
+            [
+              "SAML_HANDOFF_TTL_MS",
+              "120000",
+              "Lifetime of the one-time handoff the SAML ACS hands the browser — the few seconds it takes to follow one redirect"
             ]
           ]
         },

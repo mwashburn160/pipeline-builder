@@ -447,6 +447,19 @@ export const config = {
     /** OIDC discovery/JWKS cache TTL. Kept short so IdP key rotation is picked
      *  up quickly; a `kid` miss also forces a live JWKS refetch regardless. */
     oidcDocCacheTtlMs: intEnv('OIDC_DOC_CACHE_TTL_MS', 60 * 60 * 1000),
+    /** Clock skew tolerated on a SAML assertion's NotBefore / NotOnOrAfter.
+     *  Small on purpose — this is the allowance for ordinary NTP drift between
+     *  the IdP and this deployment, not a way to accept stale assertions. */
+    samlClockSkewMs: intEnv('SAML_CLOCK_SKEW_MS', 60 * 1000),
+    /** How long an unanswered SAML AuthnRequest id stays valid, i.e. how long a
+     *  user has to finish signing in at their IdP. */
+    samlRequestTtlMs: intEnv('SAML_REQUEST_TTL_MS', 10 * 60 * 1000),
+    /** Floor on how long a SPENT assertion id is remembered for replay refusal.
+     *  The real window is the assertion's own NotOnOrAfter when that is longer. */
+    samlAssertionReplayTtlMs: intEnv('SAML_ASSERTION_REPLAY_TTL_MS', 10 * 60 * 1000),
+    /** How long the one-time handoff minted by the ACS stays redeemable — the
+     *  few seconds it takes the browser to follow one redirect. */
+    samlHandoffTtlMs: intEnv('SAML_HANDOFF_TTL_MS', 2 * 60 * 1000),
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',

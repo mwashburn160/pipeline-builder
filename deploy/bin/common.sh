@@ -557,6 +557,17 @@ login() {
     return 1
   fi
   echo "  Logged in successfully."
+
+  # Bootstrap-admin MFA exception (#8). On a fresh install the admin has no
+  # second factor, so their session is limited to enrolment, sign-out and the
+  # setup calls this script makes — enough for init, and nothing more. Say so,
+  # because the limit is otherwise only discovered as a 403 on the dashboard.
+  if [ "$(printf '%s' "$_resp" | jq -r '.data.mfaEnrollmentPending // false' 2>/dev/null)" = "true" ]; then
+    echo "  NOTE: this administrator has no second factor yet, so the session can only reach"
+    echo "        enrolment, sign-out and the setup calls below. Sign in to the dashboard and add"
+    echo "        a passkey or an authenticator app (Settings → Security) as soon as init finishes —"
+    echo "        the exception closes permanently at the first enrolment and cannot be reopened."
+  fi
 }
 
 # ---------------------------------------------------------------------------

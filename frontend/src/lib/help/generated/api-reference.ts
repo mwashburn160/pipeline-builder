@@ -717,7 +717,7 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH \\",
               "DELETE",
               "/organization/:id/idp",
-              "Read / upsert / patch / remove the org's own SSO (OIDC) connection. Writes are step-up gated; the client secret is write-only",
+              "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO URL, signing certificates and attribute mapping are returned in full (all public), alongside the derived samlSp values an IdP administrator needs. Writes are step-up gated",
               "org:idp (+ sso entitlement)"
             ]
           ]
@@ -824,6 +824,42 @@ export const apiReferenceTopic: HelpTopic = {
             "Gate"
           ],
           "rows": [
+            [
+              "POST",
+              "/auth/sso/discover",
+              "Login-page hint: { email } → { sso: boolean }. Deliberately reports nothing else — it is unauthenticated, so returning the org id or provider would make it a tenant-enumeration oracle",
+              "— (pre-auth)"
+            ],
+            [
+              "GET",
+              "/auth/sso/:orgId/authorize",
+              "Start per-org SSO → { url, state }. Serves both protocols: the org's protocol decides whether url is an OIDC authorization request or a SAML AuthnRequest, and the caller just redirects to it",
+              "— (pre-auth; enabled + sso-entitled)"
+            ],
+            [
+              "POST",
+              "/auth/sso/:orgId/callback",
+              "OIDC leg: { code, state } → the same { accessToken } + refresh cookie password login returns",
+              "the IdP's code + the state"
+            ],
+            [
+              "GET",
+              "/auth/sso/:orgId/saml/metadata",
+              "SAML service-provider metadata (XML) for the IdP administrator: entity ID, ACS URL with the HTTP-POST binding, WantAssertionsSigned. Derived from the org id and the deployment URL, so it works before the connection does and leaks nothing",
+              "— (public)"
+            ],
+            [
+              "POST",
+              "/auth/sso/:orgId/saml/acs",
+              "SAML Assertion Consumer Service — the IdP posts SAMLResponse + RelayState here. Verifies the signature, issuer, audience and validity window, refuses IdP-initiated and replayed assertions, provisions JIT membership, then redirects to /auth/sso/:orgId/saml with a one-time handoff (or an error code). Never returns tokens",
+              "the assertion + the RelayState"
+            ],
+            [
+              "POST",
+              "/auth/sso/:orgId/saml/complete",
+              "Redeem that handoff, { handoff } → the same { accessToken } + refresh cookie password login returns. Single-use and org-bound; the session is minted here, so it records the redeeming browser",
+              "the handoff itself"
+            ],
             [
               "POST",
               "/auth/refresh",

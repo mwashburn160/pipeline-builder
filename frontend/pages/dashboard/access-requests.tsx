@@ -315,6 +315,10 @@ export default function AccessRequestsPage() {
       {redeeming && (
         <StepUpModal
           action={`Open a read-only session as ${redeeming.target.name}`}
+          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+             passkey or an authenticator code. A password re-prompt proves
+             nothing an attacker holding this session doesn't already have. */
+          requireStrongFactor
           onConfirmed={(token) => redeem(redeeming, token)}
           onClose={() => setRedeeming(null)}
         />

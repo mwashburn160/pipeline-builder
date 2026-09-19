@@ -143,7 +143,8 @@ the links below.
 ## O
 
 - **OAuth / social login** — [Authentication: OAuth social login](authentication.md#oauth-social-login-platform-wide), [Env vars: OAuth](environment-variables.md#oauth--social-login-optional)
-- **OIDC (enterprise SSO, IAM role trust)** — [Authentication: Per-org SSO (OIDC)](authentication.md#per-org-enterprise-sso-oidc), [CDK: Role Types](cdk-usage.md#role-types)
+- **OIDC (enterprise SSO, IAM role trust)** — [Authentication: Per-org SSO](authentication.md#per-org-enterprise-sso), [CDK: Role Types](cdk-usage.md#role-types)
+- **SAML 2.0 (enterprise SSO)** — [Authentication: SAML 2.0](authentication.md#saml-20), [Runbook: rotating the IdP signing certificate](runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org)
 - **Onboarding a new organization (initial login → PAT → events)** — [Onboarding](onboarding.md)
 - **Organizations / teams / hierarchy** — [Docs: Organizations](README.md#organizations), [Organization Benefits](organization-benefits.md), [Permissions: Teams](permissions.md#teams)
 
@@ -187,7 +188,7 @@ the links below.
 - **Service mesh (Istio ambient, mTLS, AuthZ)** — [Service Mesh](service-mesh.md), also [AWS](aws-deployment.md#service-mesh-istio-ambient) / [Ops](deploy-operations.md#service-mesh-istio-ambient)
 - **Session invalidation (token revocation)** — [Permissions: Session invalidation](permissions.md#session-invalidation)
 - **SSE / Server-Sent Events** — [Env vars: Server-Sent Events](environment-variables.md#server-sent-events)
-- **SSO (single sign-on)** — see **OAuth** / **OIDC** / **SCIM** → [Authentication & SSO](authentication.md)
+- **SSO (single sign-on)** — see **OAuth** / **OIDC** / **SAML 2.0** / **SCIM** → [Authentication & SSO](authentication.md)
 - **Stages and steps** — [CDK: Stages and Steps](cdk-usage.md#stages-and-steps)
 - **Storage requirements (disk sizing)** — [AWS Deployment: Storage (EC2)](aws-deployment.md#storage-requirements), [Storage (EKS)](aws-deployment.md#storage-requirements)
 - **Stripe (billing provider setup)** — [Billing Providers: Stripe](billing-providers.md#stripe), [Env vars: Stripe](environment-variables.md#stripe-billing_providerstripe)
@@ -220,7 +221,7 @@ the links below.
 | [api-reference](api-reference.md) | REST endpoints per service, query params, response format |
 | [architecture-flow](architecture-flow.md) | End-to-end flows: plugin build, pipeline create, synth, execution |
 | [audit-events](audit-events.md) | Audit action catalog, integrity, sensitive-data scrubbing |
-| [authentication](authentication.md) | OAuth social login, per-org enterprise SSO (OIDC), JIT + SCIM provisioning |
+| [authentication](authentication.md) | OAuth social login, per-org enterprise SSO (OIDC or SAML 2.0), JIT + SCIM provisioning |
 | [aws-deployment](aws-deployment.md) | EC2 & EKS deploy, public/private modes, SES, reporting |
 | [billing-bundles](billing-bundles.md) | Stackable add-on packs raising pooled caps |
 | [billing-discounts](billing-discounts.md) | Discount codes, promotions, referrals, Marketplace offers |

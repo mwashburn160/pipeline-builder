@@ -16,7 +16,7 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { IdpGroupMappingDto, IdpProvider, OrganizationRole } from '@/types';
+import type { IdpGroupMappingDto, IdpProtocol, IdpProvider, OrganizationRole } from '@/types';
 
 /**
  * IdP group → Role mapping editor (3a), on the org SSO settings page.
@@ -34,11 +34,17 @@ import type { IdpGroupMappingDto, IdpProvider, OrganizationRole } from '@/types'
 export function SsoGroupMappings({
   orgId,
   provider,
+  protocol = 'oidc',
   readOnly = false,
 }: {
   orgId: string;
-  /** The org's configured IdP provider — `null` when none is configured yet. */
+  /** The org's configured OIDC provider — `null` for none, and always null on a
+   *  SAML config, which has no named provider. */
   provider: IdpProvider | null;
+  /** Which protocol the org federates over. SAML carries groups in a mapped
+   *  assertion ATTRIBUTE rather than a token claim, so the Google/GitHub
+   *  carve-out below has nothing to say about it (#4). */
+  protocol?: IdpProtocol;
   readOnly?: boolean;
 }) {
   const toast = useToast();
@@ -55,7 +61,9 @@ export function SsoGroupMappings({
   const [group, setGroup] = useState('');
   const [roleIds, setRoleIds] = useState<string[]>([]);
 
-  const supportsGroups = provider !== null && provider !== 'google' && provider !== 'github';
+  const configured = protocol === 'saml' || provider !== null;
+  const supportsGroups = protocol === 'saml'
+    || (provider !== null && provider !== 'google' && provider !== 'github');
 
   /** Roles a mapping may grant: everything except the platform-admin role, which
    *  the server refuses outright (a directory must not be able to mint one). */
@@ -124,7 +132,7 @@ export function SsoGroupMappings({
     >
       {/* Google's limitation is stated here as well as on the connection form —
           this is the page someone lands on when they come looking for mapping. */}
-      {provider === null ? (
+      {!configured ? (
         <Callout variant="neutral">
           Configure an identity provider above before mapping its groups to roles.
         </Callout>

@@ -206,7 +206,18 @@ describe('controller-helper', () => {
 
       handleControllerError(res, err, 'Registration failed', errorMap);
 
-      expect(mockSendError).toHaveBeenCalledWith(res, 409, 'Email already in use');
+      // No `code` on this entry — most refusals are read by a human and need none.
+      expect(mockSendError).toHaveBeenCalledWith(res, 409, 'Email already in use', undefined);
+    });
+
+    it('forwards the entry\'s error CODE when it has one', () => {
+      // A client branches on the code (e.g. MFA_REQUIRED sends the person to
+      // enrolment rather than to a sign-out), so it has to survive the map.
+      const res = mockRes();
+      handleControllerError(res, new Error('MFA_REQUIRED_FOR_ORG'), 'Login failed', {
+        MFA_REQUIRED_FOR_ORG: { status: 401, message: 'Two-factor required', code: 'MFA_REQUIRED' },
+      });
+      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Two-factor required', 'MFA_REQUIRED');
     });
 
     it('should handle Mongoose errors', () => {

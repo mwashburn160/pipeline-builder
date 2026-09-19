@@ -42,11 +42,13 @@
     "jest-junit": "^17",
     "mongodb-memory-server": "11.2.0",
     "ts-jest": "29.4.12",
-    "typescript": "npm:@typescript/typescript6@^6.0.2"
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "xml-crypto": "6.2.0"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1101.0",
     "@aws-sdk/client-sesv2": "3.1101.0",
+    "@node-saml/node-saml": "5.1.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",

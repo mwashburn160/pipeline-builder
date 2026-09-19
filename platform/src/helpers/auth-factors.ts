@@ -15,7 +15,9 @@
  *   - sso          — a linked org-IdP identity (stored with its issuer) for an org
  *                    the user belongs to (or whose domain enforces SSO for them)
  *                    that has SSO enabled + entitled. Never for platform admins,
- *                    who can't sign in through a tenant IdP either.
+ *                    who can't sign in through a tenant IdP either. OIDC only:
+ *                    a SAML org is not a step-up factor in this release (#4) —
+ *                    see `ssoOptions` for why.
  *   - passkeyCount — how many WebAuthn credentials the account has registered.
  *                    Non-zero means the modal can offer "Use a passkey" (and the
  *                    security page can offer to remove one).
@@ -130,9 +132,15 @@ async function ssoOptions(
   const orgIds = [...new Set([...memberships.map(m => String(m.organizationId)), ...(enforcedOrgId ? [enforcedOrgId] : [])])];
   if (orgIds.length === 0) return [];
 
-  const configs = await OrgIdpConfig.find({ orgId: { $in: orgIds }, enabled: true }).select('orgId provider').lean() as Array<{ orgId: string; provider: string }>;
+  const configs = await OrgIdpConfig.find({ orgId: { $in: orgIds }, enabled: true }).select('orgId provider protocol').lean() as Array<{ orgId: string; provider?: string; protocol?: string }>;
   const linkedProviders = new Set(ssoLinked.map(([name]) => name));
-  const candidates = configs.filter(c => linkedProviders.has(c.provider));
+  // SAML is deliberately NOT a step-up factor in this release (#4): step-up
+  // needs a FRESH, provable re-authentication, and the SAML flow lands on a
+  // server ACS rather than in the popup the re-auth ceremony reads from. A
+  // SAML-only account steps up with a passkey, an authenticator app, or a
+  // password — see docs/authentication.md. Filtering here is what keeps the
+  // step-up modal from offering a button that could only ever fail.
+  const candidates = configs.filter(c => c.protocol !== 'saml' && !!c.provider && linkedProviders.has(c.provider));
   if (candidates.length === 0) return [];
 
   const orgs = await Organization.find({ _id: { $in: candidates.map(c => c.orgId) } }).select('_id name').lean() as Array<{ _id: unknown; name?: string }>;
@@ -142,7 +150,7 @@ async function ssoOptions(
   for (const c of candidates) {
     if (!(await isSsoEntitled(String(c.orgId)))) continue;
     const orgName = names.get(String(c.orgId));
-    options.push({ type: 'sso', provider: c.provider, orgId: String(c.orgId), ...(orgName && { orgName }) });
+    options.push({ type: 'sso', provider: c.provider!, orgId: String(c.orgId), ...(orgName && { orgName }) });
   }
   return options;
 }

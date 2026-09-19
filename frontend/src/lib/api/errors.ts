@@ -61,6 +61,29 @@ export class StepUpRequiredError extends ApiError {
 }
 
 /**
+ * Thrown when a route refuses the SESSION rather than the request (#8):
+ * `MFA_REQUIRED` (the session is single-factor and the route needs two) or
+ * `REAUTH_REQUIRED` (it is MFA-grade but older than the route allows).
+ *
+ * Its own class, and NOT part of the generic 401 handling, because the recovery
+ * is different in kind: an access-token refresh cannot fix it (assurance lives on
+ * the session slot and a refresh never raises it), and signing the person out
+ * would take away the session they need in order to enrol a factor. The api
+ * client also dispatches an `'mfa-required'` window event so the layout can offer
+ * the enrolment route from anywhere, including a stale tab.
+ */
+export class MfaRequiredError extends ApiError {
+  /** `'MFA_REQUIRED'` (enrol or sign in with a factor) or `'REAUTH_REQUIRED'`
+   *  (the factor is there, the sign-in is just too old). */
+  declare code: string;
+
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
+    super(message, 401, code, details);
+    this.name = 'MfaRequiredError';
+  }
+}
+
+/**
  * Map a structured error response from the registry endpoints to the right
  * typed error subclass. Keeps the components from re-deriving the same
  * status-code switch.

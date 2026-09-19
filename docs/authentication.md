@@ -14,9 +14,11 @@ Pipeline Builder supports four ways to sign in, side by side:
    GitHub, Facebook, Microsoft, GitLab, and LinkedIn. Configured once per
    deployment through environment variables; each provider appears only when its
    credentials are set.
-3. **Per-org enterprise SSO (OIDC)** — an organization brings its own identity
-   provider (Okta, Microsoft Entra ID, AWS Cognito, Auth0, …). Configured
-   per-org in the app, not by env, and gated on the `sso` entitlement.
+3. **Per-org enterprise SSO (OIDC or SAML 2.0)** — an organization brings its own
+   identity provider (Okta, Microsoft Entra ID, AWS Cognito, Auth0, Keycloak,
+   Shibboleth, …). Configured per-org in the app, not by env, and gated on the
+   `sso` entitlement. Both protocols end at the same verified identity and pass
+   the same checks; see [SAML 2.0](#saml-20).
 4. **Passkeys (WebAuthn)** — the device itself (fingerprint, face, screen lock,
    or a security key). Nothing to configure: a person adds one from
    Settings → Security and it works from then on. See [Passkeys](#passkeys-webauthn).
@@ -232,7 +234,7 @@ A few consequences worth knowing:
   account or org is created**.
 - **SSO enforcement still applies.** If the email's domain is covered by an
   enabled, `sso`-entitled org IdP, the social grant is rejected with
-  `SSO_REQUIRED` (see [enforcement](#per-org-enterprise-sso-oidc)) rather than
+  `SSO_REQUIRED` (see [enforcement](#per-org-enterprise-sso)) rather than
   creating a personal org — the user is routed through their org's IdP instead.
 
 ### PKCE on every authorization-code flow
@@ -280,12 +282,21 @@ standard OAuth handler.
 
 ---
 
-## Per-org enterprise SSO (OIDC)
+## Per-org enterprise SSO
 
 An organization can register its **own** identity provider so its users sign in
 through corporate SSO instead of a password. This is configured **per
 organization inside the app** — never through environment variables — and is
 stored as an `OrgIdpConfig` (one config per org).
+
+One config, one protocol: `protocol` selects **OIDC** (this section) or
+**[SAML 2.0](#saml-20)**. Switching the selector keeps the other protocol's
+settings, so moving between them never means re-entering a connection, and a
+write that would leave the selected protocol unable to sign anyone in is refused
+rather than saved. Everything after the assertion — the org's DNS-verified
+authority over the email domain, issuer-bound linking, the platform-admin
+refusal, the `sso` entitlement, JIT membership and group → role mapping — is
+identical on both.
 
 ### How it works
 
@@ -323,8 +334,10 @@ deliberately does **not** leak the internal `orgId` or provider (it is
 unauthenticated, so returning those would make it a tenant-enumeration oracle);
 the org handle needed to initiate is delivered through the authenticated
 `SSO_REQUIRED` login rejection instead. `GET /auth/sso/:orgId/authorize` returns
-the IdP redirect URL; `POST /auth/sso/:orgId/callback` exchanges the code and
-validates the `id_token`.
+the IdP redirect URL **for whichever protocol the org uses** — the client just
+redirects to it; `POST /auth/sso/:orgId/callback` exchanges the code and
+validates the `id_token` (OIDC), while a SAML assertion arrives at its own
+[ACS endpoint](#saml-20).
 
 **Social login also honors SSO enforcement.** A user in an SSO-enforced domain
 cannot bypass their org's IdP by using "Sign in with Google/GitHub/…" — the
@@ -335,15 +348,21 @@ SSO uses the same **PKCE** protection as social sign-in — see
 [PKCE on every authorization-code flow](#pkce-on-every-authorization-code-flow)
 for how the issuer's advertised methods are honoured.
 
-> **Multi-replica:** the OAuth/SSO CSRF `state`, the OIDC `nonce` and the PKCE
-> `code_verifier` are held in the shared Redis, so the `authorize` and
-> `callback` requests can land on different replicas. Without Redis they fall
-> back to per-pod memory (single-replica only).
+> **Multi-replica:** the OAuth/SSO CSRF `state`, the OIDC `nonce`, the PKCE
+> `code_verifier`, and SAML's `RelayState`, request ids, spent assertion ids and
+> sign-in handoff are held in the shared Redis, so the `authorize` and the
+> callback (or the assertion POST) can land on different replicas. Without Redis
+> they fall back to per-pod memory (single-replica only) — and a SAML replay
+> guard is then only as wide as one pod, so a multi-replica SAML deployment
+> **needs** Redis.
 
 ### Supported IdP providers
 
-SSO providers are the OIDC-capable set (deliberately narrower than the social-login
-list — a standards-OIDC `id_token` flow is required):
+For `protocol: 'saml'` there is no provider list: any SAML 2.0 identity provider
+works, because the connection is described by its entity ID, SSO URL and signing
+certificate rather than by a name. For `protocol: 'oidc'` the providers are the
+OIDC-capable set (deliberately narrower than the social-login list — a
+standards-OIDC `id_token` flow is required):
 
 - **`generic-oidc`** — any OIDC issuer with a discovery URL. Covers **Okta,
   Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, and AWS IAM Identity
@@ -594,6 +613,113 @@ mismatch here is the most common cause of a failed SSO login.
 > `enabled: true`, and confirm the org is `sso`-entitled. Secret-bearing writes
 > require step-up re-authentication on both config surfaces.
 
+### SAML 2.0
+
+For organizations whose identity provider speaks SAML rather than OIDC. It is
+the **same** sign-in path: the same `GET /auth/sso/:orgId/authorize` starts it,
+the same verified identity comes out, and the same checks decide whether that
+identity may become a session — the org's DNS-verified ownership of the email
+domain, issuer-bound account linking, no platform-administrator sign-in, the
+`sso` entitlement, and just-in-time membership when it is enabled. SAML rides
+that entitlement; it is **not** a separate add-on.
+
+Set it on **Settings → Single Sign-On**, under the same `org:idp` capability and
+step-up confirmation as the OIDC connection.
+
+#### What to give your identity provider
+
+Both values are derived from your organization id and this deployment's public
+URL, so they exist before the connection does:
+
+| | |
+|---|---|
+| Service-provider entity ID | `https://<your-host>/api/auth/sso/<orgId>/saml/metadata` |
+| Assertion Consumer Service (ACS) URL | `https://<your-host>/api/auth/sso/<orgId>/saml/acs`, binding **HTTP-POST** |
+| Metadata document | `GET` the entity-ID URL — most IdPs can import everything from it |
+
+Sign **both** the response and the assertion. Pipeline Builder does not sign
+authentication requests, so there is no service-provider certificate to install
+and none to rotate.
+
+#### What to configure here
+
+| Field | What it is |
+|---|---|
+| **Identity provider entity ID** | The IdP's `entityID`. Every assertion's `Issuer` must equal it, so one org's IdP can never mint an assertion another org's config accepts. |
+| **Identity provider SSO URL** | The IdP's HTTP-Redirect single sign-on endpoint. Must be `https`. |
+| **Signing certificate(s)** | The IdP's signing certificate, PEM or bare base64. A **list** — see [rotation](#rotating-the-idp-signing-certificate). Up to three at once. |
+| **Attribute mapping** | Which assertion attribute carries **email**, **name** and **groups**. Leave a field empty to try the common spellings (`email`/`mail` and the Entra/Shibboleth URI forms; `displayName`; `groups`). An email-shaped `NameID` is used when no email attribute is present. |
+
+Groups feed the same [group → role mapping](#just-in-time-membership-and-group--role-mapping)
+rules OIDC uses, normalised the same way (trimmed, case-insensitive,
+de-duplicated), so one rule set governs both protocols. The Google carve-out does
+not apply to SAML — groups come from a mapped attribute, not a token claim.
+
+#### What an assertion has to satisfy
+
+- **Service-provider-initiated only.** Sign-in must start at Pipeline Builder. A
+  response with no `InResponseTo` is **refused**: an unsolicited assertion is a
+  login-CSRF and replay primitive, because nothing ties it to a browser that
+  asked to sign in. The request id is additionally checked against one this
+  deployment actually minted (held in the shared Redis, so the initiate and the
+  assertion may land on different replicas). There is no IdP-initiated entry
+  point to enable — starting from your IdP's app launcher will not work, by
+  design.
+- **Signed, by a certificate you configured.** XML-DSig over both the response
+  and the assertion, verified against the org's trust list. The document's own
+  `KeyInfo` is never trusted.
+- **Issued for this organization.** `Issuer` must equal the configured entity ID
+  and the `AudienceRestriction` must name this org's SP entity ID — so an
+  assertion minted for another service provider by the same IdP is refused.
+- **Inside its validity window.** `NotBefore` / `NotOnOrAfter`, with a small
+  clock-skew allowance (`SAML_CLOCK_SKEW_MS`, default 60 s) for ordinary NTP
+  drift — not a way to accept stale assertions.
+- **Used once.** The assertion's `ID` is claimed in Redis until the assertion
+  expires, so the same assertion can never be presented twice, on any replica.
+
+Every refusal is audited (`sso.saml.refused` with a stable `details.reason`) and
+counted (`platform_saml_signins_total{result}`); a successful sign-in is a
+`user.login` with `details.method = 'saml'` and `result="success"`.
+
+#### How the browser gets its session
+
+SAML delivers its assertion by an IdP-driven form POST to the ACS — a server
+endpoint — so, unlike OIDC, the frontend never sees it. The ACS verifies the
+assertion, provisions the membership, and redirects to
+`/auth/sso/:orgId/saml` with a **one-time, org-bound handoff**; that page
+redeems it (`POST /auth/sso/:orgId/saml/complete`) and the session is minted
+there. No token ever travels through a URL, and the session records the browser
+that actually redeemed the handoff. A refused assertion redirects to the same
+page with an `error` code instead.
+
+#### Rotating the IdP signing certificate
+
+The certificate field is a **list**, and that is the whole rotation story: while
+both the outgoing and the incoming certificate are listed, assertions signed by
+either verify, so nobody is locked out mid-cutover. Add the new certificate, let
+your IdP cut over, then remove the old one. Changes are audited
+(`sso.saml.certificate.rotate`, with fingerprints before and after and whether an
+overlap window is now open). Full procedure:
+[secret rotation → IdP SAML signing certificates](runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org).
+
+#### Not in this release
+
+- **Single logout (SLO) is out of scope.** There is no SLO endpoint, no
+  `logoutUrl` setting and no `SessionIndex` bookkeeping — nothing half-built to
+  turn on. Signing out of Pipeline Builder ends the Pipeline Builder session
+  only; it does **not** sign the person out of your identity provider. Sign-out
+  at the IdP likewise does not end an already-open Pipeline Builder session;
+  what does is [SCIM deactivation](#scim-20-provisioning), which revokes the
+  person's sessions immediately.
+- **Encrypted assertions** are not accepted. Configure your IdP to sign but not
+  encrypt; TLS already protects the assertion in transit.
+- **SAML is not a step-up factor.** Step-up needs a fresh re-authentication read
+  back from the popup the provider redirects to, and a SAML assertion lands on a
+  server-side ACS instead. A SAML-only account steps up with a
+  [passkey](#passkeys-webauthn), an [authenticator app](#authenticator-app-totp),
+  or a password; the step-up modal does not offer an SSO button for a SAML org,
+  and a client that asks anyway is told so.
+
 ### Two config surfaces
 
 The same `OrgIdpConfig` is manageable from two places, which stay in lockstep
@@ -602,7 +728,7 @@ The same `OrgIdpConfig` is manageable from two places, which stay in lockstep
 | Surface | Who | Where |
 |---------|-----|-------|
 | **Superadmin / fleet** | Platform operators (Super Admin) | `/admin/org-idp` — register or edit SSO for **any** org on their behalf (the "IdP / SSO" dashboard page). |
-| **Org-admin self-service** | An org's own admin | Managed under the org's settings, gated on the `org:idp` capability — the customer's admin configures their own org's SSO without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
+| **Org-admin self-service** | An org's own admin | Managed under the org's settings (Settings → Single Sign-On), gated on the `org:idp` capability — the customer's admin configures their own org's SSO, on **either protocol**, without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
 
 Both surfaces gate the secret-bearing writes behind step-up re-authentication,
 and the self-service surface additionally requires the org to be `sso`-entitled
@@ -915,10 +1041,10 @@ an account holding only TOTP could not get in at all.
 
 ### Assurance
 
-A TOTP-backed sign-in carries `amr: ['pwd', 'mfa']` and a TOTP step-up carries
-`amr: ['stepup', 'mfa']`. **`aal` stays `1`** for now: defining what level 2 means
-and which routes may demand it is the assurance-levels work, and a token claiming
-a level no gate understands would be an assertion nothing verifies.
+A TOTP-backed sign-in carries `amr: ['pwd', 'mfa']` and reaches **`aal: 2`**; a
+TOTP step-up carries `amr: ['stepup', 'mfa']` and `method: 'totp'`, which is one
+of the two factors the most dangerous routes will accept. See
+[Assurance levels and required MFA](#assurance-levels-and-required-mfa).
 
 ### What gets recorded
 
@@ -934,6 +1060,154 @@ guessing. Verifications are metered as
 step-ups also land in `platform_step_up_total{method='totp',outcome}`, and every
 issued sign-in challenge counts in `platform_mfa_challenges_total` — comparing it
 with the `login` successes is how a stuck second leg shows up.
+
+---
+
+## Assurance levels and required MFA
+
+Every session carries an **authenticator assurance level** (`aal`), and routes
+and organizations can demand a minimum.
+
+### What the levels mean
+
+| `aal` | How the session was opened |
+| --- | --- |
+| `1` | A password, a social sign-in (Google/GitHub/…), or SSO through an IdP the org has **not** marked as enforcing MFA. |
+| `2` | A **passkey** asserted with user verification; a **password plus an authenticator code** (or a recovery code); or **SSO** through an IdP the org **has** marked as enforcing MFA. |
+
+The level is fixed **when the session is opened** and stored on its
+refresh-session slot alongside `amr` and `auth_time`. Refresh, renewal and
+switch-org copy it verbatim, so **a refresh can never raise it** — earning `aal:
+2` always means authenticating again, with a factor. That is why the UI answers
+an `MFA_REQUIRED` refusal with "enrol, then sign in again" rather than with a
+token refresh.
+
+**Why the IdP setting is a per-org statement, not a claim we read.** Most OIDC
+providers send no `amr` at all, and a SAML `AuthnContextClassRef` is whatever the
+IdP was configured to emit. The org administers its own provider, so its own
+statement is the best available evidence — `idpEnforcesMfa` on the org's
+two-factor settings. Leave it off unless the IdP genuinely requires a second
+factor.
+
+### Requiring it on a route
+
+```ts
+router.post('/dangerous',
+  requireAuth({ minAssurance: 2 }),        // or: requireAuth, requireAssurance({ minAssurance: 2 })
+  requireStepUp({ methods: STRONG_STEP_UP_METHODS }),
+  handler);
+```
+
+- `minAssurance` is about the **session**: a weaker one gets **401
+  `MFA_REQUIRED`**. Adding `maxAge` (seconds) also bounds `auth_time`; a session
+  that is strong but stale gets **401 `REAUTH_REQUIRED`**.
+- `requireStepUp` stays a **per-action** confirmation. Passing `methods` demands
+  that the confirmation was earned by a specific factor; a token earned another
+  way is refused with **401 `STEP_UP_METHOD_REQUIRED`** and is *not* consumed, so
+  it can still be spent where it is accepted.
+- **Machine credentials never satisfy `minAssurance`.** An internal service
+  principal, an org service account and any exchanged access key (`pb_pat_…` /
+  `pb_sa_…`) all get **403 `HUMAN_SESSION_REQUIRED`** — there is no person behind
+  them to have presented a factor. Point automation at a machine-facing route
+  instead.
+
+Platform's own `requireAuth` reads MongoDB and takes no options, so it composes
+`requireAssurance({ … })` after it; both call the same check.
+
+#### Where it is enforced today
+
+Assurance and a **second-factor** step-up (`STRONG_STEP_UP_METHODS` — passkey or
+authenticator code; a password re-prompt proves nothing an attacker holding the
+session doesn't already have) are required on:
+
+- starting, redeeming or break-glassing an **impersonation** session;
+- writing a **per-org KMS** configuration (`/admin/orgs/:orgId/kms-config`);
+- writing an **IdP configuration**, self-serve (`/organization/:id/idp`) or
+  fleet (`/admin/org-idp/:orgId`);
+- granting or revoking **platform-admin** (`/admin/users/:id/grants`).
+
+Reads on those surfaces are unchanged. Nothing else gets `minAssurance` until the
+people who use it can enrol — which they now can.
+
+### Requiring it for an organization
+
+**Settings → Organization → Two-factor authentication** (needs `org:settings`,
+and the save is step-up gated because turning it *off* removes a control for
+every member).
+
+- Enforced **when a token is issued**, never per route: a session scoped to the
+  org is minted at `aal: 2` or refused. It therefore covers every route of every
+  service, including ones added later.
+- The token carries an `mfaRequired` claim, so no service looks the policy up.
+- A **grace period** (14 days by default, 0–90) follows turning it on. During it
+  members are told — a banner with the deadline, and the enrolment link — but not
+  refused. The deadline is computed server-side from a day count, so a client can
+  never post one of its own, including one in the past.
+- The requirement is **inherited**: a parent org's requirement applies to its
+  teams, and a team cannot opt out of it (it may add one of its own).
+- Once the grace ends, an `aal: 1` session stops being re-issued: sign-in,
+  refresh, switch-org and generate-token all answer **401 `MFA_REQUIRED`**.
+  Scoped machine credentials (`reporting:ingest` and friends) are exempt — they
+  are not a person's session, and they are already refused by every
+  `minAssurance` gate.
+
+### The bootstrap-administrator exception
+
+A fresh install has exactly one administrator and no enrolled factor, so
+requiring MFA would lock out the only person who can enrol one. The exception is
+narrow, self-closing and audited:
+
+- It applies only to an account whose email is in `BOOTSTRAP_SUPERADMIN_EMAILS`
+  **and** which belongs to the `system` org, while `User.mfaBootstrapClosedAt` is
+  unset **and** it has no factor.
+- Their password sign-in opens a real session, flagged `mfaEnrollmentPending` and
+  `aal: 1`, that can reach **only** enrolment, sign-out and the routes
+  `init-platform.sh` calls (read the org and its roles, create the `setup`
+  service account, issue and revoke its keys). Every other service refuses such a
+  token outright with **403 `MFA_ENROLLMENT_REQUIRED`**; the dashboard sends them
+  straight to Settings → Security.
+- It **closes permanently at the first enrolment** of any factor and never
+  reopens, even if that factor is later removed.
+- System-org "require MFA" **cannot be turned on while it is open** — doing so
+  would refuse the only account that can close it (409
+  `MFA_BOOTSTRAP_STILL_OPEN`).
+- **SSO enforcement never applies to a bootstrap admin.** SSO refuses
+  superadmins, so a verified, SSO-enforced domain matching their address would
+  otherwise close both sign-in paths.
+- Every exception sign-in writes `auth.mfa.bootstrap_session` and increments
+  `platform_mfa_bootstrap_session_total{late}`. A fresh install finishes in
+  minutes, so `late="true"` — more than 24 hours after the system org was created
+  — fires the `MfaBootstrapSessionLate` alert.
+
+### Recovery when every factor is lost
+
+There is **no HTTP route**. A route that removes someone's second factor is by
+construction a bypass of the second factor. Recovery is an operator command run
+with database access, inside a platform container:
+
+```bash
+docker compose exec platform node scripts/mfa-recover.js --email admin@internal --operator you@example.com
+kubectl exec -n pipeline-builder deploy/platform -- \
+  node scripts/mfa-recover.js --email admin@internal --operator you@example.com --clear-org-policy
+```
+
+It removes every passkey and the authenticator enrolment, bumps `tokenVersion`
+(ending every session, everywhere) and writes `auth.mfa.operator_reset`
+attributed to the named operator. It does **not** reopen the bootstrap exception.
+If the person's org requires MFA they would now be unable to sign in at all, so
+`--clear-org-policy` turns that org's requirement off in the same command — turn
+it back on once they have re-enrolled.
+
+### What gets recorded
+
+`auth.mfa.bootstrap_session` (every exception sign-in; `details.late`),
+`auth.mfa.bootstrap_closed` (the first enrolment closed it),
+`auth.mfa.operator_reset` (the recovery command) and `org.mfa_policy.update`
+(both sides of the transition). Refusals are metered as
+`platform_mfa_enforcement_refused_total{reason}` on platform and
+`mfa_enforcement_refused_total{service,reason}` elsewhere — `reason` is
+`weak_session`, `stale_session`, `machine_principal` or `bootstrap_session`.
+Policy changes count in `platform_mfa_policy_changes_total{requireMfa}`.
 
 ---
 

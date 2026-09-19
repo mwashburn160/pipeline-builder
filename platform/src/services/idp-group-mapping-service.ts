@@ -69,11 +69,17 @@ function toDto(doc: IdpGroupMappingDocument, byRoleId: Map<string, MappableRole>
  * Confirm the org has an IdP config whose provider can carry groups at all.
  * Google is refused here with its own code so the UI can explain WHY rather than
  * showing a generic validation error (Google's OIDC tokens have no group claim).
+ *
+ * A SAML config (#4) has no named provider and carries groups in a mapped
+ * ASSERTION ATTRIBUTE, so the Google carve-out doesn't apply to it — the same
+ * mapping rules then govern both protocols, which is the point of feeding both
+ * into one resolver.
  */
 async function assertGroupsSupported(orgId: string): Promise<void> {
-  const cfg = await OrgIdpConfig.findOne({ orgId }).select('provider').lean();
+  const cfg = await OrgIdpConfig.findOne({ orgId }).select('provider protocol').lean();
   if (!cfg) throw new Error(IGM_NOT_CONFIGURED);
-  if (!providerSupportsGroups(cfg.provider)) throw new Error(IGM_PROVIDER_UNSUPPORTED);
+  if (cfg.protocol === 'saml') return;
+  if (!cfg.provider || !providerSupportsGroups(cfg.provider)) throw new Error(IGM_PROVIDER_UNSUPPORTED);
 }
 
 /** Load the org's Roles named by `roleIds`, keyed by id (for DTO hydration). */

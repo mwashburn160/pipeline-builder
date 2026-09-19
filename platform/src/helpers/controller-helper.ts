@@ -311,7 +311,13 @@ export async function canAccessOrg(req: Request, targetOrgId: string): Promise<b
 
 // Error Handling
 
-export type ErrorMap = Record<string, { status: number; message: string }>;
+/**
+ * Thrown-error message → HTTP response. `code` is optional and only needed when
+ * a CLIENT must branch on the refusal (e.g. `MFA_REQUIRED`, which sends the
+ * person to enrolment rather than to a sign-out); most refusals are read by a
+ * human and need only the message.
+ */
+export type ErrorMap = Record<string, { status: number; message: string; code?: string }>;
 
 // Mongoose Error Handling
 
@@ -364,7 +370,7 @@ export function handleControllerError(
   if (errorMap && errObj?.message && typeof errObj.message === 'string' && errorMap[errObj.message]) {
     logger.error(fallbackMessage, err);
     const mapped = errorMap[errObj.message];
-    return sendError(res, mapped.status, mapped.message);
+    return sendError(res, mapped.status, mapped.message, mapped.code);
   }
 
   // 2. Check Mongoose errors

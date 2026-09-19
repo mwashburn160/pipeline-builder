@@ -18,6 +18,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
+import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { PasskeySection } from '@/components/settings/PasskeySection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
 import { TotpSection } from '@/components/settings/TotpSection';
@@ -230,6 +231,13 @@ export default function SettingsPage() {
                 that manages general settings can't also open the org to impersonation. */}
             {can('org:impersonation') && user.organizationId && (
               <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+
+            {/* Two-factor requirement (#8). Same capability as the other org
+                security settings; the WRITE is step-up gated server-side because
+                turning it OFF removes a control for every member. */}
+            {can('org:settings') && user.organizationId && (
+              <MfaPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* AI Providers */}

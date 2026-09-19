@@ -82,8 +82,11 @@ export function OrgSsoSettings({
       onConfigChange?.(c ?? null);
       if (c) {
         setExisting(c);
-        setProvider(c.provider);
-        setClientId(c.clientId);
+        // Absent on a SAML config (#4) — the SAML editor beside this one owns
+        // that protocol; leave the OIDC form on its defaults rather than
+        // assigning undefined into required state.
+        if (c.provider) setProvider(c.provider);
+        setClientId(c.clientId ?? '');
         setDiscoveryUrl(c.discoveryUrl || '');
         setRegion(c.region || '');
         setUserPoolId(c.userPoolId || '');

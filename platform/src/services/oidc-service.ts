@@ -56,6 +56,10 @@ export const OIDC_ERROR_MAP = {
   OIDC_DISABLED: { status: 403, message: 'SSO is not enabled for this organization' },
   OIDC_NOT_ENTITLED: { status: 403, message: 'This organization is not entitled to SSO' },
   OIDC_PROVIDER_UNSUPPORTED: { status: 400, message: 'This identity provider does not support OIDC single sign-on' },
+  // The org federates over SAML (#4), so the OIDC legs of the flow don't apply
+  // to it. Distinct from PROVIDER_UNSUPPORTED: nothing is misconfigured, the
+  // caller simply asked for the wrong protocol.
+  OIDC_PROTOCOL_MISMATCH: { status: 400, message: 'This organization signs in with SAML, not OIDC' },
   OIDC_DISCOVERY_FAILED: { status: 502, message: 'Could not load the identity provider configuration' },
   OIDC_INVALID_STATE: { status: 403, message: 'Invalid or expired SSO state' },
   OIDC_TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange the authorization code' },

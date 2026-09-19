@@ -156,9 +156,11 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
     const decoded = jwt.decode(accessToken) as Record<string, unknown>;
 
     expect(decoded.features).toEqual(['ai_generation']);
-    // Flat org: the active doc IS the root — no lineage walk, one doc read.
+    // Flat org: the active doc IS the root — no LINEAGE WALK. Two org reads:
+    // the membership context, and the MFA policy (#8), which is resolved at the
+    // same chokepoint and likewise costs no walk for a flat org.
     expect(mockResolveOrgLineage).not.toHaveBeenCalled();
-    expect(mockOrgFindById).toHaveBeenCalledTimes(1);
+    expect(mockOrgFindById).toHaveBeenCalledTimes(2);
     expect(decoded.rootOrganizationId).toBeUndefined();
     expect(decoded.parentOrganizationId).toBeUndefined();
   });

@@ -120,9 +120,15 @@ export function authApi(core: ApiCore) {
      * and NO token. `applyTokens` ignores the second (there is nothing to
      * apply), so the caller must branch on `mfaRequired` and follow up with
      * `verifyMfaLogin` rather than assume a session exists.
+     *
+     * A third, rare shape carries `mfaEnrollmentPending: true` ALONGSIDE a real
+     * token (#8): the install's bootstrap administrator, who has no factor yet.
+     * The session is genuine but reaches only enrolment, sign-out and the setup
+     * routes, so the caller sends them straight to enrolment rather than to a
+     * dashboard that would answer 403 on every panel.
      */
     login: async (email: string, password: string) => {
-      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number } & Partial<MfaChallenge>>>('/api/auth/login', {
+      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number; mfaEnrollmentPending?: boolean } & Partial<MfaChallenge>>>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: email, password }),
       });
@@ -416,6 +422,51 @@ export function authApi(core: ApiCore) {
       const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
         `/api/auth/oauth/${encodeURIComponent(provider)}/callback`,
         { method: 'POST', body: JSON.stringify({ code: params.code, state: params.state }) },
+      );
+      core.applyTokens(response);
+      return response;
+    },
+
+    // ============================================
+    // Per-org enterprise SSO (OIDC and SAML 2.0).
+    //
+    // ONE entry point for both protocols: `getSsoUrl` returns the URL to
+    // redirect to whichever the org federates over. Where the browser comes
+    // BACK to is what differs — OIDC returns to `/auth/sso/:orgId/callback`
+    // with a code, SAML posts its assertion to a server-side ACS which then
+    // redirects to `/auth/sso/:orgId/saml` with a one-time handoff. That
+    // handoff is redeemed below, and the session it produces is the SAME shape
+    // password login returns, applied through the same `core.applyTokens`.
+    // ============================================
+
+    /** GET /auth/sso/:orgId/authorize — the IdP redirect URL for this org, on
+     *  whichever protocol it uses. The CSRF `state` is minted + stored
+     *  server-side and is single-use. */
+    getSsoUrl: async (orgId: string) => {
+      return core.request<ApiResponse<{ url: string; state: string }>>(
+        `/api/auth/sso/${encodeURIComponent(orgId)}/authorize`,
+      );
+    },
+
+    /** POST /auth/sso/:orgId/callback — OIDC leg: exchange the IdP's code for a
+     *  session. */
+    completeSsoCallback: async (orgId: string, params: { code: string; state: string }) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
+        `/api/auth/sso/${encodeURIComponent(orgId)}/callback`,
+        { method: 'POST', body: JSON.stringify(params) },
+      );
+      core.applyTokens(response);
+      return response;
+    },
+
+    /** POST /auth/sso/:orgId/saml/complete — SAML leg: redeem the one-time
+     *  handoff the ACS put in the landing URL. The assertion was already
+     *  verified server-side; this call is what mints the session, so it carries
+     *  this browser's client info and the refresh-cookie transport. */
+    completeSamlLogin: async (orgId: string, handoff: string) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
+        `/api/auth/sso/${encodeURIComponent(orgId)}/saml/complete`,
+        { method: 'POST', body: JSON.stringify({ handoff }) },
       );
       core.applyTokens(response);
       return response;

@@ -2,11 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-org SSO (OIDC) login surface.
+ * Per-org SSO login surface.
  *
  *   GET  /auth/sso/:orgId/authorize  → { url, state }  (initiate — redirect to IdP)
  *   POST /auth/sso/:orgId/callback   → tokens          (exchange code + validate id_token)
  *   POST /auth/sso/discover          → { sso }          (is this email forced through SSO?)
+ *
+ * `authorize` serves BOTH protocols: it resolves the org's `protocol` and hands
+ * a SAML org to `controllers/saml.ts` (#4), returning the same `{ url, state }`
+ * either way. The `callback` below is the OIDC leg only — SAML's assertion
+ * arrives by IdP form POST at its own ACS route.
  *
  * Mirrors the OAuth controller (controllers/oauth.ts): a one-time CSRF `state`
  * bound to the org that minted it, a cross-pod (env Redis) pending-state store,
@@ -20,13 +25,15 @@
 
 import crypto from 'crypto';
 import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core';
+import { beginSamlLogin } from './saml.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { idpEnforcesMfa, MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
-import { assertSsoIdentityTrusted, findSsoEnforcementForEmail, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
+import { assertSsoIdentityTrusted, findSsoEnforcementForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
 import { authService } from '../services/index.js';
@@ -35,6 +42,7 @@ import {
   buildAuthorizeUrl,
   exchangeAndValidate,
 } from '../services/oidc-service.js';
+import { SAML_ERROR_MAP } from '../services/saml-service.js';
 import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
 import { issueTokens, signInAuth } from '../utils/token.js';
 import { oauthCallbackSchema, ssoDiscoverSchema, validateBody } from '../utils/validation.js';
@@ -73,6 +81,16 @@ const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string;
  */
 export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
   const orgId = getParam(req.params, 'orgId')!;
+
+  // One entry point, two protocols (#4). The client redirects to `url` either
+  // way and never has to know which one its org federates over; where the
+  // browser comes BACK to differs (the OIDC callback page vs the SAML ACS) and
+  // is decided by what we register with the IdP, not by the client.
+  if (await getEnforcedIdpProtocol(orgId) === 'saml') {
+    sendSuccess(res, 200, await beginSamlLogin(orgId));
+    return;
+  }
+
   const cfg = await getEnforcedLoginConfig(orgId);
 
   const state = crypto.randomBytes(32).toString('hex');
@@ -82,7 +100,7 @@ export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
   await pendingSsoStates.put(state, { orgId, nonce, ...(codeVerifier && { codeVerifier }) });
 
   sendSuccess(res, 200, { url, state });
-}, OIDC_ERROR_MAP);
+}, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /** Label a failed provisioning attempt for the audit row + metric. Only the seat
  *  cap is an expected refusal; anything else is an infrastructure failure and is
@@ -203,9 +221,14 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
   // Prefer the SSO org as the active org; issueTokens' resolveMembership falls
   // back to the user's own membership when they aren't (yet) a member of it.
   // Single sign-on opens an INTERACTIVE session (`amr: ['sso']`).
+  //
+  // ASSURANCE (#8): `aal: 2` only when the org has marked its own IdP as
+  // enforcing MFA. Providers don't send `amr` reliably — most OIDC IdPs send
+  // none at all — so the org's statement about the provider it administers is
+  // the evidence, and an unmarked IdP stays aal 1 rather than being guessed at.
   const tokens = await issueTokens(user, orgId, {
     kind: 'interactive',
-    auth: signInAuth('sso'),
+    auth: signInAuth('sso', { idpMfa: await idpEnforcesMfa(orgId) }),
     client: clientInfoOf(req),
   });
 
@@ -215,7 +238,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 
   // Same transport split as password/OAuth login: cookie for the browser.
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
-}, OIDC_ERROR_MAP);
+}, { ...OIDC_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });
 
 /**
  * POST /auth/sso/discover — public (UNAUTHENTICATED) helper for the login page.

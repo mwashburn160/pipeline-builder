@@ -21,6 +21,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Callout } from '@/components/ui/Callout';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
+import { OrgSamlSettings } from '@/components/settings/OrgSamlSettings';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
 import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
 import type { OrgIdpConfigDto } from '@/types';
@@ -62,6 +63,16 @@ export default function OrgSsoSettingsPage() {
         ) : (
           <>
             <OrgSsoSettings orgId={orgId} readOnly={isReadOnly} onConfigChange={setIdpConfig} />
+            {/* SAML 2.0 (#4) — the second protocol, behind the same sign-in path
+                and the same `org:idp` + step-up gate as the OIDC connection
+                above. It owns the protocol selector, since only one of the two
+                can be live for an org at a time. */}
+            <OrgSamlSettings
+              orgId={orgId}
+              config={idpConfig}
+              readOnly={isReadOnly}
+              onConfigChange={setIdpConfig}
+            />
             {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
                 it grants roles, so an org can delegate the login connection and
                 the role policy to different people. The API enforces the same. */}
@@ -69,6 +80,7 @@ export default function OrgSsoSettingsPage() {
               <SsoGroupMappings
                 orgId={orgId}
                 provider={idpConfig?.provider ?? null}
+                protocol={idpConfig?.protocol ?? 'oidc'}
                 readOnly={isReadOnly}
               />
             )}

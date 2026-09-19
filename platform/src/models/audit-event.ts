@@ -82,6 +82,26 @@ export const ALL_AUDIT_ACTIONS = [
   // detail on the login, because burning one usually means a lost device — and
   // an attacker who obtained the sheet leaves exactly this trace.
   'user.totp.recovery_used',
+  // Assurance levels and required MFA (#8, helpers/bootstrap-admin.ts +
+  // controllers/org-mfa-policy.ts).
+  //
+  // `bootstrap_session` is emitted on EVERY sign-in that uses the bootstrap-admin
+  // exception — the narrow, self-closing window in which the install's only
+  // admin may hold an `aal: 1` session before enrolling a factor. `details.late`
+  // is true when it happened more than 24h after the install, which is the
+  // alertable case: a fresh install finishes in minutes, so a late one is either
+  // a stalled setup or someone using the exception as a way in.
+  'auth.mfa.bootstrap_session',
+  // The exception closed, permanently, because a factor was enrolled.
+  'auth.mfa.bootstrap_closed',
+  // An operator reset every factor on an account from the database
+  // (`scripts/mfa-recover.ts`) — the ONLY recovery path, deliberately not an
+  // HTTP route. Bumps tokenVersion, so it also ends every session.
+  'auth.mfa.operator_reset',
+  // An org turned "require MFA" on or off, or changed its grace period / its
+  // statement that its IdP enforces MFA. `details` carries both sides — the
+  // transition is what a reviewer needs, not the end state.
+  'org.mfa_policy.update',
   // Opaque access keys (`pb_pat_…`) — create / revoke, and the exchange that
   // turns one into a 5-minute JWT. `user.key.exchange` is the ONLY record that a
   // key was used at all (services never see the key itself), so it is what
@@ -242,6 +262,22 @@ export const ALL_AUDIT_ACTIONS = [
   'sso.jit.provision',
   'sso.jit.role.change',
   'sso.jit.refused',
+  // SAML 2.0 sign-in (#4, controllers/saml.ts). A successful SAML sign-in is a
+  // plain `user.login` with `details.method = 'saml'` — it is the same kind of
+  // session, and splitting it would fracture every "who signed in" query. What
+  // gets its OWN action is the REFUSAL, because SAML has failure modes that are
+  // security events in their own right rather than someone mistyping a password:
+  // `details.reason` is `idp_initiated` (an unsolicited assertion — login CSRF),
+  // `replay` (an assertion presented twice), `invalid_assertion` (signature,
+  // audience, issuer or time), `domain_not_verified`, `platform_admin`,
+  // `seat_limit`, and the configuration states. `affectedOrgId` is the SSO org.
+  'sso.saml.refused',
+  // The org's trusted IdP signing certificates changed. Recorded separately from
+  // the surrounding config write because a certificate swap is the one IdP edit
+  // that silently decides whose assertions this org will accept — `details`
+  // carries how many certificates were trusted before and after, and their
+  // fingerprints, never the certificates themselves.
+  'sso.saml.certificate.rotate',
   // Sysadmin authority grants/revokes. The bootstrap path
   // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
   // both. `actorId='bootstrap-env'` for env-driven promotions — operators

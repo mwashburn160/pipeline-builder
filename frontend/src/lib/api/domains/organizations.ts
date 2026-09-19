@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy } from '@/types';
 
 /**
  * An org SERVICE ACCOUNT: a non-human principal owned by the org. It holds the
@@ -566,6 +566,31 @@ export function organizationsApi(core: ApiCore) {
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** The org's two-factor requirement (#8): its OWN setting and what actually
+     *  governs, since a parent org's requirement also applies to its teams. */
+    getMfaPolicy: async (orgId: string) => {
+      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`);
+    },
+    /**
+     * Turn the requirement on or off, set the grace period, or record that the
+     * org's identity provider enforces MFA.
+     *
+     * `graceDays` only applies while turning the requirement ON — the deadline is
+     * computed server-side from it, so the client never posts a date. Step-up
+     * gated: turning it OFF removes a control for everyone in the org.
+     */
+    updateMfaPolicy: async (
+      orgId: string,
+      body: { requireMfa?: boolean; graceDays?: number; idpEnforcesMfa?: boolean },
+      stepUpToken?: string,
+    ) => {
+      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),

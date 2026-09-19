@@ -16,9 +16,23 @@ export enum ErrorCode {
   TOKEN_INVALID = 'TOKEN_INVALID',
   TOKEN_MISSING = 'TOKEN_MISSING',
   TOKEN_REVOKED = 'TOKEN_REVOKED',
+  /** The session is not MFA-grade (`aal` below the route's `minAssurance`).
+   *  The client sends the person to enrol / sign in again with a second
+   *  factor — it must NOT sign them out or retry a token refresh, since a
+   *  refresh can never raise the assurance level. */
+  MFA_REQUIRED = 'MFA_REQUIRED',
+  /** The session is MFA-grade but its `auth_time` is older than the route's
+   *  `maxAge` — the person must authenticate again (not merely refresh). */
+  REAUTH_REQUIRED = 'REAUTH_REQUIRED',
 
   // Authorization errors (403)
   INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
+  /** A machine credential (service principal, org service account, or an
+   *  exchanged access key) reached a route that requires a person. */
+  HUMAN_SESSION_REQUIRED = 'HUMAN_SESSION_REQUIRED',
+  /** A bootstrap-admin enrolment session (`mfaEnrollmentPending`) reached a
+   *  route outside the enrolment / sign-out / setup allowlist. */
+  MFA_ENROLLMENT_REQUIRED = 'MFA_ENROLLMENT_REQUIRED',
   ORG_MISMATCH = 'ORG_MISMATCH',
   COMPLIANCE_VIOLATION = 'COMPLIANCE_VIOLATION',
 
@@ -79,7 +93,11 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TOKEN_INVALID]: 401,
   [ErrorCode.TOKEN_MISSING]: 401,
   [ErrorCode.TOKEN_REVOKED]: 401,
+  [ErrorCode.MFA_REQUIRED]: 401,
+  [ErrorCode.REAUTH_REQUIRED]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
+  [ErrorCode.HUMAN_SESSION_REQUIRED]: 403,
+  [ErrorCode.MFA_ENROLLMENT_REQUIRED]: 403,
   [ErrorCode.ORG_MISMATCH]: 403,
   [ErrorCode.COMPLIANCE_VIOLATION]: 403,
   [ErrorCode.NOT_FOUND]: 404,

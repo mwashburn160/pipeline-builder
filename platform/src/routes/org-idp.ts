@@ -9,7 +9,7 @@
  * these configs lands in a follow-up gated on the customer's IdP choice.
  */
 
-import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgIdpConfig,
@@ -29,10 +29,12 @@ const router: Router = Router();
 // Superadmins bypass `requirePermission` via `hasPermission`.
 router.get('/', requireAuth, requirePermission('org:idp'), listOrgIdpConfigs);
 router.get('/:orgId', requireAuth, requirePermission('org:idp'), getOrgIdpConfig);
-// Mutations persist the org's IdP `clientSecret` — gate on step-up so a
-// stolen session can't write SSO credentials (mirrors org-kms-config).
-router.put('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), putOrgIdpConfig);
-router.patch('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), patchOrgIdpConfig);
-router.delete('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.delete'), deleteOrgIdpConfig);
+// Mutations persist the org's IdP `clientSecret` — gate on step-up so a stolen
+// session can't write SSO credentials (mirrors org-kms-config), and on assurance
+// (#8) so the session is MFA-grade. Repointing an org's IdP is a way to become
+// any of its users, so the step-up must be earned by a SECOND FACTOR.
+router.put('/:orgId', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), putOrgIdpConfig);
+router.patch('/:orgId', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), patchOrgIdpConfig);
+router.delete('/:orgId', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.delete'), deleteOrgIdpConfig);
 
 export default router;

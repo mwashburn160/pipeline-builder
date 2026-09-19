@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
-import { User, UserOrgMembership } from '@/types';
+import { SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { clearPluginCache } from './usePlugins';
@@ -14,7 +14,12 @@ import { clearPluginCache } from './usePlugins';
  */
 export type LoginResult =
   | { status: 'complete' }
-  | { status: 'mfa_required'; challengeId: string; expiresAt: number };
+  | { status: 'mfa_required'; challengeId: string; expiresAt: number }
+  /** The install's bootstrap administrator signed in before enrolling any factor
+   *  (#8). A real session was opened, but it reaches only enrolment, sign-out
+   *  and the setup routes, so the caller lands them on enrolment rather than on
+   *  a dashboard whose every panel would answer 403. */
+  | { status: 'mfa_enrollment_pending' };
 
 /**
  * Auth context shape.
@@ -82,6 +87,8 @@ interface RawUserData {
   features?: string[];
   permissions?: string[];
   featureOverrides?: Record<string, boolean>;
+  /** The active org's two-factor requirement (#8), when it has one. */
+  mfaPolicy?: SessionMfaPolicy;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -158,6 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             features: rawUser.features,
             permissions: rawUser.permissions,
             featureOverrides: rawUser.featureOverrides,
+            // Drives the MFA banner. Only present when the org requires it, so
+            // the field is simply absent for everyone else.
+            ...(rawUser.mfaPolicy ? { mfaPolicy: rawUser.mfaPolicy } : {}),
             createdAt: rawUser.createdAt,
             updatedAt: rawUser.updatedAt,
           };
@@ -282,6 +292,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       await refreshUser();
+
+      // Bootstrap-admin enrolment session (#8): send them to the security
+      // settings, which is the only place this session can usefully go. The
+      // exception closes the moment they enrol, after which an ordinary sign-in
+      // behaves normally.
+      if (response.data?.mfaEnrollmentPending) {
+        if (opts?.redirect !== false) router.push('/dashboard/settings?tab=security#passkeys');
+        return { status: 'mfa_enrollment_pending' };
+      }
+
       // Use Next.js router for client-side navigation. Callers that need to
       // run follow-up work on the same page first (e.g. the invite-accept
       // flow, which must POST /invitation/accept before navigating away) pass

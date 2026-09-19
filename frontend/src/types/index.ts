@@ -45,6 +45,10 @@ export interface User {
   featureOverrides?: Record<string, boolean>;
   /** Which step-up factors this account has — drives what StepUpModal offers. */
   authFactors?: AuthFactors;
+  /** The active org's two-factor requirement (#8). Present ONLY when the org
+   *  actually requires MFA — absence is the common case, and is what keeps the
+   *  banner quiet for everyone else. */
+  mfaPolicy?: SessionMfaPolicy;
   /** All organizations this user belongs to, with per-org roles */
   organizations?: UserOrgMembership[];
   createdAt?: string;
@@ -64,6 +68,44 @@ export interface AuthFactors {
   /** A CONFIRMED authenticator-app enrolment ⇒ the modal offers "Enter a code". */
   hasTotp: boolean;
   providers: ReauthProvider[];
+}
+
+/**
+ * What `GET /user/profile` says about the ACTIVE org's two-factor requirement
+ * (#8), alongside the current session's own assurance level. Everything the
+ * member-facing banner needs, in one place: whether the requirement is already
+ * biting, when it starts to, and whether this session already satisfies it.
+ */
+export interface SessionMfaPolicy {
+  /** Always true when present — the field is omitted for orgs with no policy. */
+  requireMfa: true;
+  /** The grace period has passed, so a single-factor session is now refused. */
+  enforced: boolean;
+  /** ISO deadline while a grace period is still running. */
+  graceUntil?: string;
+  /** This session's assurance level: 2 means it already meets the requirement. */
+  aal: 1 | 2;
+}
+
+/**
+ * An org's full two-factor policy, from `GET /organization/:id/mfa-policy`.
+ * Distinct from {@link SessionMfaPolicy}: this is the ADMIN's view (what the org
+ * has set and what it inherits), not one member's session state.
+ */
+export interface OrgMfaPolicy {
+  requireMfa: boolean;
+  enforced: boolean;
+  /** This org's OWN setting, regardless of what a parent org imposes. */
+  own: boolean;
+  /** The org states its identity provider enforces MFA, which is what makes an
+   *  SSO sign-in through it count as two-factor. */
+  idpEnforcesMfa: boolean;
+  graceUntil?: string;
+  requiredSince?: string;
+  /** Set when a PARENT org's requirement is what's in force here. */
+  inheritedFrom?: string;
+  /** Grace period offered by default when turning the requirement on. */
+  defaultGraceDays: number;
 }
 
 /** The account's authenticator-app state, from GET /auth/totp/status. */
@@ -281,11 +323,44 @@ export interface OrgAIConfig {
  */
 export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
 
+/** Which federation protocol the org's IdP speaks. One config per org, so this
+ *  is a selector, not a list: an org signs in over OIDC or over SAML. */
+export type IdpProtocol = 'oidc' | 'saml';
+
+/** Per-org attribute names carrying identity fields in a SAML assertion. Empty
+ *  means "use the common spellings" (`email`, `displayName`, `groups`, plus the
+ *  Entra/Shibboleth URI forms). */
+export interface SamlAttributeMapping {
+  email?: string;
+  name?: string;
+  groups?: string;
+}
+
+/** The service-provider values an IdP administrator needs to create the
+ *  application on their side. Derived server-side from the org id and the
+ *  deployment URL — never stored, and available before the connection works. */
+export interface SamlSpDetails {
+  entityId: string;
+  acsUrl: string;
+  metadataUrl: string;
+}
+
 export interface OrgIdpConfigDto {
   orgId: string;
-  provider: IdpProvider;
-  clientId: string;
+  protocol: IdpProtocol;
+  /** OIDC only — absent on a SAML config. */
+  provider?: IdpProvider;
+  clientId?: string;
   hasClientSecret: boolean;
+  /** SAML: the IdP's entity ID (its `Issuer`). */
+  samlEntityId?: string;
+  /** SAML: the IdP's SSO endpoint (HTTP-Redirect binding). */
+  samlSsoUrl?: string;
+  /** SAML: trusted IdP signing certificates — more than one while a rotation's
+   *  overlap window is open. Public certificates, so they are returned in full. */
+  samlCertificates: string[];
+  samlAttributes?: SamlAttributeMapping;
+  samlSp?: SamlSpDetails;
   discoveryUrl?: string;
   /** Cognito only: the discovery URL is derived server-side from these. */
   region?: string;
@@ -315,9 +390,18 @@ export interface IdpGroupMappingDto {
 /** Create-IdP payload. `clientSecret` is required on create. */
 export interface OrgIdpConfigCreate {
   orgId?: string;
-  provider: IdpProvider;
-  clientId: string;
-  clientSecret: string;
+  /** Omitted leaves the stored protocol alone — the OIDC and SAML editors are
+   *  separate surfaces on one page, and neither may wipe the other's
+   *  connection just by saving. */
+  protocol?: IdpProtocol;
+  provider?: IdpProvider;
+  clientId?: string;
+  clientSecret?: string;
+  /** SAML: required together when `protocol` is `saml`. */
+  samlEntityId?: string;
+  samlSsoUrl?: string;
+  samlCertificates?: string[];
+  samlAttributes?: SamlAttributeMapping;
   discoveryUrl?: string;
   /** Cognito only: server derives the discovery URL from region + userPoolId. */
   region?: string;

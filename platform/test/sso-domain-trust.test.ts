@@ -100,6 +100,7 @@ describe('findSsoEnforcementForEmail', () => {
   it('forces SSO for a domain the org verified', async () => {
     mockFindEnabledOrgIdsByDomain.mockResolvedValue(['squatter-org', 'org-1']);
     verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
-    await expect(findSsoEnforcementForEmail('u@acme.com')).resolves.toEqual({ orgId: 'org-1', provider: 'generic-oidc' });
+    // `protocol` rides along so a caller knows which sign-in flow to start (#4).
+    await expect(findSsoEnforcementForEmail('u@acme.com')).resolves.toEqual({ orgId: 'org-1', protocol: 'oidc', provider: 'generic-oidc' });
   });
 });

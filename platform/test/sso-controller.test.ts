@@ -17,6 +17,7 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockGetEnforcedIdpProtocol = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'oidc');
 const mockFindSsoEnforcementForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
@@ -46,6 +47,11 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedLoginConfig: (...a: unknown[]) => mockGetEnforcedLoginConfig(...a),
+  // `/authorize` serves both protocols now (#4) — it resolves the org's protocol
+  // first and hands a SAML org to controllers/saml.ts. These suites are the OIDC
+  // path, so the dispatch always answers `oidc`.
+  getEnforcedIdpProtocol: (...a: unknown[]) => mockGetEnforcedIdpProtocol(...a),
+  getEnforcedSamlConfig: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
   findSsoEnforcementForEmail: (...a: unknown[]) => mockFindSsoEnforcementForEmail(...a),
   assertSsoIdentityTrusted: (...a: unknown[]) => mockAssertSsoIdentityTrusted(...a),
   rejectIfSsoEnforced: async () => false,
@@ -89,6 +95,10 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   oauthCallbackSchema: {},
   ssoDiscoverSchema: {},
+  // The shared `/authorize` handler reaches controllers/saml.ts for a SAML org
+  // (#4), which pulls these in even though this suite only drives the OIDC path.
+  samlAcsSchema: {},
+  samlCompleteSchema: {},
   validateBody: (_schema: unknown, body: any, res: any) => {
     if (body?.email !== undefined) return body; // discover
     if (body?.code && body?.state) return body; // callback

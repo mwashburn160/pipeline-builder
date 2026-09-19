@@ -541,6 +541,10 @@ export default function UsersPage() {
       {pendingGrant && (
         <StepUpModal
           action={`${pendingGrant.isSuperAdmin ? 'Revoke' : 'Grant'} platform-admin for ${pendingGrant.email}`}
+          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+             passkey or an authenticator code. A password re-prompt proves
+             nothing an attacker holding this session doesn't already have. */
+          requireStrongFactor
           onConfirmed={confirmGrantChange}
           onClose={() => setPendingGrant(null)}
         />
@@ -557,6 +561,10 @@ export default function UsersPage() {
       {impersonateTarget && (
         <StepUpModal
           action={`Start read-only impersonation of ${impersonateTarget.email}`}
+          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+             passkey or an authenticator code. A password re-prompt proves
+             nothing an attacker holding this session doesn't already have. */
+          requireStrongFactor
           onConfirmed={executeImpersonate}
           onClose={() => setImpersonateTarget(null)}
         />
@@ -572,6 +580,10 @@ export default function UsersPage() {
       {breakglassTarget && breakglassJustification && (
         <StepUpModal
           action={`Take emergency access to ${breakglassTarget.email}`}
+          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+             passkey or an authenticator code. A password re-prompt proves
+             nothing an attacker holding this session doesn't already have. */
+          requireStrongFactor
           onConfirmed={executeBreakglass}
           onClose={() => { setBreakglassTarget(null); setBreakglassJustification(null); }}
         />

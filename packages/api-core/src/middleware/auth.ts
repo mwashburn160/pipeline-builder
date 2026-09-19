@@ -15,7 +15,7 @@ import {
   signServiceJwt,
   verifyServiceJwt,
 } from '../services/service-keys.js';
-import { AUTH_METHODS, PRINCIPAL_TYPES, TOKEN_USES, type JwtPayload } from '../types/common.js';
+import { AUTH_METHODS, PRINCIPAL_TYPES, TOKEN_USES, type AssuranceLevel, type JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { HttpRequest } from '../types/http.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
@@ -110,6 +110,35 @@ export interface RequireAuthOptions {
    * (e.g. a sysadmin managing a given org's billing). If unsure, leave it disabled.
    */
   allowOrgHeaderOverride?: boolean;
+  /**
+   * Demand that the whole SESSION be at least this assurance level (#8).
+   *
+   * `minAssurance: 2` means the person authenticated with a second factor — a
+   * passkey with user verification, a password plus an authenticator code, or
+   * SSO through an IdP the org marked as enforcing MFA. A weaker token gets
+   * **401 `MFA_REQUIRED`**, which the client answers by sending the person to
+   * enrolment or to a stronger sign-in; refreshing cannot help, because `aal`
+   * lives on the session slot and a refresh never raises it.
+   *
+   * This is the SESSION-level counterpart to {@link requireStepUp}, which stays
+   * a fresh, per-action confirmation. Use both on the most dangerous routes.
+   *
+   * MACHINES NEVER SATISFY IT. A service principal, an org service account and
+   * an exchanged access key all get **403 `HUMAN_SESSION_REQUIRED`** — there is
+   * no person behind them to have presented a factor, so "assurance" is not a
+   * question their credential can answer. That is deliberately not a silent
+   * pass-through for internal services: a route that demands MFA is a route a
+   * human is doing something dangerous on.
+   */
+  minAssurance?: AssuranceLevel;
+  /**
+   * With {@link minAssurance}, additionally bound how long ago that sign-in
+   * happened (seconds, compared against the token's `auth_time`). A session that
+   * is MFA-grade but older than this gets **401 `REAUTH_REQUIRED`**. Ignored
+   * without `minAssurance` — "how recent" is only meaningful once "how strong"
+   * is being asked.
+   */
+  maxAge?: number;
 }
 
 /** JWT auth middleware. Use directly or call with options. */
@@ -131,9 +160,13 @@ export function requireAuth(
   }
 
   const options = (reqOrOptions as RequireAuthOptions) || {};
-  return tagRouteGate((req: Request, resInner: Response, nextInner: NextFunction) => {
+  const gate = tagRouteGate((req: Request, resInner: Response, nextInner: NextFunction) => {
     _requireAuth(options, req, resInner, nextInner);
   }, { kind: 'auth' });
+  if (options.minAssurance) {
+    tagRouteGate(gate, { kind: 'assurance', minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) });
+  }
+  return gate;
 }
 tagRouteGate(requireAuth, { kind: 'auth' });
 
@@ -356,6 +389,27 @@ async function verifyAndAttach(
 
     req.user = { ...decoded };
 
+    // BOOTSTRAP-ADMIN ENROLMENT SESSION (#8, revision 4). Such a token exists so
+    // the install's only admin can enrol a factor; it is `aal: 1` and must not
+    // reach anything else. Platform — which owns the exception and knows which
+    // of its own routes `init-platform.sh` calls — allows an explicit few before
+    // this point (see its own `requireAuth`); in EVERY other service the answer
+    // is simply no, so the reach restriction holds without a per-service
+    // allowlist to keep in sync.
+    if (decoded.mfaEnrollmentPending === true) {
+      emitCounter('mfa_enforcement_refused_total', { service: serviceIdentity(), reason: 'bootstrap_session' });
+      recordAuthzDenial(req, 'mfa-enrolment');
+      return sendError(
+        res, HttpStatus.FORBIDDEN,
+        'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
+        ErrorCode.MFA_ENROLLMENT_REQUIRED,
+      );
+    }
+
+    // Session-level assurance (`requireAuth({ minAssurance, maxAge })`).
+    if (options.minAssurance
+      && refuseForAssurance({ minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) }, decoded, req, res)) return;
+
     // The x-org-id/x-org-name override lets a SYS-ADMIN act on a chosen org
     // (cross-org admin tooling). It is gated on the verified `isSuperAdmin` claim
     // here so that even a route which mistakenly enables `allowOrgHeaderOverride`
@@ -451,6 +505,97 @@ async function verifyAndAttach(
 
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);
   }
+}
+
+/**
+ * Whether a set of verified claims speaks for a PERSON's own session — the only
+ * kind of credential an assurance level can be asserted about.
+ *
+ * Excludes all three machine shapes: an internal service principal, an org
+ * service account, and any exchanged access key (`token_use: 'api_key'`, i.e. a
+ * PAT or a service-account key), each of which authenticates a program holding a
+ * secret rather than a person presenting factors.
+ */
+export function isHumanPrincipal(claims: Pick<JwtPayload, 'principalType' | 'token_use'> | undefined): boolean {
+  return claims?.principalType === 'user' && claims.token_use === 'access';
+}
+
+/** What an assurance gate demands. */
+export interface AssuranceOptions {
+  minAssurance: AssuranceLevel;
+  maxAge?: number;
+}
+
+/**
+ * Standalone assurance gate, for a service whose own `requireAuth` is not
+ * api-core's (platform's is its own, because it reads Mongo). Compose it AFTER
+ * authentication: `router.get('/x', requireAuth, requireAssurance({ minAssurance: 2 }), h)`.
+ *
+ * Identical rules and identical refusals to `requireAuth({ minAssurance })` —
+ * that option simply calls the same check inline, so there is one implementation
+ * of "is this session MFA-grade" in the codebase.
+ */
+export function requireAssurance(options: AssuranceOptions) {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+    if (refuseForAssurance(options, req.user as JwtPayload, req, res)) return;
+    next();
+  }, { kind: 'assurance', minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) });
+}
+
+/**
+ * Enforce `minAssurance` / `maxAge` on a verified token. Returns true when the
+ * request was REFUSED (a response has been sent).
+ *
+ * Three distinct refusals, because the client's next move differs for each:
+ * a machine must stop (403), a weak session must gain a factor (401
+ * `MFA_REQUIRED` → enrolment, never a sign-out), and a stale one must simply
+ * authenticate again (401 `REAUTH_REQUIRED`).
+ */
+function refuseForAssurance(
+  options: AssuranceOptions,
+  decoded: JwtPayload,
+  req: Request,
+  res: Response,
+): boolean {
+  const minAssurance = options.minAssurance;
+  const refuse = (reason: string, status: number, message: string, code: ErrorCode): true => {
+    emitCounter('mfa_enforcement_refused_total', { service: serviceIdentity(), reason });
+    recordAuthzDenial(req, `assurance:${minAssurance}`);
+    sendError(res, status, message, code);
+    return true;
+  };
+
+  if (!isHumanPrincipal(decoded)) {
+    return refuse(
+      'machine_principal', HttpStatus.FORBIDDEN,
+      'This action requires a person signed in with two-factor authentication — API keys and service accounts cannot perform it',
+      ErrorCode.HUMAN_SESSION_REQUIRED,
+    );
+  }
+  if ((decoded.aal ?? 1) < minAssurance) {
+    return refuse(
+      'weak_session', HttpStatus.UNAUTHORIZED,
+      'This action requires two-factor authentication — sign in again with a passkey or an authenticator code',
+      ErrorCode.MFA_REQUIRED,
+    );
+  }
+  if (options.maxAge !== undefined) {
+    const authTime = decoded.auth_time;
+    // No `auth_time` is not "recent enough by default" — `hasValidIdentityClaims`
+    // already requires it on a user token, so an absent one means a token this
+    // gate cannot reason about. Fail closed.
+    if (typeof authTime !== 'number' || Math.floor(Date.now() / 1000) - authTime > options.maxAge) {
+      return refuse(
+        'stale_session', HttpStatus.UNAUTHORIZED,
+        'This action requires a recent sign-in — please authenticate again',
+        ErrorCode.REAUTH_REQUIRED,
+      );
+    }
+  }
+  return false;
 }
 
 /**

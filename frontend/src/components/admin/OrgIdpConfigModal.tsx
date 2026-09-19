@@ -66,8 +66,10 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       const c = res.data?.config;
       if (c) {
         setExisting(c);
-        setProvider(c.provider);
-        setClientId(c.clientId);
+        // A SAML config carries neither (#4); this operator modal edits the OIDC
+        // connection, so fall back to the empty form rather than crashing on it.
+        if (c.provider) setProvider(c.provider);
+        setClientId(c.clientId ?? '');
         setDiscoveryUrl(c.discoveryUrl || '');
         setRegion(c.region || '');
         setUserPoolId(c.userPoolId || '');

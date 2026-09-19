@@ -98,6 +98,12 @@ const pendingReauth = createPendingStateStore<PendingReauth>({
 export const STEP_UP_REAUTH_ERROR_MAP = {
   ...OAUTH_ERROR_MAP,
   ...OIDC_ERROR_MAP,
+  // A SAML org can't drive this ceremony (#4): re-auth reads its result out of
+  // the popup the provider redirects back to, and a SAML assertion lands on a
+  // server-side ACS instead. `resolveAuthFactors` already stops offering the
+  // option; this is what a client that asks anyway is told. A SAML-only account
+  // steps up with a passkey, an authenticator app, or a password.
+  OIDC_PROTOCOL_MISMATCH: { status: 400, message: 'SAML single sign-on cannot be used to confirm your identity. Use a passkey, an authenticator app, or your password.' },
   [STEP_UP_REAUTH_UNAVAILABLE]: { status: 400, message: 'That sign-in method is not available for confirming your identity' },
   [STEP_UP_REAUTH_INVALID_STATE]: { status: 403, message: 'This confirmation has expired or was already used. Please try again.' },
   [STEP_UP_REAUTH_IDENTITY_MISMATCH]: { status: 403, message: 'You signed in with a different account than the one linked to your profile' },

@@ -597,6 +597,11 @@ const platform = new FunctionProject({
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
     // frontend and the two MUST stay on the same major (v14 response shapes).
     '@simplewebauthn/server@14.0.2',
+    // SAML 2.0 sign-in (#4): XML-signature verification of IdP assertions.
+    // Node's `crypto` cannot do this — XML-DSig needs canonicalization and
+    // reference resolution — so a maintained library is the right call here.
+    // CJS, but its named exports resolve cleanly from platform's ESM.
+    '@node-saml/node-saml@5.1.0',
     'mongoose@9.9.1', 'helmet@8.3.0', 'cors@2.8.6',
     'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
     'adm-zip@0.6.0', 'multer@2.2.0', 'prom-client@15.1.3',
@@ -614,6 +619,12 @@ const platform = new FunctionProject({
     // The test self-skips unless RUN_MONGO_INTEGRATION=1, so the default suite
     // never spins up mongod; this dep is only exercised on the opt-in path.
     'mongodb-memory-server@11.2.0',
+    // SAML test fixtures (#4): the suite SIGNS assertions with a throwaway key
+    // generated per run, so the signature/audience/expiry/rotation cases are
+    // real XML-DSig verifications rather than mocks — and no test key is checked
+    // into the repo. Same version node-saml itself resolves, so the two agree on
+    // canonicalization. Test-only; never imported by src/.
+    'xml-crypto@6.2.0',
   ],
 });
 platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');

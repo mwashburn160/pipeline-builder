@@ -8,6 +8,7 @@ import { audit } from '../helpers/audit.js';
 import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
+import { MFA_POLICY_ERROR_MAP, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { apiKeyService, userProfileService, type PreferencesPatch } from '../services/index.js';
@@ -49,6 +50,10 @@ const profileErrorMap = {
   [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
   [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active access keys. Revoke one first.' },
+  // A re-issue (generate-token, sign-out-everywhere) for an org that now
+  // requires MFA is refused for an `aal: 1` session — the same refusal sign-in
+  // would have given (#8).
+  ...MFA_POLICY_ERROR_MAP,
 };
 
 /** Compact organization summary included in user responses. */
@@ -170,6 +175,13 @@ export const getUser = withController('Get user profile', async (req, res) => {
   const factorUser = await loadFactorUser(userId);
   const authFactors = factorUser ? await resolveAuthFactors(factorUser) : undefined;
 
+  // The active org's MFA requirement (#8), so the shell can show the banner with
+  // its deadline and route the person into enrolment BEFORE the grace ends —
+  // rather than letting them discover the policy through a failed sign-in.
+  // Resolved here (not read off the token) so it is current the moment an admin
+  // turns it on, and carries the deadline, which the claim deliberately doesn't.
+  const mfaPolicy = activeOrgId ? await resolveEffectiveMfaPolicy(activeOrgId.toString()) : undefined;
+
   const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
   // Include the active org's account-level entitlements (e.g. add-on bundle
   // grants) so /profile reports the same feature set the JWT carries.
@@ -191,6 +203,18 @@ export const getUser = withController('Get user profile', async (req, res) => {
       // Step-up factors ride on the user so the auth context (and the step-up
       // modal) sees them with the rest of the profile.
       ...(authFactors && { authFactors }),
+      // Only when the org actually requires MFA — an absent field is the common
+      // case and keeps the payload (and the banner logic) quiet by default.
+      ...(mfaPolicy?.requireMfa ? {
+        mfaPolicy: {
+          requireMfa: true,
+          enforced: mfaPolicy.enforced,
+          ...(mfaPolicy.graceUntil ? { graceUntil: mfaPolicy.graceUntil.toISOString() } : {}),
+          // The session's own level, so the banner can say "you're covered"
+          // rather than nagging someone who already signed in with a factor.
+          aal: req.user?.aal ?? 1,
+        },
+      } : {}),
     },
   });
 }, profileErrorMap);
