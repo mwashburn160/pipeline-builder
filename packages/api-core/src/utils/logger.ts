@@ -3,6 +3,7 @@
 
 import winston from 'winston';
 import { safeCreateRequire } from './safe-require.js';
+import { SENSITIVE_KEY_PATTERN, REDACTED, maskLine } from './sensitive-patterns.js';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 
@@ -52,13 +53,60 @@ const traceIdFormat = winston.format((info) => {
 })();
 
 /**
- * Keys that should never appear in logs. Match is case-insensitive and
- * anchored substring — `Authorization`, `auth_header`, `MY_PASSWORD` all hit.
- * Add a new term here only if you've seen real-world leakage; over-redaction
- * makes incident debugging harder.
+ * Per-request identity stamped onto every log entry, so log lines can be
+ * attributed to the org that caused them.
+ *
+ * `orgId` is the tenancy key for the Logs surface: promtail routes each line to
+ * its org's Loki tenant from this field (see `docs/plans/frontend-logs.md`). A
+ * line written outside a request scope (startup, background worker, migration)
+ * has no org and lands in the sysadmin-only `_infra` tenant — fail-closed.
  */
-const SENSITIVE_KEY_PATTERN = /password|secret|bearer|api[_-]?key|cookie|token|^auth(orization|_header)?$|stripe[_-]?(key|secret)|mongo(db)?[_-]?uri/i;
-const REDACTED = '[REDACTED]';
+export interface LogContext {
+  orgId?: string;
+  userId?: string;
+}
+
+type LogContextProvider = () => LogContext | undefined;
+
+let logContextProvider: LogContextProvider | undefined;
+
+/**
+ * Register the source of per-entry {@link LogContext}.
+ *
+ * A registration hook rather than a direct import because the request scope
+ * lives in `pipeline-data`'s AsyncLocalStorage, and `pipeline-data` depends on
+ * this package — importing it here would invert the dependency. `api-server`'s
+ * tenant-context module owns the single call, which covers every service that
+ * mounts `withTenantContext` (platform included).
+ *
+ * Pass `undefined` to unregister (tests).
+ */
+export function setLogContextProvider(fn: LogContextProvider | undefined): void {
+  logContextProvider = fn;
+}
+
+/** Winston format stamping the ambient {@link LogContext}. Never throws: a
+ *  provider that blows up must not take down logging. An entry that already
+ *  carries an explicit `orgId` (a call site logging about ANOTHER org) keeps it
+ *  — the ambient value never overwrites a deliberate one. */
+const logContextFormat = winston.format((info) => {
+  if (!logContextProvider) return info;
+  let ctx: LogContext | undefined;
+  try {
+    ctx = logContextProvider();
+  } catch {
+    return info;
+  }
+  if (!ctx) return info;
+  if (ctx.orgId && info.orgId === undefined) info.orgId = ctx.orgId;
+  if (ctx.userId && info.userId === undefined) info.userId = ctx.userId;
+  return info;
+})();
+
+// `SENSITIVE_KEY_PATTERN` (keys) and `maskLine` (secret-shaped values) both come
+// from `sensitive-patterns.ts`, so the logger, platform's log-read path and the
+// generated promtail `replace` stages mask the same things. See that module's
+// header for why ingest-time masking is the authoritative layer.
 
 function redactDeep(value: unknown, depth = 0): unknown {
   // Cap depth so a malicious / pathological circular object can't lock the logger.
@@ -97,7 +145,12 @@ export function redactSensitive(value: unknown): unknown {
  * (`Symbol.for('level')`, `Symbol.for('message')`, `Symbol.for('splat')`) survive
  * — rebuilding a fresh object via `Object.entries`/spread silently strips them,
  * which makes the Console transport drop every entry without warning. */
-const PRESERVED_KEYS = new Set(['level', 'message', 'timestamp', 'service', 'trace_id']);
+/** Keys the redactor must leave alone. `orgId`/`userId` are load-bearing: promtail
+ *  routes a line to its Loki tenant by `orgId`, so redacting it would misfile the
+ *  line into the sysadmin-only `_infra` tenant instead of the org's. Listed here
+ *  (not merely "doesn't match the pattern today") so a future pattern edit can't
+ *  silently break log tenancy. */
+const PRESERVED_KEYS = new Set(['level', 'message', 'timestamp', 'service', 'trace_id', 'orgId', 'userId']);
 const redactFormat = winston.format((info) => {
   for (const key of Object.keys(info)) {
     if (PRESERVED_KEYS.has(key)) continue;
@@ -106,6 +159,27 @@ const redactFormat = winston.format((info) => {
     } else {
       info[key] = redactDeep(info[key]);
     }
+  }
+  return info;
+})();
+
+/**
+ * Winston format that masks secret-shaped VALUES in the rendered message and in
+ * any string metadata.
+ *
+ * `redactFormat` above only masks values whose KEY looks sensitive. That misses
+ * a secret embedded in free text — `logger.info('POST /x?token=abc')` — which
+ * matters more than it looks: promtail's `output: { source: msg }` stage makes
+ * the message string the entire shipped log line, so an unmasked message is an
+ * unmasked log. Mutates in place to preserve winston's Symbol-keyed internals,
+ * exactly as `redactFormat` does.
+ */
+const maskFormat = winston.format((info) => {
+  if (typeof info.message === 'string') info.message = maskLine(info.message);
+  for (const key of Object.keys(info)) {
+    if (key === 'message') continue;
+    const value = info[key];
+    if (typeof value === 'string') info[key] = maskLine(value);
   }
   return info;
 })();
@@ -145,12 +219,18 @@ export function createLogger(serviceName: string): Logger {
   const useJson = logFormat !== 'text';
 
   // Order matters: redact BEFORE serialization so masked keys never reach
-  // the output. trace_id is stamped first so it survives redaction.
+  // the output. trace_id and the org/user context are stamped first so they
+  // survive redaction (both are in PRESERVED_KEYS), then `maskFormat` scrubs
+  // secret-shaped VALUES out of the rendered message — the key-based
+  // `redactFormat` only covers metadata keys, and after promtail's
+  // `output: source: msg` rewrite the shipped line IS the message string.
   const baseFormats = [
     errors({ stack: true }),
     timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.SSSZ' }),
     traceIdFormat,
+    logContextFormat,
     redactFormat,
+    maskFormat,
   ];
 
   if (useJson) {

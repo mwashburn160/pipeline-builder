@@ -24,13 +24,20 @@ import {
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import {
   observabilityQuery,
-  observabilityLogs,
+  observabilityAuditQuery,
   observabilityCatalog,
   observabilityAlerts,
   observabilitySilencesList,
   observabilitySilenceCreate,
   observabilitySilenceDelete,
 } from '../observability/controller.js';
+import {
+  logContext,
+  logExport,
+  logRaw,
+  logSearch,
+  logVolume,
+} from '../observability/log-controller.js';
 
 const router: Router = Router();
 
@@ -46,8 +53,34 @@ const router: Router = Router();
 /** GET /observability/query  Prometheus instant/range by catalog key */
 router.get('/query', requireAuth, requirePermission('observability:read'), observabilityQuery);
 
-/** GET /observability/logs  Loki range by catalog key */
-router.get('/logs', requireAuth, requirePermission('observability:read'), observabilityLogs);
+/**
+ * GET /observability/audit-query  the MongoDB AUDIT trail by catalog key.
+ *
+ * Renamed from `/logs`, which now means what it says (application logs, below).
+ * An endpoint called "logs" that served the audit trail was a standing trap.
+ */
+router.get('/audit-query', requireAuth, requirePermission('observability:read'), observabilityAuditQuery);
+
+// ---------------------------------------------------------------------------
+// Logs  Loki-backed application logs. Tenancy is the Loki tenant header,
+// resolved from the VERIFIED token (never nginx's injected `x-org-id`), so an
+// org physically cannot read another org's lines.
+//
+// Viewing rides `observability:read` like its siblings above. DOWNLOAD needs
+// `logs:export` too: bulk egress that leaves the building is a different risk
+// class from paging a list in the UI, and an admin may withhold it.
+// ---------------------------------------------------------------------------
+
+/** GET /observability/logs  search */
+router.get('/logs', requireAuth, requirePermission('observability:read'), logSearch);
+/** GET /observability/logs/volume  per-level histogram for the window */
+router.get('/logs/volume', requireAuth, requirePermission('observability:read'), logVolume);
+/** GET /observability/logs/context  lines either side of one entry */
+router.get('/logs/context', requireAuth, requirePermission('observability:read'), logContext);
+/** GET /observability/logs/raw  the caller's slice of one stream as text/plain */
+router.get('/logs/raw', requireAuth, requirePermission('observability:read'), logRaw);
+/** GET /observability/logs/export  streamed download (bytes + wall-clock capped) */
+router.get('/logs/export', requireAuth, requirePermission('logs:export'), logExport);
 
 /** GET /observability/catalog  list catalog keys (drives the editor's panel-add picker) */
 router.get('/catalog', requireAuth, requirePermission('observability:read'), observabilityCatalog);

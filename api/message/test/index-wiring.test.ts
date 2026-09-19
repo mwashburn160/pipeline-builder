@@ -96,8 +96,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 }));
 
 // Infra: the DB tenant scope + retention scheduler.
+// (`requireActual` can't widen this list — the api-core mock above is an ASYNC
+// factory, and pipeline-data loads api-core, so a sync requireActual throws.)
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  // api-server's tenant-context module reads this to stamp the request's org on
+  // every log line. `runWithTenantContext` above is a pass-through that opens no
+  // real scope, so there is no context to return — undefined leaves log lines
+  // unattributed, which is exactly the fail-closed behaviour in production.
+  getTenantContext: () => undefined,
   createSoftDeletePurgeScheduler: () => null,
   schema: { message: {} },
 }));

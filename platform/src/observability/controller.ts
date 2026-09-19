@@ -5,8 +5,10 @@
  * Controllers for the Observability endpoints.
  *
  *   GET /api/observability/query?key=&range=   — Prometheus (or audit-store matrix) by key
- *   GET /api/observability/logs?key=&range=&limit=&event=&actor=&requestId=
+ *   GET /api/observability/audit-query?key=&range=&limit=&event=&actor=&requestId=
  *                                              — the MongoDB audit trail (audit-store) by key
+ *
+ * Application LOGS (Loki) live in `log-controller.ts`, on /observability/logs.
  *
  * Authenticated + org-scoped (`requireAuth`, then results are scoped to the
  * caller's org — `$ORG` substitution for PromQL, the audit trail's org fields
@@ -205,11 +207,11 @@ export const observabilityQuery = withController('Observability query', async (r
 });
 
 /**
- * GET /api/observability/logs — an `audit-store` entry (the MongoDB audit
+ * GET /api/observability/audit-query — an `audit-store` entry (the MongoDB audit
  * trail) by key: `{entries}` for stream entries, `{series}` for matrix ones.
  * Admin-only and org-scoped per the catalog entry (see `requireCatalogScope`).
  */
-export const observabilityLogs = withController('Observability logs', async (req, res) => {
+export const observabilityAuditQuery = withController('Observability audit query', async (req, res) => {
   if (!requireAuth(req, res)) return;
   const caller = getAdminContext(req);
 

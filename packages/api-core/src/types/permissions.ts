@@ -53,6 +53,11 @@ export type Permission =
   | 'dashboards:write'
   | 'observability:read'
   | 'observability:write'
+  // `logs:export` is split OUT of `observability:read` deliberately. Reading
+  // logs in the UI is paged and ephemeral; EXPORTING them is bulk egress that
+  // leaves the building and outlives a revoked session, so an org admin must be
+  // able to grant log viewing without granting downloads.
+  | 'logs:export'
   // Insights
   | 'reports:read'
   | 'reports:rollup'
@@ -93,6 +98,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'members:manage', 'roles:manage', 'invitations:manage', 'service_accounts:manage',
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
+  'logs:export',
   'reports:read', 'reports:rollup',
   'messages:read', 'messages:write',
   'billing:read', 'billing:manage',
@@ -141,6 +147,7 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'dashboards:write', label: 'Manage dashboards', description: 'Create and edit custom dashboards', category: 'Observability' },
   { id: 'observability:read', label: 'View alerting', description: 'View alert rules and destinations', category: 'Observability' },
   { id: 'observability:write', label: 'Manage alerting', description: 'Create and edit alert rules and destinations', category: 'Observability' },
+  { id: 'logs:export', label: 'Download logs', description: "Download your organization's log entries as a file (viewing logs only needs 'View alerting')", category: 'Observability' },
   { id: 'reports:read', label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
   { id: 'reports:rollup', label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
   { id: 'messages:read', label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },

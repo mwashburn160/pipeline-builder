@@ -10,6 +10,9 @@ positions:
 
 clients:
   - url: http://loki.pipeline-builder.svc.cluster.local:3100/loki/api/v1/push
+    # Fallback tenant for anything the pipeline did not route (see the
+    # `tenant` stage). Sysadmin-only; tenants never read it.
+    tenant_id: _infra
 
 scrape_configs:
   - job_name: pipeline-builder-pods
@@ -59,6 +62,8 @@ scrape_configs:
             # that have it (most logs don't), keeping cardinality bounded to
             # the count of distinct plugin names that have built recently.
             pluginName: pluginName
+            # orgId drives log tenancy (promtail `tenant` stage below).
+            orgId: orgId
       # Promote parsed fields to Loki labels. `eventCategory` is low-cardinality
       # ('audit' or 'plugin-build' or absent); `event` is bounded (~tens of
       # distinct names like `registry.tag.copy`, `completed`, `failed`); `actor`
@@ -73,6 +78,70 @@ scrape_configs:
           event:
           actor:
           pluginName:
+      # Promote orgId as structured metadata: indexed and filterable, but NOT a
+      # stream label — org count is unbounded and a label would multiply streams.
+      - structured_metadata:
+          orgId:
+      # Route each line to its org's Loki tenant. Tenancy is PHYSICAL (see
+      # docs/plans/frontend-logs.md §3.1): a query-construction bug cannot leak
+      # across orgs, and per-tenant retention/deletion become possible.
+      #
+      # The template is not optional. promtail's `tenant` stage leaves the tenant
+      # EMPTY when its source field is missing — it does not fall back — so lines
+      # written outside a request scope (startup, workers, nginx/postgres) would
+      # ship with no tenant. Default them to the sysadmin-only `_infra` tenant.
+      - template:
+          source: tenant_id
+          template: '{{ if .orgId }}{{ .orgId }}{{ else }}_infra{{ end }}'
+      - tenant:
+          source: tenant_id
       # Use the parsed message as the log line (falls back to raw if not present)
       - output:
           source: msg
+      # Ingest-time masking (L3) — the AUTHORITATIVE layer. Masking only at
+      # read time would leave the secret in Loki and still matchable, so a
+      # user could confirm a guess from whether a search hit. Generated from
+      # api-core's SENSITIVE_VALUE_PATTERNS; run scripts/gen-promtail-masking.mjs.
+      # BEGIN generated-masking (scripts/gen-promtail-masking.mjs) — do not edit by hand
+      # pem_private_key: Node-side only (needs lookaround / spans lines; RE2 cannot express it)
+      # pem_private_key_header
+      - replace:
+          expression: '-----BEGIN[A-Z ]*PRIVATE KEY-----'
+          replace: '[REDACTED]'
+      # jwt
+      - replace:
+          expression: 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*'
+          replace: '[REDACTED]'
+      # bearer_token
+      - replace:
+          expression: '(?i)bearer\s+[A-Za-z0-9._~+/-]+=*'
+          replace: 'Bearer [REDACTED]'
+      # aws_access_key_id
+      - replace:
+          expression: '\b(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b'
+          replace: '[REDACTED]'
+      # stripe_key
+      - replace:
+          expression: '\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}\b'
+          replace: '[REDACTED]'
+      # github_token
+      - replace:
+          expression: '\bgh[pousr]_[A-Za-z0-9]{20,}\b'
+          replace: '[REDACTED]'
+      # slack_token
+      - replace:
+          expression: '\bxox[abprs]-[A-Za-z0-9-]{10,}\b'
+          replace: '[REDACTED]'
+      # url_credentials
+      - replace:
+          expression: '([a-zA-Z][a-zA-Z0-9+.-]*://)[^:@/\s]+:[^@/\s]+@'
+          replace: '$1[REDACTED]@'
+      # url_secret_param
+      - replace:
+          expression: '(?i)([?&](access[_-]?token|api[_-]?key|apikey|auth|password|secret|sig|signature|token)=)[^&\s"''<>]+'
+          replace: '$1[REDACTED]'
+      # inline_secret_assignment
+      - replace:
+          expression: '(?i)(((aws_)?(secret_access_key|client_secret|api[_-]?key|apikey|password|passwd|secret|token))"?\s*[=:]\s*"?)[^\s"'',;}&]+'
+          replace: '$1[REDACTED]'
+      # END generated-masking

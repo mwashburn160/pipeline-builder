@@ -1,7 +1,20 @@
 # Frontend Logs — Plan
 
-Status: PLAN-ONLY (no code). Drafted 2026-09-17, revised same day after a
-self-review gap pass (see §7 for what changed and why).
+Status: **BUILT** 2026-09-18 (uncommitted). Drafted 2026-09-17, revised after a
+self-review gap pass (§7), then implemented.
+
+Implemented: Phases 1–6 and 8 as written, under D10 = native Loki tenants.
+Deferred: Phase 7 live tail (D3 chose polling first; the page refreshes on
+demand rather than on an interval), saved searches (5j, optional), and
+contextual deep-links from build/execution/alert pages (5g) — the `?q=` and
+`trace_id` plumbing those need is in place, only the call sites are missing.
+
+Corrections found while building, beyond the plan:
+- There are **four** deploy targets, not three — `deploy/aws/ec2` also ships
+  loki + promtail. All four are patched.
+- `logs:export` had to be classified as a MUTATION in the frontend and refused
+  server-side during read-only impersonation: the export is a GET, so the
+  platform's method-based read-only gate would not have stopped it.
 
 A Logs surface in the dashboard modeled on Grafana's Explore/Logs view — query
 bar, absolute + preset time ranges, log-volume histogram, expandable per-entry

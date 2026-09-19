@@ -1,10 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { runWithTenantContext, type TenantContext } from '@pipeline-builder/pipeline-data';
+import { isSystemAdmin, setLogContextProvider } from '@pipeline-builder/api-core';
+import { getTenantContext, runWithTenantContext, type TenantContext } from '@pipeline-builder/pipeline-data';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
+
+/**
+ * Teach the logger where the ambient org/user identity lives — the SINGLE wire
+ * point for log tenancy across every service.
+ *
+ * `api-core` (which owns the logger) has no internal dependencies, and the
+ * request scope lives in `pipeline-data`, which depends on it — so the logger
+ * takes a provider rather than importing the AsyncLocalStorage directly. This
+ * module is the natural place to register: it already bridges both packages,
+ * and every service that opens a tenant scope does so through the
+ * `withTenantContext` exported below (platform included, via its own pre-auth
+ * resolver). Registering here rather than in each service's bootstrap means a
+ * new service cannot forget to do it.
+ *
+ * Module-scope on purpose: idempotent, and it must be in place before the first
+ * request is logged.
+ */
+setLogContextProvider(() => {
+  const ctx = getTenantContext();
+  if (!ctx) return undefined;
+  // Empty-string orgId (the pre-auth default for unauthenticated endpoints) is
+  // NOT an org — leave the field off so the line is routed as unattributed
+  // rather than to a tenant named "".
+  return { orgId: ctx.orgId || undefined, userId: ctx.userId };
+});
 
 /**
  * Resolves the RLS tenant scope for a request. The default reads the CALLER's

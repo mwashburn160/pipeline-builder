@@ -33,6 +33,7 @@ import {
   Code,
   Inbox,
   Siren,
+  ScrollText,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -141,6 +142,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
       // moved out of the Platform admin group to sit with the other run views.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
+      // Application logs (Loki). Rides `observability:read` — already in the
+      // member bundle — so logs appear for existing roles with no migration;
+      // DOWNLOADING them additionally needs `logs:export`, checked on the page.
+      { title: 'Logs', href: '/dashboard/logs', icon: ScrollText, requiredPermission: 'observability:read' },
     ],
   },
   {

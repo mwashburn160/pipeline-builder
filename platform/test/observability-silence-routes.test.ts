@@ -22,7 +22,12 @@ requireAuthStub.__mw = 'requireAuth';
 
 // requirePermission stub — returns a middleware tagged with the perms it gates,
 // so the stack assertion can identify the write-gate on a route.
+// Spread the real module: the routes file transitively imports the Loki log
+// controller, which uses `createLogger` and friends. An explicit allow-list
+// breaks this suite every time the route module reaches for another export.
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+  ...actualApiCore,
   // The restore routes import it; the silence-route assertions don't inspect it.
   requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
   // Route-table audit declaration — a pass-through no-op here; the coverage test
@@ -79,12 +84,23 @@ jest.unstable_mockModule('../src/controllers/alert-rules.js', () => ({
 
 jest.unstable_mockModule('../src/observability/controller.js', () => ({
   observabilityQuery: handler('observabilityQuery'),
-  observabilityLogs: handler('observabilityLogs'),
+  observabilityAuditQuery: handler('observabilityAuditQuery'),
   observabilityCatalog: handler('observabilityCatalog'),
   observabilityAlerts: handler('observabilityAlerts'),
   observabilitySilencesList: handler('observabilitySilencesList'),
   observabilitySilenceCreate: handler('observabilitySilenceCreate'),
   observabilitySilenceDelete: handler('observabilitySilenceDelete'),
+}));
+
+// The Loki log controller is stubbed like its siblings above: this suite asserts
+// the ROUTE STACK (which gate sits on which path), not handler behaviour, and the
+// real module pulls platform config in at import time.
+jest.unstable_mockModule('../src/observability/log-controller.js', () => ({
+  logSearch: handler('logSearch'),
+  logVolume: handler('logVolume'),
+  logContext: handler('logContext'),
+  logRaw: handler('logRaw'),
+  logExport: handler('logExport'),
 }));
 
 const router = (await import('../src/routes/observability.js')).default as any;

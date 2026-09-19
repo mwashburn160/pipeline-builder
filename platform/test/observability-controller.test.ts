@@ -62,7 +62,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
 }));
 
 const { requireAuth } = await import('../src/helpers/controller-helper.js');
-const { observabilityQuery, observabilityLogs, observabilityCatalog } = await import('../src/observability/controller.js');
+const { observabilityQuery, observabilityAuditQuery, observabilityCatalog } = await import('../src/observability/controller.js');
 
 import type { Request, Response } from 'express';
 
@@ -266,14 +266,14 @@ describe('audit trail (audit-store) — org-scoped, admin-only', () => {
   it('403s a plain org member (the audit trail is an admin surface)', async () => {
     mockIsOrgAdmin.mockReturnValue(false);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
     expect(res._status).toBe(403);
     expect(mockAuditStore).not.toHaveBeenCalled();
   });
 
   it('serves an org admin their own org\'s trail, with allowed filters passed through', async () => {
     const res = makeRes();
-    await observabilityLogs(
+    await observabilityAuditQuery(
       makeReq({ key: 'audit_recent_events', range: '6h', event: 'pipeline.delete', actor: 'u@x.com', requestId: 'r-1' }, ORG_USER),
       res,
     );
@@ -290,14 +290,14 @@ describe('audit trail (audit-store) — org-scoped, admin-only', () => {
   it('gives a sysadmin the unscoped (every-org) view', async () => {
     mockIsSystemAdmin.mockReturnValue(true);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, { organizationId: 'system' }), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, { organizationId: 'system' }), res);
     expect(res._status).toBe(200);
     expect((mockAuditStore.mock.calls[0] as unknown[])[1]).toEqual({ isSuperAdmin: true, orgId: 'system' });
   });
 
   it('returns the matrix envelope for aggregate entries, on /logs and /query alike', async () => {
     mockAuditStore.mockResolvedValue({ kind: 'matrix', series: [{ labels: { event: 'pipeline.create' }, values: [] }], step: '1800s' });
-    for (const handler of [observabilityLogs, observabilityQuery]) {
+    for (const handler of [observabilityAuditQuery, observabilityQuery]) {
       const res = makeRes();
       await handler(makeReq({ key: 'audit_events_per_hour_by_event', range: '6h' }, ORG_USER), res);
       expect(res._status).toBe(200);
@@ -312,19 +312,19 @@ describe('audit trail (audit-store) — org-scoped, admin-only', () => {
   it('drops filters the entry does not allow', async () => {
     mockAuditStore.mockResolvedValue({ kind: 'matrix', series: [], step: '86400s' });
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_top_actors_24h', event: 'pipeline.delete' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_top_actors_24h', event: 'pipeline.delete' }, ORG_USER), res);
     expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { vars: { event?: string } }).vars.event).toBeUndefined();
   });
 
   it('400s an invalid range before touching the store', async () => {
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '7d' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '7d' }, ORG_USER), res);
     expect(res._status).toBe(400);
     expect(mockAuditStore).not.toHaveBeenCalled();
   });
 });
 
-describe('observabilityLogs', () => {
+describe('observabilityAuditQuery', () => {
   const ORG_USER = { organizationId: 'org-1' };
 
   beforeEach(() => {
@@ -334,13 +334,13 @@ describe('observabilityLogs', () => {
   it('returns 401 when caller is not authenticated', async () => {
     mockRequireAuth.mockReturnValue(false);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
     expect(mockAuditStore).not.toHaveBeenCalled();
   });
 
   it('returns 400 for a Prometheus key (the endpoint serves only the audit trail)', async () => {
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
+    await observabilityAuditQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
     expect(res._status).toBe(400);
     expect((res._body as { message?: string }).message).toMatch(/not an audit-trail query/);
     expect(mockPromQueryRange).not.toHaveBeenCalled();
@@ -348,13 +348,13 @@ describe('observabilityLogs', () => {
 
   it('clamps limit to 500 when caller asks for more', async () => {
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h', limit: '99999' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h', limit: '99999' }, ORG_USER), res);
     expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number }).limit).toBe(500);
   });
 
   it('defaults limit to 50 when missing', async () => {
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
     expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number }).limit).toBe(50);
   });
 });

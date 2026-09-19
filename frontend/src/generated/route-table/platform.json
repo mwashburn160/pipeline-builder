@@ -1921,6 +1921,29 @@
   },
   {
     "method": "GET",
+    "path": "/observability/audit-query",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "observability:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/observability/catalog",
     "auth": true,
     "permissions": [
@@ -1945,6 +1968,98 @@
   {
     "method": "GET",
     "path": "/observability/logs",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "observability:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/observability/logs/context",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "observability:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/observability/logs/export",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "logs:export"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/observability/logs/raw",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "observability:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/observability/logs/volume",
     "auth": true,
     "permissions": [
       {

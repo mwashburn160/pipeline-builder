@@ -19,6 +19,7 @@ export * from './secret-encryption.js';
 export * from './secret-rotation.js';
 export * from './metric-emitter.js';
 export * from './aws-scrub.js';
+export * from './sensitive-patterns.js';
 export * from './ssrf.js';
 export * from './env.js';
 export * from './compliance-attributes.js';

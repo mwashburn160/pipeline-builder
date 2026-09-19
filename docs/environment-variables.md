@@ -665,6 +665,20 @@ The upload request returns `202 Accepted` after the ZIP is parsed and the build 
 
 ---
 
+## Observability & Logs
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROMETHEUS_URL` | `http://prometheus:9090` | Metrics backend for the native dashboards |
+| `LOKI_URL` | `http://loki:3100` | Log backend for **Deliver → Logs**. Platform sends `X-Scope-OrgID` per request, derived from the caller's verified token |
+| `LOKI_BASE_SELECTOR` | `service_name=~".+"` | Anchor matcher used when a log query constrains no label. Override on a deployment whose non-JSON producers people need to browse |
+
+Loki itself runs with `auth_enabled: true` so each organization is a tenant —
+see [Logs: Operating](observability-logs.md#operating) for the Loki-side
+settings that go with it.
+
+---
+
 ## Admin UIs (Infrastructure)
 
 These variables configure infrastructure admin tools, not application code.

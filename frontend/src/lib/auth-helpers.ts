@@ -58,7 +58,13 @@ export function hasPermission(user: User | null, permission: string): boolean {
 // `org:impersonation` must be listed: it doesn't end in :write/:manage/:publish,
 // so without it the impersonation-policy control would render ENABLED during a
 // read-only impersonation session and dead-end on a 403.
-const ORG_CONFIG_MUTATIONS = new Set(['org:settings', 'org:idp', 'org:kms', 'org:impersonation']);
+// `logs:export` is listed for the same reason, from the other direction: it is a
+// GET, so the platform's read-only impersonation gate (which rejects non-GET)
+// does NOT stop it. Bulk-downloading the viewed org's logs is exactly the
+// egress read-only impersonation exists to prevent, so it counts as a mutation
+// here and the control renders disabled. The backend refuses it too
+// (log-controller's export handler) — this is the affordance, not the gate.
+const ORG_CONFIG_MUTATIONS = new Set(['org:settings', 'org:idp', 'org:kms', 'org:impersonation', 'logs:export']);
 export function isMutationPermission(permission: string): boolean {
   return /:(write|manage|publish)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
 }

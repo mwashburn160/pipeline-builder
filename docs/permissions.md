@@ -84,7 +84,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
-| Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write` | |
+| Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write`, `logs:export` | `logs:export` is admin/owner by default — viewing logs rides `observability:read`, but DOWNLOADING them is bulk egress an org may withhold from members. See [Logs](observability-logs.md#downloading). |
 | Insights | `reports:read`, `reports:rollup` | `:rollup` allows including descendant teams in reports |
 | Messaging | `messages:read`, `messages:write` | |
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |

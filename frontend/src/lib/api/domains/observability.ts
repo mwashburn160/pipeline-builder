@@ -2,8 +2,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, API_URL } from '../util';
+import { ApiError } from '../errors';
 import type { ApiResponse } from '@/types';
+import type { LogQueryParams } from '@/types/logs';
+
+/**
+ * Flatten a {@link LogQueryParams} into query-string values.
+ *
+ * The time window is either a preset (`range=6h`) or an absolute pair
+ * (`from`/`to`, unix ms) — never both, so the server doesn't have to guess which
+ * wins. Shared by every log endpoint so search, histogram, raw view and download
+ * are always describing the SAME selection; the download reusing the search's
+ * exact query is what makes "you download what you can see" true rather than
+ * aspirational.
+ */
+function logQueryToParams(params: LogQueryParams): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (params.q) out.q = params.q;
+  if (params.limit !== undefined) out.limit = params.limit;
+  if (params.orgs?.length) out.orgs = params.orgs.join(',');
+  if (params.window.kind === 'preset') out.range = params.window.key;
+  else { out.from = params.window.fromMs; out.to = params.window.toMs; }
+  return out;
+}
 
 export function observabilityApi(core: ApiCore) {
   return {
@@ -42,7 +64,7 @@ export function observabilityApi(core: ApiCore) {
      * Response is `{entries}` for stream entries, `{series}` for matrix ones
      * (the catalog entry's `kind`).
      */
-    observabilityLogs: async (
+    observabilityAuditQuery: async (
       key: string,
       range: '1h' | '6h' | '24h',
       opts: Omit<import('@/types/observability').ObservabilityLogsParams, 'range'> = {},
@@ -53,9 +75,99 @@ export function observabilityApi(core: ApiCore) {
       if (opts.event) params.event = opts.event;
       if (opts.actor) params.actor = opts.actor;
       return core.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
-        `/api/observability/logs${buildQuery(params)}`,
+        `/api/observability/audit-query${buildQuery(params)}`,
         { signal },
       );
+    },
+
+    // ========================================================================
+    // Logs — Loki-backed APPLICATION logs (distinct from the audit trail above).
+    //
+    // Tenancy is enforced server-side by the Loki tenant header, derived from the
+    // caller's verified token: an org physically cannot read another org's lines,
+    // and that applies to the raw view and the download exactly as to search.
+    // Credential-shaped values are masked before they leave the backend.
+    //
+    // The browser never sends LogQL — only the `q` mini-syntax
+    // (`level:error service:platform "connection refused" -noise /re/`), which
+    // the server parses against an allow-list and compiles.
+    // ========================================================================
+
+    /** Search log entries. `window` is a preset range or an absolute from/to (unix ms). */
+    logSearch: async (
+      params: import('@/types/logs').LogQueryParams,
+      signal?: AbortSignal,
+    ) => {
+      return core.request<ApiResponse<import('@/types/logs').LogSearchResponse>>(
+        `/api/observability/logs${buildQuery(logQueryToParams(params))}`,
+        { signal },
+      );
+    },
+
+    /** Per-level counts across the window, for the volume histogram. */
+    logVolume: async (
+      params: import('@/types/logs').LogQueryParams,
+      signal?: AbortSignal,
+    ) => {
+      return core.request<ApiResponse<import('@/types/logs').LogVolumeResponse>>(
+        `/api/observability/logs/volume${buildQuery(logQueryToParams(params))}`,
+        { signal },
+      );
+    },
+
+    /** Lines either side of one entry, for the "show context" drill-down. */
+    logContext: async (
+      params: import('@/types/logs').LogQueryParams & { at: number; spanMs?: number },
+      signal?: AbortSignal,
+    ) => {
+      const qs = { ...logQueryToParams(params), at: params.at, spanMs: params.spanMs };
+      return core.request<ApiResponse<import('@/types/logs').LogContextResponse>>(
+        `/api/observability/logs/context${buildQuery(qs)}`,
+        { signal },
+      );
+    },
+
+    /**
+     * The current selection as plain text.
+     *
+     * Bypasses `core.request` (the endpoint returns text/plain, not the usual
+     * envelope) and returns the body for the caller to render or save — the same
+     * shape as `exportOrganization`.
+     */
+    logRaw: async (params: import('@/types/logs').LogQueryParams): Promise<string> => {
+      await core.ensureFreshToken();
+      const res = await fetch(`${API_URL}/api/observability/logs/raw${buildQuery(logQueryToParams(params))}`, {
+        headers: core.authHeaders() as Record<string, string>,
+        credentials: 'same-origin',
+      });
+      if (!res.ok) throw new ApiError('Failed to load raw logs', res.status);
+      return res.text();
+    },
+
+    /**
+     * Download the current selection as a file.
+     *
+     * Fetched with auth headers and saved as a Blob rather than linked to
+     * directly — a bare `<a href>` cannot carry the Authorization header (same
+     * reason `fetchAttachmentBlob` exists). Requires `logs:export`.
+     */
+    logExport: async (
+      params: import('@/types/logs').LogQueryParams & { format?: 'log' | 'jsonl'; name?: string },
+    ): Promise<{ blob: Blob; filename: string }> => {
+      await core.ensureFreshToken();
+      const qs = { ...logQueryToParams(params), format: params.format ?? 'log', name: params.name };
+      const res = await fetch(`${API_URL}/api/observability/logs/export${buildQuery(qs)}`, {
+        headers: core.authHeaders() as Record<string, string>,
+        credentials: 'same-origin',
+      });
+      if (!res.ok) throw new ApiError('Log export failed', res.status);
+      // Prefer the server's filename (it is sanitized there) over rebuilding one.
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      return {
+        blob: await res.blob(),
+        filename: match?.[1] ?? `logs.${params.format ?? 'log'}`,
+      };
     },
 
     /** List firing + suppressed alerts visible to the caller (Alertmanager v2 shape). */

@@ -77,6 +77,16 @@ data:
         type: loki
         access: proxy
         url: http://loki:3100
+        # Loki now runs with auth_enabled: true (each org is a tenant), so every
+        # client must send X-Scope-OrgID. Grafana is the OPERATOR console, so it
+        # points at the `_infra` tenant — unattributed platform/infra lines.
+        # Per-org log browsing lives in the product UI (/dashboard/logs), which
+        # scopes the header from the caller's verified token. To inspect a
+        # specific org from here, append its id: `_infra|<orgId>`.
+        jsonData:
+          httpHeaderName1: X-Scope-OrgID
+        secureJsonData:
+          httpHeaderValue1: _infra
       - name: Jaeger
         type: jaeger
         access: proxy

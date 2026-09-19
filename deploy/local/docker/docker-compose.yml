@@ -562,6 +562,10 @@ services:
       # blocks), alerts to Alertmanager.
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}
       ALERTMANAGER_URL: ${ALERTMANAGER_URL:-http://alertmanager:9093}
+      # Logs (Deliver → Logs). Loki runs auth_enabled: true, so platform sends
+      # X-Scope-OrgID per request, derived from the caller's verified token —
+      # each org is its own Loki tenant. See docs/observability-logs.md.
+      LOKI_URL: ${LOKI_URL:-http://loki:3100}
       # Per-org alert relay: the single Alertmanager instance (id `alertmanager`,
       # sent as X-Alertmanager-Instance) and its bearer token, which Alertmanager
       # reads from the `alert_webhook_token` compose secret below.

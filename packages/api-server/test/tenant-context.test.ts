@@ -7,7 +7,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // Capture the tenant scope handed to runWithTenantContext so we can assert the
 // default `identityScope` resolver reads the CALLER's (already-normalized) org.
 const capturedScopes: Array<Record<string, unknown>> = [];
+// Spread the real module rather than listing exports: the module under test also
+// imports `getTenantContext` (to feed the logger's org context), and an explicit
+// allow-list silently breaks the suite every time a new export is used. Same
+// rationale as `apiCoreMock` — see helpers/mock-api-core.ts.
+const actualPipelineData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  ...actualPipelineData,
   runWithTenantContext: (scope: Record<string, unknown>, cb: () => unknown) => {
     capturedScopes.push(scope);
     return cb();

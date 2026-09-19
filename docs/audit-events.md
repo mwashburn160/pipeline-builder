@@ -207,6 +207,18 @@ evidence for impersonation-style access (see [Impersonation](permissions.md#impe
 `admin.impersonate.start` set `affectedOrgId` to the target org so the affected
 org's own admins can see them.
 
+#### Log-surface egress
+
+| Action | Emitted when | Details |
+|---|---|---|
+| `observability.logs.export` | Someone downloads log content from **Deliver → Logs** | `format`, `lines`, `bytes`, `truncated`, `from`, `to`, `filter`, `tenantCount` |
+| `observability.logs.cross-org-read` | A system admin reads a Loki tenant other than `_infra` | `tenantCount`, `context` (`search` / `context` / `raw`) |
+
+A log export is a cheap request with large egress that leaves the building, so
+it is audited like `admin.org.export`. The cross-org read is the log-surface
+counterpart to impersonation accountability: viewing another organization's data
+is recorded even though it changes nothing. See [Logs](observability-logs.md).
+
 ### Service-emitted (`REMOTE_AUDIT_ACTIONS`)
 
 | Service | Actions |

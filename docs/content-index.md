@@ -29,6 +29,8 @@ the links below.
 - **Architecture / system diagram / data flow** — [Architecture Flow](architecture-flow.md#system-architecture), [Service topology](service-mesh.md#architecture)
 - **Artifact passing between steps** — [CDK: Artifact Passing](cdk-usage.md#artifact-passing-between-steps), [Artifact & Registry Plugins](plugins/artifact.md)
 - **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity--tamper-evidence), [Action catalog](audit-events.md#action-catalog)
+- **Application logs / log search / log download** — [Logs](observability-logs.md), [Search syntax](observability-logs.md#searching), [Downloading](observability-logs.md#downloading), [Masking](observability-logs.md#masking)
+- **Log tenancy (per-org isolation, `_infra`)** — [Logs: what you can see](observability-logs.md#what-you-can-see), [Operating](observability-logs.md#operating)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
 - **Sessions, devices and machine credentials** — [Authentication: Sessions, devices and machine credentials](authentication.md#sessions-devices-and-machine-credentials), [Authentication: Token claims](authentication.md#token-claims-what-a-request-proves), [API: Account & Sessions](api-reference.md#account--sessions)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)

@@ -463,6 +463,14 @@ export const ALL_AUDIT_ACTIONS = [
   'authz.denied',
   'observability.silence.create',
   'observability.silence.delete',
+  // Log-surface data egress. `observability.logs.export` records a download of
+  // log content (range, filter, format, line count, truncation) — cheap request,
+  // large egress, and it leaves the building, so it is audited like
+  // `admin.org.export`. `observability.logs.cross-org-read` records a system
+  // admin reading a tenant OTHER than `_infra`, the same accountability the
+  // impersonation work applies to viewing another org's data.
+  'observability.logs.export',
+  'observability.logs.cross-org-read',
   // Platform admin mutations that were previously unaudited (controllers).
   // `admin.org.ai-config.update` — org AI-provider config (holds provider API
   //   keys; details carry field NAMES only, never a key value).
