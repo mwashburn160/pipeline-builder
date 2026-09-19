@@ -11,6 +11,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { useToast } from '@/components/ui/Toast';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import api from '@/lib/api';
+import { invalidate, queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { Organization } from '@/types';
 import type { OrgTier } from './ChangeTierDialog';
 
@@ -79,7 +81,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await api.listOrganizations({ limit: 200 });
+        const res = await runQuery(queries.listOrganizations({ limit: 200 }));
         setParentOptions((res.data?.organizations ?? []).filter((o) => !o.parentOrgId));
       } catch { /* best-effort — the team option simply won't have parents to pick */ }
     })();
@@ -97,7 +99,12 @@ function CreateOrganizationModal({ onClose, onCreated }: {
       tier: newOrgTier,
       ...(createAsSubOrg && parentOrgId ? { parentOrgId } : {}),
     }));
-    if (result !== null) onCreated({ name, tier: newOrgTier, asTeam: createAsSubOrg });
+    if (result !== null) {
+      // Every cached org list (audit page, quota picker, IdP roster, this very
+      // parent picker) is now missing the new org.
+      invalidate.organizations();
+      onCreated({ name, tier: newOrgTier, asTeam: createAsSubOrg });
+    }
   };
 
   return (

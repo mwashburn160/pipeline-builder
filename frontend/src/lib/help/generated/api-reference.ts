@@ -717,8 +717,15 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH \\",
               "DELETE",
               "/organization/:id/idp",
-              "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO URL, signing certificates and attribute mapping are returned in full (all public), alongside the derived samlSp values an IdP administrator needs. Writes are step-up gated",
+              "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO URL, signing certificates and attribute mapping are returned in full (all public), alongside the derived samlSp values an IdP administrator needs. Writes require an MFA-grade session and a step-up earned by a passkey or authenticator code",
               "org:idp (+ sso entitlement)"
+            ],
+            [
+              "GET \\",
+              "PATCH",
+              "/organization/:id/mfa-policy",
+              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes. The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
+              "org:settings"
             ]
           ]
         },
@@ -827,7 +834,13 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/sso/discover",
-              "Login-page hint: { email } → { sso: boolean }. Deliberately reports nothing else — it is unauthenticated, so returning the org id or provider would make it a tenant-enumeration oracle",
+              "Login-page hint: { email } → { sso: boolean }. Deliberately reports nothing else — it is unauthenticated, so returning the org id or provider would make it a tenant-enumeration oracle. Answers on the DOMAIN, so an address with no account looks identical to one with; a bootstrap-admin address always answers false (SSO refuses superadmins, and hiding their password field would close both paths)",
+              "— (pre-auth)"
+            ],
+            [
+              "POST",
+              "/auth/sso/start",
+              "Start per-org SSO from an EMAIL: { email } → { url, state }, the same pair the by-org route returns. For the sign-in form, which knows the address and not the tenant — the enforcing org is resolved server-side, so discovery never has to hand out an org id. 404 SSO_NOT_ENFORCED when no enabled, entitled IdP covers the domain",
               "— (pre-auth)"
             ],
             [
@@ -1301,6 +1314,11 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/reports/ingest-health",
               "The ingestion Lambda's delivery-health heartbeat {forwarded, dropped, lastEventAt}. Machine reporting:ingest scope"
+            ],
+            [
+              "GET",
+              "/reports/ingest-health",
+              "Read that heartbeat back — {health, now}, where health is null when the deployment has never reported ingestion (not the same as stale) and now is the server clock. Drives the Reports freshness strip, which separates \"no deploys in range\" from \"nothing has reached the ingest pipeline since X\". User-facing: org-scoped, reports:read (not the reporting:ingest scope, and not advanced_reporting — it applies to the execution reports every tier sees)"
             ],
             [
               "GET",

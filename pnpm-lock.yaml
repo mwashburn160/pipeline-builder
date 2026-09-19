@@ -737,9 +737,6 @@ importers:
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../packages/api-core
-      '@pipeline-builder/api-server':
-        specifier: workspace:*
-        version: link:../packages/api-server
       '@simplewebauthn/browser':
         specifier: 14.0.0
         version: 14.0.0

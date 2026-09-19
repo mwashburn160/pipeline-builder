@@ -185,6 +185,8 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
           value={newKey}
           label="SCIM key — copy it now, it is never shown again"
           note="Paste it into your identity provider as the SCIM bearer token. It is stored here only as a hash."
+          filename="pipeline-builder-scim-key.txt"
+          onDone={() => setNewKey(null)}
           className="mb-4"
         />
       )}
@@ -254,7 +256,14 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
 
       {pendingIssue && (
         <StepUpModal
-          action="Re-confirm your identity to issue a SCIM provisioning key."
+          title="Issue a SCIM provisioning key?"
+          action="Issue a SCIM provisioning key"
+          details={(
+            <p>
+              It lets your identity provider add, update and deactivate members of this organization —
+              and nothing else. It is shown exactly once, on the next screen.
+            </p>
+          )}
           onConfirmed={issueKey}
           onClose={() => setPendingIssue(false)}
         />

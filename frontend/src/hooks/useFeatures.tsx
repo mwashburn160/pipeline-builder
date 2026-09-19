@@ -12,6 +12,10 @@ interface FeaturesContextType {
   features: string[];
   /** Whether the initial config fetch has completed. */
   isLoaded: boolean;
+  /** The viewer is a Pipeline Builder operator, who holds every entitlement.
+   *  Surfaced here (rather than each consumer re-deriving it from `useAuth`)
+   *  so an entitlement verdict is one hook call — see `useFeatureGate`. */
+  isSuperAdmin: boolean;
   /** Primary support alias (from the server's SUPPORT_ALIASES) for compose prefill. */
   supportAlias: string;
   /** ALL configured support aliases, for listing every support inbox in the picker. */
@@ -32,6 +36,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   isEnabled: () => false,
   features: [],
   isLoaded: false,
+  isSuperAdmin: false,
   supportAlias: DEFAULT_SUPPORT_ALIAS,
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
   deployTarget: 'local',
@@ -97,9 +102,11 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       if (val) enabled.add(key);
     }
 
+    const superAdmin = isSystemAdmin(user);
+
     // Sysadmins don't need their own billing tab — they manage billing for
     // every org, not pay one themselves.
-    if (isSystemAdmin(user)) {
+    if (superAdmin) {
       enabled.delete('billing');
     }
 
@@ -124,6 +131,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       isEnabled: (feature: string) => enabled.has(feature),
       features,
       isLoaded,
+      isSuperAdmin: superAdmin,
       supportAlias,
       supportAliases,
       deployTarget,

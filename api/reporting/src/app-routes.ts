@@ -55,9 +55,12 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
     ticketGuards: [requirePermission('reports:read') as RequestHandler],
   });
 
-  // Ingest-health endpoint — same machine credential as /reports/events (the
-  // `reporting:ingest` token scope is checked inside the router). Distinct prefix
-  // so requireAuth doesn't double-run for the user-facing report reads below.
+  // Ingest-health endpoint — the POST uses the same machine credential as
+  // /reports/events (the `reporting:ingest` token scope is checked inside the
+  // router). The GET on this same router is USER-facing (the Reports freshness
+  // indicator) and carries its own per-route guards — requireOrgId + tenant
+  // context + `reports:read` — exactly like the incidents router's admin reads.
+  // Distinct prefix so requireAuth doesn't double-run for the reads below.
   app.use('/reports/ingest-health', requireAuth, createIngestHealthRoutes());
 
   // Incident webhook (Phase 5) — same machine credential as /reports/events (the

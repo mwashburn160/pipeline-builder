@@ -441,6 +441,28 @@ export interface IngestResult {
   unregisteredPipelineIds: string[];
 }
 
+/**
+ * One org's ingestion-health row as READ back by the Reports UI (Phase 3). The
+ * AWS events Lambda writes it; this is the shape that lets the UI tell
+ * "ingestion is healthy, there were simply no deploys in the range" apart from
+ * "we haven't heard from the ingest pipeline since X".
+ *
+ * `null` from {@link ReportingService.getIngestHealth} means the deployment has
+ * NEVER reported — not "stale". The two must not be conflated: a fresh install
+ * (or one whose forwarder was never wired up) has no heartbeat at all, and
+ * calling that "stale" would invent a regression that never happened.
+ */
+export interface IngestHealthStatus {
+  /** When the forwarder last posted a heartbeat (its own clock, ISO 8601). */
+  updatedAt: string;
+  /** Timestamp of the newest event it had forwarded, or null if it has seen none. */
+  lastEventAt: string | null;
+  /** Cumulative events forwarded, or null when the forwarder doesn't report it. */
+  forwarded: number | null;
+  /** Cumulative events DROPPED (non-zero ⇒ data loss upstream of the reports). */
+  dropped: number | null;
+}
+
 
 /**
  * Read-only reporting service for pipeline execution and plugin inventory aggregations.

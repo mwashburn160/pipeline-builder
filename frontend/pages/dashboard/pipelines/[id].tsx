@@ -18,6 +18,7 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -39,6 +40,8 @@ import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -83,7 +86,7 @@ const DETAIL_TAB_IDS: readonly DetailTab[] = DETAIL_TABS.map((t) => t.id);
 export default function PipelineDetailPage() {
   const router = useRouter();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
-  const { isReady, user, isSuperAdmin, can } = useAuthGuard();
+  const { accessDenied, isReady, user, isSuperAdmin, can } = useAuthGuard();
   const toast = useToast();
 
   // Detail sections split into Overview (metadata) + Runs (recent runs +
@@ -111,7 +114,7 @@ export default function PipelineDetailPage() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    api.getExecutionCount()
+    runQuery(queries.executionCount())
       .then((r) => {
         if (cancelled) return;
         const row = (r.data?.pipelines ?? []).find((p) => p.id === id) ?? null;
@@ -127,7 +130,7 @@ export default function PipelineDetailPage() {
   useEffect(() => {
     if (!user?.organizationId) return;
     let cancelled = false;
-    api.getOrganizationMembers(user.organizationId, { limit: 500 })
+    runQuery(queries.orgMembers(user.organizationId, { limit: 500 }))
       .then((r) => {
         if (cancelled || !r.data) return;
         const map: Record<string, string> = {};
@@ -258,6 +261,7 @@ export default function PipelineDetailPage() {
     }
   }, [pipeline, router, toast]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   const execColumns: Column<PipelineExecution>[] = [

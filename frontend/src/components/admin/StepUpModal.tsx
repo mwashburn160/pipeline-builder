@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LogIn, ShieldAlert, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -10,6 +10,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { formatError, providerLabel } from '@/lib/constants';
+import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { stepUpWithPasskey } from '@/lib/passkeys';
 import { runProviderReauth } from '@/lib/step-up-reauth';
 import { webauthnErrorMessage } from '@/lib/webauthn';
@@ -18,6 +19,19 @@ import type { AuthFactors, ReauthProvider } from '@/types';
 interface Props {
   /** Short description of the action being gated, shown to the user. */
   action: string;
+  /**
+   * Dialog heading. Defaults to "Confirm it's you"; a destructive action passes
+   * its own question ("Sign this device out?") because this dialog IS the
+   * confirmation — see `details`.
+   */
+  title?: string;
+  /**
+   * What the action costs, stated here rather than in a separate ConfirmDialog
+   * ahead of it. ONE dialog confirms and steps up: the double modal it replaces
+   * asked the same person the same question twice, and taught them to click
+   * through both without reading either.
+   */
+  details?: ReactNode;
   /** Called with the short-lived step-up token once the user re-verifies.
    *  The caller MUST pass this token to the subsequent destructive API
    *  call as the second argument; api methods that require step-up
@@ -71,8 +85,19 @@ function optionLabel(option: ReauthProvider): string {
  * Every path returns the same 60s step-up token, which is handed to
  * `onConfirmed` and replayed by the caller's API call; the backend's
  * `requireStepUp` middleware enforces it.
+ *
+ * IT IS ALSO THE CONFIRMATION. A destructive action passes `title` + `details`
+ * and opens THIS dialog only — no ConfirmDialog in front of it. One dialog, one
+ * decision: the pair asked the same person the same question twice and taught
+ * them to click through both. (Actions the server does NOT step-up gate — key
+ * revocation, deliberately, so a compromised key is always killable — still use
+ * a plain ConfirmDialog; the rule is one dialog, not one component.)
+ *
+ * It opens focused on the factor the account actually has — the passkey button,
+ * the authenticator field, or the password box — which for a TOTP-only account
+ * is the difference between typing a code and hunting for the field.
  */
-export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, onClose }: Props) {
+export function StepUpModal({ action, title, details, onConfirmed, requireStrongFactor = false, onClose }: Props) {
   const [factors, setFactors] = useState<AuthFactors | null>(null);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -81,7 +106,12 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
   const [totpCode, setTotpCode] = useState('');
   const [totpPending, setTotpPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
+  // The control the dialog opens on. Which one that is isn't known until the
+  // account's factors arrive — a TOTP-only account has no password field at all
+  // — so it is attached by callback ref to whichever control wins, and Modal
+  // focuses it when it appears (it used to focus "Close" and stay there).
+  const focusRef = useRef<HTMLElement | null>(null);
+  const assignFocus = useCallback((el: HTMLElement | null) => { focusRef.current = el; }, []);
   // Lets Cancel abort a provider round trip that's still waiting on the popup.
   const abortRef = useRef<AbortController | null>(null);
 
@@ -194,17 +224,28 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
   const hasTotp = factors?.hasTotp ?? false;
   const providers = requireStrongFactor ? [] : (factors?.providers ?? []);
 
+  // Where the dialog opens: the quickest factor the account actually holds,
+  // in the same order the options are offered below.
+  const preferred = !factors ? null
+    : hasPasskeys ? 'passkey'
+      : hasTotp ? 'totp'
+        : hasPassword ? 'password'
+          : providers.length > 0 ? 'provider' : null;
+
   return (
     <Modal
-      title="Confirm it's you"
+      title={title ?? "Confirm it's you"}
       titleIcon={<ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />}
       onClose={handleClose}
-      initialFocusRef={passwordRef}
+      initialFocusRef={focusRef}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         <p className="text-sm text-gray-700 dark:text-gray-300">
           About to: <strong>{action}</strong>
         </p>
+
+        {/* What it costs — this dialog is the confirmation as well as the gate. */}
+        {details && <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">{details}</div>}
 
         {!factors ? (
           <p className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -223,6 +264,7 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
                 <Button
                   type="button"
                   fullWidth
+                  ref={preferred === 'passkey' ? assignFocus : undefined}
                   className="inline-flex items-center justify-center gap-2"
                   disabled={busy}
                   onClick={() => void handlePasskey()}
@@ -246,6 +288,7 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
                 <div className="flex gap-2">
                   <Input
                     type="text"
+                    ref={preferred === 'totp' ? assignFocus : undefined}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleTotp(); } }}
@@ -277,7 +320,7 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
                 </p>
 
                 <Input
-                  ref={passwordRef}
+                  ref={preferred === 'password' ? assignFocus : undefined}
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -296,7 +339,7 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
                     ? 'Or confirm by signing in again:'
                     : 'Sign in again with your provider to confirm. A window opens for the sign-in.'}
                 </p>
-                {providers.map((option) => {
+                {providers.map((option, index) => {
                   const key = option.type === 'sso' ? `sso:${option.orgId}` : `oauth:${option.provider}`;
                   const pending = pendingProvider === (option.type === 'sso' ? option.orgId : option.provider);
                   return (
@@ -305,6 +348,7 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
                       type="button"
                       variant="secondary"
                       fullWidth
+                      ref={preferred === 'provider' && index === 0 ? assignFocus : undefined}
                       className="inline-flex items-center justify-center gap-2"
                       disabled={busy}
                       onClick={() => void handleProvider(option)}
@@ -328,8 +372,8 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 This action can only be confirmed with a passkey or an authenticator app, and
                 this account has neither. Add one from{' '}
-                <a href="/dashboard/settings?tab=security#passkeys" className="action-link">
-                  Settings → Security
+                <a href={PASSKEY_ENROLMENT_HREF} className="action-link">
+                  Security → Factors
                 </a>
                 , then sign in again and retry.
               </p>
@@ -339,8 +383,8 @@ export function StepUpModal({ action, onConfirmed, requireStrongFactor = false, 
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 This account has no way to confirm sensitive actions. Add a passkey
                 from{' '}
-                <a href="/dashboard/settings?tab=security#passkeys" className="action-link">
-                  Settings → Security
+                <a href={PASSKEY_ENROLMENT_HREF} className="action-link">
+                  Security → Factors
                 </a>
                 , set a password, or link a sign-in provider — or ask an administrator for help.
               </p>

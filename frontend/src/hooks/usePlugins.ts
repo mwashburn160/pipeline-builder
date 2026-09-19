@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plugin } from '@/types';
 import api from '@/lib/api';
 import { CACHE_TTL_MS, formatError } from '@/lib/constants';
-import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
+import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
 
 /**
  * Module-level cache for plugin data, shared across all usePlugins instances.

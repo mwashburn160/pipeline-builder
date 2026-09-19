@@ -64,7 +64,7 @@ describe('MfaRequiredBanner', () => {
     expect(banner.textContent).toContain('in 10 days');
     // A date, not a feeling.
     expect(banner.textContent).toContain(new Date(IN_TEN_DAYS).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
-    expect(screen.getByRole('link', { name: /set it up now/i })).toHaveAttribute('href', '/dashboard/settings?tab=security#passkeys');
+    expect(screen.getByRole('link', { name: /set it up now/i })).toHaveAttribute('href', '/dashboard/security?tab=factors#passkeys');
   });
 
   it('says the session will stop working once the requirement is in force', async () => {
@@ -86,7 +86,7 @@ describe('MfaRequiredDialog', () => {
     await waitFor(() => expect(getProfile).toHaveBeenCalled());
     const setUp = await screen.findByRole('button', { name: /set up two-factor/i });
     await act(async () => { setUp.click(); });
-    expect(push).toHaveBeenCalledWith('/dashboard/settings?tab=security#passkeys');
+    expect(push).toHaveBeenCalledWith('/dashboard/security?tab=factors#passkeys');
     // Enrolment is the primary route, but signing in again is still offered.
     expect(screen.queryByRole('button', { name: /sign in again/i })).not.toBeNull();
   });

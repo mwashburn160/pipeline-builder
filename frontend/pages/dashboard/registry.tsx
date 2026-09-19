@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Trash2, HardDrive, ChevronLeft } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -63,7 +64,7 @@ const RECENT_ACTIONS_MAX = 20;
  */
 const MIN_USABLE_WIDTH = 1024;
 export default function RegistryPage() {
-  const { isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const router = useRouter();
   const toast = useToast();
 
@@ -318,6 +319,7 @@ export default function RegistryPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen, deleteRepo, gcOpen, storageOpen]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isSuperAdmin) return <LoadingPage />;
 
   // Focus model: the "active" column is the right-most one with data —

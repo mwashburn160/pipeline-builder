@@ -30,7 +30,11 @@ jest.mock('next/router', () => ({
 }));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: ['google'] } }) },
+  default: {
+    listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: ['google'] } }),
+    // Domain SSO discovery runs off the identifier field; nothing here is federated.
+    discoverSso: jest.fn().mockResolvedValue({ data: { sso: false } }),
+  },
 }));
 jest.mock('framer-motion', () => ({
   __esModule: true,

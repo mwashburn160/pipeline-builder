@@ -5,10 +5,11 @@ import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
 import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
-import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
-import type { PluginCategory } from '@/lib/help';
+import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
+import type { PluginCategory } from '@/lib/plugin-categories';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFeatures } from '@/hooks/useFeatures';
+import { AccessDenied } from '@/components/ui/AccessDenied';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -93,7 +94,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   const canViewPublic = isSuperAdmin;
   // Fine-grained RBAC: write controls (create/upload/edit/delete/bulk/select)
@@ -113,8 +114,8 @@ export default function PluginsPage() {
   // the flag every bulk action 403s. The backend ALSO gates bulk delete/update
   // on `plugins:publish`, so a write-but-not-publish member would 403 too —
   // include `canPublish` so we don't surface controls guaranteed to fail.
-  const { isEnabled } = useFeatures();
-  const canBulk = canWrite && canPublish && isEnabled('bulk_operations');
+  const bulkGate = useFeatureGate('bulk_operations');
+  const canBulk = canWrite && canPublish && bulkGate.entitled;
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
@@ -539,6 +540,7 @@ export default function PluginsPage() {
 
   // ── Render ──
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   const emptyDescription = canWrite

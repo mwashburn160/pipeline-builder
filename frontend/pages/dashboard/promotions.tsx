@@ -6,6 +6,7 @@ import { Megaphone, Plus, ShieldAlert, Eye, Gift, BarChart3, Zap } from 'lucide-
 import { formatError } from '@/lib/constants';
 import { formatCents } from '@/lib/format';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -57,7 +58,7 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 }
 
 export default function PromotionsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
 
   // Feature-off (BILLING_PROMOTIONS_ENABLED=false) surfaces as a 404 on list —
@@ -295,6 +296,7 @@ export default function PromotionsPage() {
     },
   ];
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

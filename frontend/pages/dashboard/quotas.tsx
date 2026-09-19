@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -12,6 +13,8 @@ import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 
 // ---------------------------------------------------------------------------
 // Main Page
@@ -21,7 +24,7 @@ import api from '@/lib/api';
 export default function QuotasPage() {
   // Viewing quotas requires `quotas:read` (superadmins bypass). Members hold it
   // in their base bundle. Mutation controls below stay sysadmin-only.
-  const { user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard({ requirePermission: 'quotas:read' });
+  const { accessDenied, user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard({ requirePermission: 'quotas:read' });
   const { organizations } = useAuth();
   const toast = useToast();
 
@@ -115,7 +118,7 @@ export default function QuotasPage() {
       // so orgs beyond the held page stay reachable by name — not just the ones
       // that happened to land in the first page.
       const q = (search ?? '').trim();
-      const res = await api.listOrganizations({ limit: 200, ...(q ? { search: q } : {}) });
+      const res = await runQuery(queries.listOrganizations({ limit: 200, ...(q ? { search: q } : {}) }));
       if (reqId !== orgListReqIdRef.current) return;
       const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
@@ -279,6 +282,7 @@ export default function QuotasPage() {
     return o.name.toLowerCase().includes(q) || (o.slug || '').toLowerCase().includes(q) || o.id.toLowerCase().includes(q);
   });
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   // ── Simple read-only view for regular users ──

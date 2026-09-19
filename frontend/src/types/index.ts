@@ -106,6 +106,12 @@ export interface OrgMfaPolicy {
   inheritedFrom?: string;
   /** Grace period offered by default when turning the requirement on. */
   defaultGraceDays: number;
+  /**
+   * How many active members already hold a passkey or an authenticator app —
+   * the number that makes "14 days" a decision rather than a guess. Present on
+   * the policy READ; a write response carries the policy alone.
+   */
+  enrolment?: { members: number; enrolled: number };
 }
 
 /** The account's authenticator-app state, from GET /auth/totp/status. */

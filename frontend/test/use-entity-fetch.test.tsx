@@ -25,7 +25,7 @@ describe('useEntityFetch', () => {
 
     expect(result.current.entity).toEqual({ id: '1', name: 'A' });
     expect(result.current.error).toBeNull();
-    expect(fetcher).toHaveBeenCalledWith('1');
+    expect(fetcher).toHaveBeenCalledWith('1', expect.any(AbortSignal));
   });
 
   it('returns fallback and skips fetch when id is null', async () => {
@@ -80,7 +80,7 @@ describe('useEntityFetch', () => {
 
     await waitFor(() => expect(result.current.entity).toEqual({ id: '2', name: 'B' }));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher).toHaveBeenNthCalledWith(2, '2');
+    expect(fetcher).toHaveBeenNthCalledWith(2, '2', expect.any(AbortSignal));
   });
 
   it('sets error on fetch failure', async () => {

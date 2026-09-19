@@ -21,6 +21,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Shield, KeyRound, Database, Lock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -56,7 +57,7 @@ interface SettingRow {
 }
 
 export default function PlatformSettingsPage() {
-  const { isReady, user } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, isReady, user } = useAuthGuard({ requireSystemAdmin: true });
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export default function PlatformSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, user?.id]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   // Build the settings rows from the summary. Each one names the env

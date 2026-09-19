@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { Ticket, Plus, KeyRound, Building2, ShieldAlert, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
@@ -35,7 +36,7 @@ import type { Discount } from '@/types';
  * back to a "not enabled" empty state instead of an error banner.
  */
 export default function DiscountsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
   // Org picker for "Apply to org" — mirrors the Users page rather than a raw
   // org-id text field, so operators pick from names instead of pasting ids.
@@ -228,6 +229,7 @@ export default function DiscountsPage() {
     },
   ], [issueToken, issuingId, del]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

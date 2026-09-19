@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { useToast } from '@/components/ui/Toast';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -59,7 +61,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
         // Recipient picker needs the whole active roster — the roster is now
         // server-paginated, so request the max page (200, the backend cap)
         // rather than the default 25.
-        orgId ? api.getOrganizationMembers(orgId, { limit: 200 }) : Promise.resolve(null),
+        orgId ? runQuery(queries.orgMembers(orgId, { limit: 200 })) : Promise.resolve(null),
       ]);
       if (isCancelled?.()) return;
       if (memberRes?.data?.members) setMembers(memberRes.data.members.filter((m) => m.isActive));

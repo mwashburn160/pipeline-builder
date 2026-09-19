@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
 import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useMessages } from '@/hooks/useMessages';
+import { AccessDenied } from '@/components/ui/AccessDenied';
+import { useMessages, type MessageView } from '@/hooks/useMessages';
 import { useDebounce } from '@/hooks/useDebounce';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -24,13 +25,26 @@ import type { Message } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
 
-type MessageFilter = 'all' | 'conversations' | 'announcements';
+/**
+ * Inbox tab. Each value is a distinct SERVER endpoint (`/messages`,
+ * `/messages/conversations`, `/messages/announcements`) with its own pagination
+ * — not a client-side filter over the mixed inbox, which only ever saw the
+ * pages already loaded and so under-reported both the list and its count.
+ */
+type MessageFilter = MessageView;
 
 const FILTER_TABS: { key: MessageFilter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'conversations', label: 'Conversations' },
   { key: 'announcements', label: 'Announcements' },
 ];
+
+/** Plural noun for the active tab (heading + empty states). */
+const FILTER_NOUN: Record<MessageFilter, string> = {
+  all: 'messages',
+  conversations: 'conversations',
+  announcements: 'announcements',
+};
 
 /**
  * Channel filter. `'all'` matches every channel + the no-channel case;
@@ -61,7 +75,7 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'messages:read' });
+  const { accessDenied, user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'messages:read' });
   // `messages:write` unlocks full compose (address other orgs/teams directly)
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
@@ -72,11 +86,14 @@ export default function MessagesPage() {
   // Debounce so each keystroke doesn't fire a request; the hook refetches page 0
   // server-side whenever this settles.
   const debouncedSearch = useDebounce(searchInput.trim(), 300);
+  // Declared before the data hook: the tab IS the endpoint the hook fetches.
+  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
   const {
     messages,
     loading,
     error,
     unreadCount,
+    total,
     livePaused,
     hasMore,
     loadingMore,
@@ -86,11 +103,10 @@ export default function MessagesPage() {
     markThreadAsRead,
     deleteMessage,
     fetchMessages,
-  } = useMessages(user?.organizationId, debouncedSearch);
+  } = useMessages(user?.organizationId, debouncedSearch, messageFilter);
 
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
-  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   const currentOrgId = user?.organizationId?.toLowerCase() || '';
@@ -149,20 +165,20 @@ export default function MessagesPage() {
   const showChannelFilter = channelBuckets.size > 1;
   const effectiveChannelFilter = showChannelFilter ? channelFilter : 'all';
 
+  // Message TYPE is filtered server-side (the tab picks the endpoint), so only
+  // the channel narrowing is left to do client-side over the loaded page.
   const filteredMessages = useMemo(() => {
-    let out = messages;
-    if (messageFilter === 'announcements') {
-      out = out.filter((m) => m.messageType === 'announcement');
-    } else if (messageFilter === 'conversations') {
-      out = out.filter((m) => m.messageType !== 'announcement');
-    }
-    if (effectiveChannelFilter === 'none') {
-      out = out.filter((m) => !m.channel);
-    } else if (effectiveChannelFilter !== 'all') {
-      out = out.filter((m) => m.channel === effectiveChannelFilter);
-    }
-    return out;
-  }, [messages, messageFilter, effectiveChannelFilter]);
+    if (effectiveChannelFilter === 'none') return messages.filter((m) => !m.channel);
+    if (effectiveChannelFilter !== 'all') return messages.filter((m) => m.channel === effectiveChannelFilter);
+    return messages;
+  }, [messages, effectiveChannelFilter]);
+
+  // Heading count: the SERVER's total for the active tab + search — not
+  // `messages.length`, which is just the pages fetched so far. Suppressed while
+  // a channel filter narrows the list client-side (the server total wouldn't
+  // describe what's rendered) and until the first page reports one.
+  const noun = FILTER_NOUN[messageFilter];
+  const headingCount = effectiveChannelFilter === 'all' ? total : null;
 
   const handleSelectMessage = useCallback((msg: Message) => {
     setSelectedMessage(msg);
@@ -233,6 +249,7 @@ export default function MessagesPage() {
     return res.data.attachment;
   }, []);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -248,7 +265,14 @@ export default function MessagesPage() {
           <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-gray-200 dark:border-gray-700 flex-col`}>
             {/* List header */}
             <div className="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversations</h2>
+              {/* Heading names the ACTIVE tab and carries the server's total for
+                  it, so the count can't disagree with what the backend holds. */}
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 capitalize">
+                {noun}
+                {headingCount !== null && (
+                  <span className="ml-1.5 font-normal text-gray-400 dark:text-gray-500">{headingCount}</span>
+                )}
+              </h2>
               <Button
                 size="sm"
                 onClick={() => setShowCompose(true)}
@@ -353,12 +377,15 @@ export default function MessagesPage() {
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
-                emptyTitle={debouncedSearch || messageFilter !== 'all' || effectiveChannelFilter !== 'all' ? 'No matching messages' : undefined}
+                emptyTitle={debouncedSearch || messageFilter !== 'all' || effectiveChannelFilter !== 'all' ? `No matching ${noun}` : undefined}
                 emptyDescription={
-                  debouncedSearch ? `No messages match "${debouncedSearch}"`
-                    : messageFilter === 'announcements' ? 'No announcements — switch to "All" to see conversations.'
-                      : messageFilter === 'conversations' ? 'No conversations — switch to "All" to see announcements.'
-                        : effectiveChannelFilter !== 'all' ? 'No messages in this channel — switch to "All channels".'
+                  // Honest now that the tab is server-filtered: "no announcements"
+                  // means the SERVER has none for this org, not "none in the pages
+                  // we happened to load".
+                  debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
+                    : effectiveChannelFilter !== 'all' ? `No ${noun} in this channel — switch to "All channels".`
+                      : messageFilter === 'announcements' ? 'No announcements have been sent to your organization.'
+                        : messageFilter === 'conversations' ? 'No conversations yet — start one with the + button.'
                           : undefined
                 }
               />

@@ -3,7 +3,21 @@ import { useRouter } from 'next/router';
 import { SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
+import { clearQueryCache } from '@/lib/query-cache';
+import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { clearPluginCache } from './usePlugins';
+
+/**
+ * Minimum gap between profile refreshes triggered by the tab becoming visible.
+ *
+ * The handler used to fire on EVERY `visibilitychange`, so alt-tabbing across a
+ * few windows, or a screen-share preview flipping the tab, cost a `/auth/profile`
+ * plus a `/user/organizations` round trip each time. The refresh exists to catch
+ * a token that expired while browser timers were throttled in the background —
+ * a minute's granularity is ample for that, and the API client still refreshes
+ * the token on demand before any request that needs one.
+ */
+const VISIBILITY_REFRESH_MIN_INTERVAL_MS = 60_000;
 
 /**
  * What a password sign-in produced: a session, or a pending second factor.
@@ -106,10 +120,19 @@ function keepIfUnchanged<T>(prev: T, next: T): T {
   return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
 }
 
-/** Drop per-session client caches so nothing leaks into the next session/org. */
+/**
+ * Drop per-session client caches so nothing leaks into the next session/org.
+ *
+ * `clearQueryCache` is the tenant boundary for the shared read cache: it empties
+ * every entry AND bumps a generation so a request already in flight under the
+ * previous org cannot land in the next one's cache. This is what makes it safe
+ * for the app shell to stop remounting the whole page subtree on navigation —
+ * the reset is now explicit instead of a side effect of a re-key.
+ */
 function clearSessionCaches(): void {
   clearPluginCache();
   clearAttachmentImageCache();
+  clearQueryCache();
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -124,6 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // prevents a late-resolving stale response from clobbering a newer one.
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const refreshGenRef = useRef(0);
+  /** Epoch ms of the last tab-focus-triggered refresh (see the throttle below). */
+  const lastVisibilityRefreshRef = useRef(0);
 
   /**
    * Refresh user profile from API
@@ -247,12 +272,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Re-check token freshness when the tab becomes visible again.
    * Browser timers are throttled in background tabs, so the scheduled
    * proactive refresh may not have fired while the user was away.
+   *
+   * Throttled to {@link VISIBILITY_REFRESH_MIN_INTERVAL_MS}: a person moving
+   * between two windows fires this event several times a minute, and each one
+   * cost two requests for a profile that cannot have changed in the interval.
    */
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && api.isAuthenticated()) {
-        refreshUser();
-      }
+      if (document.visibilityState !== 'visible' || !api.isAuthenticated()) return;
+      const now = Date.now();
+      if (now - lastVisibilityRefreshRef.current < VISIBILITY_REFRESH_MIN_INTERVAL_MS) return;
+      lastVisibilityRefreshRef.current = now;
+      refreshUser();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -298,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // exception closes the moment they enrol, after which an ordinary sign-in
       // behaves normally.
       if (response.data?.mfaEnrollmentPending) {
-        if (opts?.redirect !== false) router.push('/dashboard/settings?tab=security#passkeys');
+        if (opts?.redirect !== false) router.push(PASSKEY_ENROLMENT_HREF);
         return { status: 'mfa_enrollment_pending' };
       }
 
@@ -422,9 +453,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   // Derived from the current access token's `impersonationReadOnly` claim.
-  // Impersonation start/stop performs a full page reload, so reading it at
-  // render time is stable for the session.
-  const isReadOnly = api.isImpersonating();
+  //
+  // Held in STATE, not read from the client at render time. The token lives in
+  // the api client, which React cannot observe: a render that happened to run
+  // before the token was adopted (or after a sibling tab's broadcast swapped it)
+  // kept its stale answer until something unrelated re-rendered the provider.
+  // Reading it during render was also a server/client hydration hazard — the
+  // server never has a token, the browser may restore one from sessionStorage
+  // before the first paint. Syncing in an effect keyed on the profile covers
+  // every path that can change it: init, sign-in, org switch, stop-impersonation
+  // and the cross-tab token handoff all refresh the profile.
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  useEffect(() => {
+    setIsReadOnly(api.isImpersonating());
+  }, [user, isInitialized]);
 
   // Memoized so a provider re-render with nothing changed doesn't hand every
   // consumer a new context object (and re-run their effects).

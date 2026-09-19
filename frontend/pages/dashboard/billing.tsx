@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useAuth } from '@/hooks/useAuth';
 import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
 import { TIER_KEYS } from '@/lib/tiers';
@@ -17,6 +18,8 @@ import { CreditCard } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import type { Plan, Subscription, Bundle, ComboDiscount, BillingInterval, UsageRollup } from '@/types';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
@@ -70,7 +73,7 @@ function isPlanDowngrade(fromPlanId: string, toPlanId: string): boolean {
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'billing:read' });
+  const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'billing:read' });
   const { organizations } = useAuth();
   // Whether the billing SERVICE is enabled in this deployment (`/api/billing/config`
   // probe). Replaces the old `features.isEnabled('billing')` gate — `'billing'` is
@@ -184,8 +187,13 @@ export default function BillingPage() {
       // in one network round-trip. A usage-endpoint failure must not gate the
       // whole page  billing data is the primary surface; usage degrades.
       const [plansRes, subRes, usageRes, bundlesRes] = await Promise.all([
-        api.getPlans(),
-        api.getSubscription(),
+        // The plan catalog is shared with the signup/onboarding pickers via the
+        // query cache; the subscription is FORCED, because this page is the one
+        // that mutates it and must never render a pre-mutation copy. The fresh
+        // answer still fills the cache the read-only consumers (OrgAdminHome)
+        // pick up.
+        runQuery(queries.plans()),
+        runQuery(queries.subscription(), { force: true }),
         api.getBillingUsage(usagePeriodRef.current).catch(() => null),
         api.getBundles().catch(() => null),
       ]);
@@ -378,6 +386,7 @@ export default function BillingPage() {
   };
 
   // While auth or the billing-enabled probe is still resolving, show loading.
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || billingEnabled === undefined) return <LoadingPage />;
 
   // Billing service disabled in this deployment → explicit card (no silent redirect).

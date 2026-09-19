@@ -757,3 +757,38 @@ spec:
           protocol: TCP
         - port: 15014
           protocol: TCP
+
+---
+# waypoint -> istiod xDS (istio-system).
+#
+# WITHOUT THIS THE WHOLE STACK IS UNREACHABLE. `allow-dns-egress` and
+# `allow-internal-egress` both use an EMPTY podSelector, so every pod in this
+# namespace is egress-restricted, and `allow-internal-egress` is
+# `to: [{podSelector: {}}]` — SAME-NAMESPACE only. istiod lives in istio-system,
+# so the waypoint's xDS stream is denied: it comes up with NO configuration and
+# answers every routed request with Envoy's `no healthy upstream` (HTTP 503),
+# while the backing pods are perfectly healthy and Ready. ztunnel is unaffected
+# (it runs in istio-system on the host network), which makes the failure look
+# like an app problem rather than a mesh one.
+#
+# PORTS-ONLY, deliberately — same rationale as allow-prometheus-mesh-scrape
+# above: under ambient, outbound traffic is redirected to the node-local ztunnel
+# over a LINK-LOCAL address, so constraining `to:` severs the data path while
+# still completing the handshake (hangs rather than clean failures).
+# 15012 = istiod xDS/CA (the one that matters); 15014 = istiod metrics.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-waypoint-xds
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-class-name: istio-waypoint
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 15012
+          protocol: TCP
+        - port: 15014
+          protocol: TCP

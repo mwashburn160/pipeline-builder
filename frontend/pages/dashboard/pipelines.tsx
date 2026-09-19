@@ -5,7 +5,9 @@ import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFeatures } from '@/hooks/useFeatures';
+import { AccessDenied } from '@/components/ui/AccessDenied';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { FeatureLockedAction } from '@/components/ui/FeatureLock';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
@@ -33,6 +35,9 @@ import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
+// Every refresh below follows a write, so the shared pipeline cache the command
+// palette / dashboard home / deployment-drift view read from must be dropped too.
+import { invalidate } from '@/lib/api-cache';
 import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
@@ -58,7 +63,7 @@ const PIPELINE_SORT_FIELD: Record<string, string> = {
 
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   const canViewPublic = isSuperAdmin;
   // Fine-grained RBAC: write controls (create/edit/delete/bulk/select) unlock
@@ -69,9 +74,10 @@ export default function PipelinesPage() {
   // `requireFeature('bulk_operations')` to the bulk routes, so without the flag
   // every bulk action 403s. Gate the select checkboxes + bulk toolbar on it so
   // we don't surface controls that are guaranteed to fail. (`can`-gated too, so
-  // read-only members never see them.)
-  const { isEnabled } = useFeatures();
-  const canBulk = canWrite && isEnabled('bulk_operations');
+  // read-only members never see them.) The Bulk-import ENTRY point stays visible
+  // as a FeatureLockedAction — a row checkbox can't carry a reason, a button can.
+  const bulkGate = useFeatureGate('bulk_operations');
+  const canBulk = canWrite && bulkGate.entitled;
 
   // ── Data ──
 
@@ -90,7 +96,7 @@ export default function PipelinesPage() {
     // Server-side default sort mirrors the previous client-side default
     // (name ascending) so the initial view is unchanged.
     initialSort: { sortBy: 'pipelineName', sortOrder: 'asc' },
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       const p: Record<string, string> = {
         ...mapCommonParams(params),
         limit: params.limit,
@@ -105,7 +111,7 @@ export default function PipelinesPage() {
       if (params.keyword) p.keyword = params.keyword;
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
-      const response = await api.listPipelines(p);
+      const response = await api.listPipelines(p, { signal });
       return { items: response.data?.pipelines || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
@@ -114,7 +120,7 @@ export default function PipelinesPage() {
 
   const del = useDelete<Pipeline>(
     (p) => api.deletePipeline(p.id),
-    () => { list.refresh(); toast.success('Pipeline deleted'); },
+    () => { invalidate.pipelines(); list.refresh(); toast.success('Pipeline deleted'); },
     (err) => list.setError(formatError(err, 'Failed to delete pipeline')),
   );
 
@@ -166,7 +172,7 @@ export default function PipelinesPage() {
     );
     if (result?.success) {
       setCreateSuccess('Pipeline created successfully!');
-      list.refresh();
+      invalidate.pipelines(); list.refresh();
       toast.success('Pipeline created');
       setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
     }
@@ -198,7 +204,7 @@ export default function PipelinesPage() {
       await api.bulkDeletePipelines(Array.from(selectedIds));
       clearSelection();
       setShowBulkDelete(false);
-      list.refresh();
+      invalidate.pipelines(); list.refresh();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete pipelines'));
@@ -214,7 +220,7 @@ export default function PipelinesPage() {
       const count = selectedIds.size;
       await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
       clearSelection();
-      list.refresh();
+      invalidate.pipelines(); list.refresh();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} pipelines`));
@@ -263,7 +269,7 @@ export default function PipelinesPage() {
       const res = await api.bulkCreatePipelines(specs);
       if (res.success && res.data) {
         setBulkCreateResult(res.data);
-        list.refresh();
+        invalidate.pipelines(); list.refresh();
         const { created, updated, failed } = res.data;
         if (failed === 0) {
           toast.success(`${created} created${updated > 0 ? `, ${updated} updated` : ''}`);
@@ -437,6 +443,7 @@ export default function PipelinesPage() {
 
   // ── Render ──
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -447,12 +454,16 @@ export default function PipelinesPage() {
         canWrite ? (
           <div className="flex items-center gap-2">
             {/* Bulk import needs the `bulk_operations` feature — the backend
-                bulk route 403s without it, so hide the entry when disabled. */}
-            {canBulk && (
+                bulk route 403s without it. Show the entry either way: enabled
+                when entitled, otherwise muted + lock-marked with the reason, so
+                the capability is discoverable instead of silently absent. */}
+            {canBulk ? (
               <Button variant="secondary" onClick={openBulkCreate}>
                 <Upload className="w-4 h-4 mr-2" />
                 Bulk import
               </Button>
+            ) : (
+              <FeatureLockedAction flag="bulk_operations" label="Bulk import" icon={Upload} />
             )}
             <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
               <Plus className="w-4 h-4 mr-2" />

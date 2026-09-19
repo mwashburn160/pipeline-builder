@@ -23,6 +23,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { Activity, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -39,6 +40,8 @@ import { downloadCsv, downloadJsonl, datedFilename } from '@/lib/csv-export';
 import { redactDetails } from '@/lib/redact';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { formatDateTime } from '@/lib/format';
 
 const DEFAULT_LIMIT = 50;
@@ -48,7 +51,7 @@ const DENIED_ACTION = 'authz.denied';
 
 export default function AuditPage() {
   const router = useRouter();
-  const { isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
+  const { accessDenied, isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
   const [selected, setSelected] = useState<AuditLogEvent | null>(null);
 
   // Hydrate filters from URL on first render. `action`, `actorId`,
@@ -104,7 +107,7 @@ export default function AuditPage() {
     // Guard against api surfaces that don't stub the org list (e.g. tests).
     if (typeof api.listOrganizations !== 'function') return;
     let cancelled = false;
-    api.listOrganizations({ limit: 200 }).then((res) => {
+    runQuery(queries.listOrganizations({ limit: 200 })).then((res) => {
       if (cancelled) return;
       if (res.success && res.data?.organizations) {
         const map = new Map<string, string>();
@@ -215,6 +218,7 @@ export default function AuditPage() {
     return () => { cancelled = true; };
   }, [isReady, filters]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

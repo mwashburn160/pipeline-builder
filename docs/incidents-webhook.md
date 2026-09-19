@@ -49,7 +49,7 @@ Two ways to mint one:
   Generate webhook token**. It asks you to re-confirm your identity — password, or a fresh sign-in with your
   provider ([step-up](authentication.md#step-up-re-authentication-every-account)) — and shows
   the key **once** — copy it immediately, since only its hash is stored. **To
-  rotate:** generate a new one and revoke the old key on the **API Tokens**
+  rotate:** generate a new one and revoke the old key on the **Security → Access keys**
   settings page; the old one stops working within five minutes. (Under the hood
   this is `POST /api/user/keys` with `{ scope: "reporting:ingest" }`.)
 - **CLI** — for the in-AWS-account event forwarder credential (a

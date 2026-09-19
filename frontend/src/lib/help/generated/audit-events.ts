@@ -192,6 +192,10 @@ export const auditEventsTopic: HelpTopic = {
               "user.totp.enrol — emitted TWICE, details.stage: 'started' when the secret is minted and 'activated' when a code confirms it, because a secret that was displayed and then abandoned is still a secret that left the building. user.totp.disable is the other end of the factor's life. user.totp.recovery_regenerate — the recovery sheet was replaced, so every previously issued code stopped working. user.totp.recovery_used — a recovery code was spent (details.context is login or step-up, details.remaining how many are left); its own action rather than a detail on the sign-in, because burning one usually means a lost device, and an attacker who obtained the sheet leaves exactly this trace. Wrong codes are user.login.failed with details.method: 'totp', so brute-force shows up on the same trail as password guessing"
             ],
             [
+              "Assurance & required MFA (#8)",
+              "auth.mfa.bootstrap_session — a sign-in used the bootstrap-administrator exception: the install's only admin holding a single-factor session because they have not enrolled one yet. details.late is true when it happened more than 24h after the system org was created, which is the alertable case (a fresh install finishes in minutes). auth.mfa.bootstrap_closed — their first enrolment closed the exception permanently. auth.mfa.operator_reset — an operator removed every factor from an account with the scripts/mfa-recover.js command; attributed to the named operator, never to the account, and it also bumps tokenVersion. org.mfa_policy.update — an org turned \"require MFA\" on or off, changed its grace period, or changed its statement that its IdP enforces MFA; details carries both sides of each transition"
+            ],
+            [
               "Access keys",
               "user.key.create, user.key.revoke, user.key.exchange, user.key.exchange.failed"
             ],
@@ -229,7 +233,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Dashboards & alerts",
-              "dashboard.create/update/delete/clone, alert.destination.create/update/delete/test, alert.rule.create/update/delete"
+              "dashboard.create/update/delete/restore/purge/clone, alert.destination.create/update/delete/restore/purge/test, alert.rule.create/update/delete/restore/purge. Delete is a SOFT delete: the row is restorable from \"recently deleted\" until the retention sweep hard-deletes it. …restore records bringing one back, …purge records destroying a tombstone by hand ahead of the sweep — both re-verify the actor's password (step-up) first"
             ],
             [
               "Admin / sysadmin",
@@ -268,6 +272,34 @@ export const auditEventsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Each record carries actorId/actorEmail, orgId (the actor's own org), and affectedOrgId (the org actually operated on). They diverge when a sysadmin acts on another org, so the trail answers \"what did a sysadmin do to org X?\" — SOC2 evidence for impersonation-style access (see Impersonation). admin.* actions and admin.impersonate.start set affectedOrgId to the target org so the affected org's own admins can see them."
+        },
+        {
+          "type": "text",
+          "content": "Log-surface egress"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Action",
+            "Emitted when",
+            "Details"
+          ],
+          "rows": [
+            [
+              "observability.logs.export",
+              "Someone downloads log content from Deliver → Logs",
+              "format, lines, bytes, truncated, from, to, filter, tenantCount"
+            ],
+            [
+              "observability.logs.cross-org-read",
+              "A system admin reads a Loki tenant other than _infra",
+              "tenantCount, context (search / context / raw)"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A log export is a cheap request with large egress that leaves the building, so it is audited like admin.org.export. The cross-org read is the log-surface counterpart to impersonation accountability: viewing another organization's data is recorded even though it changes nothing. See Logs."
         },
         {
           "type": "text",

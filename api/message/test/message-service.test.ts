@@ -548,6 +548,31 @@ describe('MessageService', () => {
       expect(keys[0]).toEqual(keys[1]);
       expect(keys[0]).not.toContain('user-a');
     });
+
+    it('filters the tab views by the search term and keys the cache on it', async () => {
+      // The inbox tabs are server-filtered, so they take the same free-text
+      // search the `/` inbox does. Two different terms must not share a cache
+      // entry (that would serve one search's page as another's).
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, 'outage');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, 'release');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
+
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(new Set(keys).size).toBe(3);
+      expect(keys[0]).toContain('outage');
+
+      // …and the term reaches the query as a filter, not just the cache key.
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ messageType: 'announcement', search: 'outage' }),
+        'org-1',
+        expect.any(Object),
+      );
+      // No term ⇒ no `search` key at all (an empty filter, not `search: ''`).
+      expect(mockFindPaginated.mock.calls[2][0]).not.toHaveProperty('search');
+    });
   });
 
   // -------------------------------------------------------------------------

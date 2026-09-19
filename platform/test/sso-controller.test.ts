@@ -7,7 +7,11 @@
  *     org + nonce; handleSsoCallback consumes it once; a replay is rejected.
  *   - callback org binding: a state minted for org A can't be replayed on org B.
  *   - discover: returns ONLY `{ sso: boolean }` — never the internal orgId /
- *     provider (the enumeration-oracle fix, C2).
+ *     provider (the enumeration-oracle fix, C2), and never `true` for a
+ *     bootstrap admin, whose password path must stay open.
+ *   - startSsoLogin: the login page's by-EMAIL initiate — resolves the enforcing
+ *     org server-side so the same `{ url, state }` comes back without discover
+ *     ever having to name a tenant.
  *
  * The pending-state store runs its in-memory fallback (redis-client mocked to
  * return undefined), so the mint→consume round-trip stays within-process.
@@ -19,6 +23,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetEnforcedIdpProtocol = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'oidc');
 const mockFindSsoEnforcementForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockIsBootstrapSuperAdmin = jest.fn<(...a: unknown[]) => boolean>(() => false);
 const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
 const mockExchangeAndValidate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -44,6 +49,12 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+
+// The bootstrap-admin carve-out `discover` shares with password login: SSO
+// refuses superadmins, so the login page must keep their password field.
+jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({
+  isBootstrapSuperAdminEmail: (...a: unknown[]) => mockIsBootstrapSuperAdmin(...a),
+}));
 
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedLoginConfig: (...a: unknown[]) => mockGetEnforcedLoginConfig(...a),
@@ -118,7 +129,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
     },
 }));
 
-const { getSsoAuthUrl, handleSsoCallback, discoverSso } = await import('../src/controllers/sso.js');
+const { getSsoAuthUrl, handleSsoCallback, discoverSso, startSsoLogin } = await import('../src/controllers/sso.js');
 
 function makeRes() {
   const res: any = {};
@@ -318,5 +329,68 @@ describe('discoverSso (enumeration-oracle fix, C2)', () => {
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@personal.com' } }, res);
     expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false });
+  });
+
+  it('never hides the password field from a bootstrap admin (SSO refuses them)', async () => {
+    mockIsBootstrapSuperAdmin.mockReturnValue(true);
+    const res = makeRes();
+    await (discoverSso as any)({ body: { email: 'admin@corp.com' } }, res);
+
+    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false });
+    // Not even looked up: both sign-in paths closing would leave no way in.
+    expect(mockFindSsoEnforcementForEmail).not.toHaveBeenCalled();
+    mockIsBootstrapSuperAdmin.mockReturnValue(false);
+  });
+});
+
+describe('startSsoLogin (the login page starts by EMAIL)', () => {
+  it('resolves the org server-side and returns the IdP redirect, naming no org', async () => {
+    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta', protocol: 'oidc' });
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'okta' });
+    mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
+    const res = makeRes();
+
+    await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
+
+    const body = (res.json as jest.Mock).mock.calls[0][0];
+    expect(body.url).toBe('https://idp.test/authorize');
+    expect(typeof body.state).toBe('string');
+    expect(Object.keys(body).sort()).toEqual(['state', 'url']);
+  });
+
+  it('mints a state the callback accepts for that org', async () => {
+    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'okta' });
+    mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
+    const startRes = makeRes();
+    await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, startRes);
+    const state = (startRes.json as jest.Mock).mock.calls[0][0].state as string;
+
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', email: 'a@corp.com', issuer: 'https://idp.test', groups: [] });
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1', email: 'a@corp.com' });
+    const res = makeRes();
+    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('refuses a domain no org federates, rather than becoming a second oracle', async () => {
+    mockFindSsoEnforcementForEmail.mockResolvedValue(null);
+    const res = makeRes();
+
+    await (startSsoLogin as any)({ body: { email: 'a@personal.com' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(mockBuildAuthorizeUrl).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a disabled/unentitled config as its typed OIDC status', async () => {
+    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
+    mockGetEnforcedIdpProtocol.mockRejectedValueOnce(new Error('OIDC_DISABLED'));
+    const res = makeRes();
+
+    await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 });

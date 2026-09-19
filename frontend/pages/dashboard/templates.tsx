@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -56,7 +57,7 @@ function coerceValue(type: TemplateInput['type'], raw: string | boolean): string
  * path, so compliance + quota still apply).
  */
 export default function TemplatesPage() {
-  const { user, isReady, can } = useAuthGuard();
+  const { accessDenied, user, isReady, can } = useAuthGuard();
   const toast = useToast();
   const router = useRouter();
   // Authoring a template is `templates:*`; INSTANTIATING one creates a pipeline,
@@ -230,6 +231,7 @@ export default function TemplatesPage() {
 
   const gallery = useMemo(() => templates, [templates]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

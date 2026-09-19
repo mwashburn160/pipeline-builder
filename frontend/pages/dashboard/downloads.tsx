@@ -95,7 +95,7 @@ export default function DownloadsPage() {
               <div className="flex-1">
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   Generate an API token from the{' '}
-                  <Link href="/dashboard/tokens" className="action-link">API Tokens</Link> page.
+                  <Link href="/dashboard/security?tab=keys" className="action-link">Security → Access keys</Link> page.
                 </p>
               </div>
             </div>
@@ -173,9 +173,9 @@ export default function DownloadsPage() {
             <ExternalLink className="w-4 h-4" />
             CLI Reference
           </LinkButton>
-          <LinkButton href="/dashboard/tokens" variant="secondary">
+          <LinkButton href="/dashboard/security?tab=keys" variant="secondary">
             <ExternalLink className="w-4 h-4" />
-            API Tokens
+            Access keys
           </LinkButton>
         </motion.div>
       </div>

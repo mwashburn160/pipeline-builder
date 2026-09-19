@@ -129,6 +129,9 @@ export interface AlertDestination {
   label: string;
   minSeverity: 'warning' | 'critical';
   enabled: boolean;
+  /** Set only on rows from the deleted listing (soft-delete tombstones). */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface AlertDestinationsResponse {
@@ -172,6 +175,9 @@ export interface AlertRule {
   description: string;
   /** Disabled rules don't materialize into Prometheus. */
   enabled: boolean;
+  /** Set only on rows from the deleted listing (soft-delete tombstones). */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface AlertRulesResponse {
@@ -221,6 +227,9 @@ export interface Dashboard {
   description: string | null;
   layoutJson: Record<string, { x: number; y: number; w: number; h: number; minW?: number; minH?: number }>;
   visibility: 'private' | 'org' | 'public';
+  /** Set only on rows from the deleted listing (soft-delete tombstones). */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 /** Dashboard + its panels in render order — the shape `GET /:id` returns. */

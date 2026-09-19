@@ -1,12 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, ShieldCheck } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { ShieldCheck } from 'lucide-react';
 import { Callout } from '@/components/ui/Callout';
-import { CopyButton } from '@/components/ui/CopyButton';
-import { buttonClasses } from '@/components/ui/buttonClasses';
+import { SecretActions } from '@/components/ui/SecretActions';
 
 /**
  * The one and only showing of a set of recovery codes.
@@ -14,10 +11,8 @@ import { buttonClasses } from '@/components/ui/buttonClasses';
  * They are stored hashed, so this is genuinely the last time they exist in
  * readable form — which is why the panel is loud, offers both copy and download,
  * and makes the person acknowledge before it goes away rather than closing on
- * the next render.
- *
- * The download is a client-side blob: the codes never take a second trip to the
- * server just to be turned into a file.
+ * the next render. That action row is {@link SecretActions}, shared with every
+ * other one-time secret the app reveals.
  */
 export function RecoveryCodes({
   codes,
@@ -29,29 +24,6 @@ export function RecoveryCodes({
   title?: string;
 }) {
   const asText = codes.join('\n');
-  const [href, setHref] = useState<string | null>(null);
-  // Kept so the previous object URL is revoked when the codes change — a blob
-  // held open is the whole secret sitting in browser memory.
-  const urlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const blob = new Blob(
-      [`Pipeline Builder recovery codes\n\nEach code works once. Keep them somewhere you can reach without this device.\n\n${asText}\n`],
-      { type: 'text/plain' },
-    );
-    const url = URL.createObjectURL(blob);
-    urlRef.current = url;
-    setHref(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      urlRef.current = null;
-    };
-  }, [asText]);
-
-  const done = useCallback(() => {
-    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    onDone();
-  }, [onDone]);
 
   return (
     <div className="space-y-3">
@@ -68,21 +40,13 @@ export function RecoveryCodes({
         {codes.map((code) => <li key={code}>{code}</li>)}
       </ul>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <CopyButton text={asText} />
-        {href && (
-          <a
-            href={href}
-            download="pipeline-builder-recovery-codes.txt"
-            className={buttonClasses('outline', 'xs', false, 'inline-flex items-center')}
-          >
-            <Download className="w-3.5 h-3.5 mr-1.5" /> Download
-          </a>
-        )}
-        <Button variant="primary" size="sm" onClick={done} className="ml-auto">
-          I&apos;ve saved them
-        </Button>
-      </div>
+      <SecretActions
+        text={asText}
+        filename="pipeline-builder-recovery-codes.txt"
+        fileHeader={'Pipeline Builder recovery codes\n\nEach code works once. Keep them somewhere you can reach without this device.'}
+        onDone={onDone}
+        doneLabel="I've saved them"
+      />
     </div>
   );
 }

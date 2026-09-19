@@ -5,6 +5,7 @@
  * Per-org SSO login surface.
  *
  *   GET  /auth/sso/:orgId/authorize  → { url, state }  (initiate — redirect to IdP)
+ *   POST /auth/sso/start             → { url, state }  (same, resolved from an email)
  *   POST /auth/sso/:orgId/callback   → tokens          (exchange code + validate id_token)
  *   POST /auth/sso/discover          → { sso }          (is this email forced through SSO?)
  *
@@ -24,10 +25,11 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { beginSamlLogin } from './saml.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
+import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
 import { idpEnforcesMfa, MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
@@ -74,22 +76,17 @@ const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string;
 // Route handlers
 
 /**
- * GET /auth/sso/:orgId/authorize — initiate the OIDC authorization-code flow.
- * Resolves + validates the org's enforced IdP config (enabled + entitled),
- * mints a one-time state + nonce, and returns the IdP authorize URL for the
- * browser to redirect to. Discovery runs here so an unreachable IdP fails now.
+ * Begin a login against `orgId`'s enforced IdP and return the redirect the
+ * browser needs — `{ url, state }` on either protocol.
+ *
+ * One entry point, two protocols (#4). The client redirects to `url` either way
+ * and never has to know which one its org federates over; where the browser
+ * comes BACK to differs (the OIDC callback page vs the SAML ACS) and is decided
+ * by what we register with the IdP, not by the client. Discovery runs here so an
+ * unreachable IdP fails now, before the browser leaves.
  */
-export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
-  const orgId = getParam(req.params, 'orgId')!;
-
-  // One entry point, two protocols (#4). The client redirects to `url` either
-  // way and never has to know which one its org federates over; where the
-  // browser comes BACK to differs (the OIDC callback page vs the SAML ACS) and
-  // is decided by what we register with the IdP, not by the client.
-  if (await getEnforcedIdpProtocol(orgId) === 'saml') {
-    sendSuccess(res, 200, await beginSamlLogin(orgId));
-    return;
-  }
+async function beginSsoLogin(orgId: string): Promise<{ url: string; state: string }> {
+  if (await getEnforcedIdpProtocol(orgId) === 'saml') return beginSamlLogin(orgId);
 
   const cfg = await getEnforcedLoginConfig(orgId);
 
@@ -99,7 +96,44 @@ export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
 
   await pendingSsoStates.put(state, { orgId, nonce, ...(codeVerifier && { codeVerifier }) });
 
-  sendSuccess(res, 200, { url, state });
+  return { url, state };
+}
+
+/**
+ * GET /auth/sso/:orgId/authorize — initiate the flow for a KNOWN org. The org
+ * handle reaches the client through the `SSO_REQUIRED` login rejection (or a
+ * step-up, where the session already names the org), never through `discover`.
+ */
+export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
+  sendSuccess(res, 200, await beginSsoLogin(getParam(req.params, 'orgId')!));
+}, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
+
+/**
+ * POST /auth/sso/start — initiate the flow for an EMAIL, for a login page that
+ * has only what the person typed.
+ *
+ * This exists so the sign-in form can offer SSO without ever being told which
+ * org backs the domain: the enforcement lookup happens here, and the response is
+ * the same `{ url, state }` the by-org route returns. `discover` therefore stays
+ * a bare `{ sso: boolean }` (C2, the enumeration-oracle fix) — the org handle is
+ * never handed to an anonymous caller, only baked into a redirect the person
+ * asked for by clicking.
+ *
+ * A domain no enabled + entitled IdP covers is refused: it is the password
+ * path's job to sign those people in, and answering with anything else here
+ * would make this a second, quieter discovery oracle.
+ */
+export const startSsoLogin = withController('Start SSO', async (req, res) => {
+  const body = validateBody(ssoDiscoverSchema, req.body, res);
+  if (!body) return;
+
+  const enforcement = await findSsoEnforcementForEmail(body.email);
+  if (!enforcement) {
+    sendError(res, 404, 'Single sign-on is not available for this email address.', 'SSO_NOT_ENFORCED');
+    return;
+  }
+
+  sendSuccess(res, 200, await beginSsoLogin(enforcement.orgId));
 }, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /** Label a failed provisioning attempt for the audit row + metric. Only the seat
@@ -248,16 +282,26 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
  * It deliberately does NOT leak the internal `orgId` or IdP `provider`: this
  * endpoint is anonymous, so returning those turned it into an enumeration oracle
  * (any caller could probe which domains are SSO-enforced AND harvest internal
- * org identifiers). The org handle the initiate flow needs is delivered ONLY
- * through the authenticated-attempt path: a covered account's login is rejected
- * with `SSO_REQUIRED` + `{ orgId, provider }` (controllers/auth.ts +
- * controllers/oauth.ts), which is where the UI picks up the org to initiate
- * against. No current caller consumes discover's org fields.
+ * org identifiers). The sign-in form does not need them either — it hides the
+ * password field on a `true` and starts the flow through `POST /auth/sso/start`,
+ * which resolves the org server-side. Where the org IS already known (a password
+ * attempt refused with `SSO_REQUIRED` + `{ orgId, provider }`, or a step-up), the
+ * by-org initiate route is used instead.
+ *
+ * The answer is about the DOMAIN, never the address: an address with no account
+ * gets exactly the same answer as one with an account on it.
  */
 export const discoverSso = withController('Discover SSO', async (req, res) => {
   const body = validateBody(ssoDiscoverSchema, req.body, res);
   if (!body) return;
 
-  const enforcement = await findSsoEnforcementForEmail(body.email);
+  // Same bootstrap-admin carve-out the password login makes (controllers/auth.ts):
+  // SSO refuses superadmins outright, so telling the login page to hide the
+  // password field for this address would close BOTH sign-in paths and leave the
+  // install with no way in. Reflects a decision about the CALLER'S OWN address;
+  // it reveals nothing they did not already type.
+  const enforcement = isBootstrapSuperAdminEmail(body.email)
+    ? null
+    : await findSsoEnforcementForEmail(body.email);
   sendSuccess(res, 200, { sso: !!enforcement });
 });

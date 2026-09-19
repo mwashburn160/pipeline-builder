@@ -17,6 +17,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { SESSIONS_HREF } from '@/lib/security-links';
 import { ApiError } from '@/lib/api/errors';
 import type { DeviceAuthorizationRequest } from '@/lib/api/domains/auth';
 
@@ -171,9 +172,10 @@ export default function DeviceApprovalPage() {
         <p className="font-bold">Device approved</p>
         <p className="text-sm text-[var(--pb-text-muted)] mt-1">
           Return to your terminal — it finishes signing in within a few seconds. The session shows up under
-          Sessions and devices in settings, where you can sign it out again.
+          Security → Sessions, where you can sign it out again.
         </p>
-        <Link href="/dashboard/settings" className="btn btn-secondary btn-full text-sm mt-4">Sessions and devices</Link>
+        {/* The sessions list itself, not the Profile page it used to point at. */}
+        <Link href={SESSIONS_HREF} className="btn btn-secondary btn-full text-sm mt-4">Sessions and devices</Link>
       </div>,
     );
   }

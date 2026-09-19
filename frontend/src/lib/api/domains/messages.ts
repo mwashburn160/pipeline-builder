@@ -44,6 +44,21 @@ export function messagesApi(core: ApiCore) {
       return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${buildQuery(params)}`);
     },
 
+    /**
+     * List ANNOUNCEMENTS only — the dedicated, server-filtered endpoint behind
+     * the inbox's "Announcements" tab. Paginated in its own right (its own
+     * `total`/`hasMore`), so a tab is never limited to whatever the mixed inbox
+     * happened to have loaded. Accepts the same free-text `search`.
+     */
+    getAnnouncements: async (params?: { search?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
+      return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages/announcements${buildQuery(params)}`);
+    },
+
+    /** List CONVERSATIONS only — the counterpart of {@link getAnnouncements}. */
+    getConversations: async (params?: { search?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
+      return core.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages/conversations${buildQuery(params)}`);
+    },
+
     /** Get unread message count */
     getUnreadCount: async () => {
       return core.request<ApiResponse<{ count: number }>>('/api/messages/unread/count');

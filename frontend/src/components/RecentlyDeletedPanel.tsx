@@ -16,6 +16,7 @@ import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { Pipeline, Plugin, Message, PipelineTemplate } from '@/types';
 import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
+import type { Dashboard, AlertRule, AlertDestination } from '@/types/observability';
 
 /** The subset of a soft-deleted pipeline/plugin the panel renders. */
 interface DeletedRow {
@@ -39,11 +40,15 @@ const VISIBILITY_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray'> = {
 
 /**
  * Resources this panel supports. A resource qualifies ONLY if the backend
- * exposes BOTH a list-deleted (`GET …/deleted`) route AND a restore
- * (`POST …/:id/restore`) route — the panel is list-driven, so a resource with
- * only restore-by-id cannot appear here.
+ * exposes ALL THREE of list-deleted (`GET …/deleted`), restore
+ * (`POST …/:id/restore`) and purge (`POST …/:id/purge`) — the panel is
+ * list-driven, so a resource with only restore-by-id cannot appear here, and
+ * every row offers both actions.
  */
-type Resource = 'pipeline' | 'plugin' | 'template' | 'message' | 'compliance-rule' | 'compliance-policy';
+type Resource =
+  | 'pipeline' | 'plugin' | 'template' | 'message'
+  | 'compliance-rule' | 'compliance-policy'
+  | 'dashboard' | 'alert-rule' | 'alert-destination';
 
 /**
  * Per-resource registry: labels + a list-deleted loader (throws on failure so
@@ -83,6 +88,24 @@ function ruleToRow(r: ComplianceRule): DeletedRow {
 
 function policyToRow(p: CompliancePolicy): DeletedRow {
   return { id: p.id, name: p.name || p.id, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+}
+
+function dashboardToRow(d: Dashboard): DeletedRow {
+  // Dashboards ride the same 3-rung visibility ladder as pipelines/plugins, so
+  // the Visibility badge is meaningful here.
+  return { id: d.id, name: d.name || d.id, visibility: d.visibility, createdBy: d.createdBy, deletedAt: d.deletedAt, deletedBy: d.deletedBy };
+}
+
+function alertRuleToRow(r: AlertRule): DeletedRow {
+  // Alert rules/destinations are plain per-org rows (no sharing rung) — the
+  // Visibility column renders empty for them.
+  return { id: r.id, name: r.name || r.id, deletedAt: r.deletedAt, deletedBy: r.deletedBy };
+}
+
+function alertDestinationToRow(d: AlertDestination): DeletedRow {
+  // Name is the operator's label; the channel qualifies it so two same-labelled
+  // destinations are distinguishable. The masked target is deliberately not shown.
+  return { id: d.id, name: `${d.label || d.id} (${d.channel})`, deletedAt: d.deletedAt, deletedBy: d.deletedBy };
 }
 
 const RESOURCES: Record<Resource, ResourceConfig> = {
@@ -145,6 +168,36 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
     },
     restore: (id, stepUpToken) => api.restoreCompliancePolicy(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeCompliancePolicy(id, stepUpToken),
+  },
+  dashboard: {
+    labels: { singular: 'dashboard', plural: 'dashboards' },
+    load: async () => {
+      const res = await api.listDeletedDashboards();
+      if (res.success && res.data) return res.data.dashboards.map(dashboardToRow);
+      throw new Error('Failed to load deleted dashboards');
+    },
+    restore: (id, stepUpToken) => api.restoreDashboard(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeDashboard(id, stepUpToken),
+  },
+  'alert-rule': {
+    labels: { singular: 'alert rule', plural: 'alert rules' },
+    load: async () => {
+      const res = await api.listDeletedAlertRules();
+      if (res.success && res.data) return res.data.rules.map(alertRuleToRow);
+      throw new Error('Failed to load deleted alert rules');
+    },
+    restore: (id, stepUpToken) => api.restoreAlertRule(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeAlertRule(id, stepUpToken),
+  },
+  'alert-destination': {
+    labels: { singular: 'alert destination', plural: 'alert destinations' },
+    load: async () => {
+      const res = await api.listDeletedAlertDestinations();
+      if (res.success && res.data) return res.data.destinations.map(alertDestinationToRow);
+      throw new Error('Failed to load deleted alert destinations');
+    },
+    restore: (id, stepUpToken) => api.restoreAlertDestination(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeAlertDestination(id, stepUpToken),
   },
 };
 

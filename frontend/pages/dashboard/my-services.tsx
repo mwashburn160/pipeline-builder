@@ -71,7 +71,7 @@ export default function MyServicesPage() {
   const pipelinesList = useListPage<Pipeline>({
     fields: [{ key: 'lifecycle', type: 'select', defaultValue: '' }],
     initialSort: { sortBy: 'updatedAt', sortOrder: 'desc' },
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       const p: Record<string, string> = {
         ownerId: ownerId as string,
         limit: params.limit,
@@ -81,7 +81,7 @@ export default function MyServicesPage() {
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
       if (params.lifecycle) p.lifecycle = params.lifecycle;
-      const res = await api.listPipelines(p);
+      const res = await api.listPipelines(p, { signal });
       return { items: res.data?.pipelines || [], pagination: res.data?.pagination };
     },
     enabled,

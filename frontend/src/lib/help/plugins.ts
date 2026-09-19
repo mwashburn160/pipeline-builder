@@ -12,35 +12,9 @@ export interface PluginEntry {
   secrets: string[];
 }
 
-/** Canonical lowercase category IDs matching plugin-spec.yaml and report-schema.json. */
-export const PLUGIN_CATEGORIES = [
-  'language',
-  'security',
-  'quality',
-  'monitoring',
-  'artifact',
-  'deploy',
-  'infrastructure',
-  'testing',
-  'notification',
-  'ai',
-] as const;
-
-export type PluginCategory = typeof PLUGIN_CATEGORIES[number];
-
-/** Display labels for categories in the UI. */
-export const CATEGORY_DISPLAY_NAMES: Record<PluginCategory, string> = {
-  language: 'Language',
-  security: 'Security',
-  quality: 'Quality',
-  monitoring: 'Monitoring',
-  artifact: 'Artifact & Registry',
-  deploy: 'Deploy',
-  infrastructure: 'Infrastructure',
-  testing: 'Testing',
-  notification: 'Notification',
-  ai: 'AI',
-};
+// The category vocabulary itself lives in `@/lib/plugin-categories`: it is read
+// by `usePlugins` (and therefore by the provider tree on every route), and must
+// not drag this file's help corpus along with it.
 
 export const PLUGIN_CATALOG: PluginEntry[] = [
   // Language (12)

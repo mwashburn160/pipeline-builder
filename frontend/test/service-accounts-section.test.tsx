@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The service-accounts panel (Dashboard → Settings → Service Accounts).
+ * The service-accounts panel (Dashboard → Security → Service accounts).
  *
  * What the page has to get right is what people get wrong about machine
  * identities, so that is what is pinned here:
@@ -11,7 +11,8 @@
  *     step-up — nothing is sent until the person re-confirms;
  *   - the billing rule is STATED (no seat, own token budget), not implied;
  *   - an optional IP allowlist reaches the API as a list, not a raw string;
- *   - deleting an account is confirmed first, and says how many keys die with it.
+ *   - ONE dialog per decision: the step-up dialog is also the confirmation, and
+ *     role edits are a BATCH saved once rather than a step-up per checkbox.
  */
 
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -43,11 +44,18 @@ jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
   useToast: () => ({ success: jest.fn(), error: toastError, warning: jest.fn(), info: jest.fn() }),
 }));
+let lastStepUpTitle = '';
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ onConfirmed }: { onConfirmed: (t: string) => void }) => (
-    <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>
-  ),
+  StepUpModal: ({ title, details, onConfirmed }: { title?: string; details?: React.ReactNode; onConfirmed: (t: string) => void }) => {
+    lastStepUpTitle = title ?? '';
+    return (
+      <div>
+        <div data-testid="stepup-details">{details}</div>
+        <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>
+      </div>
+    );
+  },
 }));
 
 const DAY = 86_400_000;
@@ -100,6 +108,7 @@ function account(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  lastStepUpTitle = '';
   listServiceAccounts.mockResolvedValue({
     success: true,
     data: {
@@ -191,33 +200,65 @@ describe('ServiceAccountsSection', () => {
     expect(createServiceAccountKey).not.toHaveBeenCalled();
   });
 
-  it('changes a role set through step-up, sending the whole set', async () => {
+  it('batches role edits: ticking a box sends nothing until Save', async () => {
     updateServiceAccount.mockResolvedValue({ success: true, data: { serviceAccount: account({ roles: [] }) } });
     render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
 
     // The per-account checkbox (labelled with the account) — unticking Admin
-    // sends the REMAINING set, since roles are replaced as a whole.
+    // edits a DRAFT. A step-up per click meant three re-verifications to grant
+    // three roles, and a half-applied set if you abandoned one.
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Admin for ci-deploy' }));
+    expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
+    expect(updateServiceAccount).not.toHaveBeenCalled();
+
+    // Save opens the one dialog, and sends the whole set (roles are replaced).
+    fireEvent.click(screen.getByRole('button', { name: /save roles/i }));
+    expect(lastStepUpTitle).toMatch(/roles/i);
     fireEvent.click(await screen.findByTestId('stepup-modal'));
 
     await waitFor(() => expect(updateServiceAccount).toHaveBeenCalledWith(
       'org-1', 'sa-1', { roleIds: [] }, 'step-up-token',
     ));
+    expect(updateServiceAccount).toHaveBeenCalledTimes(1);
   });
 
-  it('confirms a delete and says what goes with it', async () => {
+  it('discards an unsaved role edit without sending anything', async () => {
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Admin for ci-deploy' }));
+    fireEvent.click(screen.getByRole('button', { name: /discard/i }));
+
+    expect(screen.queryByRole('button', { name: /save roles/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Admin for ci-deploy' })).toBeChecked();
+    expect(updateServiceAccount).not.toHaveBeenCalled();
+  });
+
+  it('deletes from ONE dialog that says what goes with it', async () => {
     deleteServiceAccount.mockResolvedValue({ success: true });
     render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /delete/i }));
     expect(deleteServiceAccount).not.toHaveBeenCalled();
-
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/all 1 of its keys/i)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+    expect(lastStepUpTitle).toMatch(/delete this service account\?/i);
+    expect(await screen.findByTestId('stepup-details')).toHaveTextContent(/all 1 of its keys/i);
 
     fireEvent.click(await screen.findByTestId('stepup-modal'));
     await waitFor(() => expect(deleteServiceAccount).toHaveBeenCalledWith('org-1', 'sa-1', 'step-up-token'));
+  });
+
+  it('shows a machine key with the same hygiene flags as a personal one', async () => {
+    // The hand-rolled key rows here used to omit never-used / expiring-soon —
+    // on exactly the credentials most likely to be stale.
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+    expect(await screen.findByText('pb_sa_…c3d4')).toBeInTheDocument();
+    // The badge, not the account's "never used" summary line.
+    expect(screen.getByTitle(/this key has never been used/i)).toBeInTheDocument();
+  });
+
+  it('offers an empty state, not a bare sentence, when there are no accounts', async () => {
+    listServiceAccounts.mockResolvedValue({ success: true, data: { serviceAccounts: [], billing: null } });
+    render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
+    expect(await screen.findByText('No service accounts yet')).toBeInTheDocument();
   });
 
   it('revokes one key after confirmation, without step-up', async () => {
@@ -239,6 +280,6 @@ describe('ServiceAccountsSection', () => {
     render(<ServiceAccountsSection orgId="org-1" readOnly={false} />);
 
     expect(await screen.findByText(/failed to load service accounts/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no service accounts yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('No service accounts yet')).not.toBeInTheDocument();
   });
 });

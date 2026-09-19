@@ -55,6 +55,9 @@ export function toastModule() {
 /** The subset of `useAuthGuard()` page tests read. Extra keys pass through. */
 export interface PageAuthGuard {
   isReady: boolean;
+  /** Set to a denial (see `AccessDenial`) to exercise a page's access-denied
+   *  render; `null` (the default) is "the route's read gate passed". */
+  accessDenied: { kind: 'permission' | 'admin' | 'systemAdmin'; permission?: string; pathname: string } | null;
   isAuthenticated: boolean;
   isSuperAdmin: boolean;
   isOrgAdminUser: boolean;
@@ -67,6 +70,7 @@ export interface PageAuthGuard {
 
 const defaults = (): PageAuthGuard => ({
   isReady: true,
+  accessDenied: null,
   isAuthenticated: true,
   isSuperAdmin: false,
   isOrgAdminUser: false,

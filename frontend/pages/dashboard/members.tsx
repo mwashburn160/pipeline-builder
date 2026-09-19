@@ -1,8 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { UserPlus, Users, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { hasPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
 import { useListPage } from '@/hooks/useListPage';
@@ -35,11 +36,12 @@ import { TransferOwnershipModal } from '@/components/members/TransferOwnershipMo
 import { buildMemberColumns } from '@/components/members/memberColumns';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 
 export default function MembersPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'members:manage' });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'members:manage' });
   // Capability to manage members — role admins/owners hold it via their bundle,
   // and so do custom-role members granted `members:manage`. `can()` is
   // read-only-aware (false under read-only impersonation) — use it for the WRITE
@@ -69,7 +71,7 @@ export default function MembersPage() {
     // backend (a client sort would only order the visible page). Defaults to the
     // username column shown selected in the table.
     initialSort: { sortBy: 'username', sortOrder: 'asc' },
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       if (!orgId) return { items: [] };
       const res = await api.getOrganizationMembers(orgId, {
         ...(params.search ? { search: params.search } : {}),
@@ -79,7 +81,7 @@ export default function MembersPage() {
         ...(params.sortOrder ? { sortOrder: params.sortOrder as 'asc' | 'desc' } : {}),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
-      });
+      }, { signal });
       return { items: res.data?.members || [], pagination: res.data?.pagination };
     },
     enabled: isAuthenticated && canViewMembers && !!orgId,
@@ -89,6 +91,20 @@ export default function MembersPage() {
   // membership `joinedAt`.
   const MEMBER_SORT_MAP: Record<string, string> = { username: 'username', role: 'role', status: 'status', joined: 'joinedAt' };
   const members = list.data;
+
+  /**
+   * Reload the roster after a write.
+   *
+   * This page's own list is uncached (a filtered, paged view must never serve a
+   * stale window), but the SHARED member reads — the dashboard home's count
+   * probe, the org-admin card, the compliance recipient picker, the pipeline
+   * detail's owner-name map — are, so a write here has to drop them too.
+   */
+  const { refresh: refreshList } = list;
+  const refreshRoster = useCallback(() => {
+    invalidate.orgMembers(orgId);
+    refreshList();
+  }, [orgId, refreshList]);
 
   // Add member
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -110,7 +126,7 @@ export default function MembersPage() {
     orgId,
     canManageRoles,
     isAuthenticated,
-    onRolesChanged: () => list.refresh(),
+    onRolesChanged: () => refreshRoster(),
   });
 
   // Create organization
@@ -226,7 +242,7 @@ export default function MembersPage() {
       toast.success(`Ownership transferred to ${target.username}`);
       // The current user is no longer owner — refresh their role + the roster.
       await refreshUser();
-      list.refresh();
+      refreshRoster();
     } catch (err) {
       list.setError(formatError(err, 'Failed to transfer ownership'));
     } finally {
@@ -239,7 +255,7 @@ export default function MembersPage() {
     async (m) => {
       if (!orgId) return; // same guard the other handlers use — avoid sending `undefined` as the org id
       await api.removeMemberFromOrganization(orgId, m.id);
-      list.refresh();
+      refreshRoster();
     },
     undefined,
     () => list.setError('Failed to remove member'),
@@ -279,7 +295,7 @@ export default function MembersPage() {
       setAddEmail('');
       setAddSelectedTeams(new Set());
       setAddModalOpen(false);
-      list.refresh();
+      refreshRoster();
     }
   };
 
@@ -297,7 +313,7 @@ export default function MembersPage() {
         await api.activateMember(orgId, member.id);
       }
       toast.success(`${member.username} ${member.isActive ? 'deactivated' : 'activated'}`);
-      list.refresh();
+      refreshRoster();
     } catch {
       list.setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
     }
@@ -354,6 +370,7 @@ export default function MembersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

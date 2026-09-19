@@ -24,7 +24,6 @@ import {
   History,
   SlidersHorizontal,
   Bell,
-  Bot,
   Rocket,
   Landmark,
   Fingerprint,
@@ -54,7 +53,12 @@ export interface NavItem {
   systemAdminOnly?: boolean;
   /** Show only when the user holds this fine-grained permission (RBAC).
    *  Superadmins bypass. Preferred over `adminOnly` for capability-specific
-   *  items so custom-group grants reveal the right nav. */
+   *  items so custom-group grants reveal the right nav.
+   *
+   *  This is ALSO the page's read gate: `src/lib/page-access.ts` derives the
+   *  route's requirement from this exact declaration and `useAuthGuard` applies
+   *  it, so a deep link renders one honest "no access" state instead of the
+   *  chrome plus a 403 per panel. Hiding a link was never a gate. */
   requiredPermission?: string;
   /** Show only when this feature entitlement is enabled for the current user
    *  (per-user/tier feature flag, e.g. `sso`). Sourced from the FeaturesProvider
@@ -152,9 +156,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Insights',
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
-      // Observability is visible to any authenticated user. Server-side
-      // $ORG substitution scopes their view to their own org's metrics.
-      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3 },
+      // The landing page lists the dashboards the caller can see (GET /dashboards),
+      // which the platform gates on `dashboards:read` — in the member bundle, so
+      // every built-in role keeps it. Server-side $ORG substitution still scopes
+      // the metrics inside a dashboard to the viewer's own org.
+      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, requiredPermission: 'dashboards:read' },
     ],
   },
   {
@@ -213,20 +219,28 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Settings',
     items: [
-      { title: 'Profile', href: '/dashboard/settings', icon: Settings },
+      // "Profile & Organization", not "Profile": the item covers the org tab
+      // too, and calling the whole settings area "Profile" is what hid passkeys,
+      // TOTP and recovery codes behind a word that denies they exist. The
+      // credentials moved out to their own entry below.
+      { title: 'Profile & Organization', href: '/dashboard/settings', icon: Settings },
+      // ONE home for sign-in factors, sessions, access keys and the org's
+      // service accounts. `extraActivePaths` keeps it highlighted on the old
+      // addresses while they forward.
+      {
+        title: 'Security',
+        href: '/dashboard/security',
+        icon: ShieldCheck,
+        extraActivePaths: ['/dashboard/tokens', '/dashboard/settings/service-accounts'],
+      },
       // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
       { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso' },
-      // Org service accounts (#2): machine identities + their pb_sa_ keys. Gated
-      // by the dedicated `service_accounts:manage` permission — minting durable
-      // machine credentials is a different decision from managing the roster.
-      { title: 'Service Accounts', href: '/dashboard/settings/service-accounts', icon: Bot, requiredPermission: 'service_accounts:manage' },
       // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
       // config surface, gated on the `advanced_reporting` entitlement (like DORA).
       { title: 'Incident Reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
-      { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },
       { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },

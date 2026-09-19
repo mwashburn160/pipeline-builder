@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { GitBranch, Puzzle, AlertTriangle, Gauge, Trophy } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -12,8 +13,9 @@ import { PipelinesTab } from '@/components/reports/tabs/PipelinesTab';
 import { PluginsTab } from '@/components/reports/tabs/PluginsTab';
 import { DoraTab } from '@/components/reports/tabs/DoraTab';
 import { ScorecardTab } from '@/components/reports/tabs/ScorecardTab';
+import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import {
-  useReportRetention, type SharedFilters, type TabDataStatus,
+  useReportRetention, useIngestHealth, type SharedFilters, type TabDataStatus,
 } from '@/components/reports/useReportData';
 import { useFeatures } from '@/hooks/useFeatures';
 import { hasPermission } from '@/lib/auth-helpers';
@@ -93,7 +95,7 @@ function rangeCapFromError(error: string | null): number | null {
 
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
-  const { user, isReady, isAuthenticated, can, isReadOnly } = useAuthGuard({ requirePermission: 'reports:read' });
+  const { accessDenied, user, isReady, isAuthenticated, can, isReadOnly } = useAuthGuard({ requirePermission: 'reports:read' });
   // DORA / advanced delivery analytics is a paid-tier entitlement. Gates the tab
   // body (non-entitled → upsell teaser) and the fetches (skip to avoid a 403).
   const doraEnabled = useFeatures().isEnabled('advanced_reporting');
@@ -119,9 +121,18 @@ export default function ReportsPage() {
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const [hasTeams, setHasTeams] = useState(false);
   const canRollup = can('reports:rollup');
+  // The Scorecard roll-up reads GET /pipelines[/:id]/scorecard, which the pipeline
+  // service gates on `pipelines:read` — a custom role with `reports:read` but no
+  // pipeline read would be offered a tab that can only 403. Hide that one tab
+  // (the permission is not purchasable, so there is nothing to upsell).
+  const canReadPipelines = can('pipelines:read');
+  const visibleTopTabs = TOP_TABS.filter((t) => t.id !== 'scorecard' || canReadPipelines);
 
   // Per-tab effective date-range caps (event vs DORA retention), read once.
   const retention = useReportRetention();
+  // Ingestion freshness for the event-driven tabs — range-independent, so it is
+  // read once (and on manual refresh) rather than per filter change.
+  const ingest = useIngestHealth();
   // A per-tab cap the backend told us about (via a range error) that is TIGHTER
   // than the client's retention estimate — used as the safety-net clamp.
   const [serverCap, setServerCap] = useState<Partial<Record<TopTab, number>>>({});
@@ -169,6 +180,7 @@ export default function ReportsPage() {
     return () => { cancelled = true; };
   }, [isReady, activeOrgId, canRollup]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   const tabNoun = topTab === 'dora' ? 'DORA' : topTab === 'plugins' ? 'plugin' : 'pipeline';
@@ -226,7 +238,9 @@ export default function ReportsPage() {
           </FilterSelect>
           </>
           )}
-          <AutoRefresh onRefresh={status.refetch} loading={status.loading} />
+          {/* Refresh the active tab AND the freshness read — otherwise the strip
+              keeps asserting the state it saw on mount. */}
+          <AutoRefresh onRefresh={() => { status.refetch(); ingest.reload(); }} loading={status.loading} />
         </div>
       }
     >
@@ -234,7 +248,7 @@ export default function ReportsPage() {
 
         {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
         <div className="flex gap-2">
-          {TOP_TABS.map((tab) => {
+          {visibleTopTabs.map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
             return (
@@ -253,6 +267,15 @@ export default function ReportsPage() {
             );
           })}
         </div>
+
+        {/* Ingestion freshness — only on the tabs computed from ingested pipeline
+            events (Pipelines / DORA). Plugin build reports and the Scorecard roll-up
+            don't come through the event forwarder, so the strip would say nothing
+            about their data. It's what separates "nothing shipped this week" from
+            "we haven't heard from the ingest pipeline since Tuesday". */}
+        {(topTab === 'pipelines' || topTab === 'dora') && (
+          <IngestFreshness data={ingest.data} loading={ingest.loading} error={ingest.error} />
+        )}
 
         {/* Subtle clamp note — the requested window was narrowed to the tab's
             retention cap (a quiet inline note, NOT a red dead-end error). */}
@@ -279,7 +302,7 @@ export default function ReportsPage() {
           // a read-only session still SEES the controls, disabled with the reason.
           <DoraTab filters={filters} enabled={doraEnabled} canMark={hasPermission(user, 'pipelines:write')} markReadOnly={isReadOnly} onStatus={onStatus} />
         )}
-        {topTab === 'scorecard' && (
+        {topTab === 'scorecard' && canReadPipelines && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
         )}
 

@@ -5,10 +5,13 @@
  * Controllers for the dashboards CRUD surface.
  *
  *   GET    /api/dashboards         — list visible to caller (per-org + public)
+ *   GET    /api/dashboards/deleted — restorable tombstones ("recently deleted")
  *   GET    /api/dashboards/:id     — fetch one
  *   POST   /api/dashboards         — create (org-admin or sysadmin)
  *   PUT    /api/dashboards/:id     — update (creator | org-admin | sysadmin)
  *   DELETE /api/dashboards/:id     — soft delete (creator | org-admin | sysadmin)
+ *   POST   /api/dashboards/:id/restore — undo a soft delete (step-up gated)
+ *   POST   /api/dashboards/:id/purge   — permanent hard-delete (step-up gated)
  *   POST   /api/dashboards/:id/clone — fork into the caller's org as `private`
  *
  * Catalog enforcement: panel `queryKey` values are validated against the
@@ -310,6 +313,73 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
     details: { name: existing.name },
   });
   sendSuccess(res, 200, undefined, 'Dashboard deleted');
+});
+
+/**
+ * GET /api/dashboards/deleted — the caller's restorable tombstones.
+ *
+ * Same read capability as the live list (`dashboards:read` at the route) and the
+ * same per-row visibility, narrowed further to rows the caller could actually
+ * restore: the panel must not offer a Restore that the dynamic `canWrite` gate
+ * on `POST /:id/restore` would then 403. No renderable-panel filter here —
+ * panels are irrelevant to a tombstone you are deciding whether to bring back,
+ * and hiding restorable rows behind a catalog check would strand them.
+ */
+export const listDeletedDashboards = withController('List deleted dashboards', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+  const caller = getAdminContext(req);
+
+  const rows = await dashboardService.listDeleted({ orgId, userId, isSuperAdmin: caller.isSuperAdmin });
+  const writeCtx = {
+    orgId,
+    userId,
+    isSuperAdmin: caller.isSuperAdmin,
+    isOrgAdmin: userHasPermission(req, 'dashboards:write'),
+  };
+  const dashboards = rows.filter((d) => dashboardService.canWrite(d, writeCtx));
+  sendSuccess(res, 200, { dashboards });
+});
+
+/**
+ * POST /api/dashboards/:id/purge — PERMANENT hard-delete of a tombstone,
+ * finalizing now what the retention sweep would do at `purge_after`.
+ *
+ * Same authority as restore: the dynamic `canWrite` gate against the tombstone's
+ * own row, plus the route's step-up (re-verify before an irreversible
+ * destruction). 404 when the id is unknown or still live — a live dashboard has
+ * to be soft-deleted first and can never be destroyed in one call.
+ */
+export const purgeDashboard = withController('Purge dashboard', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+  const id = getParam(req.params, 'id')!;
+
+  const existing = await dashboardService.findDeletedById(id);
+  if (!existing) return sendError(res, 404, 'Dashboard not found');
+
+  const canWrite = dashboardService.canWrite(existing, {
+    orgId,
+    userId,
+    isSuperAdmin: isSystemAdmin(req),
+    isOrgAdmin: userHasPermission(req, 'dashboards:write'),
+  });
+  if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
+
+  const ok = await dashboardService.purgeById(id);
+  if (!ok) return sendError(res, 404, 'Dashboard not found');
+
+  // The quota slot was already released by delete — purging a tombstone frees
+  // nothing further, so there is deliberately no release here.
+  audit(req, 'dashboard.purge', {
+    targetType: 'dashboard',
+    targetId: id,
+    affectedOrgId: existing.orgId,
+    details: { name: existing.name },
+  });
+  sendSuccess(res, 200, undefined, 'Dashboard permanently deleted');
 });
 
 /** POST /api/dashboards/:id/restore — undo a soft-delete (step-up gated). */

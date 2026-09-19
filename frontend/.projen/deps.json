@@ -81,11 +81,6 @@
       "type": "runtime"
     },
     {
-      "name": "@pipeline-builder/api-server",
-      "version": "workspace:*",
-      "type": "runtime"
-    },
-    {
       "name": "@simplewebauthn/browser",
       "version": "14.0.0",
       "type": "runtime"

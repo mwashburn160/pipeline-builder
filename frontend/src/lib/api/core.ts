@@ -511,9 +511,23 @@ export class ApiCore {
       ...(options.headers as Record<string, string>),
     };
 
-    // Apply default timeout unless caller already provided an AbortSignal
-    const controller = options.signal ? undefined : new AbortController();
-    const timeoutId = controller ? setTimeout(() => controller.abort(`Request timeout after ${API_REQUEST_TIMEOUT_MS}ms`), API_REQUEST_TIMEOUT_MS) : undefined;
+    // One controller carries BOTH cancellation sources. A caller-supplied signal
+    // used to REPLACE the timeout entirely, so every cancellable call site
+    // silently opted out of the 30s bound and could hang forever; linking them
+    // means a caller can cancel AND the timeout still applies. The link is
+    // manual rather than `AbortSignal.any` because that is missing from the
+    // jsdom build the suites run under.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(`Request timeout after ${API_REQUEST_TIMEOUT_MS}ms`),
+      API_REQUEST_TIMEOUT_MS,
+    );
+    const callerSignal = options.signal;
+    const onCallerAbort = () => controller.abort(callerSignal!.reason);
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort(callerSignal.reason);
+      else callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
 
     const response = await fetch(url, {
       ...options,
@@ -524,9 +538,10 @@ export class ApiCore {
       // `response.json()` below then fails and the call looks like a failure
       // (e.g. "Failed to load organization"). `no-store` forces a full 200.
       cache: 'no-store',
-      signal: options.signal || controller?.signal,
+      signal: controller.signal,
     }).finally(() => {
-      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener('abort', onCallerAbort);
     });
 
     // Parse the JSON envelope. A parse failure is recorded — not papered over
@@ -563,7 +578,22 @@ export class ApiCore {
     if (statusCode === 401 && isStepUpErrorCode(data.code)) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('step-up-required', {
-          detail: { code: data.code, message: data.message, endpoint },
+          detail: {
+            code: data.code,
+            message: data.message,
+            endpoint,
+            // RESUME, don't re-ask. The refusal happened BEFORE the server did
+            // anything, so replaying the identical request with the fresh token
+            // is exactly what the user would do by hand — except they had to
+            // guess which control to click again. `retry` is what the global
+            // listener calls once the person re-verifies.
+            retry: (stepUpToken: string) => this.request<T>(
+              endpoint,
+              { ...options, headers: { ...(options.headers as Record<string, string>), ...this.stepUpHeader(stepUpToken) } },
+              _retryCount,
+              _refreshed,
+            ),
+          },
         }));
       }
       throw new StepUpRequiredError(

@@ -64,7 +64,7 @@ export default function ApiCatalogPage() {
           </p>
           <CodeBlock className="mt-3" language="http" code={'Authorization: Bearer <token>\nx-org-id: <your-organization-id>'} />
           <p className="mt-3 text-sm text-[var(--pb-text-muted)]">
-            Create a token on the <Link href="/dashboard/tokens" className="action-link">API Tokens</Link> page. Full endpoint details are in the{' '}
+            Create a token on the <Link href="/dashboard/security?tab=keys" className="action-link">Security → Access keys</Link> page. Full endpoint details are in the{' '}
             <Link href="/dashboard/help" className="action-link">API Reference</Link>.
           </p>
         </SectionCard>

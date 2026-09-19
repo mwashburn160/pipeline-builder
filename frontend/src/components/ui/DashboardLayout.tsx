@@ -20,6 +20,8 @@ import { MfaRequiredBanner } from './MfaRequiredBanner';
 import { MfaRequiredDialog } from './MfaRequiredDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { useToast } from './Toast';
+import { formatError } from '@/lib/constants';
 import { AskPanel } from '@/components/ask/AskPanel';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 import { usePolling } from '@/hooks/usePolling';
@@ -53,6 +55,7 @@ export function DashboardLayout({
   subtitle,
 }: DashboardLayoutProps) {
   const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
+  const toast = useToast();
   const { isLoaded: featuresLoaded, isEnabled } = useFeatures();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
@@ -66,23 +69,52 @@ export function DashboardLayout({
 
   // Global catch-all for stale step-up tokens. When a destructive API
   // call returns 401 STEP_UP_REQUIRED / INVALID / MISMATCH, the api
-  // client throws StepUpRequiredError AND dispatches `step-up-required`.
-  // We surface a modal here so a stale tab gets a clear re-prompt path
-  // instead of a confusing generic "Authentication required" toast.
-  // The modal acquires a fresh token; the user retries the action
-  // manually (no auto-replay — we don't safely know which fn to retry).
-  const [stepUpFallback, setStepUpFallback] = useState<{ message: string; code: string } | null>(null);
+  // client throws StepUpRequiredError AND dispatches `step-up-required`
+  // carrying a `retry` that replays the identical request with a fresh
+  // token. We surface a modal here so a stale tab gets a clear re-prompt
+  // instead of a confusing generic "Authentication required" toast — and
+  // then FINISH THE ACTION. Re-verifying and doing nothing left the person
+  // to guess which control had failed; the refusal happened before the
+  // server acted, so replaying it is safe.
+  const [stepUpFallback, setStepUpFallback] = useState<{
+    message: string;
+    code: string;
+    retry?: (stepUpToken: string) => Promise<unknown>;
+  } | null>(null);
+  const [resuming, setResuming] = useState(false);
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { message?: string; code?: string };
+      const detail = (e as CustomEvent).detail as {
+        message?: string;
+        code?: string;
+        retry?: (stepUpToken: string) => Promise<unknown>;
+      };
       setStepUpFallback({
         message: detail?.message || 'Step-up confirmation required',
         code: detail?.code || 'STEP_UP_REQUIRED',
+        ...(detail?.retry ? { retry: detail.retry } : {}),
       });
     };
     window.addEventListener('step-up-required', handler);
     return () => window.removeEventListener('step-up-required', handler);
   }, []);
+
+  /** Re-run the refused request with the fresh token, and say how it went. */
+  const resumeStepUpAction = async (stepUpToken: string) => {
+    const retry = stepUpFallback?.retry;
+    if (!retry) return; // The dialog has already said it can't be resumed.
+    setResuming(true);
+    try {
+      await retry(stepUpToken);
+      toast.success('Confirmed — the action completed.');
+    } catch (err) {
+      // Including a SECOND step-up refusal, which re-opens this dialog through
+      // the same event; showing the server's wording beats inventing one.
+      toast.error(formatError(err, 'The action could not be completed. Try it again.'));
+    } finally {
+      setResuming(false);
+    }
+  };
 
   // Global catch-all for an MFA refusal (#8). A route answered 401 MFA_REQUIRED
   // (the session is single-factor) or REAUTH_REQUIRED (it is strong but stale).
@@ -330,19 +362,28 @@ export function DashboardLayout({
         {/* Global step-up fallback. Fires when ANY api method returns
             401 with a STEP_UP_* code — i.e. the user clicked a
             destructive action without a fresh step-up token. The modal
-            obtains one; the user re-clicks the original action.
+            obtains one and then RESUMES the refused request, so the click
+            that started this finishes. A dispatch without a `retry` (the
+            SSE stream path, which cannot be replayed into its consumer)
+            says so in the dialog rather than closing on a silent no-op.
             STEP_UP_METHOD_REQUIRED means the route accepts only a SECOND
             FACTOR, so the modal hides the password and provider options. */}
         {stepUpFallback && (
           <StepUpModal
-            action={`Re-confirm to retry. ${stepUpFallback.message}`}
+            action={stepUpFallback.retry
+              ? `Confirm to finish what you started. ${stepUpFallback.message}`
+              : `Re-confirm to retry. ${stepUpFallback.message}`}
+            details={stepUpFallback.retry ? (
+              <p>Confirming here completes the action you just tried — you don&apos;t have to find it again.</p>
+            ) : (
+              <p>
+                This one can&apos;t be resumed automatically: confirming here refreshes your
+                verification, then start the action again from where you were.
+              </p>
+            )}
             requireStrongFactor={stepUpFallback.code === 'STEP_UP_METHOD_REQUIRED'}
-            onConfirmed={() => {
-              // The token is fresh now; the user must re-click their original
-              // action. We don't auto-retry here because the api client throws
-              // before we know which call to replay.
-            }}
-            onClose={() => setStepUpFallback(null)}
+            onConfirmed={resumeStepUpAction}
+            onClose={() => { if (!resuming) setStepUpFallback(null); }}
           />
         )}
 

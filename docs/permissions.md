@@ -184,9 +184,37 @@ rot.
 
 Each test also writes its table to `frontend/src/generated/route-table/<service>.json`
 (regenerate with `UPDATE_ROUTE_TABLES=1`), and the frontend's
-`test/route-permissions.test.ts` asserts that every write control's `can(...)`
-names a permission the route it calls actually requires — so a UI gate can't
-drift from the API.
+`test/route-permissions.test.ts` asserts that every gated control matches the
+route it calls on EVERY dimension the table records — permissions, entitlements
+(`features`), step-up, scopes and assurance — so a UI gate can't drift from the
+API. Its `GATED_ROUTES_WITHOUT_A_CONTROL` registry closes the other direction:
+a route that gains a gate must be mapped to the control that calls it or listed
+there with a reason, or the test fails naming the route.
+
+### UI read gates (deep links)
+
+Hiding a sidebar link is not a gate — a bookmark, a shared URL or a post-login
+redirect lands on the page regardless. `frontend/src/lib/page-access.ts` declares
+what every dashboard route requires, DERIVED from the same `NAV_SECTIONS` entry
+the sidebar filters on (pages with no nav entry of their own are listed
+explicitly), and `useAuthGuard` applies it with no per-page options. A viewer
+who lacks it gets one `<AccessDenied>` state naming the missing permission,
+re-evaluated on every render so a role change or org switch mid-session flips
+the open page rather than leaving its panels to 403 one by one.
+`frontend/test/page-access.test.ts` asserts every page under `pages/dashboard/`
+is declared and that every gated page renders the refusal.
+
+### Entitlements vs permissions in the UI
+
+`frontend/src/lib/feature-gates.ts` records where each feature flag is actually
+enforced — `route` (a `requireFeature` middleware, visible in the route table),
+`handler` (checked inside a handler, e.g. the compliance `set:` tags and the SSO
+entitlement) or `entitlement-only` (nothing in the API checks it). Only the first
+two get a UI lock, rendered by `FeatureLock` / `FeatureLockedAction`, which name
+the entitlement and link to the matching add-on. `entitlement-only` flags
+(`priority_support`, `custom_integrations`, `audit_log`) deliberately gate
+nothing: locking a control the API serves would take capability away from an org
+that has it. The parity test enforces both halves.
 
 **One catalog.** The permission catalog (ids, labels, descriptions, categories,
 the picker grouping) lives only in api-core `src/types/permissions.ts`, a module

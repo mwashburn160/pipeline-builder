@@ -18,7 +18,7 @@
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
 const logger = createLogger('alert-rule-service');
@@ -202,6 +202,50 @@ export class AlertRuleService {
         isNull(schema.orgAlertRule.deletedAt),
       ))
       .returning());
+    return rows.length > 0;
+  }
+
+  /** List this org's soft-deleted rules (tombstones), newest-deleted first —
+   *  the "recently deleted" restore panel's backing read. Org-scoped like every
+   *  other read here, so a tombstone never crosses tenants. */
+  async listDeletedForOrg(orgId: string): Promise<OrgAlertRule[]> {
+    return withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.orgAlertRule)
+      .where(and(
+        eq(schema.orgAlertRule.orgId, orgId),
+        sql`${schema.orgAlertRule.deletedAt} IS NOT NULL`,
+      ))
+      .orderBy(desc(schema.orgAlertRule.deletedAt)));
+  }
+
+  /** Find a soft-deleted rule by id within the org — the tombstone lookup the
+   *  purge route gates on (and takes the audit `name` from). */
+  async findDeletedById(orgId: string, id: string): Promise<OrgAlertRule | null> {
+    const rows = await withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.orgAlertRule)
+      .where(and(
+        eq(schema.orgAlertRule.id, id),
+        eq(schema.orgAlertRule.orgId, orgId),
+        sql`${schema.orgAlertRule.deletedAt} IS NOT NULL`,
+      ))
+      .limit(1));
+    return rows[0] ?? null;
+  }
+
+  /** Hard-delete one TOMBSTONE, finalizing what the retention sweep would do at
+   *  `purge_after`. Matches only `deleted_at IS NOT NULL`, so a live rule can
+   *  never be destroyed here — it must be soft-deleted first. */
+  async purgeById(orgId: string, id: string): Promise<boolean> {
+    const rows = await withTenantTx(async (tx) => tx
+      .delete(schema.orgAlertRule)
+      .where(and(
+        eq(schema.orgAlertRule.id, id),
+        eq(schema.orgAlertRule.orgId, orgId),
+        sql`${schema.orgAlertRule.deletedAt} IS NOT NULL`,
+      ))
+      .returning({ id: schema.orgAlertRule.id }));
     return rows.length > 0;
   }
 

@@ -3,8 +3,9 @@ import { Puzzle } from 'lucide-react';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { PLUGIN_CATALOG, PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
-import type { PluginCategory } from '@/lib/help';
+import { PLUGIN_CATALOG } from '@/lib/help/plugins';
+import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
+import type { PluginCategory } from '@/lib/plugin-categories';
 
 type CatalogEntry = typeof PLUGIN_CATALOG[number];
 

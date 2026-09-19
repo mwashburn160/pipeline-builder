@@ -24,8 +24,15 @@ export interface FilterField {
 export interface UseListPageOptions<T> {
   /** Filter field definitions */
   fields: FilterField[];
-  /** Async function that fetches data given params */
-  fetcher: (params: Record<string, string>) => Promise<{
+  /**
+   * Async function that fetches data given params.
+   *
+   * `signal` aborts as soon as this fetch is superseded — the next debounced
+   * keystroke, a page/sort change, or unmount. Forward it to the API client so
+   * the abandoned request stops on the wire; a fetcher that ignores it just
+   * keeps the old "discard the late answer" behaviour.
+   */
+  fetcher: (params: Record<string, string>, signal: AbortSignal) => Promise<{
     items: T[];
     pagination?: { total: number; offset: number };
   }>;
@@ -87,8 +94,8 @@ export interface UseListPageResult<T> {
  *     { key: 'name', type: 'text', defaultValue: '', primary: true },
  *     { key: 'status', type: 'select', defaultValue: 'all' },
  *   ],
- *   fetcher: async (params) => {
- *     const res = await api.listPipelines(params);
+ *   fetcher: async (params, signal) => {
+ *     const res = await api.listPipelines(params, { signal });
  *     return { items: res.data?.pipelines || [], pagination: res.data?.pagination };
  *   },
  *   enabled: isAuthenticated,
@@ -193,7 +200,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     if (sortState.sortBy) finalParams.sortBy = sortState.sortBy;
     if (sortState.sortOrder) finalParams.sortOrder = sortState.sortOrder;
 
-    return runCancellableFetch(() => fetcher(finalParams), {
+    return runCancellableFetch((signal) => fetcher(finalParams, signal), {
       onStart: () => setIsLoading(true),
       onSuccess: (result) => {
         setData(result.items);

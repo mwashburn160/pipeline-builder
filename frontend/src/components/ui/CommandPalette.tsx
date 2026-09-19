@@ -8,6 +8,8 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 
 interface CommandItem {
   id: string;
@@ -119,7 +121,7 @@ export function CommandPalette({
     let cancelled = false;
     (async () => {
       const [pRes, plRes] = await Promise.all([
-        api.listPipelines({ limit: '100', includeTotal: 'false' }).catch(() => null),
+        runQuery(queries.listPipelines({ limit: '100', includeTotal: 'false' })).catch(() => null),
         api.listPlugins({ limit: '100' }).catch(() => null),
       ]);
       if (cancelled) return;

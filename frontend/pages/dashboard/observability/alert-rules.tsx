@@ -5,6 +5,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2, Edit2, Activity } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -19,6 +20,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
 import { formatError } from '@/lib/constants';
@@ -44,7 +46,7 @@ import { formatError } from '@/lib/constants';
  */
 export default function AlertRulesPage() {
   // View on `observability:read`; write controls gated on `observability:write`.
-  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
   const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
@@ -79,6 +81,7 @@ export default function AlertRulesPage() {
     }
   };
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   return (
@@ -161,6 +164,17 @@ export default function AlertRulesPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Recently deleted — a deleted rule stays restorable until the retention
+          sweep purges it, but that was invisible before this panel: the restore
+          endpoint existed with nothing able to list what it could restore.
+          Restore/purge are `observability:write` + step-up gated server-side, so
+          the panel only appears for users who can actually use it. */}
+      {canWrite && (
+        <div className="mt-6">
+          <RecentlyDeletedPanel resource="alert-rule" onRestored={() => void refresh()} />
         </div>
       )}
 

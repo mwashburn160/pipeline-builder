@@ -10,7 +10,7 @@
  *    the same kind of column.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useUrlTab } from '../src/hooks/useUrlTab';
 import { formatDate, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
 
@@ -51,10 +51,70 @@ describe('useUrlTab', () => {
 
     expect(result.current[0]).toBe('rules');
     expect(replace).toHaveBeenCalledWith(
-      { query: { org: 'acme', view: 'rules' } },
+      { query: { org: 'acme', view: 'rules' }, hash: '' },
       undefined,
       { shallow: true },
     );
+  });
+
+  // A deep link names a tab AND a section on it — `?tab=factors#passkeys`. Both
+  // halves have to survive, or the enrolment prompts that use them land on a
+  // page that doesn't show what they promised.
+  describe('fragments', () => {
+    afterEach(() => { window.location.hash = ''; });
+
+    it('opens the tab that owns the fragment when the URL names no tab', () => {
+      window.location.hash = '#scan-detail';
+      const { result } = renderHook(() => useUrlTab('view', TABS, 'overview', {
+        hashTabs: { 'scan-detail': 'scans' },
+      }));
+      expect(result.current[0]).toBe('scans');
+    });
+
+    it('keeps the fragment while the user stays on the tab that owns it', () => {
+      window.location.hash = '#scan-detail';
+      const { result } = renderHook(() => useUrlTab('view', TABS, 'overview', {
+        hashTabs: { 'scan-detail': 'scans' },
+      }));
+      act(() => result.current[1]('scans'));
+      expect(replace).toHaveBeenCalledWith(
+        { query: { view: 'scans' }, hash: '#scan-detail' },
+        undefined,
+        { shallow: true },
+      );
+    });
+
+    it('drops the fragment when the user moves to a tab that cannot show it', () => {
+      window.location.hash = '#scan-detail';
+      const { result } = renderHook(() => useUrlTab('view', TABS, 'overview', {
+        hashTabs: { 'scan-detail': 'scans' },
+      }));
+      act(() => result.current[1]('rules'));
+      expect(replace).toHaveBeenCalledWith(
+        { query: { view: 'rules' }, hash: '' },
+        undefined,
+        { shallow: true },
+      );
+    });
+
+    it('scrolls to the section once the tab has rendered it', async () => {
+      window.location.hash = '#late-section';
+      const scrollIntoView = jest.fn();
+      const focus = jest.fn();
+      renderHook(() => useUrlTab('view', TABS, 'overview'));
+
+      // The element only appears after the tab mounts — which is AFTER the
+      // browser's own fragment scroll has already fired and found nothing.
+      const el = document.createElement('div');
+      el.id = 'late-section';
+      el.scrollIntoView = scrollIntoView;
+      el.focus = focus;
+      document.body.appendChild(el);
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+      el.remove();
+    });
   });
 });
 

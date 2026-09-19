@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -61,7 +62,7 @@ function summarizePermissions(perms: string[]): { category: string; count: numbe
 }
 
 export default function RolesPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'roles:manage' });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'roles:manage' });
   // Capability to manage Roles — role admins/owners (via their bundle) and
   // custom-role members granted `roles:manage`. The page is guarded on it.
   const canManageRoles = can('roles:manage');
@@ -230,6 +231,7 @@ export default function RolesPage() {
     }
   };
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

@@ -20,7 +20,7 @@ export default function AdminAlertDestinationsRedirect() {
   // NOT `requireSystemAdmin` — this is a redirect shim, not the sysadmin surface.
   // Gating it sysadmin-only stranded non-sysadmins here: the guard's `isReady`
   // never became true for them, so the `router.replace` below never fired and they
-  // sat on <LoadingPage> until the guard bounced them to /dashboard — losing the
+  // sat on <LoadingPage> (and now would get an access-denied state) — losing the
   // destinations page they can legitimately view. Now everyone is routed onward.
   const { isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   const router = useRouter();

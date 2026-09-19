@@ -127,11 +127,20 @@ org-scoped, and idempotent — re-posting the same `(execution, outcome)` refres
 
 ```
 POST /api/reports/ingest-health
+GET  /api/reports/ingest-health
 ```
 
 Body `{ "forwarded": <int>, "dropped": <int>, "lastEventAt": "<iso>" }`. Posted by
 the AWS events Lambda (a `reporting:ingest`-scoped service-account key it exchanges per batch; org taken from the token
 identity) so the Reports UI can show flowing / stale / dropping. One row per org.
+
+The `GET` is the user-facing read behind the Reports freshness strip (org-scoped,
+`reports:read` — not the machine scope, and not `advanced_reporting`). It returns
+`{ health, now }`; `health` is `null` when the org has **never** been reported on,
+which the UI states plainly rather than calling stale. Note the heartbeat is only
+posted *after* the forwarder forwards something, so a stale heartbeat means "no
+events have arrived since X" — the UI says exactly that rather than guessing
+between an idle account and a broken forwarder.
 
 ### Prometheus metrics
 

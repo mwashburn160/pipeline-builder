@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 // lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
 import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Mail, Bell as BellIcon, Send } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -24,6 +25,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
 import { formatError } from '@/lib/constants';
@@ -52,7 +54,7 @@ function channelColor(channel: AlertDestination['channel']): 'purple' | 'blue' |
  * cross-tenant view below stays reachable.
  */
 export default function AlertDestinationsPage() {
-  const { isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const { accessDenied, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requirePermission: 'observability:read' });
   const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
@@ -184,6 +186,7 @@ export default function AlertDestinationsPage() {
       : []),
   ];
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   return (
@@ -269,6 +272,16 @@ export default function AlertDestinationsPage() {
             getRowKey={(d) => d.id}
             emptyState={{ icon: Bell, title: 'No destinations configured yet', description: 'Click “Add destination” above to start receiving alerts in Slack.' }}
           />
+        </div>
+      )}
+
+      {/* Recently deleted — a deleted destination stays restorable until the
+          retention sweep purges it. Only in the ORG-scoped view: the cross-org
+          sysadmin table is read-only and the restore/purge routes are org-scoped,
+          so offering them there would promise a cross-tenant action that 404s. */}
+      {!viewingAll && canWrite && (
+        <div className="mt-6">
+          <RecentlyDeletedPanel resource="alert-destination" onRestored={() => void refresh()} />
         </div>
       )}
 

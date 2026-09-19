@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState } from 'react';
-import { Laptop, Server, LogOut } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Laptop, Server, LogOut, ShieldOff } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -27,14 +26,21 @@ const METHOD_LABEL: Record<string, string> = {
 
 const EMPTY: { sessions: SessionMeta[]; machineSessions: SessionMeta[] } = { sessions: [], machineSessions: [] };
 
+/** What the step-up dialog is currently gating. */
+type Pending =
+  | { kind: 'revoke'; session: SessionMeta }
+  | { kind: 'revoke-all' };
+
 /**
  * Sessions and devices: the account's signed-in devices plus the stored machine
- * credentials `generate-token` (CLI `store-token`, the renewal Lambda) opened.
+ * credentials `generate-token` (CLI `store-token`, the renewal Lambda) opened —
+ * and "Sign out everywhere", which ends all of them at once.
  *
- * Revoking is step-up gated, so it holds the selected session until the user
- * re-confirms — the same click-through the PAT create flow uses. The session
- * making the request is labelled "This device" and can't revoke itself (sign out
- * instead), matching the backend's refusal.
+ * CONFIRMATION RULE. Revoking is step-up gated server-side, so ONE dialog states
+ * the consequence and takes the factor; the ConfirmDialog that used to precede
+ * it asked the same question twice. The session making the request is labelled
+ * "This device" and can't revoke itself (sign out instead), matching the
+ * backend's refusal.
  *
  * `readOnly` (read-only impersonation) disables revoke — the write the backend
  * rejects in that session.
@@ -50,8 +56,8 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
   }, []);
   const { data, loading, error: loadError, reload } = useLoadable(loadSessions, EMPTY, 'Failed to load sessions');
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [pendingRevoke, setPendingRevoke] = useState<SessionMeta | null>(null);
-  const [confirmed, setConfirmed] = useState<SessionMeta | null>(null);
+  const [revokingAll, setRevokingAll] = useState(false);
+  const [pending, setPending] = useState<Pending | null>(null);
 
   const executeRevoke = async (session: SessionMeta, stepUpToken: string) => {
     setRevoking(session.id);
@@ -67,7 +73,20 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
       toast.error(formatError(err, 'Failed to revoke session'));
     } finally {
       setRevoking(null);
-      setConfirmed(null);
+    }
+  };
+
+  /** Kills every other session plus all CLI/PAT tokens; this tab is re-issued. */
+  const executeRevokeAll = async (stepUpToken: string) => {
+    setRevokingAll(true);
+    try {
+      await api.revokeAllTokens(stepUpToken);
+      toast.success('Signed out everywhere. This tab has a fresh token.');
+      void reload();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to revoke tokens'));
+    } finally {
+      setRevokingAll(false);
     }
   };
 
@@ -81,7 +100,7 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
       <Button
         variant="ghost"
         size="xs"
-        onClick={() => setPendingRevoke(s)}
+        onClick={() => setPending({ kind: 'revoke', session: s })}
         readOnly={readOnly}
         disabled={revoking === s.id}
         className="gap-1 text-red-600 hover:text-red-700"
@@ -139,12 +158,29 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
     );
   }
 
+  const session = pending?.kind === 'revoke' ? pending.session : null;
+
   return (
-    <>
+    // Two cards, spaced by THIS component: the page wraps the section in a
+    // single anchor element for deep links, so the parent's `space-y` no longer
+    // reaches between them.
+    <div className="space-y-6">
       <SectionCard
         icon={Laptop}
         title="Sessions and devices"
         description="Where your account is signed in. Signing a device out ends its session; the device has to sign in again."
+        actions={(
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setPending({ kind: 'revoke-all' })}
+            loading={revokingAll}
+            readOnly={readOnly}
+            className="flex-shrink-0 gap-1"
+          >
+            <ShieldOff className="w-4 h-4" /> Sign out everywhere
+          </Button>
+        )}
       >
         <div className="overflow-x-auto">
           <DataTable
@@ -175,41 +211,42 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
         </div>
       </SectionCard>
 
-      {pendingRevoke && (
-        <ConfirmDialog
-          title={pendingRevoke.kind === 'machine' ? 'Stop renewing this credential?' : 'Sign this device out?'}
-          confirmLabel={pendingRevoke.kind === 'machine' ? 'Stop renewal' : 'Sign out'}
-          tone="danger"
-          loading={revoking === pendingRevoke.id}
-          onCancel={() => setPendingRevoke(null)}
-          onConfirm={() => {
-            setConfirmed(pendingRevoke);
-            setPendingRevoke(null);
-          }}
-        >
-          {pendingRevoke.kind === 'machine' ? (
+      {session && (
+        <StepUpModal
+          title={session.kind === 'machine' ? 'Stop renewing this credential?' : 'Sign this device out?'}
+          action={session.kind === 'machine'
+            ? 'Stop this machine credential from renewing'
+            : `Sign out ${session.userAgent ?? 'that client'}`}
+          details={session.kind === 'machine' ? (
             <p>
               The stored token stops renewing, so it lapses when it expires. Anything using it — CodeBuild image
               pulls, event ingestion — starts failing then unless a new one is stored.
             </p>
           ) : (
             <p>
-              <strong className="text-gray-800 dark:text-gray-100">{pendingRevoke.userAgent ?? 'That client'}</strong>{' '}
+              <strong className="text-gray-800 dark:text-gray-100">{session.userAgent ?? 'That client'}</strong>{' '}
               is signed out and has to sign in again.
             </p>
           )}
-        </ConfirmDialog>
-      )}
-
-      {confirmed && (
-        <StepUpModal
-          action={confirmed.kind === 'machine'
-            ? 'Re-confirm your password to stop this machine credential from renewing.'
-            : 'Re-confirm your password to sign that device out.'}
-          onConfirmed={(token) => executeRevoke(confirmed, token)}
-          onClose={() => setConfirmed(null)}
+          onConfirmed={(token) => executeRevoke(session, token)}
+          onClose={() => setPending(null)}
         />
       )}
-    </>
+
+      {pending?.kind === 'revoke-all' && (
+        <StepUpModal
+          title="Sign out everywhere?"
+          action="Revoke every other session, CLI token and integration"
+          details={(
+            <p>
+              Every other browser session, CLI token and integration credential stops working. This tab stays
+              signed in with a fresh token; everything else has to sign in — or be re-issued — again.
+            </p>
+          )}
+          onConfirmed={executeRevokeAll}
+          onClose={() => setPending(null)}
+        />
+      )}
+    </div>
   );
 }

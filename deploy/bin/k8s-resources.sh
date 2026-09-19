@@ -41,17 +41,37 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@"
 # `…_PREVIOUS` is secret too — every rotation-overlap value
 # (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS, SECRET_ENCRYPTION_KEY_PREVIOUS, …) is the
 # same credential as the key it supersedes, so it must never land in the ConfigMap.
+#
+# QUOTE STRIPPING. The .env is read two ways with DIFFERENT quoting rules: bash
+# `source` strips surrounding quotes, `kubectl --from-env-file` does not. Values
+# in .env.example are quoted because they must survive sourcing —
+# `MONGODB_URI=mongodb://...?replicaSet=rs0&authSource=admin` unquoted would be
+# split at the `&` and backgrounded — so without stripping here the Secret gets
+# a literal leading quote and every consumer fails. That failure is quiet and
+# confusing: mongodb-secret (built with --from-literal from the SOURCED value)
+# is correct, so MongoDB itself is healthy while platform/billing/quota sit at
+# 0/1 with "Invalid scheme, expected connection string to start with mongodb://".
 pb_split_app_env() {
   local _src="$1" _cfg="$2" _sec="$3"
   : > "$_cfg"; : > "$_sec"
   awk -v cfg="$_cfg" -v sec="$_sec" '
     {
+      line = $0
+      # Only KEY=VALUE lines are rewritten; comments and blanks pass through
+      # untouched (kubectl ignores them, and reconstructing them would corrupt them).
+      if (line ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+        k = line; sub(/=.*/, "", k)
+        v = line; sub(/^[^=]*=/, "", v)
+        # Strip ONE layer of matching surrounding quotes, mirroring `source`.
+        if ((v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) && length(v) >= 2) v = substr(v, 2, length(v) - 2)
+        line = k "=" v
+      }
       key = $0; sub(/=.*/, "", key)
       if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
           || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_)/) next
-      if (key ~ /(_EXPIRES_IN|_ISSUER|_SERVICE|_REALM|_TTL_MS|_TOKEN_URL|_KEY_ID|_LENGTH|_KMS|ATTRIBUTE_KEYS)$/) { print > cfg; next }
-      if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI|_PREVIOUS)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print > sec; next }
-      print > cfg
+      if (key ~ /(_EXPIRES_IN|_ISSUER|_SERVICE|_REALM|_TTL_MS|_TOKEN_URL|_KEY_ID|_LENGTH|_KMS|ATTRIBUTE_KEYS)$/) { print line > cfg; next }
+      if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI|_PREVIOUS)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print line > sec; next }
+      print line > cfg
     }' "$_src"
 }
 

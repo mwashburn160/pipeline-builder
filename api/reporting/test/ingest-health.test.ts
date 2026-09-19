@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /reports/ingest-health — the machine (events-Lambda) upsert of
- * per-org forwarded/dropped/last-seen ingestion health.
+ * Tests for `/reports/ingest-health`:
+ *  - POST — the machine (events-Lambda) upsert of per-org forwarded/dropped/
+ *    last-seen ingestion health.
+ *  - GET  — the USER-facing read behind the Reports freshness indicator. The
+ *    heartbeat used to be write-only, so the UI could not tell a quiet week from
+ *    a dead ingest pipeline. It is gated like the other report reads
+ *    (`reports:read`), deliberately NOT by the machine `reporting:ingest` scope,
+ *    and it reports "never ingested" as its own state rather than as staleness.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -14,6 +20,7 @@ const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockRecordHealth = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockGetHealth = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   // requireOrgId:false — the org is taken from the token identity; the mock
@@ -22,6 +29,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     const ctx = { log: jest.fn(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? (req.__orgId ?? '') : 'acme', userId: 'svc' });
   },
+  // The GET's own guards (the mount is the bare machine requireAuth). Mirrors
+  // the real middleware closely enough to prove the gate is wired: no org on the
+  // token ⇒ 400 before the handler; tenant context is a pass-through here.
+  requireOrgId: () => (req: any, res: any, next: () => void) => (
+    req.__orgId ? next() : res.status(400).json({ error: 'Organization ID is required' })
+  ),
+  withTenantContext: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -32,7 +46,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  reportingService: { recordIngestHealth: (...a: unknown[]) => mockRecordHealth(...a) },
+  reportingService: {
+    recordIngestHealth: (...a: unknown[]) => mockRecordHealth(...a),
+    getIngestHealth: (...a: unknown[]) => mockGetHealth(...a),
+  },
 }));
 
 const { createIngestHealthRoutes } = await import('../src/routes/ingest-health.js');
@@ -91,5 +108,61 @@ describe('POST /reports/ingest-health', () => {
     await getHandler()({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, body: { lastEventAt: 'not-a-date' } }, res());
     expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');
     expect(mockRecordHealth).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /reports/ingest-health', () => {
+  let router: any;
+  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const getHandler = () => routeChain(router, '/', 'get');
+  /** A `reports:read` holder — the ordinary dashboard reader. */
+  const reader = { sub: 'u1', permissions: ['reports:read'] };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetHealth.mockResolvedValue(null);
+    router = createIngestHealthRoutes();
+  });
+
+  it('returns the org\'s health plus the SERVER clock', async () => {
+    const health = { updatedAt: '2026-07-05T01:00:00.000Z', lastEventAt: '2026-07-05T00:59:00.000Z', forwarded: 12, dropped: 0 };
+    mockGetHealth.mockResolvedValue(health);
+
+    await getHandler()({ __orgId: 'acme', user: reader }, res());
+
+    expect(mockGetHealth).toHaveBeenCalledWith('acme');
+    // `now` is the server's, so a skewed browser can neither fake nor mask staleness.
+    expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { health, now: expect.any(String) });
+  });
+
+  it('returns health:null — "never ingested" — rather than inventing a stale row', async () => {
+    mockGetHealth.mockResolvedValue(null);
+
+    await getHandler()({ __orgId: 'acme', user: reader }, res());
+
+    expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { health: null, now: expect.any(String) });
+  });
+
+  it('is gated on reports:read, NOT the machine ingest scope', async () => {
+    const r = res();
+    // Holds the ingest scope the POST accepts, but no user permission.
+    await getHandler()({ __orgId: 'acme', user: { sub: 'svc', scope: 'reporting:ingest', permissions: [] } }, r);
+
+    expect(r.status).toHaveBeenCalledWith(403);
+    expect(mockGetHealth).not.toHaveBeenCalled();
+  });
+
+  it('401s an unauthenticated caller', async () => {
+    const r = res();
+    await getHandler()({ __orgId: 'acme' }, r);
+    expect(r.status).toHaveBeenCalledWith(401);
+    expect(mockGetHealth).not.toHaveBeenCalled();
+  });
+
+  it('400s when the token carries no org', async () => {
+    const r = res();
+    await getHandler()({ user: reader }, r);
+    expect(r.status).toHaveBeenCalledWith(400);
+    expect(mockGetHealth).not.toHaveBeenCalled();
   });
 });

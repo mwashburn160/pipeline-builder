@@ -3,7 +3,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Fingerprint, Pencil, Trash2, X } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -33,7 +32,9 @@ import type { Passkey } from '@/types';
  * Adding and removing are both step-up gated server-side, so both open a
  * `StepUpModal` first — which is also how an account with no password enrols its
  * FIRST passkey: step-up is factor-agnostic, so the modal offers "Sign in again
- * with <provider>" and that earns the same token.
+ * with <provider>" and that earns the same token. That ONE dialog also states
+ * what removal costs; it used to be preceded by a ConfirmDialog asking the same
+ * question, which taught people to click through both.
  *
  * Removing the last thing you can sign in with is refused by the server
  * (`409`); the message is shown as-is rather than being re-derived here, so the
@@ -68,7 +69,6 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
   const [renameValue, setRenameValue] = useState('');
 
   const [pendingRemove, setPendingRemove] = useState<Passkey | null>(null);
-  const [confirmedRemove, setConfirmedRemove] = useState<Passkey | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -119,7 +119,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
       toast.error(formatError(err, 'Failed to remove the passkey'));
     } finally {
       setRemoving(null);
-      setConfirmedRemove(null);
+      setPendingRemove(null);
     }
   };
 
@@ -221,7 +221,9 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
 
       {pendingAdd && (
         <StepUpModal
-          action="Confirm your identity to add a passkey to this account."
+          title="Add a passkey?"
+          action={`Add the passkey “${pendingAdd}” to this account`}
+          details={<p>Your browser asks for the device next — a fingerprint, face or screen lock.</p>}
           onConfirmed={executeAdd}
           onClose={() => setPendingAdd(null)}
         />
@@ -249,30 +251,18 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
       )}
 
       {pendingRemove && (
-        <ConfirmDialog
-          title="Remove this passkey?"
-          confirmLabel="Remove"
-          tone="danger"
-          loading={removing === pendingRemove.id}
-          onCancel={() => setPendingRemove(null)}
-          onConfirm={() => {
-            setConfirmedRemove(pendingRemove);
-            setPendingRemove(null);
-          }}
-        >
-          <p>
-            <strong className="text-gray-800 dark:text-gray-100">{pendingRemove.name}</strong> can no longer be used to
-            sign in or to confirm sensitive actions. The credential on the device itself is not deleted — remove it there
-            too if you no longer want it.
-          </p>
-        </ConfirmDialog>
-      )}
-
-      {confirmedRemove && (
         <StepUpModal
-          action={`Confirm your identity to remove the passkey “${confirmedRemove.name}”.`}
-          onConfirmed={(token) => executeRemove(confirmedRemove, token)}
-          onClose={() => setConfirmedRemove(null)}
+          title="Remove this passkey?"
+          action={`Remove the passkey “${pendingRemove.name}”`}
+          details={(
+            <p>
+              <strong className="text-gray-800 dark:text-gray-100">{pendingRemove.name}</strong> can no longer be used to
+              sign in or to confirm sensitive actions. The credential on the device itself is not deleted — remove it there
+              too if you no longer want it.
+            </p>
+          )}
+          onConfirmed={(token) => executeRemove(pendingRemove, token)}
+          onClose={() => setPendingRemove(null)}
         />
       )}
     </SectionCard>

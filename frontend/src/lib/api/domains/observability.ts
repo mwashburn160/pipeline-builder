@@ -254,6 +254,36 @@ export function observabilityApi(core: ApiCore) {
       );
     },
 
+    /** List the caller's soft-deleted dashboards (tombstones), newest first —
+     *  restorable until the retention sweep purges them. Server-side the list is
+     *  already narrowed to rows the caller may restore. Powers the
+     *  RecentlyDeletedPanel. */
+    listDeletedDashboards: async (signal?: AbortSignal) => {
+      return core.request<ApiResponse<import('@/types/observability').DashboardsResponse>>(
+        '/api/dashboards/deleted',
+        { signal },
+      );
+    },
+
+    /** Restore a soft-deleted dashboard. Step-up gated (it reverses a
+     *  destructive action): pass the token from StepUpModal; the api forwards it
+     *  as the `X-Step-Up-Token` header. */
+    restoreDashboard: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/dashboards/${encodeURIComponent(id)}/restore`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** Permanently hard-delete a dashboard tombstone (ahead of the retention
+     *  sweep). Irreversible + step-up gated like restore. */
+    purgeDashboard: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/dashboards/${encodeURIComponent(id)}/purge`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
     /** Fork a dashboard into the caller's org as a private copy. */
     cloneDashboard: async (id: string) => {
       return core.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
@@ -313,6 +343,31 @@ export function observabilityApi(core: ApiCore) {
       );
     },
 
+    /** List this org's soft-deleted destinations (tombstones), newest first.
+     *  Targets stay masked exactly as on the live list. */
+    listDeletedAlertDestinations: async (signal?: AbortSignal) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
+        '/api/observability/alert-destinations/deleted',
+        { signal },
+      );
+    },
+
+    /** Restore a soft-deleted destination (step-up gated, like every restore). */
+    restoreAlertDestination: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/observability/alert-destinations/${encodeURIComponent(id)}/restore`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** Permanently hard-delete a destination tombstone. Irreversible + step-up gated. */
+    purgeAlertDestination: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/observability/alert-destinations/${encodeURIComponent(id)}/purge`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
     /** Send a labeled test notification to a destination to verify delivery.
      *  Resolves `{ delivered: true }` on success; a send failure comes back as
      *  a non-2xx ApiError whose message carries the downstream reason. */
@@ -362,6 +417,31 @@ export function observabilityApi(core: ApiCore) {
       return core.request<ApiResponse<undefined>>(
         `/api/observability/alert-rules/${encodeURIComponent(id)}`,
         { method: 'DELETE' },
+      );
+    },
+
+    /** List this org's soft-deleted alert rules (tombstones), newest first. */
+    listDeletedAlertRules: async (signal?: AbortSignal) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertRulesResponse>>(
+        '/api/observability/alert-rules/deleted',
+        { signal },
+      );
+    },
+
+    /** Restore a soft-deleted alert rule. Step-up gated; a restored ENABLED rule
+     *  re-enters the Prometheus materializer on its next poll. */
+    restoreAlertRule: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/observability/alert-rules/${encodeURIComponent(id)}/restore`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** Permanently hard-delete an alert-rule tombstone. Irreversible + step-up gated. */
+    purgeAlertRule: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/observability/alert-rules/${encodeURIComponent(id)}/purge`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
       );
     },
   };

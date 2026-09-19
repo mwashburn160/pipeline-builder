@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { Mail, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
@@ -42,7 +43,7 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 };
 
 export default function InvitationsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'invitations:manage' });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'invitations:manage' });
   const toast = useToast();
   // Role admins/owners (via bundle) and custom-group members granted it.
   const canManageInvitations = can('invitations:manage');
@@ -317,6 +318,7 @@ export default function InvitationsPage() {
     },
   ], [resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

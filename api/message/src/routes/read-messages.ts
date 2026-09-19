@@ -86,12 +86,22 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // GET /messages/announcements — List announcements (paginated + hard-capped,
   // mirroring the `/` inbox — the service clamps limit to MAX_PAGE_LIMIT so this
   // can never fetch/cache an unbounded set).
+  //
+  // This is the endpoint the UI's "Announcements" tab drives. It accepts the same
+  // `search` term the `/` inbox does, so a tab is filtered SERVER-side over the
+  // whole corpus (with its own `total`/`hasMore`) instead of client-side over
+  // whichever inbox pages happened to be loaded.
   router.get('/announcements', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
-    ctx.log('INFO', 'Fetching announcements', { orgId });
+    const validation = validateQuery(req, MessageFilterSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+    const { search } = validation.value;
+    ctx.log('INFO', 'Fetching announcements', { orgId, search: search ? '(set)' : undefined });
     const result = await messageService.findAnnouncements(orgId, {
       limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
-    });
+    }, search);
 
     ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
@@ -103,12 +113,19 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/conversations — List conversations (paginated + hard-capped).
+  // Drives the UI's "Conversations" tab; same server-side `search` support as
+  // /announcements above.
   router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
-    ctx.log('INFO', 'Fetching conversations', { orgId });
+    const validation = validateQuery(req, MessageFilterSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+    const { search } = validation.value;
+    ctx.log('INFO', 'Fetching conversations', { orgId, search: search ? '(set)' : undefined });
     const result = await messageService.findConversations(orgId, {
       limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
-    });
+    }, search);
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');

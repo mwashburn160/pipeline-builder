@@ -11,6 +11,8 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { formatError } from '@/lib/constants';
 import { interpretImpersonationStart } from '@/lib/impersonation-start';
 import type { OrganizationMember } from '@/types';
@@ -51,11 +53,11 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
     if (!teamId) return;
     setLoading(true);
     try {
-      const res = await api.getOrganizationMembers(teamId, {
+      const res = await runQuery(queries.orgMembers(teamId, {
         limit: 25,
         status: 'active',
         ...(search ? { search } : {}),
-      });
+      }));
       setMembers(res.data?.members ?? []);
       setError(null);
     } catch (e) {

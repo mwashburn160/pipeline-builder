@@ -28,6 +28,8 @@ import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { fmtNum } from '@/lib/format';
 import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
@@ -77,10 +79,10 @@ export function OrgAdminHome({ organizationId }: Props) {
     // from pagination (the roster is now server-paginated, so `members.length`
     // would be just the page size).
     const memberPromise = organizationId
-      ? api.getOrganizationMembers(organizationId, { limit: 1 }).catch(() => null)
+      ? runQuery(queries.orgMembers(organizationId, { limit: 1 })).catch(() => null)
       : Promise.resolve(null);
     const subscriptionPromise = billingEnabled
-      ? api.getSubscription().catch(() => null)
+      ? runQuery(queries.subscription()).catch(() => null)
       : Promise.resolve(null);
 
     Promise.allSettled([

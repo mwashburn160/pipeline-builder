@@ -11,6 +11,8 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
 import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { LucideIcon } from 'lucide-react';
 
 type Severity = 'high' | 'medium' | 'low';
@@ -70,8 +72,8 @@ export default function InboxPage() {
     if (canReadReports) {
       sources.push(async () => {
         const [ownedRes, countsRes] = await Promise.all([
-          api.listPipelines({ ownerId, limit: '200', includeTotal: 'false' }),
-          api.getExecutionCount(),
+          runQuery(queries.listPipelines({ ownerId, limit: '200', includeTotal: 'false' })),
+          runQuery(queries.executionCount()),
         ]);
         if (!(ownedRes.success && ownedRes.data && countsRes.success && countsRes.data)) throw notLoaded();
         const ownedIds = new Set(ownedRes.data.pipelines.map((p) => p.id));

@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
 import { config } from '../config/index.js';
@@ -283,6 +283,55 @@ export class AlertDestinationService {
         ))
         .returning({ id: schema.orgAlertDestination.id });
       return !!deleted;
+    });
+  }
+
+  /** List this org's soft-deleted destinations (tombstones), newest-deleted
+   *  first — the "recently deleted" restore panel's backing read. Callers mask
+   *  `target` on the way out exactly as the live list does; a tombstone's Slack
+   *  URL is no less bearer-equivalent than a live one's. */
+  async listDeletedForOrg(orgId: string): Promise<OrgAlertDestination[]> {
+    return withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.orgAlertDestination)
+      .where(and(
+        eq(schema.orgAlertDestination.orgId, orgId),
+        sql`${schema.orgAlertDestination.deletedAt} IS NOT NULL`,
+      ))
+      .orderBy(desc(schema.orgAlertDestination.deletedAt)));
+  }
+
+  /** Find a soft-deleted destination by id within the org — the tombstone
+   *  lookup the purge route gates on (and takes the audit `label` from). */
+  async findDeletedById(id: string, orgId: string): Promise<OrgAlertDestination | null> {
+    return withTenantTx(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.orgAlertDestination)
+        .where(and(
+          eq(schema.orgAlertDestination.id, id),
+          eq(schema.orgAlertDestination.orgId, orgId),
+          sql`${schema.orgAlertDestination.deletedAt} IS NOT NULL`,
+        ))
+        .limit(1);
+      return rows[0] ?? null;
+    });
+  }
+
+  /** Hard-delete one TOMBSTONE, finalizing what the retention sweep would do at
+   *  `purge_after`. Matches only `deleted_at IS NOT NULL`, so a live destination
+   *  can never be destroyed here — it must be soft-deleted first. */
+  async purgeById(id: string, orgId: string): Promise<boolean> {
+    return withTenantTx(async (tx) => {
+      const [purged] = await tx
+        .delete(schema.orgAlertDestination)
+        .where(and(
+          eq(schema.orgAlertDestination.id, id),
+          eq(schema.orgAlertDestination.orgId, orgId),
+          sql`${schema.orgAlertDestination.deletedAt} IS NOT NULL`,
+        ))
+        .returning({ id: schema.orgAlertDestination.id });
+      return !!purged;
     });
   }
 

@@ -36,7 +36,7 @@ describe('useServerPagination', () => {
     expect(result.current.pagination.total).toBe(42);
     expect(result.current.pagination.offset).toBe(0);
     expect(result.current.pagination.limit).toBe(20);
-    expect(fetcher).toHaveBeenCalledWith({ offset: 0, limit: 20, filters: {} });
+    expect(fetcher).toHaveBeenCalledWith({ offset: 0, limit: 20, filters: {}, signal: expect.any(AbortSignal) });
   });
 
   it('resets offset to 0 when filters change', async () => {
@@ -81,7 +81,7 @@ describe('useServerPagination', () => {
 
     await waitFor(() => expect(result.current.items).toEqual([{ id: 'page2' }]));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher).toHaveBeenLastCalledWith({ offset: 20, limit: 20, filters: {} });
+    expect(fetcher).toHaveBeenLastCalledWith({ offset: 20, limit: 20, filters: {}, signal: expect.any(AbortSignal) });
   });
 
   it('sets error on fetcher rejection', async () => {

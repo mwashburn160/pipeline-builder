@@ -1,7 +1,6 @@
 import type { AppProps } from 'next/app';
 import type { NextPage } from 'next';
 import { useEffect, type ReactElement, type ReactNode } from 'react';
-import { useRouter } from 'next/router';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
@@ -21,18 +20,28 @@ type AppPropsWithLayout = AppProps & {
 };
 
 /**
- * Page shell that keys the animated wrapper on BOTH the route and the active
- * org. Re-keying on `user.organizationId` means switching orgs remounts the page
+ * Page shell keyed on the active ORG — and deliberately not on the route.
+ *
+ * Re-keying on `user.organizationId` means switching orgs remounts the page
  * subtree, so every data hook (useListPage / useFetch / reports, etc.) refetches
  * under the new org. Without this, an in-place org switch changes the API
  * client's `x-org-id` header but doesn't re-run the list effects (their deps
  * don't include the org), so pages kept showing the PREVIOUS org's rows —
  * including its private data — until the user changed a filter, and row actions
  * fired with a mismatched org context. Must live inside AuthProvider to read
- * useAuth. Remount also resets transient page state on switch, which is correct.
+ * useAuth. Remount also resets transient page state on switch, which is correct:
+ * an org is a tenant boundary and everything behind it should be dropped
+ * (`AuthProvider` clears the shared query cache on the same switch).
+ *
+ * The route is NOT part of the key, and `mode="wait"` is gone. Keying on
+ * `router.pathname` inside an exit-then-enter presence made every navigation —
+ * back and forward included — hold the new page unmounted for the full 200ms
+ * exit before a single one of its effects could run, so each route change paid
+ * an animation delay AND re-fetched from zero. Next already swaps the page
+ * component on navigation; the per-page entrance is the `.page-reveal` class on
+ * each page's <main>, which costs nothing and doesn't serialise with anything.
  */
 function AnimatedPageShell({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const { user } = useAuth();
   const orgKey = user?.organizationId ?? 'anon';
 
@@ -41,11 +50,10 @@ function AnimatedPageShell({ children }: { children: ReactNode }) {
     // inline `transform`, and any non-none transform makes this page-wrapping div
     // a containing block for position:fixed descendants, which traps every
     // modal's `fixed inset-0` backdrop inside the page box instead of the
-    // viewport (clipped/offset modals). The upward page-reveal motion is handled
-    // by the `.page-reveal` class on each page's <main>.
+    // viewport (clipped/offset modals).
     <AnimatePresence mode="wait">
       <motion.div
-        key={`${router.pathname}:${orgKey}`}
+        key={orgKey}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

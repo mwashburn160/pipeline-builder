@@ -5,9 +5,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 
 /** Where enrolment lives. Both anchors exist on the security tab. */
-const ENROL_HREF = '/dashboard/settings?tab=security#passkeys';
+const ENROL_HREF = PASSKEY_ENROLMENT_HREF;
 
 /** Whole days between now and `iso`, floored at 0. */
 function daysUntil(iso: string): number {

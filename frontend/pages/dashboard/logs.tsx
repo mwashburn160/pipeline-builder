@@ -26,6 +26,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { LogEntryRow } from '@/components/observability/LogEntryRow';
 import { LogVolumeChart } from '@/components/observability/LogVolumeChart';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useLogSearch, useLogVolume } from '@/hooks/useLogSearch';
 import { api } from '@/lib/api';
 import { triggerBlobDownload } from '@/lib/csv-export';
@@ -45,7 +46,7 @@ const SYNTAX_HINT = 'level:error service:platform "connection refused" -healthz 
 
 export default function LogsPage() {
   // Viewing rides `observability:read`, which is in the built-in member bundle.
-  const { isReady, isAuthenticated, user, can } = useAuthGuard();
+  const { accessDenied, isReady, isAuthenticated, user, can } = useAuthGuard();
 
   const [queryInput, setQueryInput] = useState('');
   // Applied separately from the input so typing doesn't fire a query per keystroke.
@@ -119,6 +120,7 @@ export default function LogsPage() {
     }
   }, [params]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   return (

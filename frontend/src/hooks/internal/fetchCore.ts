@@ -11,7 +11,15 @@
  * write once cancelled (unmount / deps change). Consolidating it here keeps
  * the cancellation semantics — and the canonical `Error` error shape — in a
  * single place instead of three near-identical copies.
+ *
+ * Cancellation is now REAL: the cleanup aborts an `AbortSignal` handed to the
+ * fetcher, so a superseded request (the next keystroke of a debounced filter, a
+ * page the user navigated away from) stops on the wire instead of running to
+ * completion and having its answer thrown away. Fetchers that ignore the signal
+ * still behave exactly as before.
  */
+
+import { isAbortError } from '@/lib/abort';
 
 /**
  * Normalize an unknown thrown value into an `Error`.
@@ -37,31 +45,37 @@ export interface CancellableFetchHandlers<T> {
 }
 
 /**
- * Run `fetcher()` and route its outcome through `handlers`, suppressing every
- * post-resolution write once the returned cleanup fn has been invoked.
+ * Run `fetcher(signal)` and route its outcome through `handlers`, suppressing
+ * every post-resolution write once the returned cleanup fn has been invoked —
+ * and aborting `signal` so the request itself stops.
  *
  * Intended to be called from inside a `useEffect`; return its result as the
- * effect cleanup so a deps change or unmount cancels the in-flight write.
+ * effect cleanup so a deps change or unmount cancels the in-flight request.
  *
- * @returns cleanup function that marks the run as cancelled.
+ * @returns cleanup function that aborts the request and marks the run cancelled.
  */
 export function runCancellableFetch<T>(
-  fetcher: () => Promise<T>,
+  fetcher: (signal: AbortSignal) => Promise<T>,
   handlers: CancellableFetchHandlers<T>,
 ): () => void {
   let cancelled = false;
+  const controller = new AbortController();
   handlers.onStart();
-  fetcher()
+  fetcher(controller.signal)
     .then((result) => {
       if (!cancelled) handlers.onSuccess(result);
     })
     .catch((err) => {
-      if (!cancelled) handlers.onError(toError(err));
+      // An abort is the expected outcome of cancelling, not a failure to show.
+      // Checked in addition to `cancelled` because a fetcher may be wired to an
+      // outer signal (the shared query cache) that fires independently.
+      if (!cancelled && !isAbortError(err)) handlers.onError(toError(err));
     })
     .finally(() => {
       if (!cancelled) handlers.onSettled();
     });
   return () => {
     cancelled = true;
+    controller.abort();
   };
 }

@@ -213,18 +213,24 @@ export const ALL_AUDIT_ACTIONS = [
   'dashboard.update',
   'dashboard.delete',
   'dashboard.restore',
+  // Permanent hard-delete of a dashboard tombstone ahead of the retention sweep
+  // (the delete it finalizes is already recorded; this records who made it
+  // irreversible, and when).
+  'dashboard.purge',
   'dashboard.clone',
   // Alert destinations (controllers/alert-destinations.ts)
   'alert.destination.create',
   'alert.destination.update',
   'alert.destination.delete',
   'alert.destination.restore',
+  'alert.destination.purge',
   'alert.destination.test',
   // per-org operator-authored alert rules (controllers/alert-rules.ts).
   'alert.rule.create',
   'alert.rule.update',
   'alert.rule.delete',
   'alert.rule.restore',
+  'alert.rule.purge',
   // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
   'admin.org-idp.upsert',
   'admin.org-idp.delete',

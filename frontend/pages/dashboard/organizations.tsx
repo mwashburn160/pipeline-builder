@@ -4,6 +4,7 @@ import { triggerBlobDownload } from '@/lib/csv-export';
 import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
@@ -29,6 +30,9 @@ import { RowActionsMenu } from '@/components/organizations/RowActionsMenu';
 import { CreateOrganizationFlow } from '@/components/organizations/CreateOrganizationFlow';
 import { ChangeTierDialog, type OrgTier } from '@/components/organizations/ChangeTierDialog';
 import api from '@/lib/api';
+// Every refresh below follows a write, so the shared org list the audit page,
+// quota picker, IdP roster and org pickers read from must be dropped too.
+import { invalidate } from '@/lib/api-cache';
 import { Organization } from '@/types';
 import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
@@ -50,7 +54,7 @@ type TrashResource = (typeof TRASH_RESOURCES)[number]['key'];
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requireSystemAdmin: true });
 
   // Top-level view: the org list vs. the aggregated "Deleted items" (trash)
   // restore surface. The trash tab is a System-Admin surface, gated on the same
@@ -75,14 +79,14 @@ export default function OrganizationsPage() {
       // `parentOrgId` in `filteredOrgs`.
       { key: 'scope', type: 'select', defaultValue: 'all' },
     ],
-    fetcher: async (params) => {
+    fetcher: async (params, signal) => {
       const tierParam = String(params.tier || 'all');
       const response = await api.listOrganizations({
         ...(params.search && { search: params.search }),
         ...(tierParam !== 'all' && { tier: tierParam as 'developer' | 'pro' | 'team' | 'enterprise' }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
-      });
+      }, { signal });
       const data = response.data;
       return {
         items: data?.organizations || [],
@@ -263,6 +267,7 @@ export default function OrganizationsPage() {
     },
   ], [del]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -421,7 +426,7 @@ export default function OrganizationsPage() {
             try {
               const res = await api.deleteOrganization(pendingDeleteOrg.id, stepUpToken);
               if (!res.success) throw new Error(res.message || 'Delete failed');
-              list.refresh();
+              invalidate.organizations(); list.refresh();
               toast.success(`${pendingDeleteOrg.name} deleted`);
             } catch (err) {
               list.setError(formatError(err, 'Failed to delete organization'));
@@ -446,7 +451,7 @@ export default function OrganizationsPage() {
             try {
               const res = await api.restoreOrganization(pendingRestoreOrg.id, stepUpToken);
               if (!res.success) throw new Error(res.message || 'Restore failed');
-              list.refresh();
+              invalidate.organizations(); list.refresh();
               toast.success(`${pendingRestoreOrg.name} restored`);
             } catch (err) {
               list.setError(formatError(err, 'Failed to restore organization'));
@@ -472,7 +477,7 @@ export default function OrganizationsPage() {
             try {
               const res = await api.updateOrganizationTier(pendingTierChange.org.id, pendingTierChange.tier, stepUpToken);
               if (!res.success) throw new Error(res.message || 'Tier change failed');
-              list.refresh();
+              invalidate.organizations(); list.refresh();
               toast.success(`${pendingTierChange.org.name} moved to ${pendingTierChange.tier}`);
             } catch (err) {
               list.setError(formatError(err, 'Failed to change tier'));

@@ -29,6 +29,37 @@ import { updateMfaPolicySchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-mfa-policy');
 
+/**
+ * How many of the org's active members could satisfy the requirement today.
+ *
+ * An admin choosing a grace period is deciding how long people need to enrol,
+ * and the settings page could not tell them whether that was everyone or nobody
+ * — so "14 days" was a guess. Counted here rather than on a route of its own:
+ * it is exactly the context for the policy this endpoint already returns, and it
+ * is read by the same `org:settings` admin.
+ *
+ * ENROLLED = holds a passkey or a CONFIRMED authenticator enrolment, i.e. what
+ * `utils/token.ts` will accept at issuance. Password-only accounts are the ones
+ * the deadline will refuse.
+ */
+async function enrolment(orgId: string): Promise<{ members: number; enrolled: number }> {
+  const { UserOrganization, WebAuthnCredential, UserTotp } = await import('../models/index.js');
+  const memberships = await UserOrganization
+    .find({ organizationId: toOrgId(orgId), isActive: true })
+    .select('userId')
+    .lean();
+  const userIds = memberships.map((m) => m.userId);
+  if (userIds.length === 0) return { members: 0, enrolled: 0 };
+
+  const [withPasskey, withTotp] = await Promise.all([
+    WebAuthnCredential.distinct('userId', { userId: { $in: userIds } }),
+    UserTotp.distinct('userId', { userId: { $in: userIds }, activatedAt: { $ne: null } }),
+  ]);
+  // A person with BOTH factors is one person; the union is the count.
+  const enrolled = new Set([...withPasskey, ...withTotp].map(String));
+  return { members: userIds.length, enrolled: enrolled.size };
+}
+
 /** The wire shape — dates as ISO strings, and the grace deadline spelled out so
  *  the member-facing banner needs no second call. */
 function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>>) {
@@ -54,8 +85,10 @@ export const getMfaPolicy = withController('Get MFA policy', async (req, res) =>
 
   // Both the org's OWN setting and what actually governs: a team's policy can be
   // tightened by a parent, so returning only `own` would let an admin set it off
-  // and never learn why members are still being asked for a second factor.
-  sendSuccess(res, 200, view(await resolveEffectiveMfaPolicy(id)));
+  // and never learn why members are still being asked for a second factor. The
+  // enrolment counts ride along so the grace-period decision has a number.
+  const [policy, counts] = await Promise.all([resolveEffectiveMfaPolicy(id), enrolment(id)]);
+  sendSuccess(res, 200, { ...view(policy), enrolment: counts });
 });
 
 export const updateMfaPolicy = withController('Update MFA policy', async (req, res) => {

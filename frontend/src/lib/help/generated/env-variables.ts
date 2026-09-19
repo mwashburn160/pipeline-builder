@@ -232,7 +232,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "BOOTSTRAP_SUPERADMIN_EMAILS",
               "—",
-              "Comma-separated user emails auto-promoted to isSuperAdmin=true at platform boot. Required for fresh installs — the first sysadmin can only be granted through this env or a direct DB update. Idempotent."
+              "Comma-separated user emails auto-promoted to isSuperAdmin=true at platform boot. Required for fresh installs — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the bootstrap-admin MFA exception applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See Assurance levels and required MFA."
+            ],
+            [
+              "MFA_RECOVER_OPERATOR",
+              "—",
+              "Default --operator for the scripts/mfa-recover.js factor-reset command — who is running it, recorded as the audit actor. Only read by that command; the flag wins when both are given, and the command refuses to run with neither (an audit row for a factor reset is worth little without a name)."
             ]
           ]
         },
@@ -2159,6 +2164,41 @@ export const envVariablesTopic: HelpTopic = {
               "Message service: per-org cap on notification SSE tickets minted per TTL window"
             ]
           ]
+        }
+      ]
+    },
+    {
+      "id": "observability-logs",
+      "title": "Observability & Logs",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PROMETHEUS_URL",
+              "http://prometheus:9090",
+              "Metrics backend for the native dashboards"
+            ],
+            [
+              "LOKI_URL",
+              "http://loki:3100",
+              "Log backend for Deliver → Logs. Platform sends X-Scope-OrgID per request, derived from the caller's verified token"
+            ],
+            [
+              "LOKI_BASE_SELECTOR",
+              "service_name=~\".+\"",
+              "Anchor matcher used when a log query constrains no label. Override on a deployment whose non-JSON producers people need to browse"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Loki itself runs with auth_enabled: true so each organization is a tenant — see Logs: Operating for the Loki-side settings that go with it."
         }
       ]
     },

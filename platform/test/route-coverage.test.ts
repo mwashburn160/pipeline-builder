@@ -169,6 +169,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Login-page hint: answers "is this email forced through SSO?" from the org\'s IdP config. POSTed only so the email stays out of the query string; it reads and persists nothing.',
   },
   {
+    method: 'POST',
+    path: '/auth/sso/start',
+    waive: 'audit',
+    reason: 'The by-EMAIL twin of GET /:orgId/authorize — it resolves the enforcing org server-side and returns the same IdP redirect. POSTed only so the email stays out of the query string; like its by-org twin it starts a sign-in rather than completing one, and the login it leads to is audited at the callback.',
+  },
+  {
     method: 'GET',
     path: '/config',
     waive: 'permission',
@@ -270,9 +276,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
 
   // -- Dynamic per-row authorization ----------------------------------------
   {
-    path: /^(PUT|DELETE|POST) \/dashboards\/:id(\/restore)?$/,
+    path: /^(PUT|DELETE|POST) \/dashboards\/:id(\/restore|\/purge)?$/,
     waive: 'permission',
-    reason: 'dashboardService.canWrite is DYNAMIC — it also lets the dashboard\'s own CREATOR write/delete/restore it, not just an org admin, so it has to resolve the target row first (restore additionally requires step-up).',
+    reason: 'dashboardService.canWrite is DYNAMIC — it also lets the dashboard\'s own CREATOR write/delete/restore/purge it, not just an org admin, so it has to resolve the target row first (restore and purge additionally require step-up).',
   },
   {
     path: /^(GET|POST) \/admin\/impersonate\/requests/,

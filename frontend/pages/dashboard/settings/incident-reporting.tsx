@@ -12,24 +12,23 @@
  * incident data). The backend independently re-enforces both.
  */
 
-import { Siren, Lock } from 'lucide-react';
+import { Siren } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFeatures } from '@/hooks/useFeatures';
+import { AccessDenied } from '@/components/ui/AccessDenied';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Callout } from '@/components/ui/Callout';
+import { FeatureLock } from '@/components/ui/FeatureLock';
 import { IncidentReportingSettings } from '@/components/settings/IncidentReportingSettings';
 
 export default function IncidentReportingSettingsPage() {
-  const { isReady, user, isSuperAdmin, isReadOnly } = useAuthGuard({ requireAdmin: true });
-  const { isEnabled, isLoaded } = useFeatures();
+  const { accessDenied, isReady, user, isReadOnly } = useAuthGuard({ requireAdmin: true });
+  // Shared entitlement verdict (superadmin bypass included) + the shared lock
+  // copy, so this page's "not on your plan" reads like every other one.
+  const { entitled, isLoaded } = useFeatureGate('advanced_reporting');
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
-
-  // Superadmins hold every feature entitlement (mirroring `isNavItemVisible`), so
-  // the nav link and this page agree instead of a superadmin whose own org lacks
-  // `advanced_reporting` seeing the link then hitting the upsell wall.
-  const entitled = isEnabled('advanced_reporting') || isSuperAdmin;
 
   return (
     <DashboardLayout
@@ -41,10 +40,7 @@ export default function IncidentReportingSettingsPage() {
         {!isLoaded ? (
           <LoadingPage />
         ) : !entitled ? (
-          <Callout variant="warning" icon={Lock} title="Incident reporting requires Advanced Reporting.">
-            DORA (the consumer of incident data) is included on the Enterprise tier, or available as the Advanced
-            Reporting add-on on other tiers. Upgrade or add the entitlement to configure the incident webhook.
-          </Callout>
+          <FeatureLock flag="advanced_reporting" />
         ) : (
           <IncidentReportingSettings readOnly={isReadOnly} />
         )}

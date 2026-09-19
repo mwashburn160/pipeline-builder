@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { db, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred
 // shape so insertPanels can take a tx without re-typing it everywhere.
@@ -256,6 +256,56 @@ export class DashboardService {
         .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
         .limit(1);
       return row ?? null;
+    });
+  }
+
+  /**
+   * List the soft-deleted dashboards a caller could restore — the "recently
+   * deleted" panel's backing read.
+   *
+   * Visibility mirrors {@link list} exactly (public / same-org `org` / own
+   * `private`), only inverted on `deleted_at`: a tombstone must not become
+   * visible to someone who could never see the live row. The controller then
+   * applies the same dynamic `canWrite` gate restore itself enforces, so the
+   * panel never offers a Restore that would 403.
+   *
+   * Ordered newest-deleted first — the tombstone you're looking for is almost
+   * always the one you just deleted.
+   */
+  async listDeleted(opts: { orgId: string; userId: string; isSuperAdmin: boolean }): Promise<Dashboard[]> {
+    const { orgId, userId, isSuperAdmin } = opts;
+    return withTenantTx(async (tx) => {
+      const baseWhere = sql`${schema.dashboard.deletedAt} IS NOT NULL`;
+      if (isSuperAdmin) {
+        return tx.select().from(schema.dashboard).where(baseWhere).orderBy(desc(schema.dashboard.deletedAt));
+      }
+      const visibilityWhere = or(
+        eq(schema.dashboard.visibility, 'public'),
+        and(eq(schema.dashboard.visibility, 'org'), eq(schema.dashboard.orgId, orgId)),
+        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId)),
+      );
+      return tx
+        .select()
+        .from(schema.dashboard)
+        .where(and(baseWhere, visibilityWhere))
+        .orderBy(desc(schema.dashboard.deletedAt));
+    });
+  }
+
+  /**
+   * Hard-delete one TOMBSTONE, finalizing immediately what the retention sweep
+   * (`soft-delete-purge.ts`) would do at `purge_after`. Only ever matches a row
+   * with `deleted_at IS NOT NULL`, so a live dashboard can never be destroyed
+   * through this path — it must be soft-deleted first. `dashboard_panels`
+   * cascade via ON DELETE CASCADE, exactly as in the sweep.
+   */
+  async purgeById(id: string): Promise<boolean> {
+    return withTenantTx(async (tx) => {
+      const [purged] = await tx
+        .delete(schema.dashboard)
+        .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
+        .returning({ id: schema.dashboard.id });
+      return !!purged;
     });
   }
 

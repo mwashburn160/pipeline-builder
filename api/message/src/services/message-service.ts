@@ -206,11 +206,13 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     orgId: string,
     messageType: 'announcement' | 'conversation',
     options: QueryOptions = {},
+    search?: string,
   ): Promise<PaginatedResult<Message>> {
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
       messageType,
+      ...(search ? { search } : {}),
     };
     return this.findPaginated(filter, orgId, options);
   }
@@ -230,9 +232,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * separately-passed argument is what would make that divergence possible, and
    * a divergence here is a cross-user read, not just a stale page.
    */
-  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions): string {
+  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions, search?: string): string {
     const viewer = view === 'conversations' ? currentViewerUserId() ?? '' : '';
-    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
+    // `search` is the LAST segment so a term containing ':' can't alias another
+    // key; an absent term collapses to the empty segment (the unfiltered page).
+    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}:${search ?? ''}`;
   }
 
   /**
@@ -240,12 +244,14 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    *
    * @param orgId - Organization ID for access control
    * @param options - Pagination + sort options
+   * @param search - Optional free-text term over subject/content (same filter
+   *   the `/` inbox applies), folded into the cache key.
    * @returns Paginated page of announcement root messages
    */
-  async findAnnouncements(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
+  async findAnnouncements(orgId: string, options: QueryOptions = {}, search?: string): Promise<PaginatedResult<Message>> {
     return messageCache.getOrSet(
-      this.inboxCacheKey(orgId, 'announcements', options),
-      () => this.findInboxPaginated(orgId, 'announcement', options),
+      this.inboxCacheKey(orgId, 'announcements', options, search),
+      () => this.findInboxPaginated(orgId, 'announcement', options, search),
     );
   }
 
@@ -254,12 +260,14 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    *
    * @param orgId - Organization ID for access control
    * @param options - Pagination + sort options
+   * @param search - Optional free-text term over subject/content (same filter
+   *   the `/` inbox applies), folded into the cache key.
    * @returns Paginated page of conversation root messages
    */
-  async findConversations(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
+  async findConversations(orgId: string, options: QueryOptions = {}, search?: string): Promise<PaginatedResult<Message>> {
     return messageCache.getOrSet(
-      this.inboxCacheKey(orgId, 'conversations', options),
-      () => this.findInboxPaginated(orgId, 'conversation', options),
+      this.inboxCacheKey(orgId, 'conversations', options, search),
+      () => this.findInboxPaginated(orgId, 'conversation', options, search),
     );
   }
 

@@ -37,6 +37,12 @@ for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErr
 }
 jest.mock('@/components/ask/AskPanel', () => ({ AskPanel: () => null }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
+// The layout resumes a refused action and reports the outcome, so it now
+// consumes the toast context this bare render has no provider for.
+jest.mock('@/components/ui/Toast', () => ({
+  __esModule: true,
+  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+}));
 
 import {
   __resetUnreadCountStoreForTests,

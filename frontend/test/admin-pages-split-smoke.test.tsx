@@ -198,7 +198,7 @@ describe('OrganizationsPage — extracted components', () => {
     render(<OrganizationsPage />);
 
     fireEvent.click(screen.getByRole('button', { name: /New Organization/ }));
-    await waitFor(() => expect(apiMock.listOrganizations).toHaveBeenCalledWith({ limit: 200 }));
+    await waitFor(() => expect(apiMock.listOrganizations).toHaveBeenCalledWith({ limit: 200 }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
     fireEvent.change(screen.getByPlaceholderText('e.g. acme-platform'), { target: { value: 'gamma' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Organization' }));
 

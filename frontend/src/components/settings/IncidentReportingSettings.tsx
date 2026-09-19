@@ -290,20 +290,35 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
         description={
           <>Generate an org-bound token carrying only the <code className="font-mono">reporting:ingest</code> scope for your
           incident tool to authenticate with (<code className="font-mono">Authorization: Bearer &lt;token&gt;</code>). To
-          rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/tokens">API Tokens</a> page.</>
+          rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/security?tab=keys">Security → Access keys</a> page.</>
         }
       >
         <Button onClick={requestToken} loading={creating || !!pendingCreate} readOnly={readOnly}>Generate webhook token</Button>
 
         {pendingCreate && (
           <StepUpModal
-            action="Re-confirm your password to create a reporting webhook token."
+            title="Create a webhook token?"
+            action="Create a reporting webhook token"
+            details={(
+              <p>
+                It carries only the <code className="font-mono">reporting:ingest</code> scope, and is shown
+                exactly once — on the next screen.
+              </p>
+            )}
             onConfirmed={executeCreate}
             onClose={() => setPendingCreate(null)}
           />
         )}
 
-        {newToken && <SecretReveal value={newToken} label="Webhook token" className="mt-4" />}
+        {newToken && (
+          <SecretReveal
+            value={newToken}
+            label="Webhook token"
+            filename="pipeline-builder-webhook-token.txt"
+            onDone={() => setNewToken(null)}
+            className="mt-4"
+          />
+        )}
       </SectionCard>
       </div>
       )}

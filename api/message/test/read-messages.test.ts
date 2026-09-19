@@ -59,7 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-const { sendBadRequest, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, sendEntityNotFound, validateQuery, parsePaginationParams } = await import('@pipeline-builder/api-core');
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
 
 const mockQuotaService = createMockQuotaService();
@@ -122,6 +122,7 @@ describe('GET /messages/announcements', () => {
     expect(mockFindAnnouncements).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
+      undefined, // no `search` term on this request
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,10 +160,12 @@ describe('GET /messages/conversations', () => {
     // Viewer is NOT passed positionally any more — per-user scoping (and the
     // viewer segment of the inbox cache key) both read the request's tenant
     // context, so the predicate and the cache key can't disagree about who is
-    // asking. Asserting exactly two args pins that the parameter stays gone.
+    // asking. The third arg is the optional free-text `search` (absent here) —
+    // never a viewer, which pins that the parameter stays gone.
     expect(mockFindConversations).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
+      undefined,
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -170,6 +173,73 @@ describe('GET /messages/conversations', () => {
         pagination: expect.objectContaining({ limit: 25, offset: 0, hasMore: false, total: 1 }),
       }),
     );
+  });
+});
+
+/**
+ * The tab endpoints are the whole point of the messages page's Announcements /
+ * Conversations tabs: each is filtered and PAGINATED server-side. Previously the
+ * page filtered `messageType` client-side over the already-paginated mixed
+ * inbox, so a tab showed only what the loaded pages happened to contain.
+ */
+describe('tab endpoints are independently filtered + paginated', () => {
+  const announcements = getHandler(readRouter, 'get', '/announcements');
+  const conversations = getHandler(readRouter, 'get', '/conversations');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('reports the SERVER-side total for the tab, not the page size', async () => {
+    // 2 rows on this page but 97 announcements in the org: the envelope must
+    // carry the real total so the UI can render a truthful count.
+    mockFindAnnouncements.mockResolvedValue({
+      data: [{ id: 'a1' }, { id: 'a2' }],
+      total: 97,
+      limit: 2,
+      offset: 0,
+      hasMore: true,
+    });
+
+    const res = mockRes();
+    await announcements(mockReq(), res);
+
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ pagination: expect.objectContaining({ total: 97, hasMore: true }) }),
+    );
+  });
+
+  it('pages the tab on its OWN offset (not the mixed inbox\'s)', async () => {
+    (parsePaginationParams as unknown as jest.Mock).mockReturnValueOnce({ limit: 25, offset: 50, sortBy: 'createdAt', sortOrder: 'desc' });
+    mockFindConversations.mockResolvedValue({ data: [], total: 60, limit: 25, offset: 50, hasMore: false });
+
+    await conversations(mockReq(), mockRes());
+
+    expect(mockFindConversations).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ offset: 50 }),
+      undefined,
+    );
+    // Never routed through the mixed-inbox query — that is what limited a tab
+    // to the pages the inbox had loaded.
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it('forwards the free-text search term to the tab query', async () => {
+    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: true, value: { search: 'outage' } });
+    mockFindAnnouncements.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+    await announcements(mockReq(), mockRes());
+
+    expect(mockFindAnnouncements).toHaveBeenCalledWith('org-1', expect.any(Object), 'outage');
+  });
+
+  it('rejects an invalid query with a 400 instead of silently ignoring it', async () => {
+    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: false, error: 'search must be <= 200 chars' });
+
+    const res = mockRes();
+    await conversations(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindConversations).not.toHaveBeenCalled();
   });
 });
 

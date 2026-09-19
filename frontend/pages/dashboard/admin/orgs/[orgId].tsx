@@ -17,6 +17,7 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2, Armchair, Sparkles, Download } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { TabBar } from '@/components/ui/TabBar';
@@ -58,7 +59,7 @@ const ORG_TAB_IDS: readonly OrgTab[] = ORG_TABS.map((t) => t.id);
 export default function OrgDetailPage() {
   const router = useRouter();
   const orgId = String(router.query.orgId || '');
-  const { isReady, user, can } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, isReady, user, can } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
 
   // The 7 cards are grouped into tabs (Configuration / Entitlements / Operations)
@@ -283,6 +284,7 @@ export default function OrgDetailPage() {
     if (op === 'tier') await executeTierChange(stepUpToken);
   }, [pendingOp, executeDelete, executeDownloadNamespaceYaml, executeTierChange]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

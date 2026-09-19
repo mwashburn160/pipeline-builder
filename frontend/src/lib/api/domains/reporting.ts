@@ -103,6 +103,31 @@ export interface BuildHealth {
 }
 
 /**
+ * What the AWS events forwarder last reported for this org (Phase 3). Written by
+ * the ingest Lambda's heartbeat; read by the Reports freshness indicator.
+ */
+export interface IngestHealth {
+  /** When the forwarder last posted a heartbeat (ISO 8601). */
+  updatedAt: string;
+  /** Timestamp of the newest event it had forwarded, or null if it has seen none. */
+  lastEventAt: string | null;
+  /** Cumulative events forwarded, or null when the forwarder doesn't report it. */
+  forwarded: number | null;
+  /** Cumulative events dropped — non-zero means data loss upstream of the reports. */
+  dropped: number | null;
+}
+
+/**
+ * `GET /reports/ingest-health`. `health` is null when the deployment has NEVER
+ * reported — a state the UI must state plainly rather than dress up as "stale".
+ * `now` is the SERVER clock, so a skewed browser can't fake (or hide) staleness.
+ */
+export interface IngestHealthResponse {
+  health: IngestHealth | null;
+  now: string;
+}
+
+/**
  * Per-org reporting settings — the incident correlation-window override (Phase 5b)
  * plus the two split retention windows (Phase 7). Each override is null when unset
  * (the paired default* field shows the env fallback applied).
@@ -173,8 +198,8 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Pipeline execution count per pipeline with status breakdown. */
-    getExecutionCount: async (params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`);
+    getExecutionCount: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Per-pipeline execution history — recent runs for a single pipeline, newest first. */
@@ -183,8 +208,8 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Pipeline success rate over time. */
-    getSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }) => {
-      return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`);
+    getSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Average pipeline duration stats. */
@@ -238,6 +263,21 @@ export function reportingApi(core: ApiCore) {
         `/api/reports/deployments/${encodeURIComponent(executionId)}/outcome`,
         { method: 'POST', body: JSON.stringify(body) },
       );
+    },
+
+    // ============================================
+    // Ingestion health (Phase 3)
+    // ============================================
+
+    /**
+     * This org's ingestion health — what the AWS events forwarder last reported.
+     * `health: null` means the deployment has NEVER reported (no row), which is
+     * NOT the same as stale; `now` is the server clock, so staleness is measured
+     * without trusting the browser's. `reports:read`, org-scoped.
+     */
+    getIngestHealth: async (signal?: AbortSignal) => {
+      const res = await core.request<ApiResponse<IngestHealthResponse>>('/api/reports/ingest-health', { signal });
+      return res.data;
     },
 
     // ============================================

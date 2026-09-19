@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -26,7 +27,7 @@ export default function NewDashboardPage() {
   // View on `dashboards:read`; the actual create action is a `dashboards:write`
   // capability gated via `can()`, which reports false under read-only
   // impersonation so the Create button disables (superadmins bypass).
-  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
   const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();
@@ -56,6 +57,7 @@ export default function NewDashboardPage() {
     }
   };
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   return (

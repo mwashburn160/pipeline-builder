@@ -27,25 +27,37 @@ jest.mock('framer-motion', () => ({
 
 const search = () => screen.getByLabelText(/search the docs/i) as HTMLInputElement;
 
+/**
+ * Render and wait for the help corpus.
+ *
+ * The topics are a dynamic import now (588 KB of generated source that used to
+ * sit in every chunk), so the browse view fills in one tick after mount.
+ */
+async function renderHelp() {
+  const result = render(<HelpPage />);
+  await screen.findByText('Deploy & Operate');
+  return result;
+}
+
 describe('Help page — browse view', () => {
-  it('shows the category index with topic counts when idle', () => {
-    render(<HelpPage />);
+  it('shows the category index with topic counts when idle', async () => {
+    await renderHelp();
     expect(screen.getByText('Deploy & Operate')).toBeInTheDocument();
     expect(screen.getByText('Reference')).toBeInTheDocument();
     // Idle status line orients rather than sitting blank.
     expect(screen.getByText(/topics\./i)).toBeInTheDocument();
   });
 
-  it('offers popular queries that populate the search box', () => {
-    render(<HelpPage />);
+  it('offers popular queries that populate the search box', async () => {
+    await renderHelp();
     fireEvent.click(screen.getByRole('button', { name: 'aws ses' }));
     expect(search().value).toBe('aws ses');
   });
 });
 
 describe('Help page — search results', () => {
-  it('replaces the category browse with ranked results', () => {
-    render(<HelpPage />);
+  it('replaces the category browse with ranked results', async () => {
+    await renderHelp();
     expect(screen.getByText('Governance')).toBeInTheDocument();
     fireEvent.change(search(), { target: { value: 'compliance' } });
     // Category headings are gone — results occupy the space directly below the input.
@@ -54,23 +66,23 @@ describe('Help page — search results', () => {
     expect(screen.getAllByText(/matching section/i).length).toBeGreaterThan(1);
   });
 
-  it('reports how many sections matched, not just how many topics', () => {
-    render(<HelpPage />);
+  it('reports how many sections matched, not just how many topics', async () => {
+    await renderHelp();
     fireEvent.change(search(), { target: { value: 'deploy' } });
     const status = screen.getByText(/of \d+ topics/);
     expect(status.textContent).toMatch(/\d+ matching sections?/);
   });
 
-  it('highlights the query inside the snippet', () => {
-    const { container } = render(<HelpPage />);
+  it('highlights the query inside the snippet', async () => {
+    const { container } = await renderHelp();
     fireEvent.change(search(), { target: { value: 'compliance' } });
     const marks = container.querySelectorAll('mark');
     expect(marks.length).toBeGreaterThan(0);
     expect(marks[0].textContent?.toLowerCase()).toBe('compliance');
   });
 
-  it('shows an actionable empty state for a term with no hits', () => {
-    render(<HelpPage />);
+  it('shows an actionable empty state for a term with no hits', async () => {
+    await renderHelp();
     fireEvent.change(search(), { target: { value: 'zzzznotathing' } });
     expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /back to all topics/i }));
@@ -78,8 +90,8 @@ describe('Help page — search results', () => {
     expect(screen.getByText('Governance')).toBeInTheDocument();
   });
 
-  it('clears via the clear button and returns to browse', () => {
-    render(<HelpPage />);
+  it('clears via the clear button and returns to browse', async () => {
+    await renderHelp();
     fireEvent.change(search(), { target: { value: 'compliance' } });
     fireEvent.click(screen.getByLabelText(/clear search/i));
     expect(search().value).toBe('');
@@ -88,22 +100,22 @@ describe('Help page — search results', () => {
 });
 
 describe('Help page — keyboard', () => {
-  it('focuses search on "/" from elsewhere on the page', () => {
-    render(<HelpPage />);
+  it('focuses search on "/" from elsewhere on the page', async () => {
+    await renderHelp();
     search().blur();
     fireEvent.keyDown(window, { key: '/' });
     expect(document.activeElement).toBe(search());
   });
 
-  it('does not hijack "/" while typing in the field', () => {
-    render(<HelpPage />);
+  it('does not hijack "/" while typing in the field', async () => {
+    await renderHelp();
     const input = search();
     fireEvent.change(input, { target: { value: 'a/b' } });
     expect(input.value).toBe('a/b');
   });
 
-  it('Escape clears the query', () => {
-    render(<HelpPage />);
+  it('Escape clears the query', async () => {
+    await renderHelp();
     fireEvent.change(search(), { target: { value: 'compliance' } });
     // Dispatch on the input so it bubbles to the window listener with
     // event.target === the input, which is what the handler gates on.
@@ -113,8 +125,8 @@ describe('Help page — keyboard', () => {
 });
 
 describe('Help page — what\'s new', () => {
-  it('renders the feed with dates', () => {
-    render(<HelpPage />);
+  it('renders the feed with dates', async () => {
+    await renderHelp();
     const feed = screen.getByText(/what's new/i).closest('div')!;
     expect(within(feed).getByText(/2026-05-28/)).toBeInTheDocument();
   });

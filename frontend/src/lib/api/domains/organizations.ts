@@ -56,8 +56,9 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
     // Organization endpoints
     // ============================================
-    listOrganizations: async (params?: { search?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; offset?: number; limit?: number }) => {
-      return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
+    /** `opts.signal` cancels the request on the wire (shared query cache / debounced pickers). */
+    listOrganizations: async (params?: { search?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     deleteOrganization: async (id: string, stepUpToken?: string) => {
@@ -162,11 +163,13 @@ export function organizationsApi(core: ApiCore) {
         sortBy?: string;
         sortOrder?: 'asc' | 'desc';
       },
+      /** `signal` cancels the request on the wire (shared query cache / debounced search). */
+      opts?: { signal?: AbortSignal },
     ) => {
       return core.request<ApiResponse<{
         members: OrganizationMember[];
         pagination: { total: number; offset: number; limit: number; hasMore: boolean };
-      }>>(`/api/organization/${orgId}/members${buildQuery(params)}`);
+      }>>(`/api/organization/${orgId}/members${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     addMemberToOrganization: async (orgId: string, data: { userId?: string; email?: string }) => {

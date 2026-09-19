@@ -17,6 +17,8 @@ import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import type { BuilderProps, ExecutionCountRow, Visibility } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
+import { invalidate, queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
 import { SysadminHome } from '@/components/dashboard/SysadminHome';
@@ -95,74 +97,91 @@ export default function DashboardPage() {
   // could otherwise land last and overwrite the current org's stats. Only the most
   // recent invocation is allowed to apply state.
   const fetchGenRef = useRef(0);
+  /** Aborts the previous round's requests when a new one starts / on unmount. */
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
-  const fetchData = useCallback(async () => {
+  /**
+   * Load the home's panels.
+   *
+   * Each request applies its OWN result the moment it lands. This used to be a
+   * five-way `Promise.allSettled`, which meant the slowest of the five decided
+   * when ANY of them rendered: a sluggish plugin-summary held the pipeline count,
+   * the unread badge and the member probe behind it, and the skeletons stayed up
+   * for the worst case rather than each one's own. Nothing here depends on
+   * anything else here, so nothing here should wait on anything else here.
+   *
+   * The only join left is the pair backing the headline stats, because the
+   * "is this a load failure or an empty org?" decision genuinely needs both.
+   */
+  const fetchData = useCallback(() => {
     const gen = ++fetchGenRef.current;
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    const { signal } = controller;
+    // Discard a superseded response: a slower fetch for a previously-selected org
+    // must not overwrite the org the user has since switched to.
+    const current = () => gen === fetchGenRef.current;
+
+    const execP = runQuery(queries.executionCount(), { signal });
+    const pipelineP = runQuery(queries.listPipelines({ limit: '1' }), { signal });
     // Org-admin/owner only: a cheap member-count probe (1-row page, read from
     // pagination.total) so a fresh account can be distinguished from an active
     // one — an owner who has invited a teammate has "started" and graduates to
     // the org-admin home. Gated so member-users don't 403 on the roster.
-    const memberPromise = isOrgAdmin && user?.organizationId
-      ? api.getOrganizationMembers(user.organizationId, { limit: 1 }).catch(() => null)
+    const memberP = isOrgAdmin && user?.organizationId
+      ? runQuery(queries.orgMembers(user.organizationId, { limit: 1 }), { signal })
       : Promise.resolve(null);
 
-    const [execRes, pluginRes, pipelineRes, unreadRes, memberRes] = await Promise.allSettled([
-      api.getExecutionCount(),
-      api.getPluginSummary(),
-      api.listPipelines({ limit: '1' }),
-      api.getUnreadCount(),
-      memberPromise,
-    ]);
-
-    // Discard a superseded response: a slower fetch for a previously-selected org
-    // must not overwrite the org the user has since switched to.
-    if (gen !== fetchGenRef.current) return;
-
-    if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-    if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
-    if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
-    if (unreadRes.status === 'fulfilled') setUnreadMessageCount(unreadRes.value.data?.count ?? 0);
-    if (memberRes.status === 'fulfilled' && memberRes.value?.success && memberRes.value.data) {
-      setMemberCount(memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length);
-    }
+    execP.then((res) => { if (current()) setExecutions(res.data?.pipelines || []); }, () => {});
+    pipelineP.then((res) => { if (current()) setPipelineCount(res.data?.pagination?.total ?? 0); }, () => {});
+    memberP.then((res) => {
+      if (current() && res?.success && res.data) {
+        setMemberCount(res.data.pagination?.total ?? res.data.members.length);
+      }
+    }, () => {});
+    api.getPluginSummary().then((res) => { if (current()) setPluginSummary(res.data?.summary || null); }, () => {});
+    api.getUnreadCount().then((res) => { if (current()) setUnreadMessageCount(res.data?.count ?? 0); }, () => {});
 
     // The two fetches that back the headline stats (Pipelines / Total & Failed
     // Executions / Success Rate). If BOTH the executions report and the pipeline
     // count fail, the "0 / --" render is a load failure, not an empty org — surface
     // a retryable error instead of a misleading empty dashboard.
-    if (execRes.status === 'rejected' && pipelineRes.status === 'rejected') {
-      setLoadError(formatError(execRes.reason, 'Failed to load dashboard data.'));
-    } else {
-      setLoadError(null);
-    }
-    setStatsLoading(false);
+    void Promise.allSettled([execP, pipelineP]).then(([execRes, pipelineRes]) => {
+      if (!current() || signal.aborted) return;
+      setLoadError(execRes.status === 'rejected' && pipelineRes.status === 'rejected'
+        ? formatError(execRes.reason, 'Failed to load dashboard data.')
+        : null);
+      setStatsLoading(false);
+    });
   }, [isOrgAdmin, user?.organizationId]);
 
   useEffect(() => {
-    if (isAuthenticated) fetchData();
+    if (!isAuthenticated) return;
+    fetchData();
+    return () => fetchAbortRef.current?.abort();
   }, [isAuthenticated, fetchData]);
 
-  // Execution Trend timeline — fetched separately so changing the range window
-  // only re-hits the success-rate report, not the whole dashboard. Guarded with a
-  // `cancelled` flag so quickly toggling 7/30/90 can't let an earlier response
-  // land after a later one (stale overwrite).
+  // Execution Trend timeline — its own effect so switching the 7/30/90 window
+  // re-hits only the success-rate report instead of the whole home. It starts in
+  // the SAME commit as the effect above, so the two are concurrent, not
+  // sequential. The AbortController both drops a stale response (toggling the
+  // range quickly) and cancels the superseded request on the wire.
   useEffect(() => {
     if (!isAuthenticated) return;
-    let cancelled = false;
-    (async () => {
-      const to = new Date();
-      const from = new Date();
-      from.setDate(from.getDate() - trendRange);
-      try {
-        const res = await api.getSuccessRate({
-          interval: 'day',
-          from: from.toISOString().slice(0, 10),
-          to: to.toISOString().slice(0, 10),
-        });
-        if (!cancelled) setTimeline((res.data?.timeline || []).slice(-trendRange));
-      } catch { /* best-effort — leave the previous timeline in place */ }
-    })();
-    return () => { cancelled = true; };
+    const controller = new AbortController();
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - trendRange);
+    api.getSuccessRate({
+      interval: 'day',
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+    }, { signal: controller.signal }).then(
+      (res) => { if (!controller.signal.aborted) setTimeline((res.data?.timeline || []).slice(-trendRange)); },
+      () => { /* best-effort — leave the previous timeline in place */ },
+    );
+    return () => controller.abort();
   }, [isAuthenticated, trendRange]);
 
   // Read onboarding flags from localStorage once the user/org is known.
@@ -250,6 +269,8 @@ export default function DashboardPage() {
       setShowCreateModal(false);
       setGitUrl('');
       setModalGitUrl(undefined);
+      // The list this page (and every other pipeline view) reads is now wrong.
+      invalidate.pipelines();
       fetchData();
     } catch (err: unknown) {
       setCreateError(formatError(err, 'Failed to create pipeline'));

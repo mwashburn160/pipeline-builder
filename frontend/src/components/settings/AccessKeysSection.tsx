@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Clock, KeyRound, Trash2 } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { SecretReveal } from '@/components/ui/SecretReveal';
@@ -11,28 +11,13 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
-import { Badge } from '@/components/ui/Badge';
-import { RelativeTime } from '@/components/ui/RelativeTime';
-import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { AccessKeyTable, type KeyRow } from '@/components/settings/AccessKeyTable';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { AccessKeyMeta } from '@/lib/api/domains/auth';
-
-/** A key row with the service account that owns it (absent for a personal key). */
-interface KeyRow extends AccessKeyMeta {
-  /** The account id a service-account key belongs to — the revoke handle. */
-  ownerAccountId?: string;
-}
-
-const STATUS_COLOR: Record<AccessKeyMeta['status'], 'green' | 'gray' | 'red'> = {
-  active: 'green',
-  expired: 'gray',
-  revoked: 'red',
-};
 
 /**
  * Access-key management: the one place a person mints, reviews and revokes the
@@ -44,9 +29,15 @@ const STATUS_COLOR: Record<AccessKeyMeta['status'], 'green' | 'gray' | 'red'> = 
  * and "last used" is now accurate wherever the key is used: every service trades
  * the key at platform, and that exchange is what stamps it.
  *
- * Two hygiene flags are surfaced inline because they are what an audit actually
- * asks about: a key that has NEVER been used (mint-and-forget, pure risk) and
- * one EXPIRING SOON (about to break a pipeline at 3am).
+ * The rows themselves are {@link AccessKeyTable}, shared with the service
+ * accounts panel so a machine key is reviewed with the same hygiene flags as a
+ * personal one.
+ *
+ * CONFIRMATION RULE. Creating a key mints a durable credential and the server
+ * gates it on step-up, so the single dialog confirms AND steps up. Revoking only
+ * ever REMOVES access and the server deliberately does not gate it (a
+ * compromised key must be killable without a second factor), so revoking is a
+ * plain confirm — one dialog either way, never two.
  *
  * The list is the ONE place every key a person can see lives, so it also carries
  * the org's SERVICE-ACCOUNT keys (`pb_sa_…`) when the caller may manage them —
@@ -150,87 +141,6 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
     }
   };
 
-  const columns: Column<KeyRow>[] = [
-    {
-      id: 'name',
-      header: 'Name',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
-      render: (k) => (
-        <div className="flex flex-col gap-0.5">
-          <span>
-            {k.name}
-            {k.kind === 'service_account' && (
-              <span className="ml-1 text-xs text-gray-400">
-                (service account{k.serviceAccountName ? `: ${k.serviceAccountName}` : ''})
-              </span>
-            )}
-          </span>
-          <span className="font-mono text-xs text-gray-400">{k.display}</span>
-        </div>
-      ),
-    },
-    {
-      id: 'scope',
-      header: 'Scope',
-      render: (k) => (k.scope
-        ? <span className="font-mono text-xs">{k.scope}</span>
-        : <span className="text-xs text-gray-400">full account access</span>),
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      render: (k) => (
-        <div className="flex flex-wrap items-center gap-1">
-          <Badge color={STATUS_COLOR[k.status]}>{k.status}</Badge>
-          {/* Hygiene flags — only meaningful while the key is still live. */}
-          {k.status === 'active' && k.neverUsed && (
-            <span title="This key has never been used. If nothing needs it, revoke it.">
-              <Badge color="yellow"><AlertTriangle className="w-3 h-3 mr-1 inline" />never used</Badge>
-            </span>
-          )}
-          {k.expiringSoon && (
-            <span title="Expires within 14 days — rotate it before whatever uses it starts failing.">
-              <Badge color="yellow"><Clock className="w-3 h-3 mr-1 inline" />expiring soon</Badge>
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
-      id: 'created',
-      header: 'Created',
-      render: (k) => (
-        <div className="flex flex-col gap-0.5">
-          <RelativeTime value={k.createdAt} />
-          {k.createdFrom && <span className="text-xs text-gray-400">{k.createdFrom}</span>}
-        </div>
-      ),
-    },
-    { id: 'expires', header: 'Expires', render: (k) => <RelativeTime value={k.expiresAt} /> },
-    {
-      id: 'lastUsed',
-      header: 'Last used',
-      render: (k) => (k.lastUsedAt ? <RelativeTime value={k.lastUsedAt} /> : <span className="text-gray-400">never</span>),
-    },
-    {
-      id: 'actions',
-      header: '',
-      cellClassName: 'text-right',
-      render: (k) => (!k.revoked && k.status !== 'expired' ? (
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setPendingRevoke(k)}
-          readOnly={readOnly}
-          disabled={revoking === k.id}
-          className="gap-1 text-red-600 hover:text-red-700"
-        >
-          <Trash2 className="w-3.5 h-3.5" /> Revoke
-        </Button>
-      ) : null),
-    },
-  ];
-
   return (
     <SectionCard
       icon={KeyRound}
@@ -249,7 +159,14 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
 
       {pendingCreate && (
         <StepUpModal
-          action="Re-confirm your identity to create an access key."
+          title="Create an access key?"
+          action={`Create the access key “${pendingCreate.name}”`}
+          details={(
+            <p>
+              It is a long-lived credential that can act as you wherever it is used, and it is shown
+              exactly once — on the next screen.
+            </p>
+          )}
           onConfirmed={executeCreate}
           onClose={() => setPendingCreate(null)}
         />
@@ -259,6 +176,8 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
         <SecretReveal
           value={newKey}
           label="Access key — copy it now, it is never shown again"
+          filename="pipeline-builder-access-key.txt"
+          onDone={() => setNewKey(null)}
           className="mb-4"
         />
       )}
@@ -268,16 +187,12 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
       ) : loadError && keys.length === 0 ? (
         <RetryError message={loadError} onRetry={() => void load()} />
       ) : (
-        <div className="overflow-x-auto">
-          <DataTable
-            data={keys}
-            columns={columns}
-            isLoading={false}
-            animated={false}
-            getRowKey={(k) => k.id}
-            emptyState={{ icon: KeyRound, title: 'No access keys yet', description: 'Create a key above for the CLI, CI and integrations.' }}
-          />
-        </div>
+        <AccessKeyTable
+          keys={keys}
+          readOnly={readOnly}
+          revokingId={revoking}
+          onRevoke={setPendingRevoke}
+        />
       )}
 
       {pendingRevoke && (

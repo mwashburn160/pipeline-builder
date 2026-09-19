@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Bot, KeyRound, Plus, Power, Trash2 } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { SecretReveal } from '@/components/ui/SecretReveal';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -17,6 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { AccessKeyTable } from '@/components/settings/AccessKeyTable';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
@@ -49,9 +51,14 @@ const KEY_SCOPES: ReadonlyArray<{ value: string; label: string }> = [
 type PendingAction =
   | { kind: 'create'; name: string; description?: string; roleIds: string[] }
   | { kind: 'key'; accountId: string; accountName: string; name: string; expiresIn: number; ipAllowlist: string[]; scope: string }
-  | { kind: 'toggle'; accountId: string; disabled: boolean }
-  | { kind: 'roles'; accountId: string; roleIds: string[] }
-  | { kind: 'delete'; accountId: string; name: string };
+  | { kind: 'toggle'; accountId: string; accountName: string; disabled: boolean }
+  | { kind: 'roles'; accountId: string; accountName: string; roleIds: string[]; roleNames: string[] }
+  | { kind: 'delete'; accountId: string; name: string; keyCount: number };
+
+/** Same members, order-insensitive — a reordered role list is not an edit. */
+function sameRoleSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && [...a].sort().join() === [...b].sort().join();
+}
 
 /**
  * Org service accounts (#2): the page where an admin creates non-human
@@ -64,8 +71,20 @@ type PendingAction =
  *   - its roles can never exceed the permissions of whoever creates them —
  *     the backend refuses, and the picker only offers the org's roles.
  *
- * Every write is step-up gated, exactly like creating a personal access key, so
- * each one routes through StepUpModal before it is sent.
+ * CONFIRMATION RULE, applied here as everywhere: one dialog per decision.
+ *   - Creating an account, issuing a key, enabling/disabling and deleting are
+ *     step-up gated server-side, so a single StepUpModal states the consequence
+ *     AND takes the factor.
+ *   - ROLE EDITS ARE A BATCH. Ticking a box used to fire its own step-up, so
+ *     granting three roles meant three re-verifications and three writes (and a
+ *     half-applied set if you abandoned one). Edits now collect into a draft and
+ *     Save sends the whole set once.
+ *   - Revoking a key is a plain confirm: the server deliberately does not gate
+ *     revocation, so a compromised key is always killable.
+ *
+ * Its keys are rendered by the shared {@link AccessKeyTable}, the same rows the
+ * personal access-keys panel shows — including the never-used / expiring-soon
+ * flags that the hand-rolled list here used to omit.
  */
 export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const toast = useToast();
@@ -91,10 +110,24 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
   const [newKey, setNewKey] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [keyDraft, setKeyDraft] = useState<{ accountId: string; name: string; days: number; ips: string; scope: string } | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<ServiceAccount | null>(null);
   const [pendingKeyRevoke, setPendingKeyRevoke] = useState<{ account: ServiceAccount; keyId: string; keyName: string } | null>(null);
+  // Unsaved role edits, per account. Absent = the account's stored set.
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, string[]>>({});
+  const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
 
   const toggleRole = (id: string) => setRoleIds((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
+
+  /** The role set currently shown for an account: its draft, else what it holds. */
+  const rolesOf = (account: ServiceAccount): string[] =>
+    roleDrafts[account.id] ?? account.roles.map((r) => r.id);
+
+  const toggleAccountRole = (account: ServiceAccount, roleId: string) => {
+    setRoleDrafts((prev) => {
+      const current = prev[account.id] ?? account.roles.map((r) => r.id);
+      const next = current.includes(roleId) ? current.filter((r) => r !== roleId) : [...current, roleId];
+      return { ...prev, [account.id]: next };
+    });
+  };
 
   const handleCreate = () => {
     const trimmed = name.trim().toLowerCase();
@@ -156,8 +189,16 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         else toast.error('Failed to update service account');
       } else if (pending.kind === 'roles') {
         const res = await api.updateServiceAccount(orgId, pending.accountId, { roleIds: pending.roleIds }, stepUpToken);
-        if (res.success) toast.success('Roles updated');
-        else toast.error('Failed to update roles');
+        if (res.success) {
+          toast.success('Roles updated');
+          // The saved set is now the stored set; drop the draft so the Save
+          // button goes away instead of offering to re-send what just landed.
+          setRoleDrafts((prev) => {
+            const next = { ...prev };
+            delete next[pending.accountId];
+            return next;
+          });
+        } else toast.error('Failed to update roles');
       } else {
         const res = await api.deleteServiceAccount(orgId, pending.accountId, stepUpToken);
         if (res.success) toast.success(`${pending.name} deleted`);
@@ -173,6 +214,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
   };
 
   const revokeKey = async (account: ServiceAccount, keyId: string) => {
+    setRevokingKeyId(keyId);
     setBusy(true);
     try {
       const res = await api.revokeServiceAccountKey(orgId, account.id, keyId);
@@ -182,6 +224,66 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       toast.error(formatError(err, 'Failed to revoke key'));
     } finally {
       setBusy(false);
+      setRevokingKeyId(null);
+    }
+  };
+
+  /** Heading + consequence for whichever step-up-gated action is held. */
+  const stepUpCopy = (action: PendingAction): { title: string; action: string; details: ReactNode } => {
+    switch (action.kind) {
+      case 'create':
+        return {
+          title: 'Create this service account?',
+          action: `Create the service account “${action.name}”`,
+          details: <p>It takes no seat, holds the roles you ticked, and can be given keys that act with them.</p>,
+        };
+      case 'key':
+        return {
+          title: 'Issue a key?',
+          action: `Issue the key “${action.name}” for ${action.accountName}`,
+          details: (
+            <p>
+              The key is shown exactly once, on the next screen.{' '}
+              {action.scope
+                ? `It carries only ${action.scope} — none of the account's roles.`
+                : 'It acts with the account’s full roles.'}
+            </p>
+          ),
+        };
+      case 'toggle':
+        return {
+          title: action.disabled ? 'Disable this service account?' : 'Enable this service account?',
+          action: `${action.disabled ? 'Disable' : 'Enable'} ${action.accountName}`,
+          details: action.disabled
+            ? <p>Every key it holds stops authenticating within five minutes. Nothing is deleted — enabling it again restores access.</p>
+            : <p>Its keys start authenticating again within five minutes.</p>,
+        };
+      case 'roles':
+        return {
+          title: 'Change this account’s roles?',
+          action: `Set the roles of ${action.accountName}`,
+          details: (
+            <p>
+              It will hold{' '}
+              <strong className="text-gray-800 dark:text-gray-100">
+                {action.roleNames.length > 0 ? action.roleNames.join(', ') : 'no roles at all'}
+              </strong>
+              . Every key it holds acts with that set from then on — except keys issued with a single capability.
+            </p>
+          ),
+        };
+      default:
+        return {
+          title: 'Delete this service account?',
+          action: `Delete ${action.name}`,
+          details: (
+            <p>
+              <strong className="text-gray-800 dark:text-gray-100">{action.name}</strong> and all{' '}
+              {action.keyCount} of its keys are deleted. Anything authenticating as it stops working
+              within five minutes.
+            </p>
+          ),
+        };
     }
   };
 
@@ -227,7 +329,13 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       )}
 
       {newKey && (
-        <SecretReveal value={newKey} label="Service-account key — copy it now, it is never shown again" className="mb-4" />
+        <SecretReveal
+          value={newKey}
+          label="Service-account key — copy it now, it is never shown again"
+          filename="pipeline-builder-service-account-key.txt"
+          onDone={() => setNewKey(null)}
+          className="mb-4"
+        />
       )}
 
       {loading && data.accounts.length === 0 ? (
@@ -235,120 +343,137 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       ) : loadError && data.accounts.length === 0 ? (
         <RetryError message={loadError} onRetry={() => void reload()} />
       ) : data.accounts.length === 0 ? (
-        <p className="text-sm text-[var(--pb-text-muted)]">No service accounts yet.</p>
+        <EmptyState
+          icon={Bot}
+          title="No service accounts yet"
+          description="Create one above to give CI, automation or an integration its own identity — with its own roles and keys, and no seat."
+        />
       ) : (
         <div className="space-y-3">
-          {data.accounts.map((account) => (
-            <div key={account.id} className="rounded-lg border border-[var(--pb-border)] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium text-sm">
-                    {account.name}
-                    {account.disabled && <Badge color="red" className="ml-2">disabled</Badge>}
-                  </span>
-                  <span className="text-xs text-[var(--pb-text-muted)]">
-                    {account.description || 'No description'} · created by {account.createdByEmail ?? 'unknown'}
-                    {account.lastUsedAt ? <> · last used <RelativeTime value={account.lastUsedAt} /></> : ' · never used'}
-                  </span>
-                  <span className="text-xs text-[var(--pb-text-muted)]">
-                    {account.tokenBudget === -1
-                      ? 'Unlimited token exchanges'
-                      : `${account.usage.exchanges} / ${account.tokenBudget} token exchanges this period`}
-                    {' · no seat'}
-                  </span>
+          {data.accounts.map((account) => {
+            const draft = rolesOf(account);
+            const stored = account.roles.map((r) => r.id);
+            const rolesDirty = !sameRoleSet(draft, stored);
+            return (
+              <div key={account.id} className="rounded-lg border border-[var(--pb-border)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-medium text-sm">
+                      {account.name}
+                      {account.disabled && <Badge color="red" className="ml-2">disabled</Badge>}
+                    </span>
+                    <span className="text-xs text-[var(--pb-text-muted)]">
+                      {account.description || 'No description'} · created by {account.createdByEmail ?? 'unknown'}
+                      {account.lastUsedAt ? <> · last used <RelativeTime value={account.lastUsedAt} /></> : ' · never used'}
+                    </span>
+                    <span className="text-xs text-[var(--pb-text-muted)]">
+                      {account.tokenBudget === -1
+                        ? 'Unlimited token exchanges'
+                        : `${account.usage.exchanges} / ${account.tokenBudget} token exchanges this period`}
+                      {' · no seat'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1"
+                      readOnly={readOnly}
+                      disabled={busy}
+                      onClick={() => setPending({
+                        kind: 'toggle', accountId: account.id, accountName: account.name, disabled: !account.disabled,
+                      })}
+                    >
+                      <Power className="w-3.5 h-3.5" /> {account.disabled ? 'Enable' : 'Disable'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1"
+                      readOnly={readOnly}
+                      disabled={busy}
+                      onClick={() => setKeyDraft({ accountId: account.id, name: `${account.name}-key`, days: 90, ips: '', scope: '' })}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" /> New key
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1 text-red-600 hover:text-red-700"
+                      readOnly={readOnly}
+                      disabled={busy}
+                      onClick={() => setPending({
+                        kind: 'delete', accountId: account.id, name: account.name, keyCount: account.keys.length,
+                      })}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="gap-1"
-                    readOnly={readOnly}
-                    disabled={busy}
-                    onClick={() => setPending({ kind: 'toggle', accountId: account.id, disabled: !account.disabled })}
-                  >
-                    <Power className="w-3.5 h-3.5" /> {account.disabled ? 'Enable' : 'Disable'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="gap-1"
-                    readOnly={readOnly}
-                    disabled={busy}
-                    onClick={() => setKeyDraft({ accountId: account.id, name: `${account.name}-key`, days: 90, ips: '', scope: '' })}
-                  >
-                    <KeyRound className="w-3.5 h-3.5" /> New key
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="gap-1 text-red-600 hover:text-red-700"
-                    readOnly={readOnly}
-                    disabled={busy}
-                    onClick={() => setPendingDelete(account)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Delete
-                  </Button>
-                </div>
-              </div>
 
-              {/* Roles — the account's authority, editable as a set. */}
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {data.roles.map((role) => {
-                  const held = account.roles.some((r) => r.id === role.id);
-                  return (
+                {/* Roles — the account's authority, edited as a SET and saved once. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {data.roles.map((role) => (
                     <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-[var(--pb-text-muted)]">
                       <input
                         type="checkbox"
-                        checked={held}
+                        checked={draft.includes(role.id)}
                         disabled={busy || readOnly}
                         aria-label={`${role.name} for ${account.name}`}
-                        onChange={() => setPending({
-                          kind: 'roles',
-                          accountId: account.id,
-                          roleIds: held
-                            ? account.roles.filter((r) => r.id !== role.id).map((r) => r.id)
-                            : [...account.roles.map((r) => r.id), role.id],
-                        })}
+                        onChange={() => toggleAccountRole(account, role.id)}
                       />
                       {role.name}
                     </label>
-                  );
-                })}
-              </div>
-
-              {/* Keys */}
-              <div className="mt-3 space-y-1">
-                {account.keys.length === 0 && <p className="text-xs text-[var(--pb-text-muted)]">No keys yet.</p>}
-                {account.keys.map((key) => (
-                  <div key={key.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono">{key.display}</span>
-                      <span>{key.name}</span>
-                      <Badge color={key.status === 'active' ? 'green' : key.status === 'expired' ? 'gray' : 'red'}>{key.status}</Badge>
-                      {/* A scoped key acts with ONE capability and none of the account's
-                          roles — the single most useful thing to see when deciding
-                          whether a credential is over-privileged. */}
-                      {key.scope && <Badge color="blue">{key.scope}</Badge>}
-                      {key.ipAllowlist && <span className="text-[var(--pb-text-muted)]">IPs: {key.ipAllowlist.join(', ')}</span>}
-                      <span className="text-[var(--pb-text-muted)]">expires <RelativeTime value={key.expiresAt} /></span>
-                    </span>
-                    {key.status === 'active' && (
+                  ))}
+                  {rolesDirty && (
+                    <span className="ml-auto inline-flex items-center gap-2">
                       <Button
                         variant="ghost"
                         size="xs"
-                        className="text-red-600 hover:text-red-700"
+                        disabled={busy}
+                        onClick={() => setRoleDrafts((prev) => {
+                          const next = { ...prev };
+                          delete next[account.id];
+                          return next;
+                        })}
+                      >
+                        Discard
+                      </Button>
+                      <Button
+                        size="xs"
                         readOnly={readOnly}
                         disabled={busy}
-                        onClick={() => setPendingKeyRevoke({ account, keyId: key.id, keyName: key.name })}
+                        onClick={() => setPending({
+                          kind: 'roles',
+                          accountId: account.id,
+                          accountName: account.name,
+                          roleIds: draft,
+                          roleNames: data.roles.filter((r) => draft.includes(r.id)).map((r) => r.name),
+                        })}
                       >
-                        Revoke
+                        Save roles
                       </Button>
-                    )}
-                  </div>
-                ))}
+                    </span>
+                  )}
+                </div>
+
+                {/* Keys — the same rows, and the same hygiene flags, as the
+                    personal access-keys list. */}
+                <div className="mt-3">
+                  <AccessKeyTable
+                    keys={account.keys}
+                    readOnly={readOnly}
+                    revokingId={revokingKeyId}
+                    disabled={busy}
+                    showOwner={false}
+                    onRevoke={(key) => setPendingKeyRevoke({ account, keyId: key.id, keyName: key.name })}
+                    emptyTitle="No keys yet"
+                    emptyDescription="Issue one with “New key” — it is what this account authenticates with."
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -385,32 +510,14 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
 
       {pending && (
         <StepUpModal
-          action="Re-confirm your identity to change service-account access."
+          {...stepUpCopy(pending)}
           onConfirmed={execute}
           onClose={() => setPending(null)}
         />
       )}
 
-      {pendingDelete && (
-        <ConfirmDialog
-          title="Delete service account?"
-          confirmLabel="Delete"
-          tone="danger"
-          loading={busy}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            setPending({ kind: 'delete', accountId: pendingDelete.id, name: pendingDelete.name });
-            setPendingDelete(null);
-          }}
-        >
-          <p>
-            <strong className="text-gray-800 dark:text-gray-100">{pendingDelete.name}</strong> and all{' '}
-            {pendingDelete.keys.length} of its keys are deleted. Anything authenticating as it stops working
-            within five minutes.
-          </p>
-        </ConfirmDialog>
-      )}
-
+      {/* Revocation is NOT step-up gated server-side (see the module note), so
+          this stays a plain confirm — one dialog, like everything else here. */}
       {pendingKeyRevoke && (
         <ConfirmDialog
           title="Revoke key?"

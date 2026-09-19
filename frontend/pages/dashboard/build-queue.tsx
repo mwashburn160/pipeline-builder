@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, Inbox, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { usePolling } from '@/hooks/usePolling';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { StatCard } from '@/components/ui/StatCard';
@@ -80,7 +81,7 @@ function queueHealth(status: QueueStatus | null): { label: string; color: string
 // ---------------------------------------------------------------------------
 
 export default function BuildQueuePage() {
-  const { user, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
@@ -209,6 +210,7 @@ export default function BuildQueuePage() {
   // hidden and refreshes on return).
   usePolling(fetchStatus, POLL_INTERVAL, { enabled: isReady && !!user });
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   const health = queueHealth(status);

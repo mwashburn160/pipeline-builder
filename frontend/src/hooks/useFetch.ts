@@ -13,17 +13,19 @@ import { runCancellableFetch } from './internal/fetchCore';
  * or the deps change.
  *
  * It stores the fetcher in a ref so callers DON'T need to memoize it, returns
- * `error: Error | null` + `refetch()`, and drops stale state writes on
- * unmount/deps-change (the in-flight request itself is not aborted).
+ * `error: Error | null` + `refetch()`, and cancels the in-flight request on
+ * unmount/deps-change. The fetcher receives an `AbortSignal`; forward it to the
+ * API client to stop the request on the wire (callers that ignore it simply
+ * keep the old "drop the late answer" behaviour).
  *
  * @example
  * const { data, loading, error, refetch } = useFetch(
- *   () => api.listAlertDestinations(),
+ *   (signal) => api.listAlertDestinations({ signal }),
  *   [orgId],
  * );
  */
 export function useFetch<T>(
-  fetcher: () => Promise<T>,
+  fetcher: (signal: AbortSignal) => Promise<T>,
   deps: ReadonlyArray<unknown>,
 ): {
   data: T | null;
@@ -39,7 +41,7 @@ export function useFetch<T>(
   fetcherRef.current = fetcher;
 
   useEffect(() => {
-    return runCancellableFetch(() => fetcherRef.current(), {
+    return runCancellableFetch((signal) => fetcherRef.current(signal), {
       onStart: () => {
         setLoading(true);
         setError(null);

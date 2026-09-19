@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Edit2, Copy, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -126,7 +127,7 @@ function ObservabilityDegradedBanner() {
  * `/dashboard/observability/[id]`).
  */
 export default function DashboardPage() {
-  const { isReady, isAuthenticated, user, can, isReadOnly } = useAuthGuard();
+  const { accessDenied, isReady, isAuthenticated, user, can, isReadOnly } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
@@ -199,6 +200,7 @@ export default function DashboardPage() {
   // `!id` keeps the "Dashboard not found" branch from flashing on first client
   // render, before `router.query.id` has hydrated (the fetcher no-ops to null
   // while `ready` is false, flipping `loading` false).
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated || !id) return <LoadingPage />;
   if (loading) return <LoadingPage />;
   if (error) {

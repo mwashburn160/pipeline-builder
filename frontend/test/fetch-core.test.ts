@@ -56,6 +56,41 @@ describe('runCancellableFetch', () => {
     expect(received!.message).toBe('string-error');
   });
 
+  it('hands the fetcher a live signal and ABORTS it on cleanup', async () => {
+    let received: AbortSignal | null = null;
+    const cleanup = runCancellableFetch(
+      (signal) => { received = signal; return new Promise<string>(() => { /* still on the wire */ }); },
+      { onStart: () => {}, onSuccess: () => {}, onError: () => {}, onSettled: () => {} },
+    );
+
+    expect(received!.aborted).toBe(false);
+    cleanup();
+    // The request itself is cancelled — not merely ignored when it answers.
+    expect(received!.aborted).toBe(true);
+  });
+
+  it('does not surface an abort as a user-visible error', async () => {
+    const errors: Error[] = [];
+    // A fetcher wired to an OUTER signal (e.g. the shared query cache dropping
+    // its last subscriber) rejects with an AbortError while this run is still
+    // live. That is a cancellation, not a failure to show.
+    const outer = new AbortController();
+    runCancellableFetch(
+      () => new Promise<string>((_res, rej) => {
+        outer.signal.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError')));
+      }),
+      {
+        onStart: () => {},
+        onSuccess: () => {},
+        onError: (e) => errors.push(e),
+        onSettled: () => {},
+      },
+    );
+    outer.abort();
+    await waitFor(() => expect(outer.signal.aborted).toBe(true));
+    expect(errors).toEqual([]);
+  });
+
   it('suppresses all writes after the cleanup fn is invoked', async () => {
     const shared = Promise.resolve('data');
     const after: string[] = [];

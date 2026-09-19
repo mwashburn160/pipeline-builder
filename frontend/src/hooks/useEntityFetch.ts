@@ -10,16 +10,17 @@ import { runCancellableFetch } from './internal/fetchCore';
  * EditPluginModal, and registry detail views.
  *
  * Guarded so re-fetching for the same id doesn't overwrite user edits
- * mid-edit: refetch only triggers when id changes. Cancels in-flight
- * state writes on unmount. Call `reload()` to force a refetch of the same id
- * (e.g. after an in-place edit-save on a detail page).
+ * mid-edit: refetch only triggers when id changes. Aborts the in-flight request
+ * on unmount (the fetcher's second argument is the signal). Call `reload()` to
+ * force a refetch of the same id (e.g. after an in-place edit-save on a detail
+ * page).
  *
  * @example
  * const { entity, fetching, reload } = useEntityFetch(plugin.id, (id) => api.getPluginById(id));
  */
 export function useEntityFetch<T>(
   id: string | null | undefined,
-  fetcher: (id: string) => Promise<T>,
+  fetcher: (id: string, signal: AbortSignal) => Promise<T>,
   fallback?: T,
 ): { entity: T | null; fetching: boolean; error: Error | null; reload: () => void } {
   const [entity, setEntity] = useState<T | null>(fallback ?? null);
@@ -36,7 +37,7 @@ export function useEntityFetch<T>(
       setEntity(fallback ?? null);
       return;
     }
-    return runCancellableFetch(() => fetcherRef.current(id), {
+    return runCancellableFetch((signal) => fetcherRef.current(id, signal), {
       onStart: () => {
         setFetching(true);
         setError(null);

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { api } from '@/lib/api';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { Download } from 'lucide-react';
@@ -46,7 +47,7 @@ export default function TriagePage() {
   // Sysadmin-only — the underlying /queue/triage endpoint is gated server-side
   // and returns 403 to anyone else; the guard avoids loading the page UI just
   // to have it 403 mid-render.
-  const { isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const [loading, setLoading] = useState(true);
   const [totalFailed, setTotalFailed] = useState(0);
   const [groups, setGroups] = useState<TriageGroup[]>([]);
@@ -116,6 +117,7 @@ export default function TriagePage() {
     }
   }
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isSuperAdmin) return <LoadingPage />;
 
   return (

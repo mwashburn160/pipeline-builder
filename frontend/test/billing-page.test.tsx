@@ -63,24 +63,27 @@ for (const [path, name] of [
 }
 
 const getPlans = jest.fn();
+const getSubscription = jest.fn();
 const changeSubscription = jest.fn();
 jest.mock('@/lib/api', () => {
   const overrides: Record<string, unknown> = {
     getPlans: (...a: unknown[]) => getPlans(...a),
     changeSubscription: (...a: unknown[]) => changeSubscription(...a),
-    getSubscription: () => Promise.resolve({ success: true, data: { subscription: { id: 'sub-1', planId: 'developer', planName: 'Developer', interval: 'monthly', status: 'active' } } }),
+    getSubscription: (...a: unknown[]) => getSubscription(...a),
     getBundles: () => Promise.resolve({ success: true, data: { bundles: [{ id: 'b1', name: 'Seat pack' }], selfService: true, comboDiscounts: [] } }),
   };
   const api = new Proxy({}, { get: (_t, k: string) => overrides[k] ?? (() => Promise.resolve({ success: true, data: null })) });
   return { __esModule: true, default: api, api, ApiError: class extends Error {} };
 });
 
+const subscription = { success: true, data: { subscription: { id: 'sub-1', planId: 'developer', planName: 'Developer', interval: 'monthly', status: 'active' } } };
 const plans = { success: true, data: { plans: [{ id: 'developer', name: 'Developer', prices: { monthly: 0, annual: 0 } }, { id: 'pro', name: 'Pro', prices: { monthly: 10, annual: 100 } }] } };
 
 describe('BillingPage', () => {
   beforeEach(() => {
     mockRouter.query = {};
     getPlans.mockResolvedValue(plans);
+    getSubscription.mockResolvedValue(subscription);
     changeSubscription.mockResolvedValue({ success: true });
     mockAuthGuard({ isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
   });
@@ -106,16 +109,20 @@ describe('BillingPage', () => {
     render(<BillingPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Choose Pro' }));
 
+    // The SUBSCRIPTION read is the reload probe, not the plan catalog: the
+    // catalog is served from the shared query cache (it cannot change under a
+    // plan switch), while the subscription is deliberately re-read with
+    // `force` because this page is the one that just mutated it.
     let finishReload!: (v: unknown) => void;
-    getPlans.mockReturnValueOnce(new Promise((r) => { finishReload = r; }));
+    getSubscription.mockReturnValueOnce(new Promise((r) => { finishReload = r; }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm plan change' }));
-    await waitFor(() => expect(getPlans).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getSubscription).toHaveBeenCalledTimes(2));
 
     // Mid-reload: the page (tab bar + plan grid) is still there.
     expect(screen.getByRole('button', { name: 'Choose Pro' })).toBeInTheDocument();
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
 
-    await act(async () => { finishReload(plans); });
+    await act(async () => { finishReload(subscription); });
     expect(screen.queryByRole('button', { name: 'Confirm plan change' })).not.toBeInTheDocument();
   });
 

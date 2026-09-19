@@ -44,8 +44,10 @@ export function pipelinesApi(core: ApiCore) {
     // ============================================
     // Pipeline endpoints
     // ============================================
-    listPipelines: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`);
+    /** `opts.signal` cancels the request on the wire — supplied by the shared
+     *  query cache and the debounced list hooks so a superseded read stops. */
+    listPipelines: async (params?: Record<string, string>, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     getPipelineById: async (id: string) => {

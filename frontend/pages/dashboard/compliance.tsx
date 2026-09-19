@@ -1,5 +1,6 @@
 import dynamic from 'next/dynamic';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 
@@ -13,8 +14,9 @@ export default function CompliancePage() {
   // affordances inside ComplianceDashboard are gated separately on
   // `compliance:write` via the `canManage` prop. Backend remains the real gate
   // (compliance APIs 403 regardless); this is the cosmetic layer.
-  const { isReady, can } = useAuthGuard({ requirePermission: 'compliance:read' });
+  const { accessDenied, isReady, can } = useAuthGuard({ requirePermission: 'compliance:read' });
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady) return <LoadingPage />;
 
   return (

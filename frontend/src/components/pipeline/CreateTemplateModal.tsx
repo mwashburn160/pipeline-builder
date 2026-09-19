@@ -16,6 +16,8 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
@@ -154,7 +156,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const loadPipelines = useCallback(async () => {
     setPipelinesLoading(true);
     try {
-      const res = await api.listPipelines({ limit: '200', includeTotal: 'false' });
+      const res = await runQuery(queries.listPipelines({ limit: '200', includeTotal: 'false' }));
       if (res.success && res.data) setPipelines(res.data.pipelines || []);
     } catch (err) {
       setError(formatError(err, 'Failed to load pipelines'));

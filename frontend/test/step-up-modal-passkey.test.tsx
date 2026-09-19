@@ -87,8 +87,8 @@ describe('StepUpModal — which factors it offers', () => {
   it('points an account with NO factor at the passkey settings instead of a dead end', async () => {
     await renderModal(factors());
     expect(screen.getByText(/no way to confirm sensitive actions/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /settings/i }))
-      .toHaveAttribute('href', '/dashboard/settings?tab=security#passkeys');
+    expect(screen.getByRole('link', { name: /security/i }))
+      .toHaveAttribute('href', '/dashboard/security?tab=factors#passkeys');
   });
 });
 

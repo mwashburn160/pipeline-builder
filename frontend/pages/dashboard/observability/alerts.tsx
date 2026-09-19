@@ -4,6 +4,7 @@
 import { useCallback, useState } from 'react';
 import { AlertTriangle, BellOff, RefreshCw, Volume2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { usePolling } from '@/hooks/usePolling';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -57,7 +58,7 @@ export default function AlertsPage() {
   // Members hold it). Alert triage (creating/expiring silences) is an
   // `observability:write` capability gated per-control via `can()`, which also
   // reports false under read-only impersonation (superadmins bypass).
-  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
   const canWrite = can('observability:write');
   const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -93,6 +94,7 @@ export default function AlertsPage() {
   // bump to 60 s+ if Prom/AM start to feel the load.
   usePolling(refresh, 30_000, { enabled: isReady && isAuthenticated });
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   const activeSilences = silences.filter(s => s.status.state === 'active');

@@ -95,13 +95,13 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Get all available plans (public, no auth required). */
-    getPlans: async () => {
-      return core.request<ApiResponse<{ plans: Plan[]; total: number }>>('/api/billing/plans');
+    getPlans: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plans: Plan[]; total: number }>>('/api/billing/plans', { signal: opts?.signal });
     },
 
     /** Get current org subscription. */
-    getSubscription: async () => {
-      return core.request<ApiResponse<{ subscription: Subscription | null }>>('/api/billing/subscriptions');
+    getSubscription: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ subscription: Subscription | null }>>('/api/billing/subscriptions', { signal: opts?.signal });
     },
 
     /** Create a new subscription directly (no card collection — for the `stub`

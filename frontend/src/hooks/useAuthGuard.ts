@@ -3,13 +3,28 @@
 
 /**
  * Route-level authentication guard hook.
- * Redirects unauthenticated users to the login page and optionally
- * enforces admin or system-admin role requirements.
+ *
+ * Redirects unauthenticated users to the login page, and enforces the route's
+ * read gate — org-admin / system-admin / a fine-grained permission. The gate is
+ * resolved from `src/lib/page-access.ts`, which derives it from the SAME
+ * `NAV_SECTIONS` declaration the sidebar filters on, so a page needs no options
+ * and the two can't drift. Explicit options still win when a page needs more
+ * than its nav entry says.
+ *
+ * An authorization failure surfaces as `accessDenied` (render
+ * `<AccessDenied>`), NOT as a redirect: a deep link, a bookmark or a
+ * post-login bounce should say "you don't have access to this" once, rather
+ * than render the full chrome and 403 panel by panel, or silently teleport the
+ * viewer to /dashboard. `accessDenied` is derived on every render from the live
+ * user profile, so losing the permission mid-session (a role change, an org
+ * switch, an impersonation ending) flips the open page to the denied state
+ * immediately instead of only being caught at mount.
  */
 import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
+import { resolvePageGate } from '@/lib/page-access';
 
 /** Options for configuring the auth guard's requirements. */
 interface AuthGuardOptions {
@@ -22,6 +37,16 @@ interface AuthGuardOptions {
   /** Set on the onboarding page itself so the guard doesn't bounce a
    *  `needsOnboarding` user away from it (which would loop). */
   allowOnboarding?: boolean;
+}
+
+/** Why the current viewer may not see this route. */
+export interface AccessDenial {
+  /** Which requirement failed — picks the sentence `<AccessDenied>` renders. */
+  kind: 'permission' | 'admin' | 'systemAdmin';
+  /** The permission id the route needs, when `kind === 'permission'`. */
+  permission?: string;
+  /** The route that was denied, so the message can name it (shared links). */
+  pathname: string;
 }
 
 /**
@@ -40,11 +65,14 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   const isOrgAdminUser = isOrgAdmin(user);
   const isAdmin = isSuperAdmin || isOrgAdminUser;
 
-  const requireAdmin = options?.requireAdmin ?? false;
-  const requireSystemAdmin = options?.requireSystemAdmin ?? false;
+  // The route's declared gate (nav-derived). Options override per requirement so
+  // a page can ask for MORE than its nav entry declares, never less by omission.
+  const gate = resolvePageGate(router.pathname);
+  const requireAdmin = options?.requireAdmin ?? gate.adminOnly ?? false;
+  const requireSystemAdmin = options?.requireSystemAdmin ?? gate.systemAdminOnly ?? false;
   const allowOnboarding = options?.allowOnboarding ?? false;
   const needsOnboarding = !!user?.needsOnboarding;
-  const requirePermission = options?.requirePermission;
+  const requirePermission = options?.requirePermission ?? gate.permission;
   const hasRequiredPermission = !requirePermission || hasPermission(user, requirePermission);
 
   /**
@@ -82,29 +110,35 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       router.replace('/dashboard/onboarding');
       return;
     }
-    if (requireAdmin && !isAdmin) {
-      router.push('/dashboard');
-      return;
-    }
-    if (requireSystemAdmin && !isSuperAdmin) {
-      router.push('/dashboard');
-      return;
-    }
-    if (!hasRequiredPermission) {
-      router.push('/dashboard');
-      return;
-    }
-  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, hasRequiredPermission, router, requireAdmin, requireSystemAdmin, needsOnboarding, allowOnboarding]);
+    // Authorization failures deliberately do NOT redirect — see `accessDenied`.
+  }, [isAuthenticated, isInitialized, isLoading, router, needsOnboarding, allowOnboarding]);
 
-  const isReady = isInitialized && !isLoading && isAuthenticated && !!user
-    && (allowOnboarding || !needsOnboarding)
-    && (!requireAdmin || isAdmin)
-    && (!requireSystemAdmin || isSuperAdmin)
-    && hasRequiredPermission;
+  // Signed in, past onboarding, and the profile has loaded — only then can an
+  // authorization verdict be meaningful (before that everything looks denied).
+  const isSettled = isInitialized && !isLoading && isAuthenticated && !!user
+    && (allowOnboarding || !needsOnboarding);
+
+  // Recomputed every render from the live profile, so a permission LOST while the
+  // page is open (role change, org switch, impersonation ending) flips the page
+  // to the denied state rather than leaving stale panels to 403 one by one.
+  const accessDenied: AccessDenial | null = !isSettled
+    ? null
+    : requireSystemAdmin && !isSuperAdmin
+      ? { kind: 'systemAdmin', pathname: router.pathname }
+      : requireAdmin && !isAdmin
+        ? { kind: 'admin', pathname: router.pathname }
+        : !hasRequiredPermission
+          ? { kind: 'permission', permission: requirePermission, pathname: router.pathname }
+          : null;
+
+  const isReady = isSettled && accessDenied === null;
 
   return {
     user,
     isReady,
+    /** Non-null when the route's read gate refuses this viewer. Pages render
+     *  `<AccessDenied denial={accessDenied} />` before their loading state. */
+    accessDenied,
     isAuthenticated,
     isSuperAdmin,
     isOrgAdminUser,

@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Import fonts (kept lightweight, no custom assets required) */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+/* Fonts are self-hosted by `next/font` (see src/lib/fonts.ts) and reach this
+   file as CSS variables declared on <html> by pages/_document.tsx. The previous
+   `@import url('https://fonts.googleapis.com/…')` was blocked by this app's own
+   CSP (`style-src 'self'`, `font-src 'self' data:`), so it cost a render-blocking
+   third-party request and delivered nothing. */
 
 /* Class-based dark mode (override default media-query) */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -47,7 +50,7 @@
   }
 
   body {
-    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family: var(--pb-font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
     color: var(--pb-text);
     background:
       radial-gradient(1200px 600px at 10% -10%, rgba(239, 182, 76, 0.18), transparent 60%),
@@ -57,7 +60,7 @@
   }
 
   h1, h2, h3, h4 {
-    font-family: "Fraunces", ui-serif, Georgia, serif;
+    font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
     letter-spacing: -0.01em;
   }
 

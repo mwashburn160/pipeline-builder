@@ -9,7 +9,6 @@ import { TotpQrCode } from '@/components/settings/TotpQrCode';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -36,8 +35,9 @@ const OFF: TotpStatus = {
  * It sits in Settings → Security next to "Passkeys", and for the same reason:
  * both are credentials for the PERSON, unlike the machine-facing access keys.
  *
- * Three server-gated actions, each opening a `StepUpModal` first because the
- * backend requires a step-up token:
+ * Three server-gated actions, each opening ONE `StepUpModal` — which states what
+ * the action costs and takes the factor in the same dialog, rather than a
+ * confirm-then-step-up pair asking the same question twice:
  *   - ENROL, which mints a secret and shows it once (QR + typed key), then takes
  *     a code back to prove the app really has it;
  *   - DISABLE, which destroys the factor;
@@ -67,10 +67,10 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
   const [code, setCode] = useState('');
   const [activating, setActivating] = useState(false);
 
-  // Which step-up the modal is currently being opened for (null = closed).
+  // Which step-up the modal is currently being opened for (null = closed). The
+  // dialog states the consequence itself — see the module note on the one-dialog
+  // rule — so there is no separate confirm step in front of it.
   const [pendingStepUp, setPendingStepUp] = useState<'enrol' | 'disable' | 'regenerate' | null>(null);
-  const [confirmDisable, setConfirmDisable] = useState(false);
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // A freshly minted set, shown once. Separate from `enrolment` because
@@ -150,11 +150,34 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
     else if (action === 'regenerate') await regenerate(token);
   };
 
-  const stepUpAction = pendingStepUp === 'enrol'
-    ? 'Confirm your identity to set up an authenticator app.'
+  /** Heading, summary and consequence for whichever action is being gated. */
+  const stepUpCopy = pendingStepUp === 'enrol'
+    ? {
+      title: 'Set up an authenticator app?',
+      action: 'Set up an authenticator app',
+      details: <p>A setup key and QR code are issued next; two-factor only turns on once you enter a code from the app.</p>,
+    }
     : pendingStepUp === 'disable'
-      ? 'Confirm your identity to turn off two-factor authentication.'
-      : 'Confirm your identity to replace your recovery codes.';
+      ? {
+        title: 'Turn off two-factor authentication?',
+        action: 'Turn off two-factor authentication',
+        details: (
+          <p>
+            Signing in will need only your password again, and your recovery codes
+            stop working. Remove the entry from your authenticator app too.
+          </p>
+        ),
+      }
+      : {
+        title: 'Replace your recovery codes?',
+        action: 'Replace your recovery codes',
+        details: (
+          <p>
+            Every code you have written down stops working immediately, including
+            any you haven&apos;t used. You&apos;ll get a new set to save.
+          </p>
+        ),
+      };
 
   const lockedOut = !!status.lockedUntil && new Date(status.lockedUntil).getTime() > Date.now();
 
@@ -261,7 +284,7 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
               variant="secondary"
               readOnly={readOnly}
               loading={busy}
-              onClick={() => setConfirmRegenerate(true)}
+              onClick={() => setPendingStepUp('regenerate')}
               className="gap-1"
             >
               <RefreshCw className="w-3.5 h-3.5" /> New recovery codes
@@ -270,7 +293,7 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
               variant="danger-outline"
               readOnly={readOnly}
               disabled={busy}
-              onClick={() => setConfirmDisable(true)}
+              onClick={() => setPendingStepUp('disable')}
               className="gap-1"
             >
               <Trash2 className="w-3.5 h-3.5" /> Turn off
@@ -297,38 +320,11 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
         </div>
       )}
 
-      {confirmDisable && (
-        <ConfirmDialog
-          title="Turn off two-factor authentication?"
-          confirmLabel="Turn off"
-          tone="danger"
-          onCancel={() => setConfirmDisable(false)}
-          onConfirm={() => { setConfirmDisable(false); setPendingStepUp('disable'); }}
-        >
-          <p>
-            Signing in will need only your password again, and your recovery codes
-            stop working. Remove the entry from your authenticator app too.
-          </p>
-        </ConfirmDialog>
-      )}
-
-      {confirmRegenerate && (
-        <ConfirmDialog
-          title="Replace your recovery codes?"
-          confirmLabel="Create new codes"
-          onCancel={() => setConfirmRegenerate(false)}
-          onConfirm={() => { setConfirmRegenerate(false); setPendingStepUp('regenerate'); }}
-        >
-          <p>
-            Every code you have written down stops working immediately, including
-            any you haven&apos;t used. You&apos;ll get a new set to save.
-          </p>
-        </ConfirmDialog>
-      )}
-
       {pendingStepUp && (
         <StepUpModal
-          action={stepUpAction}
+          title={stepUpCopy.title}
+          action={stepUpCopy.action}
+          details={stepUpCopy.details}
           onConfirmed={onStepUpConfirmed}
           onClose={() => setPendingStepUp(null)}
         />

@@ -5,9 +5,12 @@
  * Controllers for per-org alert rule authoring.
  *
  * GET /api/observability/alert-rules  list this org's rules
+ * GET /api/observability/alert-rules/deleted  this org's restorable tombstones
  * POST /api/observability/alert-rules  create (org-admin)
  * PUT /api/observability/alert-rules/:id  update (org-admin)
  * DELETE /api/observability/alert-rules/:id  delete (org-admin)
+ * POST /api/observability/alert-rules/:id/restore  undo a delete (step-up)
+ * POST /api/observability/alert-rules/:id/purge  permanent delete (step-up)
  * GET /api/observability/alert-rules/materialized.yml  Prom rule_files YAML (sysadmin / sidecar)
  *
  * The materialized endpoint returns the rendered YAML across all orgs and
@@ -67,6 +70,17 @@ export const listAlertRules = withController('List alert rules', async (req, res
   if (!orgId) return;
 
   const rules = await alertRuleService.listForOrg(orgId);
+  sendSuccess(res, 200, { rules });
+});
+
+/** GET /api/observability/alert-rules/deleted  this org's restorable tombstones
+ *  ("recently deleted"). Same `observability:read` gate + org scope as the live
+ *  list — a tombstone is no more visible than the row it came from. */
+export const listDeletedAlertRules = withController('List deleted alert rules', async (req, res) => {
+  const orgId = requireOrgMembership(req, res);
+  if (!orgId) return;
+
+  const rules = await alertRuleService.listDeletedForOrg(orgId);
   sendSuccess(res, 200, { rules });
 });
 
@@ -216,6 +230,41 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
     }
     throw err;
   }
+});
+
+/**
+ * POST /api/observability/alert-rules/:id/purge — PERMANENT hard-delete of a
+ * tombstone, finalizing now what the retention sweep would do at `purge_after`.
+ * Same `observability:write` + step-up gate as restore (irreversible), org-scoped
+ * in the service. 404 when the id is unknown or still live — a live rule must be
+ * soft-deleted first.
+ *
+ * No quota release: delete already released the `alertRules` slot, and the
+ * tombstone never held one.
+ */
+export const purgeAlertRule = withController('Purge alert rule', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { orgId } = ctx;
+
+  const id = getParam(req.params, 'id')!;
+
+  // Load the tombstone first: gates on own-org scope + genuine soft-delete, and
+  // captures the name for the audit record before the row is destroyed.
+  const existing = await alertRuleService.findDeletedById(orgId, id);
+  if (!existing) return sendError(res, 404, 'Alert rule not found');
+
+  const ok = await alertRuleService.purgeById(orgId, id);
+  if (!ok) return sendError(res, 404, 'Alert rule not found');
+
+  audit(req, 'alert.rule.purge', {
+    targetType: 'alert-rule',
+    targetId: id,
+    affectedOrgId: orgId,
+    details: { name: existing.name },
+  });
+
+  sendSuccess(res, 200, {}, 'Alert rule permanently deleted');
 });
 
 // ---------------------------------------------------------------------------

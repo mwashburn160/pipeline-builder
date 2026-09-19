@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { Loader2 } from 'lucide-react';
 import { buttonClasses } from './buttonClasses';
 import { READ_ONLY_REASON } from './ReadOnlyNotice';
@@ -24,6 +24,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * controls instead of wiring `disabled` + `title` by hand.
    */
   readOnly?: boolean;
+  /** React 19 passes `ref` as a regular prop; it's spread onto the native
+   *  `<button>` so callers can grab the DOM node (e.g. a dialog focusing its
+   *  primary action once it knows which one that is). Mirrors `Input`. */
+  ref?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }
 

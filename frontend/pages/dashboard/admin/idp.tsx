@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -23,10 +24,12 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function IdpRosterPage() {
-  const { isReady, user, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, isReady, user, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
 
   const [configs, setConfigs] = useState<OrgIdpConfigDto[]>([]);
   // orgId → display name, resolved best-effort from the orgs list so the roster
@@ -44,7 +47,7 @@ export default function IdpRosterPage() {
       // enrichment, so a failure there must not blank the page.
       const [idpRes, orgsRes] = await Promise.all([
         api.listOrgIdpConfigs(),
-        api.listOrganizations({ limit: 200 }).catch(() => null),
+        runQuery(queries.listOrganizations({ limit: 200 })).catch(() => null),
       ]);
       if (idpRes.success && idpRes.data) setConfigs(idpRes.data.configs ?? []);
       else throw new Error(idpRes.message || 'Failed to load IdP roster');
@@ -120,6 +123,7 @@ export default function IdpRosterPage() {
     },
   ], [orgNames]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   const enabledCount = configs.filter((c) => c.enabled).length;

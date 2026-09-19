@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
@@ -30,7 +31,7 @@ export default function UsersPage() {
   // All /users routes are sysadmin-only server-side (platform/src/routes/users.ts).
   // The previous `requireAdmin: true` let org admins reach the page and fail
   // every API call with 403 — gate matches backend now.
-  const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
 
   const list = useListPage<UserListItem>({
     fields: [
@@ -407,6 +408,7 @@ export default function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
   if (!isSuperAdmin) return null;
 

@@ -10,6 +10,8 @@ import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { FeatureLock } from '@/components/ui/FeatureLock';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import AIPluginBuilderTab from './AIPluginBuilderTab';
 import WizardPluginTab from './WizardPluginTab';
 import api from '@/lib/api';
@@ -32,6 +34,11 @@ interface CreatePluginModalProps {
 /** Tabbed modal for creating plugins via AI generation, a guided form (wizard), or file upload. */
 export default function CreatePluginModal({ canPublish, onClose, onCreated, initialTab = 'ai' }: CreatePluginModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'ai' | 'wizard'>(initialTab);
+  // `ai_generation` is a server gate on the plugin generate routes — pre-gate the
+  // AI tab so a non-entitled org sees why, not a 403 mid-generation. Treated as
+  // entitled until `/config` resolves so an entitled org never flashes the lock.
+  const aiGate = useFeatureGate('ai_generation');
+  const aiEntitled = aiGate.entitled || !aiGate.isLoaded;
 
   // Upload tab state
   const [file, setFile] = useState<File | null>(null);
@@ -297,6 +304,19 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
           onCreated={onCreated}
           onClose={onClose}
         />
+      ) : !aiEntitled ? (
+        // The plugin service puts `requireFeature('ai_generation')` on
+        // /plugins/generate[/stream] and /plugins/providers, so without the
+        // entitlement this tab could only ever 403 on Generate. Say so up front
+        // (matching CreatePipelineModal) and point at the two tabs that don't
+        // need AI, instead of rendering a builder that dead-ends.
+        <div className="space-y-3">
+          <FeatureLock flag="ai_generation" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            The <span className="font-medium">Wizard</span> and <span className="font-medium">Upload</span> tabs build a
+            plugin without AI.
+          </p>
+        </div>
       ) : (
         <AIPluginBuilderTab
           canPublish={canPublish}

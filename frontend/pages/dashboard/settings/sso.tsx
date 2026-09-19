@@ -16,10 +16,12 @@
 import { useState } from 'react';
 import { ShieldCheck, Lock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Callout } from '@/components/ui/Callout';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
 import { OrgSamlSettings } from '@/components/settings/OrgSamlSettings';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
@@ -27,12 +29,13 @@ import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function OrgSsoSettingsPage() {
-  const { isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'org:idp' });
+  const { accessDenied, isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'org:idp' });
   const { isEnabled, isLoaded } = useFeatures();
   // The mapping editor renders what the CONFIGURED provider supports, and only
   // the connection form below knows which one that is.
   const [idpConfig, setIdpConfig] = useState<OrgIdpConfigDto | null>(null);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   // Superadmins hold every feature entitlement (mirroring `isNavItemVisible`,
@@ -49,6 +52,11 @@ export default function OrgSsoSettingsPage() {
       titleExtra={<ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
     >
       <div className="space-y-6">
+        {/* Every control here is a write the backend's read-only guard rejects
+            during impersonation — including the SCIM key mint. Without this the
+            greyed-out forms read as a broken page. */}
+        <ReadOnlyNotice show={isReadOnly} />
+
         {!isLoaded ? (
           <LoadingPage />
         ) : !ssoEntitled ? (

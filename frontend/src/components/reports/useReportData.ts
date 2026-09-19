@@ -14,7 +14,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth } from '@/lib/api/domains/reporting';
+import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse } from '@/lib/api/domains/reporting';
 import type {
   TimelineEntry, DurationStat, StageBottleneck, StageFailure, ActionFailure, ErrorEntry,
   PluginSummary, PluginDistribution, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginVersion,
@@ -67,6 +67,56 @@ export function useReportRetention(): ReportRetention {
   }, []);
 
   return retention;
+}
+
+// ─── Ingestion freshness ────────────────────────────────
+
+/** State of the ingest-health read backing the freshness strip. */
+export interface IngestHealthState {
+  data: IngestHealthResponse | null | undefined;
+  loading: boolean;
+  error: string | null;
+  reload: () => void;
+}
+
+/**
+ * Read this org's ingestion health once on mount (and on demand). Kept separate
+ * from the per-tab hooks because it is range-independent: it answers "is the
+ * pipeline that feeds these reports alive?", not "what happened in this window?".
+ *
+ * `data === undefined` means "not read yet / failed"; `data.health === null`
+ * means the org has genuinely never had ingestion reported. The strip renders
+ * nothing for the former and says so plainly for the latter.
+ */
+export function useIngestHealth(): IngestHealthState {
+  const [data, setData] = useState<IngestHealthResponse | null | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        // Optional-chain so a test that doesn't mock the method yields undefined
+        // rather than throwing (same convention as useReportRetention).
+        const res = await api.getIngestHealth?.();
+        if (cancelled) return;
+        setData(res ?? undefined);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(formatError(err, 'Failed to read ingestion health'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [generation]);
+
+  const reload = useCallback(() => setGeneration((g) => g + 1), []);
+  return { data, loading, error, reload };
 }
 
 // ─── Shared filter shape ────────────────────────────────

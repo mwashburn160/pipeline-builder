@@ -23,13 +23,17 @@
  *                           403 dead-end on submit. The server gate stays the
  *                           source of truth.
  *   - `priority_support` / `custom_integrations` / `audit_log` → account-level
- *                           ENTITLEMENTS with no per-page render gate. They are NOT
- *                           dead: they drive the per-org override editor
- *                           (FeatureOverridesEditor) and the billing add-on labels
- *                           (AddonGrid), and are enforced server-side where they
- *                           apply. They are kept in the catalog because it must
- *                           mirror api-core exactly (removing one drifts the mirror
- *                           and breaks the override editor / add-on labels).
+ *                           ENTITLEMENTS that NO API route or handler checks. They
+ *                           deliberately gate nothing in the UI: locking a control
+ *                           the API happily serves would take away capability the
+ *                           org actually has. They still drive the per-org override
+ *                           editor (FeatureOverridesEditor) and the billing add-on
+ *                           labels (AddonGrid), and the catalog must mirror api-core
+ *                           exactly, so they stay.
+ *
+ * Which flags are enforced WHERE — and therefore which ones must have a UI gate —
+ * lives in `feature-gates.ts`, checked against the generated route tables by
+ * `frontend/test/route-permissions.test.ts`. Add a flag there too.
  *   - `compliance_standard` / `compliance_advanced` → curated compliance rule
  *                           libraries sold as add-on bundles. They gate the
  *                           curated-content-set section on the compliance page

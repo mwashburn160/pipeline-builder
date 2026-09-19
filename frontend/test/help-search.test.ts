@@ -10,7 +10,7 @@
  */
 import { Boxes } from 'lucide-react';
 import { searchHelp, snippetAround, sectionText, blockText } from '../src/lib/help/search';
-import { HELP_TOPICS } from '../src/lib/help';
+import { loadHelpTopics } from '../src/lib/help';
 import type { HelpTopic } from '../src/lib/help/types';
 
 const topic = (id: string, title: string, description: string, sections: HelpTopic['sections']): HelpTopic => ({
@@ -94,6 +94,10 @@ describe('snippetAround', () => {
 });
 
 describe('against the real corpus', () => {
+  // Dynamic import — the corpus is deliberately not in the shared bundle.
+  let HELP_TOPICS: HelpTopic[];
+  beforeAll(async () => { HELP_TOPICS = await loadHelpTopics(); });
+
   it('finds the AWS SES guidance the screenshot searched for', () => {
     const results = searchHelp(HELP_TOPICS, 'ses');
     expect(results.length).toBeGreaterThan(0);

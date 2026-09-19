@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { Cloud, Plus, X, AlertTriangle, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -23,6 +24,8 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { buildListSummary } from '@/lib/list-summary';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 
@@ -87,7 +90,7 @@ const PAGE_SIZE_DEFAULT = 25;
  * server page.
  */
 export default function DeploymentsPage() {
-  const { user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'pipelines:read' });
+  const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'pipelines:read' });
   const toast = useToast();
   const canWrite = can('pipelines:write');
 
@@ -110,7 +113,7 @@ export default function DeploymentsPage() {
       // Configs (for drift) load in parallel with the registry drain below.
       // Best-effort: a failure just renders every row "unknown" drift (NOT
       // orphaned) rather than blocking the list.
-      const cfgPromise = api.listPipelines({ limit: '200', includeTotal: 'false' }).catch(() => null);
+      const cfgPromise = runQuery(queries.listPipelines({ limit: '200', includeTotal: 'false' })).catch(() => null);
 
       // Drain ALL registry rows (the endpoint is page-limited). Looping until
       // `hasMore` is false avoids the previous silent limit:100 cap; the
@@ -350,6 +353,7 @@ export default function DeploymentsPage() {
     } as Column<DeploymentRow>] : []),
   ], [canWrite, removing]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

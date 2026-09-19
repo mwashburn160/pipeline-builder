@@ -7,9 +7,17 @@
  * the docs/*.md it came from (so the help↔docs link is explicit, not a silent
  * hand-copy). Regenerate with `npm run generate:help`.
  */
-import { HELP_TOPICS, HELP_GROUPS } from '../src/lib/help';
+import { loadHelpGroups, loadHelpTopics, type HelpTopic, type HelpTopicGroup } from '../src/lib/help';
 
 describe('help corpus', () => {
+  // The corpus is a dynamic import (it is ~588 KB of generated source and must
+  // not sit in the shared bundle), so every case loads it first. `loadHelpGroups`
+  // memoizes, so this is one evaluation for the whole file.
+  let HELP_TOPICS: HelpTopic[];
+  let HELP_GROUPS: HelpTopicGroup[];
+  beforeAll(async () => {
+    [HELP_TOPICS, HELP_GROUPS] = await Promise.all([loadHelpTopics(), loadHelpGroups()]);
+  });
   it('every topic is well-formed (id, title, icon, non-empty sections)', () => {
     for (const t of HELP_TOPICS) {
       expect(typeof t.id).toBe('string');

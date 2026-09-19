@@ -12,7 +12,7 @@
  * "two-factor is off", and an impersonated (read-only) session offers no writes.
  */
 
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 const getTotpStatus = jest.fn();
 const enrolTotp = jest.fn();
@@ -42,11 +42,20 @@ jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => to
 // Step-up has its own suite; here it only needs to hand a token back so the
 // gated call can be asserted, and to record WHICH action opened it.
 let lastStepUpAction = '';
+// The single dialog carries the heading and the consequence, so both are
+// recorded — that copy is now the ONLY warning before the factor is taken.
+let lastStepUpTitle = '';
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => {
+  StepUpModal: ({ action, title, details, onConfirmed }: { action: string; title?: string; details?: React.ReactNode; onConfirmed: (t: string) => void }) => {
     lastStepUpAction = action;
-    return <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>;
+    lastStepUpTitle = title ?? '';
+    return (
+      <div>
+        <div data-testid="stepup-details">{details}</div>
+        <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>
+      </div>
+    );
   },
 }));
 
@@ -83,6 +92,7 @@ const codes = ['AAAAA-BBBBB', 'CCCCC-DDDDD'];
 beforeEach(() => {
   jest.clearAllMocks();
   lastStepUpAction = '';
+  lastStepUpTitle = '';
   enrolTotp.mockResolvedValue({ success: true, data: { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/x' } });
   activateTotp.mockResolvedValue({ success: true, data: { recoveryCodes: codes } });
   disableTotp.mockResolvedValue({ success: true, data: { disabled: true } });
@@ -177,17 +187,16 @@ describe('TotpSection — once it is on', () => {
     expect(screen.getByText(/temporarily locked/i)).toBeInTheDocument();
   });
 
-  it('confirms, then steps up, before turning it off', async () => {
+  it('turns it off from ONE dialog that both asks and steps up', async () => {
     await renderSection(enabled());
 
     fireEvent.click(screen.getByRole('button', { name: /turn off/i }));
-    // A confirm dialog first — the step-up is not the only thing between a
-    // stray click and losing the factor.
-    expect(screen.getByText(/turn off two-factor authentication\?/i)).toBeInTheDocument();
+    // The step-up dialog IS the confirmation: it names the action and says what
+    // it costs, instead of a confirm modal in front of a second modal.
+    expect(lastStepUpTitle).toMatch(/turn off two-factor authentication\?/i);
+    expect(screen.getByTestId('stepup-details')).toHaveTextContent(/recovery codes/i);
     expect(disableTotp).not.toHaveBeenCalled();
 
-    const dialog = screen.getByRole('dialog');
-    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /^turn off$/i })); });
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
 
     expect(disableTotp).toHaveBeenCalledWith('step-up-token');
@@ -199,7 +208,6 @@ describe('TotpSection — once it is on', () => {
     await renderSection(enabled());
 
     fireEvent.click(screen.getByRole('button', { name: /turn off/i }));
-    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^turn off$/i })); });
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
 
     await waitFor(() => expect(toastError)
@@ -210,9 +218,8 @@ describe('TotpSection — once it is on', () => {
     await renderSection(enabled());
 
     fireEvent.click(screen.getByRole('button', { name: /new recovery codes/i }));
-    expect(screen.getByText(/every code you have written down stops working/i)).toBeInTheDocument();
+    expect(screen.getByTestId('stepup-details')).toHaveTextContent(/every code you have written down stops working/i);
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /create new codes/i })); });
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
 
     expect(regenerateTotpRecoveryCodes).toHaveBeenCalledWith('step-up-token');

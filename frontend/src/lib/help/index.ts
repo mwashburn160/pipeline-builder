@@ -1,34 +1,23 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export type { ContentBlock, HelpSection, HelpTopic } from './types';
-export type { PluginCategory } from './plugins';
-export { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES, PLUGIN_CATALOG } from './plugins';
+/**
+ * The in-app help corpus, loaded ON DEMAND.
+ *
+ * The thirteen generated topics are ~588 KB of TypeScript source — `env-variables`
+ * is 2,357 lines, `deployment` 2,240, `api-reference` 1,331. A static barrel put
+ * all of it in whatever chunk touched this module, and for a long time that was
+ * every chunk: `usePlugins` imported the barrel for a ten-element category array
+ * and `useAuth` imports `usePlugins`, so the whole corpus rode the provider tree
+ * onto the signed-out landing page.
+ *
+ * The category vocabulary now lives in `@/lib/plugin-categories`, and the topics
+ * are reachable only through {@link loadHelpGroups} — a dynamic import webpack
+ * splits into its own chunk, fetched when somebody actually opens Help.
+ */
 
-// Hand-authored topics — no 1:1 doc under docs/ (getting-started/ai-generation
-// have no doc; pipelines/plugins/registry map only fuzzily). These stay authored
-// here; `plugins` also backs the plugin catalog data.
-import { gettingStartedTopic } from './getting-started';
-import { pipelinesTopic } from './pipelines';
-import { pluginsTopic } from './plugins';
-import { aiGenerationTopic } from './ai-generation';
-import { registryTopic } from './registry';
-// GENERATED topics — produced from docs/*.md by `npm run generate:help`. docs are
-// the single source of truth (also what the Ask agent grounds on), so these can
-// no longer drift from the docs. Do NOT edit files under ./generated/.
-import { organizationBenefitsTopic } from './generated/organization-benefits';
-import { architectureFlowTopic } from './generated/architecture-flow';
-import { developerGuideTopic } from './generated/developer-guide';
-import { templatesTopic } from './generated/templates';
-import { metadataKeysTopic } from './generated/metadata-keys';
-import { cdkUsageTopic } from './generated/cdk-usage';
-import { samplesTopic } from './generated/samples';
-import { deploymentTopic } from './generated/deployment';
-import { cliReferenceTopic } from './generated/cli-reference';
-import { complianceTopic } from './generated/compliance';
-import { auditEventsTopic } from './generated/audit-events';
-import { apiReferenceTopic } from './generated/api-reference';
-import { envVariablesTopic } from './generated/env-variables';
+export type { ContentBlock, HelpSection, HelpTopic } from './types';
+
 import type { HelpTopic } from './types';
 
 /** A labelled group of help topics, for the categorized help nav. */
@@ -37,32 +26,85 @@ export interface HelpTopicGroup {
   topics: HelpTopic[];
 }
 
+/** Memoized so the corpus chunk is fetched and evaluated at most once. */
+let corpus: Promise<HelpTopicGroup[]> | null = null;
+
 /**
  * Help topics organized into categories. Each topic mirrors a doc under
  * `docs/` (the source of truth). Order within a group goes overview → detail.
+ *
+ * Hand-authored topics (getting-started, pipelines, plugins, ai-generation,
+ * registry) have no 1:1 doc; the rest are produced from `docs/*.md` by
+ * `npm run generate:help` and must not be edited under `./generated/`.
  */
-export const HELP_GROUPS: HelpTopicGroup[] = [
-  {
-    category: 'Overview',
-    topics: [gettingStartedTopic, organizationBenefitsTopic, architectureFlowTopic, developerGuideTopic],
-  },
-  {
-    category: 'Building',
-    topics: [pipelinesTopic, pluginsTopic, templatesTopic, metadataKeysTopic, cdkUsageTopic, aiGenerationTopic, samplesTopic],
-  },
-  {
-    category: 'Deploy & Operate',
-    topics: [deploymentTopic, cliReferenceTopic, registryTopic],
-  },
-  {
-    category: 'Governance',
-    topics: [complianceTopic, auditEventsTopic],
-  },
-  {
-    category: 'Reference',
-    topics: [apiReferenceTopic, envVariablesTopic],
-  },
-];
+export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
+  corpus ??= (async () => {
+    const [
+      gettingStarted, pipelines, plugins, aiGeneration, registry,
+      organizationBenefits, architectureFlow, developerGuide, templates, metadataKeys,
+      cdkUsage, samples, deployment, cliReference, compliance, auditEvents,
+      apiReference, envVariables,
+    ] = await Promise.all([
+      import('./getting-started'),
+      import('./pipelines'),
+      import('./plugins'),
+      import('./ai-generation'),
+      import('./registry'),
+      import('./generated/organization-benefits'),
+      import('./generated/architecture-flow'),
+      import('./generated/developer-guide'),
+      import('./generated/templates'),
+      import('./generated/metadata-keys'),
+      import('./generated/cdk-usage'),
+      import('./generated/samples'),
+      import('./generated/deployment'),
+      import('./generated/cli-reference'),
+      import('./generated/compliance'),
+      import('./generated/audit-events'),
+      import('./generated/api-reference'),
+      import('./generated/env-variables'),
+    ]);
+
+    return [
+      {
+        category: 'Overview',
+        topics: [
+          gettingStarted.gettingStartedTopic,
+          organizationBenefits.organizationBenefitsTopic,
+          architectureFlow.architectureFlowTopic,
+          developerGuide.developerGuideTopic,
+        ],
+      },
+      {
+        category: 'Building',
+        topics: [
+          pipelines.pipelinesTopic,
+          plugins.pluginsTopic,
+          templates.templatesTopic,
+          metadataKeys.metadataKeysTopic,
+          cdkUsage.cdkUsageTopic,
+          aiGeneration.aiGenerationTopic,
+          samples.samplesTopic,
+        ],
+      },
+      {
+        category: 'Deploy & Operate',
+        topics: [deployment.deploymentTopic, cliReference.cliReferenceTopic, registry.registryTopic],
+      },
+      {
+        category: 'Governance',
+        topics: [compliance.complianceTopic, auditEvents.auditEventsTopic],
+      },
+      {
+        category: 'Reference',
+        topics: [apiReference.apiReferenceTopic, envVariables.envVariablesTopic],
+      },
+    ];
+  })();
+  return corpus;
+}
 
 /** Flat list of all help topics in display order (used for search). */
-export const HELP_TOPICS: HelpTopic[] = HELP_GROUPS.flatMap((g) => g.topics);
+export async function loadHelpTopics(): Promise<HelpTopic[]> {
+  return (await loadHelpGroups()).flatMap((g) => g.topics);
+}

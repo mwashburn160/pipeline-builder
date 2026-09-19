@@ -34,7 +34,9 @@ interface PaginatedResult<T> {
  *   );
  */
 export function useServerPagination<T, F extends Record<string, unknown>>(
-  fetcher: (args: { offset: number; limit: number; filters: F }) => Promise<PaginatedResult<T>>,
+  /** `signal` aborts when the filters/page change or the consumer unmounts —
+   *  forward it to the API client to cancel the superseded page on the wire. */
+  fetcher: (args: { offset: number; limit: number; filters: F; signal: AbortSignal }) => Promise<PaginatedResult<T>>,
   filters: F,
   initialLimit = 20,
 ): {
@@ -66,7 +68,7 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
 
   useEffect(() => {
     return runCancellableFetch(
-      () => fetcherRef.current({ offset: pagination.offset, limit: pagination.limit, filters }),
+      (signal) => fetcherRef.current({ offset: pagination.offset, limit: pagination.limit, filters, signal }),
       {
         onStart: () => {
           setLoading(true);

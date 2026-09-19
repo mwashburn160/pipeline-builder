@@ -27,7 +27,7 @@ export const WHATS_NEW: ReadonlyArray<WhatsNewEntry> = [
     when: 'This week',
     date: '2026-09-18',
     title: 'Passkeys: sign in and confirm actions with your device',
-    href: '/dashboard/settings?tab=security#passkeys',
+    href: '/dashboard/security?tab=factors#passkeys',
     hint: 'Add one and sign in with a fingerprint, face or screen lock — no password to phish.',
   },
   {

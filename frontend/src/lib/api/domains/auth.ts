@@ -253,9 +253,13 @@ export function authApi(core: ApiCore) {
       });
     },
 
-    changePassword: async (currentPassword: string, newPassword: string) => {
+    /** POST /user/change-password. Step-up gated server-side (changing the
+     *  password of a left-open session is exactly the takeover step-up exists to
+     *  stop), so the UI confirms in a StepUpModal and forwards its token. */
+    changePassword: async (currentPassword: string, newPassword: string, stepUpToken?: string) => {
       return core.request<ApiResponse<{ message: string }>>('/api/user/change-password', {
         method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify({ currentPassword, newPassword }),
       });
     },
@@ -439,9 +443,35 @@ export function authApi(core: ApiCore) {
     // password login returns, applied through the same `core.applyTokens`.
     // ============================================
 
+    /** POST /auth/sso/discover — does an enabled, entitled org IdP FORCE this
+     *  email's DOMAIN through SSO? Answers a bare `{ sso }` and nothing else: it
+     *  is unauthenticated, so it deliberately reveals neither the org behind the
+     *  domain nor whether the address has an account. The sign-in form asks it
+     *  while the person is typing, so callers debounce and treat a failure as
+     *  "no SSO" — the password path still refuses a covered account. */
+    discoverSso: async (email: string) => {
+      return core.request<ApiResponse<{ sso: boolean }>>('/api/auth/sso/discover', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    },
+
+    /** POST /auth/sso/start — begin the flow from an EMAIL, for the sign-in form,
+     *  which knows the address and not the org. Same `{ url, state }` as the
+     *  by-org route below; resolving the org happens server-side so discovery
+     *  never has to hand out an org id. 404 `SSO_NOT_ENFORCED` when no org
+     *  federates the domain. */
+    startSsoByEmail: async (email: string) => {
+      return core.request<ApiResponse<{ url: string; state: string }>>('/api/auth/sso/start', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    },
+
     /** GET /auth/sso/:orgId/authorize — the IdP redirect URL for this org, on
      *  whichever protocol it uses. The CSRF `state` is minted + stored
-     *  server-side and is single-use. */
+     *  server-side and is single-use. Used where the org is already known: a
+     *  password attempt refused with `SSO_REQUIRED` names it, as does a step-up. */
     getSsoUrl: async (orgId: string) => {
       return core.request<ApiResponse<{ url: string; state: string }>>(
         `/api/auth/sso/${encodeURIComponent(orgId)}/authorize`,

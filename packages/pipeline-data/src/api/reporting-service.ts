@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
@@ -30,7 +30,7 @@ import type {
   ReportingRetentionOptions, ReportingRetentionCounts,
   DoraOptions, IncidentSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
   DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
-  IngestEvent, IngestMetric, IngestResult,
+  IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
 } from './reporting/types.js';
 
 // Re-export EXACTLY the surface this module had before the split — no more.
@@ -42,7 +42,7 @@ import type {
 export type {
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
   IncidentInput, IncidentListItem, IncidentSettings, IncidentTestResult,
-  IngestEvent, IngestMetric, IngestResult,
+  IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
   ReportingSettingsPatch,
 } from './reporting/types.js';
@@ -853,6 +853,30 @@ export class ReportingService {
         },
       })),
     );
+  }
+
+  /**
+   * Read back one org's ingestion health (Phase 3) for the Reports UI freshness
+   * indicator. Returns `null` when the org has NO row — i.e. the deployment has
+   * never ingested anything — which the UI must render as "no ingest reported
+   * yet", never as "stale". RLS-scoped to the org like every other read.
+   */
+  async getIngestHealth(orgId: string): Promise<IngestHealthStatus | null> {
+    const rows = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx((tx) => tx
+        .select()
+        .from(schema.ingestHealth)
+        .where(eq(schema.ingestHealth.orgId, orgId))
+        .limit(1)),
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      updatedAt: row.updatedAt.toISOString(),
+      lastEventAt: row.lastEventAt ? row.lastEventAt.toISOString() : null,
+      forwarded: row.forwarded ?? null,
+      dropped: row.dropped ?? null,
+    };
   }
 
   /**

@@ -58,7 +58,7 @@ describe('useListPage', () => {
     expect(result.current.pagination.limit).toBe(25); // default pageSize
     expect(result.current.error).toBeNull();
     // Default/empty filter values are omitted; only pagination params sent.
-    expect(fetcher).toHaveBeenCalledWith({ limit: '25', offset: '0' });
+    expect(fetcher).toHaveBeenCalledWith({ limit: '25', offset: '0' }, expect.any(AbortSignal));
   });
 
   it('resets offset to 0 and refetches when a filter changes', async () => {
@@ -92,13 +92,13 @@ describe('useListPage', () => {
 
     act(() => result.current.handlePageChange(20));
     await waitFor(() => expect(result.current.pagination.offset).toBe(20));
-    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ offset: '20', limit: '10' }));
+    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ offset: '20', limit: '10' }), expect.any(AbortSignal));
 
     // Changing page size resets offset to 0.
     act(() => result.current.handlePageSizeChange(50));
     await waitFor(() => expect(result.current.pagination.limit).toBe(50));
     expect(result.current.pagination.offset).toBe(0);
-    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ limit: '50', offset: '0' }));
+    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ limit: '50', offset: '0' }), expect.any(AbortSignal));
   });
 
   it('sets error (as a string) when the fetcher rejects', async () => {

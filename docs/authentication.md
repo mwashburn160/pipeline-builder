@@ -21,12 +21,12 @@ Pipeline Builder supports four ways to sign in, side by side:
    the same checks; see [SAML 2.0](#saml-20).
 4. **Passkeys (WebAuthn)** — the device itself (fingerprint, face, screen lock,
    or a security key). Nothing to configure: a person adds one from
-   Settings → Security and it works from then on. See [Passkeys](#passkeys-webauthn).
+   Security → Factors and it works from then on. See [Passkeys](#passkeys-webauthn).
 
 On top of the first of those sits one **second factor**:
 
 5. **Authenticator app (TOTP)** — a 6-digit code from a phone, asked for after
-   the password. Also configured by the person from Settings → Security. See
+   the password. Also configured by the person from Security → Factors. See
    [Authenticator app](#authenticator-app-totp).
 
 The first two are **global**: one app registration per provider, shared by
@@ -54,6 +54,10 @@ moment GitLab credentials are present and disappears when they're removed.
 
 Credentials are **global / platform-wide** — one app registration per provider
 covers the whole deployment. There is no per-org social-login registration.
+
+The buttons are hidden for anyone whose email domain is
+[federated](#signing-in-with-sso): social login is one of the bypasses the
+backend refuses for a covered account, so the card offers that org's SSO instead.
 
 ### Supported providers
 
@@ -328,16 +332,46 @@ identical on both.
   password login keeps working and the SSO routes refuse — a half-configured or
   downgraded org never locks its users out.
 
-The login-page endpoint `POST /auth/sso/discover` tells the client whether a
-given email is forced through SSO — it returns only `{ sso: boolean }` and
-deliberately does **not** leak the internal `orgId` or provider (it is
-unauthenticated, so returning those would make it a tenant-enumeration oracle);
-the org handle needed to initiate is delivered through the authenticated
-`SSO_REQUIRED` login rejection instead. `GET /auth/sso/:orgId/authorize` returns
-the IdP redirect URL **for whichever protocol the org uses** — the client just
-redirects to it; `POST /auth/sso/:orgId/callback` exchanges the code and
-validates the `id_token` (OIDC), while a SAML assertion arrives at its own
-[ACS endpoint](#saml-20).
+### Signing in with SSO
+
+The sign-in card offers SSO on its own, from the address the person types — they
+never have to know their org's id, and an admin never has to hand out a link.
+
+1. **Discovery.** Once the identifier looks like an email, the page asks
+   `POST /auth/sso/discover` (debounced, and **once per domain** — a username is
+   never asked about at all, and the request shares the pre-auth rate limit with
+   login). It returns only `{ sso: boolean }` and deliberately does **not** leak
+   the internal `orgId` or provider: it is unauthenticated, so returning those
+   would make it a tenant-enumeration oracle. The answer is about the **domain**,
+   so an address with no account behind it looks exactly like one that has.
+2. **No password path for a federated domain.** On `{ sso: true }` the password
+   field, the passkey button and the social buttons all go away and a single
+   **"Continue with single sign-on"** action takes their place. Those three are
+   all refused server-side for a covered account, so offering them only produces
+   a rejection the person cannot act on.
+3. **Starting the flow.** The action calls `POST /auth/sso/start` with the
+   address; the enforcing org is resolved **server-side** and the same
+   `{ url, state }` comes back that the by-org route returns, so the login page
+   is never told which tenant owns the domain. The browser then goes to the IdP
+   and returns on whichever leg the protocol uses — `/auth/sso/:orgId/callback`
+   for OIDC, the [ACS](#saml-20) → `/auth/sso/:orgId/saml` for SAML.
+4. **A password typed anyway.** Discovery is a hint and can miss — a username
+   instead of an address, a blocked or rate-limited request. The password login
+   is refused with `403 SSO_REQUIRED`, which **does** name the org and provider,
+   and the card swaps to the same SSO action (labelled "Continue with Okta", say)
+   initiated through `GET /auth/sso/:orgId/authorize`. A discovery that fails for
+   any reason is treated as "not federated": the hint never blocks a sign-in,
+   because this refusal still closes the path.
+
+**Bootstrap admins keep their password field.** SSO refuses platform
+superadmins, so `discover` answers `false` for an address in
+`BOOTSTRAP_SUPERADMIN_EMAILS` — the same carve-out password login makes. Without
+it, a verified SSO-enforced domain matching that address would close both ways in.
+
+`GET /auth/sso/:orgId/authorize` returns the IdP redirect URL **for whichever
+protocol the org uses** — the client just redirects to it; `POST
+/auth/sso/:orgId/callback` exchanges the code and validates the `id_token`
+(OIDC), while a SAML assertion arrives at its own [ACS endpoint](#saml-20).
 
 **Social login also honors SSO enforcement.** A user in an SSO-enforced domain
 cannot bypass their org's IdP by using "Sign in with Google/GitHub/…" — the
@@ -823,7 +857,7 @@ A passkey is a key pair the person's own device holds. Signing in proves
 possession of that device plus a local unlock (fingerprint, face, PIN), and the
 private half never leaves it — so there is nothing to phish, reuse or leak in a
 breach. Nothing needs configuring: a person adds one from
-**Settings → Security → Passkeys** and it works from then on.
+**Dashboard → Security → Factors → Passkeys** and it works from then on.
 
 Passkeys do three jobs here:
 
@@ -908,7 +942,7 @@ factor for people and devices without a passkey, and unlike a passkey it works
 from any machine the person signs in from.
 
 Like passkeys, it needs no operator configuration: a person turns it on from
-**Settings → Security → Authenticator app**.
+**Dashboard → Security → Factors → Authenticator app**.
 
 ### What it does
 
@@ -1165,7 +1199,7 @@ narrow, self-closing and audited:
   `init-platform.sh` calls (read the org and its roles, create the `setup`
   service account, issue and revoke its keys). Every other service refuses such a
   token outright with **403 `MFA_ENROLLMENT_REQUIRED`**; the dashboard sends them
-  straight to Settings → Security.
+  straight to Security → Factors.
 - It **closes permanently at the first enrolment** of any factor and never
   reopens, even if that factor is later removed.
 - System-org "require MFA" **cannot be turned on while it is open** — doing so
@@ -1197,6 +1231,20 @@ attributed to the named operator. It does **not** reopen the bootstrap exception
 If the person's org requires MFA they would now be unable to sign in at all, so
 `--clear-org-policy` turns that org's requirement off in the same command — turn
 it back on once they have re-enrolled.
+
+**People are told this on the sign-in page**, at the two points where they hit
+the dead end, so the request reaches an operator instead of a support queue:
+
+- The **code step** names the recovery code in its copy (not only in the field's
+  placeholder) and carries a folded-away **"Lost your phone and your codes?"**
+  panel explaining that no self-service route exists, naming the command above
+  and saying who runs it.
+- A sign-in refused by the org policy (`401 MFA_REQUIRED` — the grace period has
+  passed and the account has no factor) gets its own panel instead of a red
+  error: the password was right and nothing they can retype will help. It points
+  at the passkey button (a passkey satisfies the requirement on its own), says an
+  owner or admin can lift the requirement or extend the grace period, and shows
+  the recovery command for the case where the factors existed and are gone.
 
 ### What gets recorded
 
@@ -1527,7 +1575,7 @@ can't be used to tell a real key id from a guess.
 
 ### Managing keys
 
-**Dashboard → API Tokens → Access keys** lists every key with its scope, expiry,
+**Dashboard → Security → Access keys** lists every key with its scope, expiry,
 last use and where it was created, and flags the two things an access review
 actually asks about: a key that has **never been used** and one **expiring within
 14 days**. Creating a key is step-up gated (minting a durable bearer credential
@@ -1843,7 +1891,16 @@ would read as reuse and answer by revoking the slot).
 
 ## Sessions, devices and machine credentials
 
-**Settings → Security** lists the account's live sessions. Each refresh-session
+> **Where these live.** Everything that can sign in as you — password, passkeys,
+> authenticator app, sessions and access keys — is on **Dashboard → Security**,
+> in four tabs (Factors · Sessions · Access keys · Service accounts). It replaces
+> Settings → Security, the "API Tokens" page (which carried a second, conflicting
+> sessions list) and Settings → Service Accounts. The old addresses forward to the
+> matching tab, so saved links and CLI docs still land; nothing of the old pages
+> runs behind them.
+
+
+**Dashboard → Security → Sessions** lists the account's live sessions. Each refresh-session
 slot records a short client summary derived from the User-Agent ("Chrome on
 macOS" — no raw header, no versions) and the last IP it was used from. IPs are
 personal data: they live only as long as the slot, are dropped when the slot or

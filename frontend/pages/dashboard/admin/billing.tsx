@@ -5,6 +5,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { CreditCard, Pencil, DatabaseZap, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -26,6 +27,8 @@ import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatCents } from '@/lib/format';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import { ApiError } from '@/lib/api/errors';
 import type { AdminBillingSummary, AdminSubscriptionUpdate } from '@/lib/api/domains/billing';
 import type { Plan, Subscription, SubscriptionStatus, BillingInterval } from '@/types';
@@ -66,7 +69,7 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
  * fall back to a "not enabled" empty state rather than an error banner.
  */
 export default function BillingAdminPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
 
   const [notEnabled, setNotEnabled] = useState(false);
@@ -105,7 +108,7 @@ export default function BillingAdminPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   useEffect(() => {
     if (!isAuthenticated || !isSuperAdmin) return;
-    api.getPlans()
+    runQuery(queries.plans())
       .then((res) => { if (res.success && res.data?.plans) setPlans(res.data.plans); })
       .catch(() => { /* plan picker just falls back to a free-text-less select */ });
   }, [isAuthenticated, isSuperAdmin]);
@@ -290,6 +293,7 @@ export default function BillingAdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (

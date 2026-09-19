@@ -52,7 +52,7 @@ describe('TeamMemberAccess', () => {
     render(<TeamMemberAccess teams={TEAMS} currentUserId="me" readOnly={false} />);
 
     expect(await screen.findByText('alice@acme.com')).toBeInTheDocument();
-    expect(getOrganizationMembers).toHaveBeenCalledWith('team-1', expect.objectContaining({ status: 'active' }));
+    expect(getOrganizationMembers).toHaveBeenCalledWith('team-1', expect.objectContaining({ status: 'active' }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it('switches roster when another team is chosen', async () => {

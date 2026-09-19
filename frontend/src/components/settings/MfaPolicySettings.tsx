@@ -76,6 +76,10 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
   const dirty = !!policy && !!draft
     && (draft.requireMfa !== policy.own || draft.idpEnforcesMfa !== policy.idpEnforcesMfa);
   const turningOn = !!policy && !!draft && draft.requireMfa && !policy.own;
+  /** Members who would be locked out today — the grace period's whole purpose.
+   *  Only meaningful where `policy.enrolment` is present, which is the only
+   *  place it is read. */
+  const outstanding = policy?.enrolment ? policy.enrolment.members - policy.enrolment.enrolled : 0;
 
   const save = async (stepUpToken: string) => {
     if (!draft) return;
@@ -92,9 +96,10 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
         stepUpToken,
       );
       if (res.success && res.data) {
-        setPolicy(res.data);
-        setDraft({ requireMfa: res.data.own, graceDays: res.data.defaultGraceDays, idpEnforcesMfa: res.data.idpEnforcesMfa });
         toast.success(res.message || 'Two-factor policy saved');
+        // Re-read rather than adopting the write's response: the READ is what
+        // carries the enrolment counts, and enrolment moves on its own anyway.
+        await load();
       }
       setError(null);
     } catch (e) {
@@ -136,6 +141,22 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
           {policy.enforced && (
             <Callout variant="neutral">
               In force. Members who have not enrolled a passkey or an authenticator app cannot sign in.
+            </Callout>
+          )}
+
+          {/* WHO IS READY. Choosing a grace period without this is guesswork:
+              the same "14 days" is generous when everyone has enrolled and a
+              mass lockout when nobody has. The tone follows the gap, and the
+              count is of ACTIVE members (the people issuance will refuse). */}
+          {policy.enrolment && (
+            <Callout variant={outstanding === 0 ? 'success' : draft.requireMfa ? 'warning' : 'neutral'}>
+              <strong>
+                {policy.enrolment.enrolled} of {policy.enrolment.members}{' '}
+                {policy.enrolment.members === 1 ? 'member has' : 'members have'} a passkey or an authenticator app.
+              </strong>{' '}
+              {outstanding === 0
+                ? 'Everyone can already sign in with two factors, so the requirement can be applied immediately.'
+                : `${outstanding} ${outstanding === 1 ? 'person' : 'people'} would be refused once the grace period ends.`}
             </Callout>
           )}
 
@@ -182,9 +203,22 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
 
       {confirmingSave && (
         <StepUpModal
+          title={draft?.requireMfa ? 'Require two-factor authentication?' : 'Stop requiring two-factor authentication?'}
           action={draft?.requireMfa
             ? 'Require two-factor authentication for this organization'
             : 'Stop requiring two-factor authentication for this organization'}
+          details={draft?.requireMfa ? (
+            <p>
+              {turningOn && draft.graceDays > 0
+                ? `Members have ${draft.graceDays} ${draft.graceDays === 1 ? 'day' : 'days'} to enrol; after that they cannot sign in without a second factor.`
+                : 'Members who have not enrolled a passkey or an authenticator app cannot sign in.'}
+              {policy?.enrolment && outstanding > 0
+                ? ` That is ${outstanding} of ${policy.enrolment.members} today.`
+                : ''}
+            </p>
+          ) : (
+            <p>This removes a control for every member of the organization — single-factor sessions are issued again.</p>
+          )}
           onConfirmed={save}
           onClose={() => setConfirmingSave(false)}
         />

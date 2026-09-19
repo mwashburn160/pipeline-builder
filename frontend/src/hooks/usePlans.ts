@@ -1,32 +1,33 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
-import api from '@/lib/api';
+import { useMemo } from 'react';
+import { queries } from '@/lib/api-cache';
+import { useQuery } from './useQuery';
 import type { Plan } from '@/types';
 
+/** Stable empty result — a new array each render would re-run consumers' effects. */
+const EMPTY: Plan[] = [];
+
 /**
- * Fetch the billing plan catalog into state. Fail-soft (stays empty on error).
+ * Fetch the billing plan catalog. Fail-soft (stays empty on error).
  * Pass `enabled: false` to skip the fetch — e.g. when billing is disabled, so
  * callers don't request plans they'll never show. Shared by the signup and
  * onboarding plan pickers, which previously duplicated this effect.
+ *
+ * Reads through the shared query cache, so the signup picker, the onboarding
+ * picker and both billing pages resolve to ONE request for a catalog that does
+ * not change within a session — and two of them mounting together join the same
+ * in-flight request instead of issuing two.
  */
 export function usePlans(enabled = true): { plans: Plan[]; loading: boolean } {
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(enabled);
+  const { data, loading, error } = useQuery(queries.plans(), { enabled });
 
-  useEffect(() => {
-    if (!enabled) { setLoading(false); return; }
-    let cancelled = false;
-    setLoading(true);
-    api.getPlans()
-      .then((res) => {
-        if (!cancelled && res.success && res.data?.plans) setPlans(res.data.plans);
-      })
-      .catch(() => { /* fail-soft: an unreachable plans endpoint just hides the picker */ })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [enabled]);
+  const plans = useMemo(
+    // Fail-soft: an unreachable plans endpoint just hides the picker.
+    () => (error || !data?.success ? EMPTY : data.data?.plans ?? EMPTY),
+    [data, error],
+  );
 
   return { plans, loading };
 }

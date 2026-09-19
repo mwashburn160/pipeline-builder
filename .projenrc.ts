@@ -657,7 +657,12 @@ const frontend = new FrontEndProject({
   },
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    `@pipeline-builder/api-server@${pkg.apiServer}`,
+    // No `api-server` here either. Nothing under frontend/ imports it: the only
+    // reference was the vestigial `start` script's otel-bootstrap preload (the
+    // image runs Next's standalone `server.js`, not `lib/index.js`), and that
+    // script is replaced below. Carrying it made every `pnpm deploy` stage the
+    // whole server package — and its transitive tree — into a bundle the
+    // Dockerfile never copies.
     // No `pipeline-core` here on purpose: the frontend re-declares the shapes it
     // needs (see `src/types/index.ts`, `src/lib/metadata-keys.ts`) rather than
     // importing them, so the dep was dead weight in the Next build.
@@ -719,6 +724,12 @@ if (frontend.jest) {
   frontend.jest.config.testPathIgnorePatterns = ['/node_modules/', '<rootDir>/.next/'];
 }
 frontend.addScripts(dockerScripts('frontend'));
+// Override the shared `start`: the api-services variant preloads
+// `@pipeline-builder/api-server/lib/otel-bootstrap.js` and runs `lib/index.js`,
+// neither of which exists for a Next app — the image runs the standalone
+// `server.js`. Pointing it at `next start` makes the script mean something and
+// lets the frontend drop its api-server dependency.
+frontend.addScripts({ 'start': 'next start' });
 // Exclude the pack-destination from the package itself. `build » package` runs
 // `pnpm pack --pack-destination dist/js`, so without this each pack re-bundles
 // every prior tarball in dist/js — the frontend snowballed 360M → 1.1G → 2.1G

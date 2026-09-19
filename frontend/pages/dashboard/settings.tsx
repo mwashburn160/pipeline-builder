@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
-import { CheckCircle, MailWarning, User, Building2, Lock, Trash2, Clock } from 'lucide-react';
+import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -14,34 +15,47 @@ import { RetryError } from '@/components/ui/RetryError';
 import { Button } from '@/components/ui/Button';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
-import { PasskeySection } from '@/components/settings/PasskeySection';
-import { SessionsSection } from '@/components/settings/SessionsSection';
-import { TotpSection } from '@/components/settings/TotpSection';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { decodeJwt } from '@/lib/jwt';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { SECURITY_HREF, SESSIONS_HREF } from '@/lib/security-links';
 
-// Settings is split into major tabs so account, org, and security controls don't
-// stack into one long scroll. Each is deep-linkable via `?tab=`.
+// Account settings: who you are, and what your organization is configured to do.
+// Each tab is deep-linkable via `?tab=`.
+//
+// SIGN-IN CREDENTIALS ARE NOT HERE. Password, passkeys, authenticator app,
+// sessions and keys moved to /dashboard/security, which is one page for all of
+// them instead of three that pointed at each other; `?tab=security` forwards
+// there (fragment included), so old links and prompts still land.
 const SETTINGS_TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'organization', label: 'Organization' },
-  { id: 'security', label: 'Security' },
 ] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
 const SETTINGS_TAB_IDS = SETTINGS_TABS.map((t) => t.id) as readonly string[];
 
-/** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
+/** User and organization settings page. Manages profile info, org identity and
+ *  policy, AI provider API keys, and account deletion. */
 export default function SettingsPage() {
   const { user, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
+  const router = useRouter();
+
+  // `?tab=security` was where factors and sessions used to live. Forward it —
+  // with whatever section the link named — so every bookmark, banner and
+  // enrolment prompt written against the old address still arrives.
+  const movedToSecurity = router.isReady && router.query.tab === 'security';
+  useEffect(() => {
+    if (!movedToSecurity) return;
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    void router.replace(`${SECURITY_HREF}?tab=factors${hash}`);
+  }, [movedToSecurity, router]);
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
@@ -80,15 +94,8 @@ export default function SettingsPage() {
     );
   };
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const password = useFormState();
-
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  // Step-up gate state: when set, StepUpModal renders and on success
-  // performs the gated action with the returned token.
+  // Step-up gate state: when set, StepUpModal renders — it is BOTH the
+  // confirmation and the gate — and on success deletes the account.
   const [pendingDelete, setPendingDelete] = useState(false);
 
   // Seed the form once per signed-in user — NOT on every profile refresh, which
@@ -119,58 +126,28 @@ export default function SettingsPage() {
     if (result !== null) await refreshUser();
   };
 
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      password.setError('New passwords do not match');
-      return;
-    }
-    if (newPassword.length < 8) {
-      password.setError('New password must be at least 8 characters');
-      return;
-    }
-
-    const result = await password.run(
-      () => api.changePassword(currentPassword, newPassword),
-      { successMessage: 'Password changed successfully' },
-    );
-    if (result !== null) {
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }
-  };
-
-  // Click-through path: DeleteConfirm → StepUp → executeDelete.
-  const handleDeleteAccount = () => {
-    setShowDeleteConfirm(false);
-    setPendingDelete(true);
-  };
-
   const executeDelete = async (stepUpToken: string) => {
-    setDeleteLoading(true);
     try {
       await api.deleteAccount(stepUpToken);
       window.location.href = '/';
     } catch (err) {
       profile.setError(formatError(err, 'Failed to delete account'));
-    } finally {
-      setDeleteLoading(false);
     }
   };
 
-  if (!isReady || !user) return <LoadingPage />;
+  if (!isReady || !user || movedToSecurity) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
       <div className="space-y-6">
         <TabBar items={[...SETTINGS_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as SettingsTab)} />
-        {/* Profile + security are the viewer's OWN account writes, which aren't
+        {/* Profile writes are the viewer's OWN account, which isn't
             capability-gated (so `can()` doesn't catch them) — gate on `isReadOnly`. */}
-        <ReadOnlyNotice show={isReadOnly && (activeTab === 'profile' || activeTab === 'security')} />
+        <ReadOnlyNotice show={isReadOnly && activeTab === 'profile'} />
 
         {activeTab === 'profile' && (
-        /* Profile */
+        <div className="space-y-6">
+        {/* Profile */}
         <FormSection
           icon={User}
           title="Profile"
@@ -213,6 +190,20 @@ export default function SettingsPage() {
 
           <SessionStartedRow />
         </FormSection>
+
+        {/* Danger Zone. It sits with the account it deletes, not with the
+            sign-in factors — those are on the Security page now. */}
+        <SectionCard
+          icon={Trash2}
+          title="Delete account"
+          description="Permanently delete your account and all associated data. This cannot be undone."
+          className="border-[var(--pb-danger)]/40"
+        >
+          <Button variant="danger" onClick={() => setPendingDelete(true)} readOnly={isReadOnly}>
+            Delete account
+          </Button>
+        </SectionCard>
+        </div>
         )}
 
         {activeTab === 'organization' && (
@@ -245,76 +236,24 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'security' && (
-          <div className="space-y-6">
-        {/* Change Password */}
-        <FormSection
-          icon={Lock}
-          title="Password"
-          description="Change the password you use to sign in."
-          error={password.error}
-          success={password.success}
-          onSubmit={handlePasswordSubmit}
-          submitLabel="Change password"
-          submitLoading={password.loading}
-          submitDisabled={isReadOnly}
-        >
-          <FormField label="Current password">
-            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading || isReadOnly} />
-          </FormField>
-          <FormField label="New password" hint="At least 8 characters.">
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading || isReadOnly} />
-          </FormField>
-          <FormField label="Confirm new password">
-            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading || isReadOnly} />
-          </FormField>
-        </FormSection>
-
-        {/* Passkeys — a sign-in credential, so they sit beside the password,
-            not beside the machine-facing access keys. `#passkeys` is the deep
-            link StepUpModal points an account with no factor at. */}
-        <div id="passkeys">
-          <PasskeySection readOnly={isReadOnly} />
-        </div>
-
-        {/* Authenticator app — the other personal sign-in factor, next to the
-            passkeys rather than the machine-facing access keys. `#totp` is a
-            stable deep link for "set up two-factor" prompts. */}
-        <div id="totp">
-          <TotpSection readOnly={isReadOnly} />
-        </div>
-
-        {/* Sessions and devices (+ stored machine credentials) */}
-        <SessionsSection readOnly={isReadOnly} />
-
-        {/* Danger Zone */}
-        <SectionCard
-          icon={Trash2}
-          title="Delete account"
-          description="Permanently delete your account and all associated data. This cannot be undone."
-          className="border-[var(--pb-danger)]/40"
-        >
-          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} readOnly={isReadOnly}>
-            Delete account
-          </Button>
-        </SectionCard>
-          </div>
-        )}
       </div>
 
-      {showDeleteConfirm && (
-        <DeleteConfirmModal
-          title="Delete account"
-          itemName="your account"
-          loading={deleteLoading}
-          onConfirm={handleDeleteAccount}
-          onCancel={() => setShowDeleteConfirm(false)}
-        />
-      )}
-
+      {/* Deleting the account is destructive AND step-up gated, so it is ONE
+          dialog that states what goes and takes the factor — the rule the whole
+          app now follows, rather than a confirm modal in front of a step-up. */}
       {pendingDelete && (
         <StepUpModal
-          action="Delete your account (this cannot be undone)"
+          title="Delete your account?"
+          action="Delete this account and everything in it"
+          details={(
+            <>
+              <p>
+                Your account, its organizations where you are the only owner, and everything they
+                contain are removed. Anything authenticating as you stops working.
+              </p>
+              <p className="text-red-600 dark:text-red-400">This cannot be undone.</p>
+            </>
+          )}
           onConfirmed={executeDelete}
           onClose={() => setPendingDelete(false)}
         />
@@ -436,8 +375,8 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
 /**
  * Surfaces "this session started X ago" + a link to the sessions panel.
  * Sourced from the current access token's `iat` claim — no backend
- * round trip needed, and the value matches what /tokens shows for the
- * active token.
+ * round trip needed, and the value matches what Security → Sessions shows
+ * for the active token.
  */
 function SessionStartedRow() {
   const accessToken = api.getAccessToken();
@@ -455,7 +394,7 @@ function SessionStartedRow() {
         <RelativeTime value={issuedAt} live />
       </strong>
       . If this looks wrong, sign out everywhere from{' '}
-      <Link href="/dashboard/tokens" className="action-link">Sessions &amp; tokens</Link>.
+      <Link href={SESSIONS_HREF} className="action-link">Security → Sessions</Link>.
     </Callout>
   );
 }

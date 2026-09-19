@@ -19,6 +19,9 @@ import { useRouter } from 'next/router';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Activity, Filter, RefreshCw, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { IngestFreshness } from '@/components/reports/IngestFreshness';
+import { useIngestHealth } from '@/components/reports/useReportData';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { useExecutionStatusStream } from '@/hooks/useExecutionStatusStream';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -36,12 +39,16 @@ import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 import type { ExecutionCountRow } from '@/types';
 
 type StatusFilter = 'all' | 'failing' | 'succeeding';
 
 export default function ExecutionsPage() {
-  const { isReady, user, can } = useAuthGuard();
+  const { accessDenied, isReady, user, can } = useAuthGuard();
+  // Is the pipeline that feeds this page alive? Range-independent, read once.
+  const ingest = useIngestHealth();
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -61,13 +68,13 @@ export default function ExecutionsPage() {
   // Read-only fetch via the shared useFetch hook (loading/error/cancel-on-unmount
   // handled there). Refetches whenever the rollup toggle or auth-readiness changes.
   const { data, loading, error: fetchError, refetch } = useFetch(
-    async (): Promise<ExecutionCountRow[]> => {
+    async (signal): Promise<ExecutionCountRow[]> => {
       if (!isReady || !user) return [];
       const params: { from?: string; to?: string; includeDescendants?: boolean } = {};
       if (dateFrom) params.from = dateFrom;
       if (dateTo) params.to = dateTo;
       if (includeDescendants) params.includeDescendants = true;
-      const res = await api.getExecutionCount(Object.keys(params).length ? params : undefined);
+      const res = await runQuery(queries.executionCount(Object.keys(params).length ? params : undefined), { signal });
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to load executions');
       return res.data.pipelines;
     },
@@ -187,6 +194,7 @@ export default function ExecutionsPage() {
   const anyFilterActive = Boolean(search || status !== 'all' || dateFrom || dateTo || includeDescendants);
   const pristineEmpty = !loading && !error && rows.length === 0 && !anyFilterActive;
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -229,6 +237,14 @@ export default function ExecutionsPage() {
       }
     >
       <ErrorAlert message={error} />
+
+      {/* Ingestion freshness — this page is built entirely from forwarded
+          pipeline events, so "No executions yet" is ambiguous on its own: it
+          looks the same whether nothing ran or the ingest pipeline is dead.
+          The strip says which. It renders nothing until the read lands. */}
+      <div className="mb-4">
+        <IngestFreshness data={ingest.data} loading={ingest.loading} error={ingest.error} />
+      </div>
 
       {pristineEmpty ? (
         <EmptyState

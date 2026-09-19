@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Shield, BarChart3, Cloud,
   Bot, Globe, Zap, ArrowRight, ArrowLeft, Check, KeyRound, LogIn, Sparkles,
-  Menu, X, Moon, Sun, Eye, EyeOff, Smartphone,
+  Menu, X, Moon, Sun, Eye, EyeOff, Smartphone, Building2, HelpCircle, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -85,6 +85,65 @@ function NavBar() {
 }
 
 // ---------------------------------------------------------------------------
+// Sign-in helpers
+// ---------------------------------------------------------------------------
+
+/** How long the identifier has to stop changing before we ask the backend about
+ *  its domain. Long enough that typing an address is ONE request, short enough
+ *  that the answer is there by the time the person reaches for the password. */
+const SSO_DISCOVERY_DEBOUNCE_MS = 500;
+
+/** The lowercased domain of an email-shaped identifier, else null (a username
+ *  has no domain to discover, so it never costs a request). Mirrors the
+ *  platform's `emailDomain` — deliberately permissive: the backend decides. */
+function emailDomain(identifier: string): string | null {
+  const value = identifier.trim().toLowerCase();
+  const at = value.lastIndexOf('@');
+  if (at <= 0 || at === value.length - 1) return null;
+  const domain = value.slice(at + 1);
+  return domain.includes('.') && !domain.includes(' ') ? domain : null;
+}
+
+/** The operator command that recovers an account with no factors left. Named
+ *  here because it is the ONLY recovery there is — it is deliberately not a
+ *  route (platform `src/scripts/mfa-recover.ts`). */
+const MFA_RECOVER_COMMAND = 'node scripts/mfa-recover.js --email <your address>';
+
+/**
+ * What to do when every second factor is gone.
+ *
+ * Shown on demand at the two places the dead end is actually reached: under the
+ * code step (the app is gone AND the recovery codes are gone) and under the
+ * org-policy refusal (the requirement bites and there is no factor to meet it).
+ * Recovery is an operator command rather than a link, so the honest answer is
+ * WHO to ask and WHAT they run — not a button that would be a standing bypass
+ * of the factor it removes.
+ */
+function LostFactorHelp() {
+  return (
+    <div className="rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3 text-left space-y-2">
+      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
+        Two-factor authentication can’t be turned off from a sign-in page — there is
+        deliberately no self-service route, because anything that removed your second
+        factor on request would be a way around it.
+      </p>
+      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
+        Ask an owner or admin of your organization, or whoever operates Pipeline Builder
+        for you: on the platform itself they run
+      </p>
+      <code className="block p-2 rounded-lg text-[11px] font-mono bg-[var(--pb-surface)] text-[var(--pb-text)] break-all">
+        {MFA_RECOVER_COMMAND}
+      </code>
+      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
+        It removes every passkey and the authenticator enrolment, signs the account out
+        everywhere, and is recorded in the audit trail under the operator who ran it.
+        You enrol a new factor the next time you sign in.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hero — headline left, sign-in right
 // ---------------------------------------------------------------------------
 
@@ -101,6 +160,30 @@ function Hero() {
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [mfaBusy, setMfaBusy] = useState(false);
+  // "I have no code and no recovery code left" — the operator-recovery panel.
+  const [lostFactorOpen, setLostFactorOpen] = useState(false);
+  // Set when the org's MFA requirement refused the sign-in itself (401
+  // MFA_REQUIRED): the password was fine, the session simply cannot be minted
+  // without a factor. A red error would be misleading — nothing was wrong with
+  // what they typed — so it gets its own panel naming who can unblock them.
+  const [mfaPolicyBlocked, setMfaPolicyBlocked] = useState<string | null>(null);
+  // Enterprise SSO. `ssoDomain` is what DISCOVERY found (the domain is federated
+  // — we are told nothing else about it); `ssoAccount` is what a refused password
+  // attempt named (`SSO_REQUIRED` carries the org, so the flow can start against
+  // it directly and the button can name the provider). Either one means: no
+  // password path here.
+  const [ssoDomain, setSsoDomain] = useState<string | null>(null);
+  const [ssoAccount, setSsoAccount] = useState<{ orgId: string; provider?: string } | null>(null);
+  const [ssoBusy, setSsoBusy] = useState(false);
+  // One answer per domain per page load — typing an address must not spend the
+  // pre-auth rate-limit budget a keystroke at a time. A failed lookup caches
+  // `false`: discovery is a hint, and the password path still refuses a covered
+  // account with SSO_REQUIRED, which surfaces the same SSO action.
+  const ssoByDomain = useRef(new Map<string, boolean>());
+  // Latest identifier, read by the in-flight lookup so an answer that arrives
+  // after the person has typed on is discarded rather than applied.
+  const identifierRef = useRef(identifier);
+  identifierRef.current = identifier;
   // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
   // the endpoint 404s) renders no extra UI — password login is unchanged.
   const [providers, setProviders] = useState<string[]>([]);
@@ -119,6 +202,43 @@ function Hero() {
       .catch(() => { if (!cancelled) setProviders([]); });
     return () => { cancelled = true; };
   }, []);
+
+  /**
+   * Ask whether this identifier's DOMAIN is federated, and remember the answer.
+   *
+   * The question is about the domain and nothing else — the endpoint answers the
+   * same for an address with an account and one without — so asking it while
+   * somebody types reveals nothing about who exists. What comes back is a bare
+   * boolean: which org backs the domain, and which IdP it runs, stay on the
+   * server (the flow is started by email through `startSsoByEmail`).
+   */
+  const discoverSso = useCallback(async (value: string) => {
+    const domain = emailDomain(value);
+    if (!domain) { setSsoDomain(null); return; }
+
+    const known = ssoByDomain.current.get(domain);
+    if (known !== undefined) { setSsoDomain(known ? domain : null); return; }
+
+    let sso = false;
+    try {
+      const res = await api.discoverSso(value.trim());
+      sso = res.data?.sso === true;
+    } catch {
+      // Fail soft — never block a sign-in on a hint.
+    }
+    ssoByDomain.current.set(domain, sso);
+    // The person may have typed on: only apply an answer that still matches.
+    setSsoDomain((current) => (emailDomain(identifierRef.current) === domain ? (sso ? domain : null) : current));
+  }, []);
+
+  /** Debounced discovery while typing. The blur handler runs the same lookup
+   *  immediately, for anyone who tabs straight on to the next field. */
+  useEffect(() => {
+    const domain = emailDomain(identifier);
+    if (!domain) { setSsoDomain(null); return; }
+    const timer = window.setTimeout(() => { void discoverSso(identifier); }, SSO_DISCOVERY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [identifier, discoverSso]);
 
   /**
    * Arm passkey sign-in.
@@ -156,6 +276,7 @@ function Hero() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setMfaPolicyBlocked(null);
     // Only one WebAuthn ceremony may be in flight per page, and the autofill one
     // started on mount is still waiting — drop it before using a password.
     cancelPasskeyCeremony();
@@ -168,9 +289,60 @@ function Hero() {
         // fishes their phone out.
         setPassword('');
         setMfaCode('');
+        setLostFactorOpen(false);
         setMfaChallengeId(result.challengeId);
       }
-    } catch (err) { setError(formatError(err, 'Sign in failed')); }
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+
+      // The account is federated (SSO discovery missed it, or they signed in by
+      // username). The rejection names the org, so the SSO action can start the
+      // flow against it directly and say which provider it goes to.
+      if (code === 'SSO_REQUIRED') {
+        const details = (err as { details?: { orgId?: string; provider?: string } } | null)?.details;
+        setPassword('');
+        setSsoAccount({ orgId: details?.orgId ?? '', provider: details?.provider });
+        return;
+      }
+
+      // The org's MFA requirement refused the session, not the credentials.
+      if (code === 'MFA_REQUIRED') {
+        setPassword('');
+        setMfaPolicyBlocked(formatError(err, 'Your organization requires two-factor authentication.'));
+        return;
+      }
+
+      setError(formatError(err, 'Sign in failed'));
+    }
+  };
+
+  /**
+   * Hand the browser to the org's identity provider.
+   *
+   * Two ways in, one destination. When a refused password attempt named the org
+   * we initiate against it (`getSsoUrl`); when domain discovery is all we have,
+   * the backend resolves the org from the address (`startSsoByEmail`) so the
+   * login page never has to be told which tenant owns the domain. Either way the
+   * response is the IdP URL plus a single-use state, and the return leg —
+   * `/auth/sso/[orgId]/callback` for OIDC, `/auth/sso/[orgId]/saml` for SAML —
+   * is decided by what the backend registered with the IdP, not by us.
+   */
+  const startSso = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    cancelPasskeyCeremony();
+    setSsoBusy(true);
+    try {
+      const res = ssoAccount?.orgId
+        ? await api.getSsoUrl(ssoAccount.orgId)
+        : await api.startSsoByEmail(identifier.trim());
+      const url = res.data?.url;
+      if (!url) throw new Error('Your organization’s identity provider could not be reached.');
+      window.location.href = url;
+    } catch (err) {
+      setError(formatError(err, 'Could not start single sign-on'));
+      setSsoBusy(false);
+    }
   };
 
   /** Second leg: the code from the authenticator app, or a recovery code. */
@@ -196,6 +368,7 @@ function Hero() {
   const cancelMfa = () => {
     setMfaChallengeId(null);
     setMfaCode('');
+    setLostFactorOpen(false);
     setError(null);
   };
 
@@ -215,6 +388,16 @@ function Hero() {
       setPasskeyBusy(false);
     }
   };
+
+  // Both signals mean the same thing to this card: this identifier signs in at
+  // an identity provider, so there is no password to collect.
+  const ssoRequired = ssoAccount !== null || ssoDomain !== null;
+  // A refused attempt names the provider ("Continue with Okta"); discovery
+  // deliberately doesn't, and a SAML config has no provider name at all — both
+  // fall back to the plain phrase rather than inventing one.
+  const ssoProviderName = ssoAccount?.provider && !['saml', 'generic-oidc'].includes(ssoAccount.provider)
+    ? providerLabel(ssoAccount.provider)
+    : 'single sign-on';
 
   // Start the OAuth dance: fetch the provider authorize URL (backend mints the
   // CSRF state), stash a "login" intent under that state so the callback page
@@ -307,6 +490,37 @@ function Hero() {
             )}
             <ErrorAlert message={error} className="mb-3" />
 
+            {/* The org's MFA deadline has passed and this account has no factor
+                to meet it, so there is nothing to sign in with. Say who can
+                unblock them rather than repeat "enrol a factor" at somebody who
+                cannot get far enough in to do it. */}
+            {mfaPolicyBlocked && !mfaChallengeId && (
+              <div className="alert-warning mb-3" role="status" aria-live="polite">
+                <p className="flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>{mfaPolicyBlocked}</span>
+                </p>
+                <ul className="mt-2 space-y-1.5 text-sm text-[var(--pb-text)] list-disc pl-8">
+                  <li>
+                    If you already have a passkey on this device, use{' '}
+                    <strong>Sign in with a passkey</strong> below — it satisfies the requirement
+                    on its own.
+                  </li>
+                  <li>
+                    Otherwise an owner or admin of your organization can lift the requirement,
+                    or extend its grace period, long enough for you to enrol.
+                  </li>
+                  <li>
+                    If you had factors and have lost them all, they need the recovery command
+                    below.
+                  </li>
+                </ul>
+                <div className="mt-3">
+                  <LostFactorHelp />
+                </div>
+              </div>
+            )}
+
             {/* Second factor. Replaces the whole card body rather than appearing
                 below it: the password is already proven and re-showing the field
                 only invites people to retype it. */}
@@ -314,7 +528,17 @@ function Hero() {
               <form onSubmit={handleMfaSubmit} className="space-y-3">
                 <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2">
                   <Smartphone className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-                  <span>Enter the 6-digit code from your authenticator app. You can also use one of your recovery codes.</span>
+                  <span>Enter the 6-digit code from your authenticator app.</span>
+                </p>
+                {/* The recovery code is named HERE, in the sentence, not left to
+                    a placeholder that vanishes the moment anyone types: this is
+                    the exact point where someone discovers their phone is gone. */}
+                <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2">
+                  <KeyRound className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Phone lost or wiped? Use one of the recovery codes you saved when you turned
+                    two-factor authentication on — they go in this same box, and each one works once.
+                  </span>
                 </p>
                 <Input
                   id="signin-mfa-code"
@@ -347,9 +571,23 @@ function Hero() {
                 >
                   <ArrowLeft className="w-4 h-4 mr-1.5" /> Use a different account
                 </Button>
+                {/* The dead end the code step used to have no answer for. Folded
+                    away by default — most people have a code — and honest when
+                    opened: recovery is an operator command, not a self-service
+                    button. */}
+                <button
+                  type="button"
+                  onClick={() => setLostFactorOpen((v) => !v)}
+                  aria-expanded={lostFactorOpen}
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-xs text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)] rounded py-1"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                  Lost your phone and your codes?
+                </button>
+                {lostFactorOpen && <LostFactorHelp />}
               </form>
             ) : (
-            <form onSubmit={handleSignIn} className="space-y-3">
+            <form onSubmit={ssoRequired ? startSso : handleSignIn} className="space-y-3">
               <Input
                 id="signin-identifier"
                 type="text"
@@ -361,43 +599,77 @@ function Hero() {
                 placeholder="Email or username"
                 aria-label="Email or username"
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                disabled={isLoading}
+                onChange={(e) => {
+                  setIdentifier(e.target.value);
+                  // What a refused attempt told us belonged to the OLD address.
+                  if (ssoAccount) setSsoAccount(null);
+                  if (mfaPolicyBlocked) setMfaPolicyBlocked(null);
+                }}
+                // Anyone who tabs straight past gets the answer now rather than
+                // after the debounce.
+                onBlur={() => { void discoverSso(identifier); }}
+                disabled={isLoading || ssoBusy}
               />
-              <div className="relative">
-                <Input
-                  id="signin-password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  required
-                  className="pr-10"
-                  placeholder="Password"
-                  aria-label="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  disabled={isLoading}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  aria-pressed={showPassword}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
-                </button>
-              </div>
-              <Button type="submit" fullWidth disabled={isLoading} className="text-sm">
-                {isLoading
-                  ? <><LoadingSpinner size="sm" className="mr-2" /> Signing in...</>
-                  : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in</>
-                }
-              </Button>
+              {/* An SSO-backed domain gets NO password field. The backend refuses
+                  a password (and a social grant) for these accounts anyway, so
+                  offering one only produces a rejection the person can't act on. */}
+              {ssoRequired ? (
+                <>
+                  <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2" role="status">
+                    <Building2 className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      {ssoAccount
+                        ? 'This account signs in through your organization’s identity provider, so a password here won’t work.'
+                        : `${ssoDomain} is managed by your organization — sign-in happens at its identity provider.`}
+                    </span>
+                  </p>
+                  <Button type="submit" fullWidth disabled={ssoBusy} className="text-sm">
+                    {ssoBusy
+                      ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
+                      : <><LogIn className="w-4 h-4 mr-1.5" /> Continue with {ssoProviderName}</>}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Input
+                      id="signin-password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      required
+                      className="pr-10"
+                      placeholder="Password"
+                      aria-label="Password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      disabled={isLoading}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={showPassword}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                    </button>
+                  </div>
+                  <Button type="submit" fullWidth disabled={isLoading} className="text-sm">
+                    {isLoading
+                      ? <><LoadingSpinner size="sm" className="mr-2" /> Signing in...</>
+                      : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in</>
+                    }
+                  </Button>
+                </>
+              )}
             </form>
             )}
 
-            {!mfaChallengeId && (passkeySupported || providers.length > 0) && (
+            {/* Passkeys and social sign-in are bypasses for a federated account —
+                the backend refuses both with the same SSO_REQUIRED — so they go
+                away with the password field. */}
+            {!mfaChallengeId && !ssoRequired && (passkeySupported || providers.length > 0) && (
               <div className="mt-4">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="flex-1 h-px bg-[var(--pb-border)]" />

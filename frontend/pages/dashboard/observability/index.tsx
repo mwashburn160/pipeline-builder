@@ -6,10 +6,12 @@ import Link from 'next/link';
 import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { Dashboard } from '@/types/observability';
 
@@ -24,7 +26,7 @@ import type { Dashboard } from '@/types/observability';
  * at cold start, so they show up here automatically.
  */
 export default function ObservabilityIndexPage() {
-  const { isReady, isAuthenticated, can } = useAuthGuard();
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard();
   const canCreateDashboard = can('dashboards:write');
   const ready = isReady && isAuthenticated;
   const { data, loading, error, refetch } = useFetch(
@@ -53,6 +55,7 @@ export default function ObservabilityIndexPage() {
     { id: 'private', label: 'Private' },
   ];
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   // Best-effort icon for the seeded defaults; everything else falls back
@@ -216,6 +219,17 @@ export default function ObservabilityIndexPage() {
           </div>
         )}
       </div>
+
+      {/* Recently deleted — a deleted dashboard stays restorable until the
+          retention sweep purges it. The restore route was already there; until
+          now nothing could list what it could restore, so a delete was
+          effectively permanent. The backend narrows the listing to tombstones
+          this caller may actually restore, so no row here can 403. */}
+      {canCreateDashboard && (
+        <div className="mt-6">
+          <RecentlyDeletedPanel resource="dashboard" onRestored={() => refetch()} />
+        </div>
+      )}
     </DashboardLayout>
   );
 }

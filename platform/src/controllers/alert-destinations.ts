@@ -5,10 +5,13 @@
  * Controllers for per-org alert notification destinations + the Alertmanager
  * webhook relay endpoint.
  *
- *   GET    /api/observability/alert-destinations      — list this org's destinations
- *   POST   /api/observability/alert-destinations      — create
- *   PUT    /api/observability/alert-destinations/:id  — update
- *   DELETE /api/observability/alert-destinations/:id  — delete
+ *   GET    /api/observability/alert-destinations          — list this org's destinations
+ *   GET    /api/observability/alert-destinations/deleted  — restorable tombstones
+ *   POST   /api/observability/alert-destinations          — create
+ *   PUT    /api/observability/alert-destinations/:id      — update
+ *   DELETE /api/observability/alert-destinations/:id      — delete
+ *   POST   /api/observability/alert-destinations/:id/restore — undo a delete (step-up)
+ *   POST   /api/observability/alert-destinations/:id/purge   — permanent delete (step-up)
  *   POST   /api/observability/alert-webhook           — relay endpoint (called by Alertmanager)
  *
  * The relay is the only path with a non-JWT auth gate: it's called server-to-
@@ -97,6 +100,20 @@ export const listAlertDestinations = withController('List alert destinations', a
 
   const destinations = await alertDestinationService.listForOrg(orgId);
   // Mask the target field on read — Slack URLs are bearer-equivalent.
+  sendSuccess(res, 200, { destinations: destinations.map(toApiDestination) });
+});
+
+/**
+ * GET /api/observability/alert-destinations/deleted — this org's restorable
+ * tombstones ("recently deleted"). Same `observability:read` gate + org scope as
+ * the live list, and the SAME target masking: a deleted Slack hook URL is still
+ * a bearer-equivalent secret.
+ */
+export const listDeletedAlertDestinations = withController('List deleted alert destinations', async (req, res) => {
+  const orgId = requireOrgMembership(req, res);
+  if (!orgId) return;
+
+  const destinations = await alertDestinationService.listDeletedForOrg(orgId);
   sendSuccess(res, 200, { destinations: destinations.map(toApiDestination) });
 });
 
@@ -289,6 +306,40 @@ export const restoreAlertDestination = withController('Restore alert destination
     releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
     throw err;
   }
+});
+
+/**
+ * POST /api/observability/alert-destinations/:id/purge — PERMANENT hard-delete
+ * of a tombstone, finalizing now what the retention sweep would do at
+ * `purge_after`. Same `observability:write` + step-up gate as restore
+ * (irreversible), org-scoped in the service. 404 when the id is unknown or still
+ * live — a live destination must be soft-deleted first.
+ *
+ * No quota release: delete already released the `alertDestinations` slot.
+ */
+export const purgeAlertDestination = withController('Purge alert destination', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { orgId } = ctx;
+
+  const id = req.params.id as string;
+
+  // Load the tombstone first: gates on own-org scope + genuine soft-delete, and
+  // captures the label for the audit record before the row is destroyed. Never
+  // the target — that is a secret and has no place in the audit trail.
+  const existing = await alertDestinationService.findDeletedById(id, orgId);
+  if (!existing) return sendError(res, 404, 'Destination not found');
+
+  const ok = await alertDestinationService.purgeById(id, orgId);
+  if (!ok) return sendError(res, 404, 'Destination not found');
+
+  audit(req, 'alert.destination.purge', {
+    targetType: 'alert-destination',
+    targetId: id,
+    affectedOrgId: orgId,
+    details: { channel: existing.channel, label: existing.label },
+  });
+  sendSuccess(res, 200, undefined, 'Destination permanently deleted');
 });
 
 /**

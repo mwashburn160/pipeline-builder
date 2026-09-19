@@ -5,11 +5,13 @@ import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api
 import { Router } from 'express';
 import {
   listDashboards,
+  listDeletedDashboards,
   getDashboard,
   createDashboard,
   updateDashboard,
   deleteDashboard,
   restoreDashboard,
+  purgeDashboard,
   cloneDashboard,
 } from '../controllers/dashboards.js';
 import { requireAuth } from '../middleware/index.js';
@@ -20,6 +22,10 @@ const router: Router = Router();
 // so no role loses access); the handlers' `canRead` / renderable-panel filter is
 // the per-row visibility check layered on top of it.
 router.get('/', requireAuth, requirePermission('dashboards:read'), listDashboards);
+// `/deleted` is a LITERAL path — it must be registered before `/:id` or the id
+// matcher swallows it. Lists the caller's restorable tombstones (the "recently
+// deleted" panel); the handler narrows to rows restore would actually allow.
+router.get('/deleted', requireAuth, requirePermission('dashboards:read'), listDeletedDashboards);
 router.get('/:id', requireAuth, requirePermission('dashboards:read'), getDashboard);
 // Create/clone need a STATIC `dashboards:write` capability — gate at the route
 // so it's auditable from the route table (the handler no longer re-checks).
@@ -34,6 +40,11 @@ router.delete('/:id', requireAuth, audited('dashboard.delete'), deleteDashboard)
 // that brings a row back into service, mirroring the org delete/restore pattern.
 // Restore stays handler-gated too (dynamic canWrite, like delete).
 router.post('/:id/restore', requireAuth, requireStepUp, audited('dashboard.restore'), restoreDashboard);
+// Purge = the irreversible finalization of a soft-delete (hard-deletes the
+// tombstone ahead of the retention sweep). Step-up gated like restore — both
+// re-verify before an administrative action on a deleted row — and handler-gated
+// on the same dynamic canWrite.
+router.post('/:id/purge', requireAuth, requireStepUp, audited('dashboard.purge'), purgeDashboard);
 router.post('/:id/clone', requireAuth, requirePermission('dashboards:write'), audited('dashboard.clone'), cloneDashboard);
 
 export default router;

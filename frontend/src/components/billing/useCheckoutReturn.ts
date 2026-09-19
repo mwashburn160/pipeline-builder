@@ -4,7 +4,8 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
-import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
+import { runQuery } from '@/lib/query-cache';
 
 /** Polls for the webhook-provisioned subscription this many times after a Checkout return. */
 const ACTIVATION_POLLS = 6;
@@ -32,7 +33,9 @@ export function useCheckoutReturn(onActivated: () => Promise<void> | void): void
       toast.success('Checkout complete — activating your subscription…');
       void (async () => {
         for (let i = 0; i < ACTIVATION_POLLS && !cancelled; i++) {
-          const res = await api.getSubscription().catch(() => null);
+          // Forced: this loop is waiting for the webhook to provision the
+          // subscription, so a cached "not yet" would spin out the whole poll.
+          const res = await runQuery(queries.subscription(), { force: true }).catch(() => null);
           if (res?.success && res.data?.subscription) break;
           await new Promise((r) => setTimeout(r, ACTIVATION_POLL_STEP_MS * (i + 1)));
         }

@@ -6,19 +6,23 @@ import { Router } from 'express';
 import {
   listAlertDestinations,
   listAllAlertDestinations,
+  listDeletedAlertDestinations,
   createAlertDestination,
   updateAlertDestination,
   deleteAlertDestination,
   restoreAlertDestination,
+  purgeAlertDestination,
   testAlertDestination,
   alertWebhook,
 } from '../controllers/alert-destinations.js';
 import {
   listAlertRules,
+  listDeletedAlertRules,
   createAlertRule,
   updateAlertRule,
   deleteAlertRule,
   restoreAlertRule,
+  purgeAlertRule,
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
@@ -107,6 +111,10 @@ router.get('/alert-destinations', requireAuth, requirePermission('observability:
 // Sysadmin cross-tenant viewer — `/all` literal must come before `/:id`
 // so it isn't captured as an id parameter.
 router.get('/alert-destinations/all', requireAuth, requireSystemAdmin, listAllAlertDestinations);
+// Restorable tombstones for the "recently deleted" panel. Another LITERAL path
+// that must precede the `/:id` routes. Same read capability + org scope (and the
+// same target masking) as the live list.
+router.get('/alert-destinations/deleted', requireAuth, requirePermission('observability:read'), listDeletedAlertDestinations);
 // Static `observability:write` capability gated at the route so it's auditable
 // from the route table (handlers no longer re-check). The per-org data scoping
 // (findById(id, orgId)) inside the handlers is orthogonal to this gate.
@@ -114,6 +122,9 @@ router.post('/alert-destinations', requireAuth, requirePermission('observability
 router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), audited('alert.destination.update'), updateAlertDestination);
 router.delete('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), audited('alert.destination.delete'), deleteAlertDestination);
 router.post('/alert-destinations/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.destination.restore'), restoreAlertDestination);
+// Purge finalizes a soft-delete ahead of the retention sweep — irreversible, so
+// it carries the same write capability + step-up as restore.
+router.post('/alert-destinations/:id/purge', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.destination.purge'), purgeAlertDestination);
 // Send a labeled test notification to a destination (org-scoped, observability:write).
 router.post('/alert-destinations/:id/test', requireAuth, requirePermission('observability:write'), audited('alert.destination.test'), testAlertDestination);
 
@@ -129,6 +140,8 @@ router.post('/alert-webhook', alertWebhook);
  * Materialized endpoint MUST come BEFORE the `/:id` routes so the
  * literal `materialized.yml` path doesn't get captured as an:id. */
 router.get('/alert-rules/materialized.yml', requireAuth, requireSystemAdmin, materializeAlertRules);
+// `/deleted` is likewise a LITERAL path and must precede the `/:id` routes.
+router.get('/alert-rules/deleted', requireAuth, requirePermission('observability:read'), listDeletedAlertRules);
 router.get('/alert-rules', requireAuth, requirePermission('observability:read'), listAlertRules);
 // Static `observability:write` capability gated at the route (auditable); the
 // handlers no longer re-check. Org-scoping (prepareRuleExpr / org-scoped
@@ -137,5 +150,7 @@ router.post('/alert-rules', requireAuth, requirePermission('observability:write'
 router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), audited('alert.rule.update'), updateAlertRule);
 router.delete('/alert-rules/:id', requireAuth, requirePermission('observability:write'), audited('alert.rule.delete'), deleteAlertRule);
 router.post('/alert-rules/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.rule.restore'), restoreAlertRule);
+// Irreversible finalization of a soft-delete — same gate as restore, plus step-up.
+router.post('/alert-rules/:id/purge', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.rule.purge'), purgeAlertRule);
 
 export default router;

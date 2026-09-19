@@ -23,6 +23,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { api } from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
@@ -34,8 +35,8 @@ export default function AuditActivityRedirect() {
   // Admin-only, matching the audit-log viewer at /dashboard/audit. The Audit
   // Activity panels read the MongoDB audit trail scoped to the caller's org (a
   // sysadmin sees every org), and the observability API gates them `adminOnly`
-  // exactly like GET /audit — so a plain member is redirected by the guard.
-  const { isReady, isAuthenticated } = useAuthGuard({ requireAdmin: true });
+  // exactly like GET /audit — so a plain member gets the access-denied state.
+  const { accessDenied, isReady, isAuthenticated } = useAuthGuard({ requireAdmin: true });
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +73,7 @@ export default function AuditActivityRedirect() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, isReady, isAuthenticated]);
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (error) {
     return (

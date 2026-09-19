@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import { KeyRound, ShieldAlert, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import type { AuthFactors } from '@/types';
@@ -19,7 +20,7 @@ interface Props {
   onClose: () => void;
 }
 
-const ENROL_HREF = '/dashboard/settings?tab=security#passkeys';
+const ENROL_HREF = PASSKEY_ENROLMENT_HREF;
 
 /**
  * What the app shows when a route refuses the SESSION for not being MFA-grade

@@ -148,6 +148,14 @@ export function Modal({
     }
   }, [onClose]);
 
+  // What we auto-focused on open, and whether the caller's preferred element
+  // ever got it. A dialog whose body is still loading (StepUpModal renders a
+  // spinner until the account's factors come back) has `initialFocusRef.current
+  // === null` at mount, so the fallback below wins and nothing ever corrects it
+  // — every step-up opened focused on "Close". The second effect fixes that.
+  const autoFocused = useRef<HTMLElement | null>(null);
+  const focusedInitial = useRef(false);
+
   // Focus management + scroll lock — runs ONCE when the modal mounts (keyed on
   // `mounted`, not `handleKeyDown`). Keeping focus-on-open out of the keydown
   // effect is critical: callers pass an inline `onClose`, so `handleKeyDown`'s
@@ -162,8 +170,11 @@ export function Modal({
     // else the first focusable element on open.
     if (panelRef.current) {
       const focusable = getFocusableElements(panelRef.current);
-      const target = initialFocusRef?.current ?? focusable[0];
+      const preferred = initialFocusRef?.current ?? null;
+      const target = preferred ?? focusable[0];
       target?.focus();
+      autoFocused.current = target ?? null;
+      focusedInitial.current = !!preferred;
     }
 
     // Prevent background scrolling. Capture the prior value so we restore
@@ -181,6 +192,28 @@ export function Modal({
       if (prev instanceof HTMLElement && prev.isConnected) prev.focus();
     };
   }, [mounted]);
+
+  // Late focus: the caller's preferred element arrived after mount (its content
+  // was still loading). Deliberately NOT keyed on a dependency array — it has to
+  // notice a ref, which no dependency can describe — but it acts at most once,
+  // and only while focus is still sitting on the element we auto-focused (or on
+  // nothing). If the user has already tabbed or clicked somewhere, their focus
+  // is theirs; yanking it would be worse than the wrong initial target. The
+  // focus trap and the restore-on-close in the mount effect are untouched.
+  useEffect(() => {
+    if (!mounted || focusedInitial.current) return;
+    const target = initialFocusRef?.current;
+    if (!target || !target.isConnected) return;
+    const active = document.activeElement;
+    const undisturbed = active === autoFocused.current || active === document.body || active === null;
+    if (undisturbed) {
+      target.focus();
+      autoFocused.current = target;
+    }
+    // Either way the one-shot is spent: the content has rendered, so a later
+    // steal would be a surprise rather than a correction.
+    focusedInitial.current = true;
+  });
 
   // Keydown listener (Escape + focus trap) — re-binds when `handleKeyDown`
   // changes. No focus side effects here, so re-binding per render is harmless.

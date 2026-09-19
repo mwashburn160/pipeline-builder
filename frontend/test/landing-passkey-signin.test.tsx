@@ -30,7 +30,11 @@ jest.mock('next/router', () => ({
 }));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: [] } }) },
+  default: {
+    listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: [] } }),
+    // Domain SSO discovery runs off the identifier field; nothing here is federated.
+    discoverSso: jest.fn().mockResolvedValue({ data: { sso: false } }),
+  },
 }));
 // The marketing sections below the fold animate on scroll, which jsdom has no
 // viewport for; the sign-in card is what this suite is about.

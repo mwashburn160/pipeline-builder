@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GripVertical, LayoutGrid, List, Plus, Save, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -51,7 +52,7 @@ export default function DashboardEditPage() {
   // capability gated on `can()` (the backend rejects the PUT otherwise, and
   // `can()` reports false under read-only impersonation so Save disables).
   // Superadmins bypass.
-  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
   const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();
@@ -245,6 +246,7 @@ export default function DashboardEditPage() {
     }
   };
 
+  if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (loading) return <LoadingPage />;
   if (error || !original) {

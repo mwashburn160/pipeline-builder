@@ -7,11 +7,12 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { HelpSearchResultCard } from '@/components/help/HelpSearchResult';
 import { HelpSearchBox } from '@/components/help/HelpSearchBox';
 import { HelpTopicGroup } from '@/components/help/HelpTopicGroup';
 import { WhatsNewPanel } from '@/components/help/WhatsNewPanel';
-import { HELP_TOPICS, HELP_GROUPS } from '@/lib/help';
+import { loadHelpGroups, type HelpTopicGroup as HelpTopicGroupData } from '@/lib/help';
 import { searchHelp } from '@/lib/help/search';
 
 export default function HelpPage() {
@@ -19,7 +20,18 @@ export default function HelpPage() {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const results = useMemo(() => searchHelp(HELP_TOPICS, query), [query]);
+  // The corpus is ~588 KB of generated source, so it is a dynamic import rather
+  // than a module-level constant: the page shell (search box, "what's new")
+  // paints from the route chunk while the topics chunk is still arriving.
+  const [groups, setGroups] = useState<HelpTopicGroupData[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void loadHelpGroups().then((g) => { if (alive) setGroups(g); });
+    return () => { alive = false; };
+  }, []);
+
+  const topics = useMemo(() => (groups ?? []).flatMap((g) => g.topics), [groups]);
+  const results = useMemo(() => searchHelp(topics, query), [topics, query]);
   const searching = query.trim().length > 0;
   const totalSections = useMemo(
     () => results.reduce((n, r) => n + r.sectionCount, 0),
@@ -61,7 +73,7 @@ export default function HelpPage() {
             query={query}
             onQueryChange={setQuery}
             inputRef={inputRef}
-            topicCount={HELP_TOPICS.length}
+            topicCount={topics.length}
             resultCount={results.length}
             sectionCount={totalSections}
           />
@@ -104,11 +116,14 @@ export default function HelpPage() {
               )}
             </div>
           ) : (
-            /* BROWSE view — the category index. */
+            /* BROWSE view — the category index. Skeletons stand in for the
+               groups only until the corpus chunk lands. */
             <div className="space-y-5">
-              {HELP_GROUPS.map((group, gi) => (
-                <HelpTopicGroup key={group.category} category={group.category} topics={group.topics} openFirst={gi === 0} />
-              ))}
+              {groups === null
+                ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 w-full" />)
+                : groups.map((group, gi) => (
+                  <HelpTopicGroup key={group.category} category={group.category} topics={group.topics} openFirst={gi === 0} />
+                ))}
             </div>
           )}
         </div>

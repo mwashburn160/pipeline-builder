@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Sessions and devices panel (Settings → Security): the two lists (signed-in
+ * Sessions and devices panel (Security → Sessions): the two lists (signed-in
  * devices / stored machine credentials), the current-session marker, and the
- * confirm → step-up → revoke click-through. Revoking is step-up gated on the
- * backend, so the token from StepUpModal must reach `api.revokeSession`.
+ * single-dialog revoke. Revoking is step-up gated on the backend, so ONE dialog
+ * states the consequence and takes the factor, and its token must reach
+ * `api.revokeSession`. "Sign out everywhere" lives here too — it used to be on
+ * a second, contradictory sessions view on the API Tokens page.
  */
 
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -19,21 +21,33 @@ jest.mock('@/components/ui/Toast', () => ({
   useToast: () => toast,
 }));
 
-// StepUpModal → immediately "confirms" with a fixed token so the gated call runs.
+// StepUpModal → immediately "confirms" with a fixed token so the gated call
+// runs. Its `title`/`details` are recorded: the point of the single dialog is
+// that the consequence is stated IN it, not in a dialog before it.
+let lastStepUp: { title?: string; detailsText: string } | null = null;
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ onConfirmed }: { onConfirmed: (t: string) => void }) => (
-    <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm step-up</button>
-  ),
+  StepUpModal: ({ title, details, onConfirmed }: { title?: string; details?: React.ReactNode; onConfirmed: (t: string) => void }) => {
+    lastStepUp = { title, detailsText: '' };
+    return (
+      <div data-testid="stepup-dialog">
+        <span>{title}</span>
+        <div data-testid="stepup-details">{details}</div>
+        <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm step-up</button>
+      </div>
+    );
+  },
 }));
 
 const listSessions = jest.fn();
 const revokeSession = jest.fn();
+const revokeAllTokens = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     listSessions: (...a: unknown[]) => listSessions(...a),
     revokeSession: (...a: unknown[]) => revokeSession(...a),
+    revokeAllTokens: (...a: unknown[]) => revokeAllTokens(...a),
   },
 }));
 
@@ -65,8 +79,10 @@ const machine = {
 describe('SessionsSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lastStepUp = null;
     listSessions.mockResolvedValue({ success: true, data: { sessions: [device], machineSessions: [machine] } });
     revokeSession.mockResolvedValue({ success: true, data: { revoked: true } });
+    revokeAllTokens.mockResolvedValue({ success: true, data: { revoked: true } });
   });
 
   it('lists devices and machine credentials with their details', async () => {
@@ -83,22 +99,37 @@ describe('SessionsSection', () => {
     render(<SessionsSection readOnly={false} />);
     expect(await screen.findByText('This device')).toBeInTheDocument();
     // Only the machine credential (not the current device) can be revoked.
-    expect(screen.queryByRole('button', { name: /Sign out/ })).not.toBeInTheDocument();
+    // ("Sign out everywhere" is a different control — it ends everything.)
+    expect(screen.queryByRole('button', { name: /^Sign out$/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Stop renewal/ })).toBeInTheDocument();
   });
 
-  it('confirms, then step-ups, then revokes — forwarding the step-up token', async () => {
+  it('revokes from ONE dialog that both asks and steps up', async () => {
     render(<SessionsSection readOnly={false} />);
     fireEvent.click(await screen.findByRole('button', { name: /Stop renewal/ }));
-    // Confirm dialog first (irreversible), then the step-up gate. The dialog's
-    // confirm button is the one inside the dialog, not the row action.
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(await within(dialog).findByRole('button', { name: /^Stop renewal$/ }));
-    fireEvent.click(await screen.findByTestId('stepup-modal'));
 
+    // Exactly one dialog — it carries the question AND the consequence, rather
+    // than a confirm modal in front of a step-up modal.
+    const dialog = await screen.findByTestId('stepup-dialog');
+    expect(lastStepUp?.title).toMatch(/stop renewing this credential\?/i);
+    expect(within(dialog).getByTestId('stepup-details')).toHaveTextContent(/stops renewing/i);
+    expect(revokeSession).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByTestId('stepup-modal'));
     await waitFor(() => expect(revokeSession).toHaveBeenCalledWith('sid-machine', 'step-up-token'));
     // The list is reloaded so the revoked credential disappears.
     await waitFor(() => expect(listSessions.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('signs out everywhere from the same one-dialog rule', async () => {
+    render(<SessionsSection readOnly={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: /sign out everywhere/i }));
+
+    expect(lastStepUp?.title).toMatch(/sign out everywhere\?/i);
+    expect(revokeAllTokens).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId('stepup-modal'));
+
+    await waitFor(() => expect(revokeAllTokens).toHaveBeenCalledWith('step-up-token'));
   });
 
   it('disables revoking under read-only impersonation', async () => {

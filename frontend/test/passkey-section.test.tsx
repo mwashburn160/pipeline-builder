@@ -11,7 +11,7 @@
  * with no WebAuthn gets no panel instead of buttons that can only fail.
  */
 
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 const listPasskeys = jest.fn();
 const renamePasskey = jest.fn();
@@ -140,15 +140,13 @@ describe('PasskeySection', () => {
     await waitFor(() => expect(renamePasskey).toHaveBeenCalledWith('pk1', 'Phone'));
   });
 
-  it('removes only after confirming AND stepping up', async () => {
+  it('removes from ONE dialog that both asks and steps up', async () => {
     await renderSection();
     fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    // Confirm dialog first; still no delete.
+    // The step-up dialog IS the confirmation — nothing is sent until it is
+    // satisfied, and there is no second modal in front of it.
     expect(deletePasskey).not.toHaveBeenCalled();
-    const dialog = screen.getByRole('dialog');
-    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /^remove$/i })); });
-    expect(deletePasskey).not.toHaveBeenCalled();
-    // Then step-up.
+    expect(screen.getByTestId('stepup-modal')).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
     await waitFor(() => expect(deletePasskey).toHaveBeenCalledWith('pk1', 'step-up-token'));
   });
@@ -157,8 +155,6 @@ describe('PasskeySection', () => {
     deletePasskey.mockRejectedValue(new Error('This is the only way you can sign in. Set a password or add another passkey first.'));
     await renderSection();
     fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    const dialog = screen.getByRole('dialog');
-    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /^remove$/i })); });
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
     await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringContaining('only way you can sign in')));
   });
