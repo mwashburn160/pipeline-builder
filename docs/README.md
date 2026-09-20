@@ -265,6 +265,7 @@ Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-o
 |---|---|
 | `PLATFORM_IDENTIFIER` | `admin@internal` |
 | `PLATFORM_PASSWORD` | `Pipeline-Builder-Dev-2026!` |
+| `PLATFORM_TOTP_CODE` | _unset_ — only needed when re-running init for an admin who has an authenticator app (see [Authentication](authentication.md#setup-automation-uses-one)) |
 
 The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`eks`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
 

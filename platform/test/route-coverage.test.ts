@@ -395,4 +395,20 @@ describe('platform route coverage', () => {
   it('matches the route table the frontend reads', () => {
     expect(compareRouteTableSnapshot(table, snapshotFile)).toBeNull();
   });
+
+  // An assurance EXEMPTION is a conditional weakening of an `aal: 2` route, so the
+  // set of routes that carry one is pinned here by name. Exactly two do, for the
+  // one reason that exists: a fresh install's only administrator has no factor
+  // yet, and these are the calls init-platform.sh must make to create the
+  // install's automation credential (see helpers/bootstrap-admin.ts).
+  it('exempts exactly the two bootstrap-setup routes from assurance, and nothing else', () => {
+    const exempted = table
+      .filter((e) => (e.assuranceExempt?.length ?? 0) > 0)
+      .map((e) => `${e.method} ${e.path} aal${e.minAssurance}(except ${e.assuranceExempt!.join(',')})`)
+      .sort();
+    expect(exempted).toEqual([
+      'POST /organization/:id/service-accounts aal2(except bootstrap-setup)',
+      'POST /organization/:id/service-accounts/:accountId/keys aal2(except bootstrap-setup)',
+    ]);
+  });
 });

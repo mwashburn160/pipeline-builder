@@ -546,12 +546,35 @@ prompt_credentials() {
 #   Requires PLATFORM_IDENTIFIER and PLATFORM_PASSWORD to be set.
 # ---------------------------------------------------------------------------
 login() {
-  local _resp _err
+  local _resp _err _challenge _code
   _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \
     -d "$(jq -n --arg id "$PLATFORM_IDENTIFIER" --arg pw "$PLATFORM_PASSWORD" \
       '{identifier: $id, password: $pw}')" 2>&1) || true
+
+  # SECOND FACTOR. Once the admin has an authenticator app, the password alone
+  # buys a CHALLENGE rather than a session — and the setup calls below need an
+  # MFA-grade one, because the bootstrap exception that stood in for it closed at
+  # that first enrolment. So finish the challenge here: the code comes from
+  # PLATFORM_TOTP_CODE, or from a prompt when someone is watching.
+  _challenge=$(printf '%s' "$_resp" | jq -r '.data.challengeId // empty' 2>/dev/null) || true
+  if [ -n "$_challenge" ]; then
+    _code="${PLATFORM_TOTP_CODE:-}"
+    if [ -z "$_code" ] && [ -t 0 ]; then
+      printf "  Two-factor code for %s (or a recovery code): " "$PLATFORM_IDENTIFIER"
+      read -r _code
+    fi
+    if [ -z "$_code" ]; then
+      echo "Login needs a second factor — this administrator has an authenticator app." >&2
+      echo "  Set PLATFORM_TOTP_CODE to a current code (or a recovery code) and re-run." >&2
+      return 1
+    fi
+    _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/mfa/verify" \
+      -k -s \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg id "$_challenge" --arg code "$_code" '{challengeId: $id, code: $code}')" 2>&1) || true
+  fi
 
   JWT_TOKEN=$(printf '%s' "$_resp" | jq -r '.data.accessToken' 2>/dev/null) || true
 

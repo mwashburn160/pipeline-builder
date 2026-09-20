@@ -2358,7 +2358,14 @@ knowing:
 - the load steps are audited as the `setup` account, not as a person;
 - re-running init is idempotent: the existing `setup` account is reused and its
   previous keys are revoked before the new one is issued, so the 5-key cap can
-  never fail a re-run. Override the lifetime with `SETUP_KEY_TTL_SECONDS`.
+  never fail a re-run. Override the lifetime with `SETUP_KEY_TTL_SECONDS`;
+- **re-running it after the admin enrols** needs a second factor, because the
+  exemption closed with the exception. An account with an authenticator app is
+  offered a challenge at sign-in, so init finishes it: set **`PLATFORM_TOTP_CODE`**
+  to a current code (or a recovery code), or answer the prompt when running
+  interactively. A passkey-only admin has no code to give a script — enrol an
+  authenticator app for that account, or re-run init from a host where a
+  human can drive the dashboard instead.
 
 ### Scoped keys — one capability, no Roles
 
