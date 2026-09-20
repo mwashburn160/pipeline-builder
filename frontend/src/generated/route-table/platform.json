@@ -3862,6 +3862,9 @@
     "scopes": [],
     "audit": [
       "org.service-account.create"
+    ],
+    "assuranceExempt": [
+      "bootstrap-setup"
     ]
   },
   {
@@ -3960,6 +3963,9 @@
     "scopes": [],
     "audit": [
       "org.service-account.key.create"
+    ],
+    "assuranceExempt": [
+      "bootstrap-setup"
     ]
   },
   {

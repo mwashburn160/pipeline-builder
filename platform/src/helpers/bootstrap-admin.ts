@@ -241,6 +241,35 @@ const BOOTSTRAP_SESSION_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegE
   { method: '*', pattern: /^\/organization\/[^/]+\/service-accounts(\/|$)/ },
 ];
 
+/**
+ * Is this the bootstrap administrator making one of the SETUP calls above?
+ *
+ * The exception's whole premise is that a fresh install's only admin has no
+ * second factor yet, so its session is `aal: 1` — which means the two setup
+ * routes that mint the install's automation credential (create the `setup`
+ * service account, issue its key) can never satisfy their own
+ * `requireAssurance({ minAssurance: 2 })`. Before this, the allowlist admitted
+ * those routes and the assurance gate then refused them with 401 `MFA_REQUIRED`:
+ * `init-platform.sh` could not finish on a fresh install at all.
+ *
+ * So the gate takes this as a NAMED exemption (`reason: 'bootstrap-setup'`,
+ * counted as `assurance_exempted_total` and published on the route table). It is
+ * as narrow as the exception itself:
+ *   - the token must carry `mfaEnrollmentPending` — only a bootstrap-admin
+ *     sign-in mints that, only while the exception is open, and it is stored on
+ *     the session slot so a refresh cannot shed it;
+ *   - the request must be one {@link BOOTSTRAP_SESSION_ALLOWLIST} already admits,
+ *     so the exemption can never widen the reach; and
+ *   - step-up still applies. Creating the account and issuing the key each need a
+ *     fresh `X-Step-Up-Token`, which the admin's password earns — so the action
+ *     is still confirmed, and still audited as `org.service-account.*`.
+ * It closes with the exception, at the first enrolment, and never reopens.
+ */
+export function isBootstrapSetupRequest(req: Request): boolean {
+  const claims = (req as { user?: { mfaEnrollmentPending?: boolean } }).user;
+  return claims?.mfaEnrollmentPending === true && bootstrapSessionMayReach(req);
+}
+
 /** Whether an enrolment-pending session may reach this request. Fails closed. */
 export function bootstrapSessionMayReach(req: Pick<Request, 'method' | 'path'>): boolean {
   const method = req.method.toUpperCase();

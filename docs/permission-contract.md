@@ -56,6 +56,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | `feature(f)` | Paid entitlement `f` required |
 | `scope(s)` | Machine-credential scope `s` required |
 | `aalN` | Authenticator assurance level ≥ N |
+| `aalN(except c)` | …of every caller **except** the named carve-out `c`. Today the only one is `bootstrap-setup`: a fresh install's single administrator, who has no second factor to be MFA-grade with yet, on the setup calls `init-platform.sh` makes. Step-up still applies, and the reach stays limited to the bootstrap allowlist |
 | `step-up(m,…)` | Recent re-authentication with one of these methods |
 | `org-admin-assurance` | The org's "administrative actions require MFA" policy applies |
 | `authenticated` | Signed in, nothing more |
@@ -338,11 +339,11 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | POST | `/organization/:id/roles/:roleId/members` | `any(roles:manage) + org-admin-assurance` |
 | platform | DELETE | `/organization/:id/roles/:roleId/members/:userId` | `any(roles:manage) + org-admin-assurance` |
 | platform | GET | `/organization/:id/service-accounts` | `any(service_accounts:manage)` |
-| platform | POST | `/organization/:id/service-accounts` | `any(service_accounts:manage) + aal2 + step-up(any)` |
+| platform | POST | `/organization/:id/service-accounts` | `any(service_accounts:manage) + aal2(except bootstrap-setup) + step-up(any)` |
 | platform | DELETE | `/organization/:id/service-accounts/:accountId` | `any(service_accounts:manage) + step-up(any)` |
 | platform | GET | `/organization/:id/service-accounts/:accountId` | `any(service_accounts:manage)` |
 | platform | PATCH | `/organization/:id/service-accounts/:accountId` | `any(service_accounts:manage) + step-up(any)` |
-| platform | POST | `/organization/:id/service-accounts/:accountId/keys` | `any(service_accounts:manage) + aal2 + step-up(any)` |
+| platform | POST | `/organization/:id/service-accounts/:accountId/keys` | `any(service_accounts:manage) + aal2(except bootstrap-setup) + step-up(any)` |
 | platform | DELETE | `/organization/:id/service-accounts/:accountId/keys/:keyId` | `any(service_accounts:manage)` |
 | platform | DELETE | `/organization/:id/teams/:teamId` | `any(org:settings) + step-up(any)` |
 | platform | GET | `/organization/:id/teams/deleted` | `any(org:settings)` |

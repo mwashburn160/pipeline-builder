@@ -193,6 +193,39 @@ describe('requireAssurance (standalone, for a service with its own requireAuth)'
     const { res } = runGate({ principalType: 'user', token_use: 'access', sub: 'u1', aal: 2 }, { minAssurance: 2, maxAge: 60 });
     expect(res._json?.code).toBe('REAUTH_REQUIRED');
   });
+
+  // A named exemption exists for exactly one case — the bootstrap-administrator
+  // window, whose session CANNOT be MFA-grade because the install has no factor
+  // to enrol with yet (platform's `isBootstrapSetupRequest`). What matters here is
+  // that the carve-out is narrow and visible: it fires only when the predicate
+  // says so, it still needs an authenticated request, and the route keeps its
+  // `minAssurance` tag plus the exemption's name.
+  describe('a named exemption', () => {
+    const weak = { ...human, aal: 1 };
+
+    it('admits the request the predicate names', () => {
+      const { next, res } = runGate(weak, { minAssurance: 2, exempt: { reason: 'bootstrap-setup', when: () => true } });
+      expect(next).toHaveBeenCalled();
+      expect(res._json).toBeNull();   // nothing was sent — the gate passed it on
+    });
+
+    it('refuses every other request on the same route', () => {
+      const { res } = runGate(weak, { minAssurance: 2, exempt: { reason: 'bootstrap-setup', when: () => false } });
+      expect(res._status).toBe(401);
+      expect(res._json?.code).toBe('MFA_REQUIRED');
+    });
+
+    it('never admits an unauthenticated caller, whatever the predicate says', () => {
+      const { res, next } = runGate(undefined, { minAssurance: 2, exempt: { reason: 'bootstrap-setup', when: () => true } });
+      expect(res._status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('keeps the level on the route table and names the carve-out there', () => {
+      const gate = requireAssurance({ minAssurance: 2, exempt: { reason: 'bootstrap-setup', when: () => false } });
+      expect(getRouteGates(gate)).toEqual([{ kind: 'assurance', minAssurance: 2, exempt: 'bootstrap-setup' }]);
+    });
+  });
 });
 
 describe('requireStepUp({ methods })', () => {

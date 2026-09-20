@@ -49,7 +49,7 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
 const { signInAuth, authFromClaims } = await import('../src/utils/token.js');
-const { bootstrapSessionMayReach, isBootstrapSuperAdminEmail } = await import('../src/helpers/bootstrap-admin.js');
+const { bootstrapSessionMayReach, isBootstrapSetupRequest, isBootstrapSuperAdminEmail } = await import('../src/helpers/bootstrap-admin.js');
 
 describe('signInAuth — assurance for every factor combination', () => {
   it('password alone is aal 1', () => {
@@ -179,5 +179,61 @@ describe('bootstrapSessionMayReach — what an enrolment session can touch', () 
     expect(may('GET', '/organizations')).toBe(false);
     expect(may('GET', '/user/profile/extra')).toBe(false);
     expect(may('POST', '/auth/webauthn')).toBe(false);
+  });
+});
+
+describe('isBootstrapSetupRequest — the one assurance exemption', () => {
+  // A fresh install's only admin has no factor, so their session is `aal: 1` and
+  // cannot satisfy the `minAssurance: 2` on the two service-account mints that
+  // init-platform.sh must make. That is what this predicate names — and it must
+  // name nothing else: both halves (the flag AND the allowlist) are required, so
+  // an ordinary weak session gets no exemption and a bootstrap session gets no
+  // extra reach.
+  const req = (over: Record<string, unknown>) => ({
+    method: 'POST',
+    path: '/organization/000000000000000000000001/service-accounts',
+    originalUrl: '/organization/000000000000000000000001/service-accounts',
+    ...over,
+  } as never);
+
+  it('names the setup calls a bootstrap session has to make', () => {
+    expect(isBootstrapSetupRequest(req({ user: { mfaEnrollmentPending: true } }))).toBe(true);
+    expect(isBootstrapSetupRequest(req({
+      user: { mfaEnrollmentPending: true },
+      method: 'POST',
+      path: '/organization/000000000000000000000001/service-accounts/a1/keys',
+      originalUrl: '/organization/000000000000000000000001/service-accounts/a1/keys',
+    }))).toBe(true);
+  });
+
+  it('exempts nobody whose session is not an enrolment session', () => {
+    expect(isBootstrapSetupRequest(req({ user: { mfaEnrollmentPending: false } }))).toBe(false);
+    expect(isBootstrapSetupRequest(req({ user: { aal: 1 } }))).toBe(false);
+    expect(isBootstrapSetupRequest(req({}))).toBe(false);
+  });
+
+  it('does not widen the reach — a route off the allowlist is never exempt', () => {
+    const pending = { user: { mfaEnrollmentPending: true } };
+    expect(isBootstrapSetupRequest(req({
+      ...pending,
+      method: 'POST',
+      path: '/organization/000000000000000000000001/mfa-resets',
+      originalUrl: '/organization/000000000000000000000001/mfa-resets',
+    }))).toBe(false);
+    expect(isBootstrapSetupRequest(req({
+      ...pending,
+      method: 'PATCH',
+      path: '/organization/000000000000000000000001/mfa-policy',
+      originalUrl: '/organization/000000000000000000000001/mfa-policy',
+    }))).toBe(false);
+  });
+
+  it('reads the path, not a query string the caller controls', () => {
+    expect(isBootstrapSetupRequest(req({
+      user: { mfaEnrollmentPending: true },
+      method: 'PATCH',
+      path: '/organization/000000000000000000000001/mfa-policy',
+      originalUrl: '/organization/000000000000000000000001/mfa-policy?x=/service-accounts',
+    }))).toBe(false);
   });
 });

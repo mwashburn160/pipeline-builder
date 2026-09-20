@@ -34,6 +34,8 @@ interface RouteEntry {
   permissions: PermissionGate[];
   systemAdmin: boolean; servicePrincipal: boolean; internalCallers: string[];
   stepUp: boolean; stepUpMethods: string[]; minAssurance: number;
+  /** Named carve-outs the assurance gate allows (see AssuranceOptions.exempt). */
+  assuranceExempt?: string[];
   features: string[]; scopes: string[]; orgAdminAssurance?: boolean;
 }
 
@@ -51,7 +53,12 @@ function authorizationOf(e: RouteEntry): string {
   if (e.internalCallers?.length) parts.push(`internal(${[...e.internalCallers].sort().join(',')})`);
   if (e.features?.length) parts.push(`feature(${[...e.features].sort().join(',')})`);
   if (e.scopes?.length) parts.push(`scope(${[...e.scopes].sort().join(',')})`);
-  if (e.minAssurance > 0) parts.push(`aal${e.minAssurance}`);
+  if (e.minAssurance > 0) {
+    // An exemption is rendered INTO the token, so a route that stops demanding
+    // the level from some class of caller cannot pass this test on the old line.
+    const except = e.assuranceExempt?.length ? `(except ${[...e.assuranceExempt].sort().join(',')})` : '';
+    parts.push(`aal${e.minAssurance}${except}`);
+  }
   if (e.stepUp) parts.push(`step-up(${[...(e.stepUpMethods ?? [])].sort().join(',') || 'any'})`);
   if (e.orgAdminAssurance) parts.push('org-admin-assurance');
   if (parts.length === 0) return e.auth ? 'authenticated' : 'public';

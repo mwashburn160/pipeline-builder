@@ -1620,7 +1620,7 @@ is for administrative actions that need `aal: 2` only while the org's
 | Grant / revoke platform-admin | `/admin/users/:id/grants` | Always, + second-factor step-up | 403 |
 | Loosen the org MFA policy (require-MFA off, admin-actions policy off, "our IdP enforces MFA" on) | `PATCH /organization/:id/mfa-policy` | Always, checked in the handler — **turning a requirement on stays open to `aal: 1`** | 403 |
 | Loosen the impersonation policy (less strict mode, self-approval on) | `PATCH /organization/:id/impersonation-policy` | Always, checked in the handler — tightening stays open | 403 |
-| Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys` | Always, + step-up | 403 |
+| Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys` | Always, + step-up — with ONE exemption, the [bootstrap-administrator window](#the-bootstrap-administrator-exception) (`assurance_exempted_total{reason="bootstrap-setup"}`) | 403 |
 | Transfer ownership | `PATCH /organization/:id/transfer-owner` | Always, + step-up | 403 |
 | Edit / delete / re-entitle another user (sysadmin) | `PUT/DELETE /users/:id`, `PUT /users/:id/features`, `POST /users/bulk-delete` | Always, + step-up | 403 |
 | Request / approve an MFA reset; sysadmin direct reset | `/organization/:id/mfa-resets`, `/admin/users/:id/mfa-reset` | Always, + step-up (approval & direct: second-factor step-up) | 403 |
@@ -1759,6 +1759,17 @@ narrow, self-closing and audited:
   service account, issue and revoke its keys). Every other service refuses such a
   token outright with **403 `MFA_ENROLLMENT_REQUIRED`**; the dashboard sends them
   straight to Security → Factors.
+- Two of those setup routes — creating the `setup` service account and issuing its
+  key — are also **always `aal: 2`** routes, which this session can never be: the
+  install has no factor to be MFA-grade with yet. So the assurance gate carries one
+  **named exemption**, `bootstrap-setup`, which requires BOTH the
+  `mfaEnrollmentPending` flag and a path the allowlist already admits. It grants no
+  extra reach, step-up still applies (the admin's password earns it), the action is
+  still audited as `org.service-account.create` / `.key.create`, every use
+  increments `assurance_exempted_total{reason="bootstrap-setup"}`, and the
+  generated route table records it as `aal2(except bootstrap-setup)`. Without it a
+  fresh install could not finish: init would stop at **401 `MFA_REQUIRED`**, and
+  nothing else the bootstrap session can reach would let it proceed.
 - It **closes permanently at the first enrolment** of any factor and never
   reopens, even if that factor is later removed.
 - System-org "require MFA" **cannot be turned on while it is open** — doing so
@@ -2337,6 +2348,11 @@ knowing:
 
 - the admin's password is used exactly twice (register, sign-in + the two step-up
   confirmations) and never leaves the script;
+- both mints happen while the [bootstrap exception](#the-bootstrap-administrator-exception)
+  is still open, under its `bootstrap-setup` assurance exemption — which is why
+  init creates the account immediately after signing in, and why enrolling a
+  factor first (closing the exception) is the operator's next step, not the
+  script's;
 - the key expires by itself in 24 hours, so a half-finished install leaves no
   durable credential behind;
 - the load steps are audited as the `setup` account, not as a person;

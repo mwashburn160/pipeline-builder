@@ -524,6 +524,21 @@ export function isHumanPrincipal(claims: Pick<JwtPayload, 'principalType' | 'tok
 export interface AssuranceOptions {
   minAssurance: AssuranceLevel;
   maxAge?: number;
+  /**
+   * A NAMED carve-out for requests that cannot possibly satisfy the level and
+   * must still be served — today only one exists: the bootstrap-administrator
+   * window, where a fresh install's single admin has no factor yet and the setup
+   * calls that create the install's automation credential would otherwise be
+   * unreachable (see platform's `isBootstrapSetupRequest`).
+   *
+   * It is deliberately shaped as `{ reason, when }` rather than a bare predicate:
+   * the reason is counted (`assurance_exempted_total{reason}`) and published on
+   * the route table as `assuranceExempt`, so an exemption cannot be added without
+   * showing up in the generated table a reviewer reads. The gate keeps its
+   * `minAssurance` tag either way — the route still requires MFA-grade for
+   * everyone the carve-out does not name.
+   */
+  exempt?: { reason: string; when: (req: Request) => boolean };
 }
 
 /**
@@ -540,9 +555,21 @@ export function requireAssurance(options: AssuranceOptions) {
     if (!req.user) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
+    // A named exemption is checked AFTER authentication and before the level, so
+    // it can never admit an unauthenticated caller, and it is counted every time
+    // it fires — an exemption nobody can see is how a gate quietly stops being one.
+    if (options.exempt?.when(req) === true) {
+      emitCounter('assurance_exempted_total', { service: serviceIdentity(), reason: options.exempt.reason });
+      return next();
+    }
     if (refuseForAssurance(options, req.user as JwtPayload, req, res)) return;
     next();
-  }, { kind: 'assurance', minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) });
+  }, {
+    kind: 'assurance',
+    minAssurance: options.minAssurance,
+    ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}),
+    ...(options.exempt ? { exempt: options.exempt.reason } : {}),
+  });
 }
 
 /**

@@ -682,6 +682,13 @@ sign_service_jwt() {
 #   uses: PLATFORM_BASE_URL, JWT_TOKEN, PLATFORM_PASSWORD
 #   echoes the token; returns 1 (with a message on stderr) if it can't be minted.
 # ---------------------------------------------------------------------------
+# _api_error BODY — " (CODE: message)" from a platform error response, or "" when
+# the body carries neither. Used in failure messages so the operator reads WHICH
+# gate refused rather than just a status number.
+_api_error() {
+  printf '%s' "$1" | jq -r 'if (.code // .message) then " (" + ((.code // "error")|tostring) + ": " + ((.message // "no message")|tostring) + ")" else "" end' 2>/dev/null || true
+}
+
 step_up_token() {
   local _resp _token
   _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
@@ -748,7 +755,8 @@ setup_service_account_key() {
     -d "$(jq -n --arg role "$_role_id" \
       '{name: "setup", description: "Platform bootstrap automation (init-platform.sh)", roleIds: [$role]}')") || true
   _status=$(printf '%s' "$_resp" | tail -n1)
-  SETUP_SA_ID=$(printf '%s' "$_resp" | sed '$d' | jq -r '.data.serviceAccount.id // empty')
+  _body=$(printf '%s' "$_resp" | sed '$d')
+  SETUP_SA_ID=$(printf '%s' "$_body" | jq -r '.data.serviceAccount.id // empty')
 
   case "$_status" in
     20*) echo "  Created the 'setup' service account." ;;
@@ -760,7 +768,10 @@ setup_service_account_key() {
       echo "  Reusing the existing 'setup' service account."
       ;;
     *)
-      echo "ERROR: could not create the setup service account (HTTP $_status)" >&2
+      # Print the server's own code and message: a bare status number here cost a
+      # debugging session once already (a 401 was the assurance gate, not the
+      # token), and the platform always says which gate refused.
+      echo "ERROR: could not create the setup service account (HTTP $_status$(_api_error "$_body"))" >&2
       return 1 ;;
   esac
   if [ -z "$SETUP_SA_ID" ]; then
@@ -788,7 +799,7 @@ setup_service_account_key() {
     -d "$(jq -n --arg name "$_key_name" --argjson ttl "$_ttl" '{name: $name, expiresIn: $ttl}')") || true
   SETUP_SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty')
   if [ -z "$SETUP_SA_KEY" ]; then
-    echo "ERROR: could not issue a key for the setup service account" >&2
+    echo "ERROR: could not issue a key for the setup service account$(_api_error "$_resp")" >&2
     return 1
   fi
   echo "  Issued a ${_ttl}s setup key (shown once; it expires on its own)."

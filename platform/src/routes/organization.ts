@@ -90,6 +90,7 @@ import {
   updatePasswordPolicy,
 } from '../controllers/org-security-policy.js';
 import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
+import { isBootstrapSetupRequest } from '../helpers/bootstrap-admin.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
@@ -107,6 +108,16 @@ const adminMfa = requireOrgAdminAssurance({ machines: 'allow' });
 /** Always `aal: 2` (#8): the action mints a durable machine credential or hands
  *  the org to someone else, whatever the org's policy says. */
 const mfaGrade = requireAssurance({ minAssurance: 2 });
+
+/** `mfaGrade` for the two service-account writes a FRESH INSTALL has to make
+ *  before anyone can enrol a factor — same requirement for everybody else, with
+ *  the bootstrap-administrator window named as the one exemption (step-up still
+ *  required, reach still limited to the allowlist). See
+ *  {@link isBootstrapSetupRequest}. */
+const setupMfaGrade = requireAssurance({
+  minAssurance: 2,
+  exempt: { reason: 'bootstrap-setup', when: isBootstrapSetupRequest },
+});
 
 /** Per-user limiter for domain verification — each call triggers an outbound DNS
  *  TXT lookup, so bound it tighter than the global limiter (keyed per-user;
@@ -448,6 +459,11 @@ router.delete('/:id/roles/:roleId/members/:userId', requireAuth, requirePermissi
  * key mints a durable machine credential, the same class of action PAT creation
  * is step-up gated for — and a service-account key can never satisfy step-up
  * itself, so one key can't be used to mint another.
+ *
+ * The two mints are also `aal: 2`, with ONE named exemption: the
+ * bootstrap-administrator window, where the install's only admin has no factor to
+ * be MFA-grade with yet and `init-platform.sh` must create the `setup` account to
+ * do anything at all (`setupMfaGrade` / {@link isBootstrapSetupRequest}).
  */
 
 /** GET /organization/:id/service-accounts - List accounts + their keys */
@@ -463,7 +479,7 @@ router.post(
   '/:id/service-accounts',
   requireAuth,
   requirePermission('service_accounts:manage'),
-  mfaGrade,
+  setupMfaGrade,
   requireStepUp,
   audited('org.service-account.create'),
   createOrganizationServiceAccount,
@@ -494,7 +510,7 @@ router.post(
   '/:id/service-accounts/:accountId/keys',
   requireAuth,
   requirePermission('service_accounts:manage'),
-  mfaGrade,
+  setupMfaGrade,
   requireStepUp,
   audited('org.service-account.key.create'),
   createOrganizationServiceAccountKey,

@@ -43,8 +43,10 @@ export type RouteGate =
   | { kind: 'internalService'; callers: readonly string[] }
   | { kind: 'stepUp'; methods?: readonly string[] }
   /** The whole SESSION must be MFA-grade (`requireAuth({ minAssurance })`), and
-   *  optionally no older than `maxAge` seconds. */
-  | { kind: 'assurance'; minAssurance: 1 | 2; maxAge?: number }
+   *  optionally no older than `maxAge` seconds. `exempt` names a carve-out the
+   *  gate applies to a narrow class of request (see `AssuranceOptions.exempt`),
+   *  so a route whose level is conditional says so on the table. */
+  | { kind: 'assurance'; minAssurance: 1 | 2; maxAge?: number; exempt?: string }
   /** The session must be MFA-grade WHEN the org's `adminActionsRequireMfa`
    *  policy is on (`requireOrgAdminAssurance`). `machines` says what a machine
    *  credential meets on the route while the policy is on. */
@@ -157,6 +159,13 @@ export interface RouteTableEntry {
   /** Tightest `maxAge` (seconds) any assurance gate in the chain demands. */
   maxAge?: number;
   /**
+   * The named carve-outs the chain's assurance gates allow (sorted). Absent when
+   * there are none, so a table of routes without one is unchanged. A reviewer
+   * reading `minAssurance: 2` next to `assuranceExempt: ["bootstrap-setup"]`
+   * knows the level is required of everyone EXCEPT that named case.
+   */
+  assuranceExempt?: string[];
+  /**
    * Present when the route requires an MFA-grade session WHEN the org's
    * `adminActionsRequireMfa` policy is on (`requireOrgAdminAssurance`), with
    * what a machine credential meets there. Absent (not `false`) otherwise, so
@@ -229,6 +238,9 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
         // Several gates may apply; the STRICTEST wins, since every one of them runs.
         if (g.minAssurance > entry.minAssurance) entry.minAssurance = g.minAssurance;
         if (g.maxAge !== undefined) entry.maxAge = entry.maxAge === undefined ? g.maxAge : Math.min(entry.maxAge, g.maxAge);
+        if (g.exempt !== undefined) {
+          entry.assuranceExempt = [...new Set([...(entry.assuranceExempt ?? []), g.exempt])].sort();
+        }
         break;
       case 'orgAdminAssurance':
         // Strictest wins: one `refuse` in the chain refuses machines.
