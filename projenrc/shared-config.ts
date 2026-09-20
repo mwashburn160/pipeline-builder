@@ -129,6 +129,21 @@ export function configureEsmJest(project: JestConfigurable): void {
         project.jest.config.extensionsToTreatAsEsm = ['.ts', '.tsx'];
         project.jest.config.transform = tsJestTransform();
         project.jest.config.moduleNameMapper = { ...uuidStub(project), ...JS_EXT_MAP };
+        // `clearMocks` (projen's default) only resets calls — it leaves a
+        // `jest.spyOn(...).mockImplementation(...)` in place for every later test
+        // in the file AND, for a spy on a shared module object, for every later
+        // file in the worker. `restoreMocks` puts the original implementation
+        // back after each test, so a spy can't leak past the test that set it.
+        project.jest.config.restoreMocks = true;
+        // `process.env` is the one piece of state jest cannot reset for us: a
+        // worker runs many test FILES in one process. Snapshot + restore it per
+        // file so a suite that sets an env var can't change how the NEXT file
+        // behaves. See jest-env-guard.js at the repo root.
+        const existingSetup = (project.jest.config.setupFilesAfterEnv as string[] | undefined) ?? [];
+        project.jest.config.setupFilesAfterEnv = [
+            ...existingSetup,
+            `<rootDir>/${path.relative(project.outdir, process.cwd()) || '.'}/jest-env-guard.js`,
+        ];
     }
     project.tasks.tryFind('test')?.env('NODE_OPTIONS', '--experimental-vm-modules');
 }

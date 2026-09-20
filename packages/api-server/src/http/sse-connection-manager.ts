@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, createMemorySseTicketStore, SSE_TICKET_TTL_MS, writeSseHeaders, type SseTicketStore } from '@pipeline-builder/api-core';
+import { createLogger, createMemorySseTicketStore, SSE_TICKET_TTL_MS, writeSseHeaders, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -351,7 +351,7 @@ export class SSEManager {
       owner = await this.ticketStore.getOwner(normalized);
     } catch (err) {
       // Can't tell who owns the subject — refuse rather than mint unchecked.
-      logger.warn('SSE ticket refused: stream ownership lookup failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('SSE ticket refused: stream ownership lookup failed', { error: errorMessage(err) });
       incCounter('sse_ticket_rejected_total', { reason: 'capacity' });
       return { ok: false, reason: 'capacity' };
     }
@@ -457,7 +457,7 @@ export class SSEManager {
       try {
         res.end();
       } catch (err) {
-        logger.debug('Response already closed on timeout', { requestId, clientId, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Response already closed on timeout', { requestId, clientId, error: errorMessage(err) });
       }
     }, this.clientTimeoutMs);
 
@@ -668,7 +668,7 @@ export class SSEManager {
       try {
         client.res.end();
       } catch (err) {
-        logger.debug('Response already closed on request close', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Response already closed on request close', { requestId, clientId: client.id, error: errorMessage(err) });
       }
     }
 

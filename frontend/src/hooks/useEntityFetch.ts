@@ -49,7 +49,7 @@ export function useEntityFetch<T>(
     // fallback intentionally omitted: it's only the initial seed and changes
     // on every render in callers that pass an inline object. reloadNonce forces
     // a same-id refetch when a caller calls reload().
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `fallback` is the initial seed only, and is an inline object in most callers
   }, [id, reloadNonce]);
 
   return { entity, fetching, error, reload };

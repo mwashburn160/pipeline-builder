@@ -98,8 +98,3 @@ export async function notifyScimEntitlementLapsed(orgId: string): Promise<boolea
     return false;
   }
 }
-
-/** Test-only: forget the in-process throttle window. */
-export function __resetScimNoticeThrottle(): void {
-  inProcess.clear();
-}

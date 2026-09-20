@@ -10,7 +10,7 @@ import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
-import { sendError, sendQuotaExceeded } from '../utils/response.js';
+import { errorMessage, sendError, sendQuotaExceeded } from '../utils/response.js';
 
 /**
  * Retry options for quota calls — fail fast (a slow quota service must not stall the request).
@@ -395,7 +395,7 @@ export function incrementQuota( quotaService: QuotaService,
   logWarn: (message: string, data?: unknown) => void,
 ): void {
   quotaService.increment(orgId, quotaType, getQuotaServiceAuthHeader(orgId)).catch((err: unknown) =>
-    logWarn('Quota increment failed', { error: err instanceof Error ? err.message: String(err) }),
+    logWarn('Quota increment failed', { error: errorMessage(err) }),
   );
 }
 
@@ -469,6 +469,6 @@ export function decrementQuota( quotaService: QuotaService,
   resetAtSnapshot?: string,
 ): void {
   quotaService.decrement(orgId, quotaType, authHeader, amount, resetAtSnapshot).catch((err: unknown) =>
-    logWarn('Quota rollback failed', { error: err instanceof Error ? err.message: String(err) }),
+    logWarn('Quota rollback failed', { error: errorMessage(err) }),
   );
 }

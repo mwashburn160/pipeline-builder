@@ -62,7 +62,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), requestId: 'r-1' };
-    await handler({ req, res, ctx, orgId: 'org-1', userId: 'u-1' });
+    // `userId` mirrors the real wrapper, which takes it from `getIdentity` —
+    // i.e. the JWT `sub`. Hardcoding it let a fixture set `user.sub` and still
+    // get a different route-context userId, a request no real caller produces.
+    await handler({ req, res, ctx, orgId: 'org-1', userId: req.user?.sub ?? 'u-1' });
   },
 }));
 

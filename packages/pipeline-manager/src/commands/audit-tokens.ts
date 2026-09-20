@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isOpaqueApiKey } from '@pipeline-builder/api-core';
+import { errorMessage, isOpaqueApiKey } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
 import { resolveAwsRegion } from '../utils/aws-env.js';
@@ -82,7 +82,7 @@ export function auditTokens(program: Command): void {
           try {
             raw = await getSecretValue(s.name, { region, profile: options.profile });
           } catch (err) {
-            printWarning(`Could not read ${s.name}: ${err instanceof Error ? err.message : String(err)}`);
+            printWarning(`Could not read ${s.name}: ${errorMessage(err)}`);
             continue;
           }
 

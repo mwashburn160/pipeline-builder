@@ -12,8 +12,6 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { BillingInvoice } from '../models/billing-invoice.js';
-import { Subscription } from '../models/subscription.js';
-import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-ledger');
 
@@ -326,37 +324,6 @@ export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: str
     invoiceCount: o.invoiceCount,
   }));
   return { totals, byOrg, invoiceCount };
-}
-
-/**
- * One-off backfill: seed the ledger from the provider's historical invoices
- * (invoices weren't persisted before the ledger). Iterates subscriptions with an
- * external customer, lists each customer's invoices, and ingests them
- * idempotently. Fail-soft per account. Returns counts for the admin response.
- */
-export async function backfillLedgerFromProvider(limitPerCustomer = 100): Promise<{ accounts: number; ingested: number; errors: number }> {
-  const provider = getPaymentProvider();
-  if (!provider.listCustomerInvoices) return { accounts: 0, ingested: 0, errors: 0 };
-  // Stream with a cursor instead of loading every customer into memory at once —
-  // this is a full-collection admin backfill that would OOM at scale otherwise.
-  const cursor = Subscription.find({ externalCustomerId: { $exists: true, $ne: null } }).cursor();
-  let accounts = 0; let ingested = 0; let errors = 0;
-  for await (const sub of cursor) {
-    if (!sub.externalCustomerId) continue;
-    accounts += 1;
-    try {
-      const invoices = await provider.listCustomerInvoices(sub.externalCustomerId, limitPerCustomer);
-      for (const inv of invoices) {
-        await ingestStripeInvoice(sub.orgId, inv);
-        ingested += 1;
-      }
-    } catch (err) {
-      errors += 1;
-      logger.warn('Ledger backfill failed for account', { orgId: sub.orgId, error: String(err) });
-    }
-  }
-  logger.info('Ledger backfill complete', { accounts, ingested, errors });
-  return { accounts, ingested, errors };
 }
 
 /** Paginated raw invoice rows for the dashboard's invoice table. */

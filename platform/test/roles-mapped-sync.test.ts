@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * MANUAL vs MAPPED Role separation (3a, `syncMappedRoles` in roles-service).
+ * MANUAL vs MAPPED Role separation (3a, `syncMappedRoles` in mapped-roles).
  *
  * The one invariant this function exists for: a sync owns only the assignments
  * IT created (`source: 'jit'`). A Role an admin granted by hand — including the
@@ -56,7 +56,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: jest.fn() },
 }));
 
-const { syncMappedRoles } = await import('../src/services/roles-service.js');
+const { syncMappedRoles } = await import('../src/services/mapped-roles.js');
 
 const ORG = 'org-1';
 const SESSION = { id: 'test-session' } as never;

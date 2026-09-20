@@ -209,7 +209,7 @@ export default function InboxPage() {
           <Card>
             <div className="flex items-center gap-2 mb-3">
               <InboxIcon className="w-5 h-5 text-fg-muted" />
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{items.length} action item{items.length === 1 ? '' : 's'}</h3>
+              <h3 className="text-base font-semibold text-fg">{items.length} action item{items.length === 1 ? '' : 's'}</h3>
             </div>
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {items.map((item) => {
@@ -220,7 +220,7 @@ export default function InboxPage() {
                       <span role="img" aria-label={`${item.severity} priority`} className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${SEVERITY_DOT[item.severity]}`} />
                       <Icon className="w-4 h-4 mt-0.5 text-fg-subtle shrink-0" />
                       <span className="min-w-0">
-                        <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</span>
+                        <span className="block text-sm font-medium text-fg">{item.title}</span>
                         {item.detail && <span className="block text-xs text-fg-muted truncate">{item.detail}</span>}
                       </span>
                     </Link>

@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -33,9 +34,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 // secret-blob / entitlement chain. This suite tests switchOrg, not SSO — mock the
 // helper so that chain isn't loaded (avoids needing its transitive api-core exports).
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ findSsoEnforcementForEmail: async () => null, rejectIfSsoEnforced: async () => false }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/index.js', () => ({

@@ -78,6 +78,38 @@ export function formatDate(iso: string | number | Date | null | undefined, place
 }
 
 /**
+ * Null-safe spelled-out date — "February 25, 2026" in en-US. For prose and
+ * headline dates (a grace-period deadline, a billing period bound) where the
+ * numeric `formatDate` form reads as a code.
+ *
+ * Three copies of this lived in components (`MfaPolicySettings`, `TeamsCard`,
+ * `billing/helpers`), and the billing one pinned `'en-US'` — so one date in the
+ * billing page ignored the user's locale while every other date on it obeyed.
+ * The locale is left to the platform here, like every other formatter in this
+ * file.
+ */
+export function formatDateLong(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? placeholder
+    : d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+/**
+ * Null-safe abbreviated-month date — "Feb 25, 2026" in en-US. {@link formatDateLong}
+ * where the surface is tight (a card line, a table cell) but a numeric date
+ * would still be ambiguous.
+ */
+export function formatDateMedium(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? placeholder
+    : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
  * Humanize an elapsed duration in MILLISECONDS → "850ms", "45s", "5m 3s",
  * "1h 2m", "2d 3h". Null/negative → the placeholder.
  *

@@ -18,6 +18,7 @@
 
 import crypto from 'crypto';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -50,17 +51,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({ getRedisClient: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: (req: any) => !!req.user,
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { return await fn(req, res); } catch (e: any) {
-        const mapped = errorMap?.[e?.message];
-        if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
-        return res.status(500).json({ success: false, message: e?.message });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   requireOwnOrgSso: (...a: unknown[]) => mockRequireOwnOrgSso(...a),
   assertSsoIdentityTrusted: (...a: unknown[]) => mockTrusted(...a),

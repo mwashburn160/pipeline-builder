@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, parsePage, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import {
@@ -62,13 +62,12 @@ export const getOrganizationRoles = withController('Get roles', async (req, res)
     return sendError(res, 403, 'Forbidden: Can only view roles within your organization');
   }
 
-  // Paged only when the caller names a `limit` (the management page); pickers
-  // and the CLI omit it and receive every Role. `limit` is clamped to 1..100.
-  const rawLimit = parseInt(String(req.query.limit), 10);
-  const rawOffset = parseInt(String(req.query.offset), 10);
-  const page = Number.isNaN(rawLimit)
+  // Paged only when the caller NAMES a `limit` (the management page); pickers
+  // and the CLI omit it and receive every Role. When named, the shared
+  // `parsePage` clamps it to 1..ROLE_PAGE_MAX (and offset to >= 0).
+  const page = req.query.limit === undefined || req.query.limit === ''
     ? undefined
-    : { limit: Math.min(Math.max(rawLimit, 1), ROLE_PAGE_MAX), offset: Number.isNaN(rawOffset) ? 0 : Math.max(rawOffset, 0) };
+    : parsePage(req.query as Record<string, unknown>, { def: ROLE_PAGE_MAX, max: ROLE_PAGE_MAX });
   const { roles, total } = await listRolesWithMembers(id, page);
   const limit = page?.limit ?? total;
   const offset = page?.offset ?? 0;
@@ -159,7 +158,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
     targetType: 'user',
     targetId: userId,
     affectedOrgId: id,
-    groupId: roleId,
+    roleId,
   });
   sendSuccess(res, 200, { userId }, 'Member added to role');
 }, {
@@ -193,7 +192,7 @@ export const removeRoleMember = withController('Remove role member', async (req,
     targetType: 'user',
     targetId: userId,
     affectedOrgId: id,
-    groupId: roleId,
+    roleId,
   });
   sendSuccess(res, 200, undefined, 'Member removed from role');
 }, {

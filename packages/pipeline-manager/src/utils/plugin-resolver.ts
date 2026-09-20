@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { errorMessage } from '@pipeline-builder/api-core';
 import { ApiClient } from './api-client.js';
 import { printWarning } from './output-utils.js';
 
@@ -107,7 +108,7 @@ export async function resolvePluginsForProps(
         printWarning(`Plugin "${ref.name}" lookup returned no record — falling back to deploy-time resolution`);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       printWarning(`Plugin "${ref.name}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);
     }
   }));

@@ -32,7 +32,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h2 className="text-base font-semibold text-fg">
               Get started — {done}/3 done
             </h2>
             <button
@@ -67,7 +67,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
                     <span className="text-xs font-medium text-gray-500 dark:text-gray-500">
                       Step {idx + 1}
                     </span>
-                    <span className={`text-sm font-medium ${step.done ? 'text-gray-500 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
+                    <span className={`text-sm font-medium ${step.done ? 'text-gray-500 dark:text-gray-500 line-through' : 'text-fg'}`}>
                       {step.title}
                     </span>
                   </div>

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, setApiKeyExchangeServiceName, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
@@ -25,26 +25,17 @@ const { app, sseManager } = createApp({
   ),
 });
 
-// -- Failed-authorization auditor --------------------------------------------
-// Register a process-wide sink so the shared `requirePermission` /
-// `requireSystemAdmin` gate forwards every denied state-changing request into
-// the platform audit log as an `authz.denied` failure. Best-effort: the gate
-// wraps this in try/catch and `record` never throws.
-wireAuthzDenialAuditor('plugin', getAuditClient);
-
-// -- Token-revocation reader (session-invalidation option b) ------------------
-// Reuse the same pooled ioredis connection (db 0) the BullMQ build queue and the
-// readiness probe already share, so the shared `requireAuth` can reject a token
-// whose `tokenVersion` is behind the version the platform published on a
-// privilege change. Fail-open by contract: a Redis miss/outage yields null and
-// auth degrades to natural token expiry rather than locking users out.
-setTokenRevocationStore(createRedisTokenRevocationStore(getHealthRedisConnection()));
-
-// -- Access-key exchange identity ---------------------------------------------
-// Name this process in the service token the opaque-key exchange call carries
-// (the other services get this from `wireServiceSecurity`, which plugin opts out
-// of because it shares the Redis connection above).
-setApiKeyExchangeServiceName('plugin');
+// -- Shared boot security -----------------------------------------------------
+// The SAME wiring every other service uses: the `authz.denied` audit sink, the
+// token-revocation reader, and this process's name in the access-key exchange
+// token. Plugin previously hand-rolled these three calls (so any concern added
+// to `wireServiceSecurity` would have silently skipped it); the one thing it
+// actually needs differently — a revocation store on the pooled ioredis
+// connection the BullMQ build queue and the readiness probe already share,
+// rather than a second env-Redis connection — is now an override.
+wireServiceSecurity('plugin', getAuditClient, {
+  tokenRevocationStore: createRedisTokenRevocationStore(getHealthRedisConnection()),
+});
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

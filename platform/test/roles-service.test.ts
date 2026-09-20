@@ -79,7 +79,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
 }));
 
-const { listRolesWithMembers, seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole, grantPlatformAdmin, revokePlatformAdmin, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
+const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
+const { listRolesWithMembers, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
+const { grantPlatformAdmin, revokePlatformAdmin } = await import('../src/services/platform-admin-roles.js');
 const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
 
 // Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to

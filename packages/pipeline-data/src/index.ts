@@ -34,7 +34,15 @@ export * from './api/query-builders.js';
 export * from './api/access-control-builder.js';
 export * from './api/viewer-context.js';
 export * from './api/crud-service.js';
-export * from './api/soft-delete-sweep.js';
+// `isSoftDeletePurgeEnabled` is the module's own env gate — `runSoftDeletePurge`
+// and the scheduler already apply it, so callers never ask separately.
+export {
+  runSoftDeletePurge,
+  createSoftDeletePurgeScheduler,
+  type PurgeableEntity,
+  type SoftDeletePurgeOptions,
+  type SoftDeletePurgeSchedulerOptions,
+} from './api/soft-delete-sweep.js';
 export * from './api/reporting-service.js';
 
 // Filters

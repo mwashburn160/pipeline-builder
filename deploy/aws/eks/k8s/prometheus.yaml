@@ -115,7 +115,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: fix-permissions
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -132,7 +132,7 @@ spec:
               mountPath: /prometheus
       containers:
         - name: prometheus
-          image: prom/prometheus:v3.13.2
+          image: prom/prometheus@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69  # prom/prometheus:v3.13.2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -182,7 +182,7 @@ spec:
         # long-term storage. Reads the shared TSDB volume; talks to Prometheus on
         # localhost. (Querying archived blocks needs a store-gateway + querier.)
         - name: thanos-sidecar
-          image: quay.io/thanos/thanos:v0.39.2
+          image: quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80  # quay.io/thanos/thanos:v0.39.2
           args:
             - "sidecar"
             - "--tsdb.path=/prometheus"

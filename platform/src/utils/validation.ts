@@ -198,7 +198,7 @@ export const createOrganizationSchema = z.object({
 /** Reusable org slug rule: lowercase alphanumeric words joined by single
  *  hyphens (no leading/trailing/double hyphens). Mirrors the shape the
  *  Organization model auto-generates via `slugify(..., { strict: true })`. */
-export const orgSlugSchema = z
+const orgSlugSchema = z
   .string()
   .trim()
   .toLowerCase()

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execSync } from 'child_process';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { APP_NAME, APP_VERSION, generateExecutionId } from '../config/cli.constants.js';
@@ -65,7 +66,7 @@ function checkConfiguration(): { valid: boolean; error?: string } {
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     };
   }
 }

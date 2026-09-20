@@ -64,7 +64,7 @@ export function AccessKeyTable({
     {
       id: 'name',
       header: 'Name',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      cellClassName: 'font-medium text-fg',
       render: (k) => (
         <div className="flex flex-col gap-0.5">
           <span>

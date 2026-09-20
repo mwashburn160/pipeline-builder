@@ -4,6 +4,7 @@
 import { createRequire } from 'module';
 
 import { createLogger } from '../utils/logger.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('env-redis');
 
@@ -162,7 +163,7 @@ export function createRedisClient<T = unknown>(
     })
     : new Ctor(conn.url, { ...auth, ...options });
   (inst as unknown as { on: (evt: string, cb: (e: unknown) => void) => void })
-    .on('error', (e) => logger.warn(`Redis ${label} client error`, { error: e instanceof Error ? e.message : String(e) }));
+    .on('error', (e) => logger.warn(`Redis ${label} client error`, { error: errorMessage(e) }));
   return inst;
 }
 

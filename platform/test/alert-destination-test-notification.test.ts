@@ -18,8 +18,9 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import type { DeliveryResult, NotificationMessage } from '../src/services/notification-channels.js';
+import type { AlertNotification, DeliveryResult } from '../src/services/notification-channels.js';
 
 // findById(id, orgId) → select().from().where().limit(1) → resolves rows[]
 const mockLimit = jest.fn<() => Promise<unknown[]>>(async () => []);
@@ -28,7 +29,7 @@ const mockFrom = jest.fn(() => ({ where: mockWhere }));
 const mockSelect = jest.fn(() => ({ from: mockFrom }));
 const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ select: mockSelect }));
 
-const mockDeliver = jest.fn<(msg: NotificationMessage, target: unknown, signal: AbortSignal) => Promise<DeliveryResult>>();
+const mockDeliver = jest.fn<(msg: AlertNotification, target: unknown, signal: AbortSignal) => Promise<DeliveryResult>>();
 const mockGetChannel = jest.fn<(channel: string) => { channel: string; deliver: typeof mockDeliver } | null>(
   () => ({ channel: 'slack', deliver: mockDeliver }),
 );
@@ -51,7 +52,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
@@ -60,8 +61,16 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   sql: (() => undefined) as unknown,
 }));
 
+// `unstable_mockModule` swaps the WHOLE namespace, so every export
+// alert-destination-service imports has to be listed here — including the three
+// shared alert renderers it now uses to build the test notification. They are
+// pure formatters and this suite asserts the alert FIELDS (title/summary/
+// severity/payload), not their rendered text, so stand-ins are enough.
 jest.unstable_mockModule('../src/services/notification-channels.js', () => ({
   getNotificationChannel: (c: string) => mockGetChannel(c),
+  subjectLine: (a: { severity: string; title: string }) => `[${a.severity.toUpperCase()}] ${a.title}`,
+  plainTextBody: (a: { summary: string }) => a.summary,
+  severityToPriority: (s: string) => (s === 'critical' ? 'urgent' : s === 'warning' ? 'high' : 'normal'),
 }));
 
 const { alertDestinationService, DestinationNotFoundError } =
@@ -104,7 +113,7 @@ describe('alertDestinationService.sendTestNotification', () => {
     expect(msg.title).toBe('Pipeline Builder — test alert');
     expect(msg.summary).toContain('ops@example.com');
     expect(msg.severity).toBe('info');
-    expect((msg.raw as { test?: boolean }).test).toBe(true);
+    expect((msg.payload as { test?: boolean }).test).toBe(true);
     // Reuses the STORED target (already validated at write time) — not bypassed.
     expect(target).toEqual({ value: destRow.target, orgId: 'org-a' });
     // A bounded-timeout AbortSignal is passed, same as the relay path.

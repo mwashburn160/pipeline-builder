@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock external dependencies — must be set up before importing the service
@@ -164,7 +165,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   };
 });;
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   SQL: class {},
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),

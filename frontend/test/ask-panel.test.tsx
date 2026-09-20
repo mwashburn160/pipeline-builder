@@ -8,10 +8,17 @@
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { mockAuthGuard } from './helpers/pageMocks';
 import { AskPanel } from '../src/components/ask/AskPanel';
+
+// The panel gates each proposal's Create on the permission its create route
+// wants (`plugins:write` for POST /plugins/deploy-generated, `pipelines:write`
+// for POST /pipelines, …), so every render needs an auth guard.
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 const askAgentStream = jest.fn();
 const createPipeline = jest.fn();
+const deployGeneratedPlugin = jest.fn();
 const invalidatePipelines = jest.fn();
 jest.mock('@/lib/api-cache', () => ({
   __esModule: true,
@@ -22,6 +29,7 @@ jest.mock('@/lib/api', () => ({
   default: {
     askAgentStream: (...a: unknown[]) => askAgentStream(...a),
     createPipeline: (...a: unknown[]) => createPipeline(...a),
+    deployGeneratedPlugin: (...a: unknown[]) => deployGeneratedPlugin(...a),
   },
 }));
 
@@ -30,8 +38,25 @@ async function* gen(events: Array<{ type: string; data?: unknown; message?: stri
   for (const e of events) yield e;
 }
 
+/** The plugin draft used by the commit / permission tests. */
+const PLUGIN_PROPOSAL = {
+  kind: 'plugin',
+  config: { name: 'trivy-scan', version: '1.0.0', pluginType: 'CodeBuildStep', computeType: 'MEDIUM', commands: ['trivy image'] },
+  dockerfile: 'FROM aquasec/trivy:0.58.0',
+};
+
+/** Ask a question and let the mocked stream answer. */
+function ask(question: string) {
+  fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: question } });
+  fireEvent.click(screen.getByLabelText('Send'));
+}
+
 describe('AskPanel', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // A viewer holding every write permission, unless a test says otherwise.
+    mockAuthGuard({ can: () => true });
+  });
 
   it('shows example prompts in the empty state', () => {
     render(<AskPanel onClose={jest.fn()} />);
@@ -152,5 +177,60 @@ describe('AskPanel', () => {
     await waitFor(() => expect(screen.getByText('Draft incomplete')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Create pipeline/i })).toBeDisabled();
     expect(createPipeline).not.toHaveBeenCalled();
+  });
+
+  it('commits a plugin draft through the deploy-generated route', async () => {
+    askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+    deployGeneratedPlugin.mockResolvedValue({ success: true, data: { plugin: { id: 'pl1' } } });
+
+    render(<AskPanel onClose={jest.fn()} />);
+    ask('a trivy scan plugin');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Create plugin/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Create plugin/i }));
+
+    await waitFor(() => expect(deployGeneratedPlugin).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'trivy-scan', dockerfile: 'FROM aquasec/trivy:0.58.0', visibility: 'private',
+    })));
+  });
+
+  it('refuses the plugin commit without `plugins:write` — the route\'s own gate', async () => {
+    // The entitlement opens the panel; creating is an ordinary write, and
+    // POST /plugins/deploy-generated requires plugins:write. The draft stays
+    // readable (hiding the only action on a fresh card reads as a bug), but the
+    // action is inert and says what it needs.
+    mockAuthGuard({ can: (p: string) => p !== 'plugins:write' });
+    askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+
+    render(<AskPanel onClose={jest.fn()} />);
+    ask('a trivy scan plugin');
+
+    await waitFor(() => expect(screen.getByText('Proposed plugin')).toBeInTheDocument());
+    const create = screen.getByRole('button', { name: /Create plugin/i });
+    expect(create).toBeDisabled();
+    expect(create).toHaveAttribute('title', 'Requires the plugins:write permission');
+    expect(screen.getByText('Requires the plugins:write permission')).toBeInTheDocument();
+    // The draft itself is still reviewable.
+    expect(screen.getByText(/FROM aquasec\/trivy/)).toBeInTheDocument();
+
+    fireEvent.click(create);
+    expect(deployGeneratedPlugin).not.toHaveBeenCalled();
+  });
+
+  it('gates each proposal kind on ITS create route\'s permission', async () => {
+    // A viewer who may create pipelines but not plugins: the pipeline draft is
+    // committable, the plugin one is not.
+    mockAuthGuard({ can: (p: string) => p === 'pipelines:write' });
+    askAgentStream.mockReturnValue(gen([
+      { type: 'proposal', data: { kind: 'pipeline', props: { project: 'proj', organization: 'org' } } },
+      { type: 'done' },
+    ]));
+
+    render(<AskPanel onClose={jest.fn()} />);
+    ask('a pipeline please');
+
+    await waitFor(() => expect(screen.getByText('Proposed pipeline')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Create pipeline/i })).toBeEnabled();
+    expect(screen.getByText('Review before creating')).toBeInTheDocument();
   });
 });

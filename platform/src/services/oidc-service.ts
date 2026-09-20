@@ -28,7 +28,7 @@
  */
 
 import crypto from 'crypto';
-import { assertSafeUrl, createLogger, isRefusedRedirect, SSRF_FETCH_INIT } from '@pipeline-builder/api-core';
+import { createLogger, safeFetch, type SafeFetchResponse, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
@@ -130,20 +130,19 @@ async function fetchDiscovery(discoveryUrl: string): Promise<DiscoveryDoc> {
   const cached = discoveryCache.get(url);
   if (cached && Date.now() - cached.fetchedAt < DOC_CACHE_TTL_MS) return cached.value;
 
-  let res: Response;
+  let res: SafeFetchResponse;
   try {
-    // SSRF guard: `discoveryUrl` is admin-supplied, so an org-admin/superadmin
-    // could otherwise point it at 169.254.169.254 or an internal service. Reject
-    // non-https / private / loopback / link-local hosts, and pin redirects so the
-    // fetch can't pivot to an unvalidated host.
-    await assertSafeUrl(url);
-    res = await fetch(url, { headers: { Accept: 'application/json' }, ...SSRF_FETCH_INIT });
+    // SSRF: `discoveryUrl` is admin-supplied, so an org-admin/superadmin could
+    // otherwise point it at 169.254.169.254 or an internal service. safeFetch
+    // rejects non-https / private / loopback / link-local hosts, PINS the vetted
+    // address into the socket (no re-resolve window) and refuses redirects.
+    res = await safeFetch(url, { headers: { Accept: 'application/json' } });
   } catch (err) {
-    logger.warn('OIDC discovery fetch failed', { url, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('OIDC discovery fetch failed', { url, error: errorMessage(err) });
     throw new Error('OIDC_DISCOVERY_FAILED');
   }
-  if (!res.ok || isRefusedRedirect(res)) throw new Error('OIDC_DISCOVERY_FAILED');
-  const doc = await res.json() as Partial<DiscoveryDoc>;
+  if (!res.ok || res.redirected) throw new Error('OIDC_DISCOVERY_FAILED');
+  const doc = res.json() as Partial<DiscoveryDoc>;
   if (!doc.issuer || !doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri) {
     throw new Error('OIDC_DISCOVERY_FAILED');
   }
@@ -156,18 +155,17 @@ async function fetchJwks(jwksUri: string, force = false): Promise<Jwk[]> {
   const cached = jwksCache.get(jwksUri);
   if (!force && cached && Date.now() - cached.fetchedAt < DOC_CACHE_TTL_MS) return cached.value;
 
-  let res: Response;
+  let res: SafeFetchResponse;
   try {
     // The jwks_uri comes from the (admin-supplied) discovery document, so it is
-    // equally untrusted — SSRF-guard it too.
-    await assertSafeUrl(jwksUri);
-    res = await fetch(jwksUri, { headers: { Accept: 'application/json' }, ...SSRF_FETCH_INIT });
+    // equally untrusted — same pinned, redirect-refusing fetch.
+    res = await safeFetch(jwksUri, { headers: { Accept: 'application/json' } });
   } catch (err) {
-    logger.warn('OIDC JWKS fetch failed', { jwksUri, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('OIDC JWKS fetch failed', { jwksUri, error: errorMessage(err) });
     throw new Error('OIDC_DISCOVERY_FAILED');
   }
-  if (!res.ok || isRefusedRedirect(res)) throw new Error('OIDC_DISCOVERY_FAILED');
-  const body = await res.json() as { keys?: Jwk[] };
+  if (!res.ok || res.redirected) throw new Error('OIDC_DISCOVERY_FAILED');
+  const body = res.json() as { keys?: Jwk[] };
   const keys = Array.isArray(body.keys) ? body.keys : [];
   jwksCache.set(jwksUri, { value: keys, fetchedAt: Date.now() });
   return keys;
@@ -193,7 +191,7 @@ async function resolveSigningKey(jwksUri: string, kid: string | undefined): Prom
     const keyObject = crypto.createPublicKey({ key: jwk as crypto.JsonWebKeyInput['key'], format: 'jwk' });
     return keyObject.export({ format: 'pem', type: 'spki' }).toString();
   } catch (err) {
-    logger.warn('OIDC JWK → public key conversion failed', { kid, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('OIDC JWK → public key conversion failed', { kid, error: errorMessage(err) });
     throw new Error('OIDC_INVALID_ID_TOKEN');
   }
 }
@@ -381,13 +379,12 @@ export async function exchangeAndValidate(
   if (pkce && !opts.codeVerifier) throw new Error('OIDC_INVALID_STATE');
 
   // 1. Authorization-code → token exchange (confidential client, secret in body).
-  //    token_endpoint comes from the admin-supplied discovery doc, so SSRF-guard
-  //    it (blocks pointing the secret-bearing POST at an internal/metadata host)
-  //    and pin redirects.
-  let tokenRes: Response;
+  //    token_endpoint comes from the admin-supplied discovery doc, so it goes
+  //    through the pinned, redirect-refusing safeFetch — a secret-bearing POST
+  //    must never reach an internal/metadata host, nor follow a 3xx to one.
+  let tokenRes: SafeFetchResponse;
   try {
-    await assertSafeUrl(discovery.token_endpoint);
-    tokenRes = await fetch(discovery.token_endpoint, {
+    tokenRes = await safeFetch(discovery.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
       body: new URLSearchParams({
@@ -401,14 +398,14 @@ export async function exchangeAndValidate(
         // surfacing here as OIDC_TOKEN_EXCHANGE_FAILED.
         ...(pkce && opts.codeVerifier ? { code_verifier: opts.codeVerifier } : {}),
       }).toString(),
-      ...SSRF_FETCH_INIT,
     });
   } catch (err) {
-    logger.warn('OIDC token exchange request failed', { orgId: cfg.orgId, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('OIDC token exchange request failed', { orgId: cfg.orgId, error: errorMessage(err) });
     throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
   }
-  const tokenBody = await tokenRes.json().catch(() => ({})) as { id_token?: string };
-  if (!tokenRes.ok || isRefusedRedirect(tokenRes) || !tokenBody.id_token) throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
+  let tokenBody: { id_token?: string } = {};
+  try { tokenBody = tokenRes.json(); } catch { /* non-JSON body → treated as a failed exchange below */ }
+  if (!tokenRes.ok || tokenRes.redirected || !tokenBody.id_token) throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
 
   // 2. Validate the id_token: alg allow-list → JWKS signature → iss/aud/exp → nonce.
   const decoded = jwt.decode(tokenBody.id_token, { complete: true });
@@ -426,7 +423,7 @@ export async function exchangeAndValidate(
       audience: cfg.clientId,
     }) as IdTokenClaims;
   } catch (err) {
-    logger.warn('OIDC id_token verification failed', { orgId: cfg.orgId, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('OIDC id_token verification failed', { orgId: cfg.orgId, error: errorMessage(err) });
     throw new Error('OIDC_INVALID_ID_TOKEN');
   }
 

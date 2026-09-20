@@ -47,5 +47,5 @@ export function useCheckoutReturn(onActivated: () => Promise<void> | void): void
     const { checkout: _omit, ...rest } = router.query;
     void router.replace({ query: rest }, undefined, { shallow: true });
     return () => { cancelled = true; };
-  }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps -- runs on the `?checkout=` outcome only; router/toast identities change every render
 }

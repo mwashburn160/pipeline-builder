@@ -29,11 +29,12 @@
  * Revoke-then-create would invert every one of those: a failure after the revoke
  * leaves the deployment with no working credential at all.
  *
- * Env: PLATFORM_SECRET_NAME, PLATFORM_BASE_URL, RENEW_DAYS (default 30),
+ * Env: PLATFORM_SECRET_NAME, RENEW_DAYS (default 30),
  *      PLATFORM_VERIFY_SSL ("false" to disable TLS verification — refused in
  *      production).
  */
 import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { errorMessage } from '@pipeline-builder/api-core';
 
 /** Per-request timeout for the platform calls. */
 const HTTP_TIMEOUT_MS = 10_000;
@@ -58,7 +59,8 @@ interface StoredCredential {
   username?: string;
   /** The canonical credential field — an opaque `pb_sa_…` key after the cutover. */
   password?: string;
-  platformUrl?: string;
+  /** The platform this credential belongs to — `store-token` always writes it. */
+  platformUrl: string;
   organizationId?: string;
   serviceAccountId?: string;
   serviceAccountName?: string;
@@ -112,7 +114,6 @@ function applyTlsPolicy(): void {
 
 export const handler = async (): Promise<void> => {
   const secretName = required('PLATFORM_SECRET_NAME');
-  const envUrl = required('PLATFORM_BASE_URL').replace(/\/+$/, '');
   const days = Number(process.env.RENEW_DAYS || '30');
   if (!Number.isFinite(days) || days < 1 || days > 365) {
     throw new Error(`RENEW_DAYS must be between 1 and 365 (got "${process.env.RENEW_DAYS}")`);
@@ -134,9 +135,10 @@ export const handler = async (): Promise<void> => {
       + 'Re-run "pipeline-manager infra store-token" to reissue it as a key (see docs/runbooks/access-key-cutover.md).',
     );
   }
-  // The platform this credential belongs to is recorded IN the secret; the env
-  // var is the fallback for a secret written before that field existed.
-  const platformUrl = (stored.platformUrl || envUrl).replace(/\/+$/, '');
+  // The platform this credential belongs to is recorded IN the secret by
+  // `store-token` — the single source of truth.
+  if (!stored.platformUrl) throw new Error(`Secret "${secretName}" missing platformUrl`);
+  const platformUrl = stored.platformUrl.replace(/\/+$/, '');
 
   // ── 1. ROTATE — mint the replacement. The old key stays live. ──────────────
   const rotate = await post(platformUrl, '/api/auth/key/rotate', {
@@ -181,7 +183,7 @@ export const handler = async (): Promise<void> => {
     return;
   }
   const revoke = await post(platformUrl, '/api/auth/key/revoke', { key: newKey, keyId: oldKeyId })
-    .catch((err) => ({ status: 0, body: { message: err instanceof Error ? err.message : String(err) } }));
+    .catch((err) => ({ status: 0, body: { message: errorMessage(err) } }));
   if (revoke.status < 200 || revoke.status >= 300) {
     log('ERROR', 'Rotated and stored the new key, but could NOT revoke its predecessor — it stays valid until it expires', {
       secretName, staleKeyId: oldKeyId, status: revoke.status, reason: revoke.body.message,

@@ -13,7 +13,8 @@ import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { EligibleParentPicker, type ParentOrgOption } from '@/components/teams/EligibleParentPicker';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import type { OrgTier } from './ChangeTierDialog';
+import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
+import type { QuotaTier } from '@/types';
 
 interface CreateOrganizationFlowProps {
   /** Whether the create modal is shown. */
@@ -36,7 +37,7 @@ export function CreateOrganizationFlow({ open, onClose, onCreated }: CreateOrgan
   const [setupTier, setSetupTier] = useState<string | undefined>(undefined);
   const [setupOpen, setSetupOpen] = useState(false);
 
-  const handleCreated = ({ name, tier, asTeam }: { name: string; tier: OrgTier; asTeam: boolean }) => {
+  const handleCreated = ({ name, tier, asTeam }: { name: string; tier: QuotaTier; asTeam: boolean }) => {
     onClose();
     onCreated();
     toast.success(`${asTeam ? 'Team' : 'Organization'} "${name}" created`);
@@ -64,10 +65,10 @@ export function CreateOrganizationFlow({ open, onClose, onCreated }: CreateOrgan
 /** The create form. Mounted only while open, so each open starts from a clean state. */
 function CreateOrganizationModal({ onClose, onCreated }: {
   onClose: () => void;
-  onCreated: (result: { name: string; tier: OrgTier; asTeam: boolean }) => void;
+  onCreated: (result: { name: string; tier: QuotaTier; asTeam: boolean }) => void;
 }) {
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<OrgTier>('developer');
+  const [newOrgTier, setNewOrgTier] = useState<QuotaTier>('developer');
   // Defaults to a top-level org (matching the "New Organization" label); check
   // the Team box to instead nest under a parent. Parent candidates come from a
   // server-side search over the ELIGIBLE roots only (team/enterprise tier), so
@@ -118,7 +119,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
       </p>
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+          <label className="block text-xs font-medium text-fg-muted">
             {createAsSubOrg ? 'Team name' : 'Organization name'}
           </label>
           <Input
@@ -134,23 +135,24 @@ function CreateOrganizationModal({ onClose, onCreated }: {
         </div>
         {!createAsSubOrg && (
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
+            <label className="block text-xs font-medium text-fg-muted">Tier</label>
             <Select
               value={newOrgTier}
-              onChange={(e) => setNewOrgTier(e.target.value as OrgTier)}
+              onChange={(e) => setNewOrgTier(e.target.value as QuotaTier)}
               className="text-sm"
               disabled={createForm.loading}
             >
-              <option value="developer">Developer</option>
-              <option value="pro">Pro</option>
-              <option value="team">Team</option>
-              <option value="enterprise">Enterprise</option>
+              {/* TIER_KEYS, not a hand-written list: `unlimited` is a real
+                  tier but never a purchasable one, so it must not appear here. */}
+              {TIER_KEYS.map((tier) => (
+                <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
+              ))}
             </Select>
           </div>
         )}
 
         {/* Team toggle — defaults OFF (top-level org). When on, pick the parent. */}
-        <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
+        <label className="flex items-start gap-2 text-xs text-fg-muted pt-1">
           <Checkbox
             checked={createAsSubOrg}
             onChange={(e) => setCreateAsSubOrg(e.target.checked)}

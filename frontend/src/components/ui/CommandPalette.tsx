@@ -316,7 +316,7 @@ export function CommandPalette({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: -10 }}
           transition={{ duration: 0.15 }}
-          className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200/60 dark:border-gray-700/60 overflow-hidden"
+          className="w-full max-w-lg bg-surface rounded-xl shadow-2xl border border-default overflow-hidden"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
           role="dialog"
@@ -324,7 +324,7 @@ export function CommandPalette({
           aria-modal="true"
         >
           {/* Search input */}
-          <div className="flex items-center gap-3 px-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3 px-4 border-b border-default">
             <Search className="w-5 h-5 text-fg-subtle flex-shrink-0" />
             <input
               ref={inputRef}
@@ -332,7 +332,7 @@ export function CommandPalette({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Type a command or search..."
-              className="flex-1 py-3.5 bg-transparent text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none"
+              className="flex-1 py-3.5 bg-transparent text-sm text-fg placeholder:text-fg-subtle outline-none"
               role="combobox"
               aria-expanded="true"
               aria-autocomplete="list"
@@ -342,7 +342,7 @@ export function CommandPalette({
               aria-controls={LISTBOX_ID}
               aria-activedescendant={filtered.length > 0 ? optionId(selectedIndex) : undefined}
             />
-            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-2xs font-medium text-fg-subtle bg-gray-100 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-2xs font-medium text-fg-subtle bg-surface-muted rounded border border-default">
               ESC
             </kbd>
           </div>
@@ -372,8 +372,8 @@ export function CommandPalette({
                         aria-selected={isSelected}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                           isSelected
-                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                            ? 'bg-info-bg text-info'
+                            : 'text-fg-muted hover:bg-surface-muted'
                         }`}
                       >
                         <Icon className="w-4 h-4 flex-shrink-0 opacity-60" />
@@ -387,17 +387,17 @@ export function CommandPalette({
           </div>
 
           {/* Footer hint */}
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center gap-4 text-2xs text-fg-subtle">
+          <div className="px-4 py-2 border-t border-default flex items-center gap-4 text-2xs text-fg-subtle">
             <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">↑↓</kbd>
+              <kbd className="px-1 py-0.5 rounded bg-surface-muted border border-default">↑↓</kbd>
               navigate
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">↵</kbd>
+              <kbd className="px-1 py-0.5 rounded bg-surface-muted border border-default">↵</kbd>
               select
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">esc</kbd>
+              <kbd className="px-1 py-0.5 rounded bg-surface-muted border border-default">esc</kbd>
               close
             </span>
           </div>

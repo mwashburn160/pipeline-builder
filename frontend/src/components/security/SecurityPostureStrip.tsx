@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { AlertTriangle, CheckCircle2, CircleDashed, type LucideIcon } from 'lucide-react';
 import { useFetch } from '@/hooks/useFetch';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
+import { queries } from '@/lib/api-cache';
 import { hasPermission } from '@/lib/auth-helpers';
 import { formatDate } from '@/lib/format';
 import {
@@ -21,7 +23,7 @@ const PASSWORD_HREF = `${FACTORS_HREF}#password`;
 const DEVICES_HREF = `${SESSIONS_HREF}#devices`;
 
 /** Recovery codes at or below this count are flagged. */
-export const LOW_RECOVERY_CODES = 2;
+const LOW_RECOVERY_CODES = 2;
 
 type Tone = 'good' | 'warn' | 'neutral';
 
@@ -175,14 +177,11 @@ export function SecurityPostureStrip({ user }: { user: User }) {
   const ssoGate = useFeatureGate('sso');
   const canReadSso = !!orgId && hasPermission(user, 'org:idp') && ssoGate.isLoaded && ssoGate.entitled;
 
-  const totp = useFetch(
-    async () => (hasTotp ? (await api.getTotpStatus()).data?.totp ?? null : null),
-    [hasTotp],
-  );
-  const sessions = useFetch(
-    async () => (await api.listSessions()).data?.sessions ?? null,
-    [],
-  );
+  // Both go through the shared read cache: the TOTP panel and the
+  // recovery-code row below ask for the same status, and the sessions panel for
+  // the same session list, so the page issued five requests for three answers.
+  const totp = useQuery(queries.totpStatus(), { enabled: hasTotp });
+  const sessions = useQuery(queries.sessions());
   const sso = useFetch(
     async (signal) => (canReadSso ? { config: (await api.getOwnOrgIdpConfig(orgId!, { signal })).data?.config ?? null } : null),
     [canReadSso, orgId],
@@ -193,7 +192,7 @@ export function SecurityPostureStrip({ user }: { user: User }) {
     recoveryCodes: totp.data?.enabled
       ? { remaining: totp.data.recoveryCodesRemaining, total: totp.data.recoveryCodesTotal }
       : null,
-    activeSessions: sessions.data ? sessions.data.length : null,
+    activeSessions: sessions.data ? sessions.data.sessions.length : null,
     // A failed or not-yet-loaded read is "unknown" — the item is left out
     // rather than guessed.
     sso: canReadSso && sso.data ? (sso.data.config ? { enabled: sso.data.config.enabled } : null) : undefined,

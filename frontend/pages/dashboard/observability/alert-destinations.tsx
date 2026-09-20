@@ -143,7 +143,7 @@ export default function AlertDestinationsPage() {
       ),
     },
     { id: 'channel', header: 'Channel', render: (d) => <Badge color={channelColor(d.channel)}>{d.channel}</Badge> },
-    { id: 'label', header: 'Label', cellClassName: 'font-medium text-gray-900 dark:text-gray-100', render: (d) => d.label },
+    { id: 'label', header: 'Label', cellClassName: 'font-medium text-fg', render: (d) => d.label },
     { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
     { id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted', render: (d) => (d.hasTarget ? d.target : '—') },
@@ -159,7 +159,7 @@ export default function AlertDestinationsPage() {
         </span>
       ),
     },
-    { id: 'label', header: 'Label', cellClassName: 'font-medium text-gray-900 dark:text-gray-100', render: (d) => d.label },
+    { id: 'label', header: 'Label', cellClassName: 'font-medium text-fg', render: (d) => d.label },
     { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>≥ {d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
     {
@@ -220,7 +220,7 @@ export default function AlertDestinationsPage() {
         See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
       </div>
 
-      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
+      {error && <RetryError message={formatError(error, 'Failed to load alert destinations')} onRetry={refetch} className="mb-4" />}
 
       {viewingAll ? (
         /* ───── Sysadmin cross-tenant view (read-only, grouped by org) ───── */

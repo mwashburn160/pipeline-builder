@@ -70,7 +70,7 @@ export function FilterBar({
   }, []);
 
   return (
-    <div className={`filter-bar${sticky ? ' sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 py-2' : ''} ${className}`.trimEnd()}>
+    <div className={`filter-bar${sticky ? ' sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 backdrop-blur-md bg-surface/80 py-2' : ''} ${className}`.trimEnd()}>
       <ActionBar
         left={
           <div className="relative min-w-[200px]">
@@ -94,14 +94,14 @@ export function FilterBar({
               onClick={onToggleAdvanced}
               className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
                 showAdvanced || advancedFilterCount > 0
-                  ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  ? 'border-info-border bg-info-bg text-info'
+                  : 'border-default text-fg-muted hover:bg-surface-muted'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4" />
               Filters
               {advancedFilterCount > 0 && (
-                <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
+                <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-brand text-white">
                   {advancedFilterCount}
                 </span>
               )}
@@ -111,7 +111,7 @@ export function FilterBar({
       />
 
       {showAdvanced && advancedContent && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="mt-3 pt-3 border-t border-default">
           <div className="flex flex-wrap items-center gap-3">
             {advancedContent}
             {advancedFilterCount > 0 && onClearAll && (

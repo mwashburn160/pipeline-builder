@@ -51,11 +51,5 @@ export { replaceNonAlphanumeric, extractMetadataEnv } from './core/metadata-help
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
 export * from './pipeline/plugin-spec.js';
 
-// Re-export from api-core (only items consumed by external packages)
-export {
-  ErrorCode,
-  createLogger,
-} from '@pipeline-builder/api-core';
-
 // Template engine — synth-time scripting for pipeline config + plugin specs
 export * from './template/index.js';

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams, TIER_FEATURES } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { formatUserResponse, toOverridesRecord, toUserResponseInput } from './user-profile.js';
@@ -357,7 +357,7 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
       audit(req, 'admin.user.delete', { targetType: 'user', targetId: id, affectedOrgId, details: { bulk: true } });
       results.push({ id, ok: true, affectedOrgId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       // Map the named service errors to friendly messages; fall through to raw text.
       const mapped = adminErrorMap[msg as keyof typeof adminErrorMap];
       results.push({ id, ok: false, error: mapped?.message ?? msg });

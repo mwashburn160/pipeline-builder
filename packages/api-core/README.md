@@ -36,6 +36,8 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | --- | --- |
 | `getParam`, `getRequiredParam`, `getParams`, `getOrgId`, `getAuthHeader` | Request parameter/header extraction |
 | `parseQueryBoolean`, `parseQueryInt`, `parseQueryString` | Query-string coercion |
+| `parsePage` | **The** pagination primitive — parses and clamps `?limit=&offset=` against a per-route `{ def, max }` (and an optional `maxOffset`). Use it instead of a hand-rolled `Math.min(Math.max(...))`; route defaults stay per-route but are declared, not re-derived |
+| `envInt`, `envBool`, `envStr` | **The** env readers. Strict (a non-integer `envInt` falls back to the default rather than silently truncating), and every variable read through them must appear in `docs/environment-variables.md` — enforced by `test/env-documented.test.ts` |
 | `getIdentity`, `validateIdentity` | Parsed JWT identity (`RequestIdentity`) helpers |
 
 ### HTTP client & services (`./services`)
@@ -45,6 +47,12 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | `createComplianceClient` / `ComplianceClient` | Typed compliance-service client built on the safe client |
 | `QuotaService`, `createQuotaService`, `QuotaType`, `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` | Quota enforcement client and tier presets |
 | `CacheService`, `createCacheService` | In-memory LRU TTL cache with cross-replica invalidation over Redis pub/sub |
+| `safeFetch`, `resolveSafeTarget`, `assertSafeUrl`, `isPrivateAddress` | SSRF guards for user/tenant-supplied URLs. **`safeFetch` is the one to use for an outbound request**: it resolves the host, PINS the vetted IP into the socket (no DNS-rebinding window between check and connect), refuses redirects, and caps body size and wall-clock time. `assertSafeUrl` is VALIDATION ONLY — for rejecting a URL at create/update time; never pair it with a `fetch` |
+| `createWebhookChannel`, `createEmailChannel`, `createChannelRegistry`, `NotificationChannel`, `NotificationMessage`, `ChannelTarget`, `DeliveryResult` | Shared notification-channel contract plus the webhook (SSRF-safe, HMAC-signing) and email transports. Services supply only their own `in-app` transport |
+| `wireServiceSecurity` | One call for every stateless service's boot security: the `authz.denied` audit sink, the token-revocation reader (overridable), and the access-key-exchange service name |
+| `createRemoteAuditAccessor` | Returns both audit shapes a service needs — `getAuditClient` (for `wireServiceSecurity`) and `emit` (the terse per-service emitter) |
+| `getRetryDecision`, `getErrorRetryDecision`, `RetryConfig` | The single retry/backoff decision function (Retry-After aware, jittered) and the single `RetryConfig`. pipeline-data's `ConnectionRetryStrategy` is built on it |
+| `createOrgIdCaster` | Builds the Mongo org-id cast (24-hex → ObjectId, anything else through) from a supplied `Types.ObjectId`, so platform and quota share one implementation without api-core depending on mongoose |
 | `entityEvents` | Process-local domain event pub/sub for entity changes |
 
 ### Logging, validation & OpenAPI

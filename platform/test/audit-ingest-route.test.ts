@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /** A peer service's verified identity, as `requireServiceAuth` leaves it. */
@@ -26,7 +27,6 @@ const SERVICE_PRINCIPAL = {
 
 const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockRequireAdminContext = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, message: string) => res.status(status).json({ success: false, message }),
@@ -52,11 +52,7 @@ jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({
   verifyAuditChain: jest.fn(),
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_name: string, fn: unknown) => fn,
-  requireAdminContext: (...a: unknown[]) => mockRequireAdminContext(...a),
-  requireSystemAdmin: jest.fn(),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/services/audit-service.js', () => ({
   auditService: {
@@ -119,30 +115,48 @@ beforeEach(() => {
   mockCreateEvent.mockResolvedValue(undefined);
   mockFindEvents.mockReset();
   mockFindEvents.mockResolvedValue({ events: [], pagination: { total: 0, offset: 0, limit: 10, hasMore: false } });
-  mockRequireAdminContext.mockReset();
-  // Default to a sysadmin admin context (isOrgAdmin=false) so the list handler
-  // takes the cross-tenant branch and reads the org/actor/date query filters.
-  mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false });
+  // `requireAdminContext` now runs FOR REAL (see helpers/controller-helper-mock.ts),
+  // so the admin context is decided by the `user` each `get()` sends: the default
+  // caller below carries `isSuperAdmin`, which is the cross-tenant branch (the
+  // handler then reads the org/actor/date query filters); the org-admin case
+  // carries `role: 'admin'` instead.
 });
 
 describe('GET /audit — identity filters', () => {
   it('threads impersonator, target, group and org filters for a sysadmin', async () => {
-    await get({ impersonatorId: 'op-1', targetId: 'pl-9', groupId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
+    await get({ impersonatorId: 'op-1', targetId: 'pl-9', roleId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
     const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
-    expect(filter).toMatchObject({ impersonatorId: 'op-1', targetId: 'pl-9', groupId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
+    expect(filter).toMatchObject({ impersonatorId: 'op-1', targetId: 'pl-9', roleId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
   });
 
   it('pins an org admin to their own org, ignores their org filters, but honours the actor filter', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true });
     await get(
       { orgId: 'org-other', affectedOrgId: 'org-other', actorId: 'u-3', impersonatorId: 'op-1' },
-      { sub: 'orgadmin', organizationId: 'org-1' },
+      // `role` is what the real `isOrgAdmin` reads — this is an ORG admin, not a
+      // platform one, so the handler must pin the filter to their own org.
+      { sub: 'orgadmin', organizationId: 'org-1', role: 'admin' },
     );
     const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
     expect(filter.orgIdOrAffected).toBe('org-1');
     expect(filter).not.toHaveProperty('orgId');
     expect(filter).not.toHaveProperty('affectedOrgId');
     expect(filter).toMatchObject({ actorId: 'u-3', impersonatorId: 'op-1' });
+  });
+
+  // Negative: the audit trail is a cross-tenant read, so a caller with no admin
+  // authority at all must be refused before any query runs.
+  it('403s a plain member and queries nothing', async () => {
+    const res = await get({ actorId: 'u-3' }, { sub: 'member', organizationId: 'org-1' });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockFindEvents).not.toHaveBeenCalled();
+  });
+
+  it('401s an unauthenticated caller and queries nothing', async () => {
+    // `null`, not `undefined` — an explicit `undefined` would re-trigger the
+    // sysadmin default parameter on `get`.
+    const res = await get({}, null as unknown as Record<string, unknown>);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockFindEvents).not.toHaveBeenCalled();
   });
 });
 

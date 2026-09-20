@@ -22,6 +22,7 @@ import {
   createComplianceClient,
   PluginDeployGeneratedSchema,
   userHasPermission,
+  actorId,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
@@ -322,7 +323,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // `targetId` is omitted here; name/version identify the plugin.
         emitPluginAudit({
           action: 'plugin.deploy',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'plugin',
           details: {

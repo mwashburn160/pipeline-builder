@@ -100,16 +100,17 @@ export function complianceApi(core: ApiCore) {
     },
 
     /** Validate pipeline attributes against compliance rules (dry-run) */
-    dryRunPipelineCompliance: async (attributes: BuilderProps | Record<string, unknown>) => {
+    dryRunPipelineCompliance: async (attributes: BuilderProps | Record<string, unknown>, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline/dry-run', {
         method: 'POST',
         body: JSON.stringify({ attributes }),
+        signal: opts?.signal,
       });
     },
 
     /** Get compliance audit log */
-    getComplianceAuditLog: async (params?: { target?: string; result?: string; scanId?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) => {
-      return core.request<ApiResponse<{ entries: ComplianceAuditEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`);
+    getComplianceAuditLog: async (params?: { target?: string; result?: string; scanId?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ entries: ComplianceAuditEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     // ============================================

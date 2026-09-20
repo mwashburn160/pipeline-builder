@@ -31,7 +31,7 @@ export function TransferOwnershipModal({ target, onConfirm, onClose }: TransferO
       }
     >
       <p className="text-sm text-gray-600 dark:text-gray-300">
-        Make <strong className="text-gray-900 dark:text-gray-100">{target.username}</strong> the
+        Make <strong className="text-fg">{target.username}</strong> the
         owner of this organization?
       </p>
       <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">

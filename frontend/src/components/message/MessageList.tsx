@@ -131,8 +131,8 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                 <span
                   className={`text-sm truncate ${
                     isUnreadFor(msg, currentOrgId)
-                      ? 'font-semibold text-gray-900 dark:text-gray-100'
-                      : 'font-medium text-gray-700 dark:text-gray-300'
+                      ? 'font-semibold text-fg'
+                      : 'font-medium text-fg-muted'
                   }`}
                 >
                   {displayName}

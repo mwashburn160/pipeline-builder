@@ -14,7 +14,7 @@ describe('ConnectionRetryStrategy', () => {
   let strategy: ConnectionRetryStrategy;
 
   beforeEach(() => {
-    strategy = new ConnectionRetryStrategy({ maxRetries: 3, baseDelay: 10 });
+    strategy = new ConnectionRetryStrategy({ maxRetries: 3, retryDelayMs: 10 });
   });
 
   describe('getAttempts', () => {
@@ -92,40 +92,46 @@ describe('ConnectionRetryStrategy', () => {
     });
   });
 
-  describe('calculateBackoff jitter', () => {
-    it('should return a value >= base delay (jitter is additive)', () => {
-      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
-      const calcBackoff = (s as any).calculateBackoff.bind(s);
-
-      for (let i = 0; i < 50; i++) {
-        const result = calcBackoff(1); // attempt 1 => base = 100 * 2^0 = 100
-        expect(result).toBeGreaterThanOrEqual(100);
-      }
+  // `maxRetries` means retries AFTER the initial attempt. The previous
+  // implementation's `while (attempts < maxRetries)` gave `maxRetries: 3` only
+  // TWO retries (three attempts); the backoff decision is api-core's now, so
+  // the budget is the documented one.
+  describe('retry budget (off-by-one regression)', () => {
+    it('makes maxRetries + 1 attempts before giving up', async () => {
+      let calls = 0;
+      await expect(
+        strategy.execute(async () => { calls++; throw new Error('always fails'); }),
+      ).rejects.toThrow('always fails');
+      expect(calls).toBe(4); // 1 initial + 3 retries
     });
 
-    it('should not exceed base + 10% (jitter is at most 10% of base)', () => {
-      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
-      const calcBackoff = (s as any).calculateBackoff.bind(s);
-
-      for (let i = 0; i < 50; i++) {
-        const result = calcBackoff(1); // attempt 1 => base = 100
-        expect(result).toBeLessThanOrEqual(110); // 100 + 10% = 110
-      }
+    it('honours a maxRetries of 1 as one retry', async () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 1, retryDelayMs: 1 });
+      let calls = 0;
+      await expect(
+        s.execute(async () => { calls++; throw new Error('nope'); }),
+      ).rejects.toThrow('nope');
+      expect(calls).toBe(2);
     });
 
-    it('should scale exponentially with attempt number', () => {
-      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
-      const calcBackoff = (s as any).calculateBackoff.bind(s);
+    it('a maxRetries of 0 makes exactly one attempt', async () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 0, retryDelayMs: 1 });
+      let calls = 0;
+      await expect(
+        s.execute(async () => { calls++; throw new Error('nope'); }),
+      ).rejects.toThrow('nope');
+      expect(calls).toBe(1);
+    });
 
-      // attempt 2 => base = 100 * 2^1 = 200, max with jitter = 220
-      const result2 = calcBackoff(2);
-      expect(result2).toBeGreaterThanOrEqual(200);
-      expect(result2).toBeLessThanOrEqual(220);
-
-      // attempt 3 => base = 100 * 2^2 = 400, max with jitter = 440
-      const result3 = calcBackoff(3);
-      expect(result3).toBeGreaterThanOrEqual(400);
-      expect(result3).toBeLessThanOrEqual(440);
+    it('stops retrying handleConnectionError once the budget is spent', async () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 1, retryDelayMs: 1 });
+      let probes = 0;
+      await s.handleConnectionError(new Error('e'), async () => { probes++; return false; });
+      expect(probes).toBe(1);
+      // Budget spent — no second probe.
+      await s.handleConnectionError(new Error('e'), async () => { probes++; return false; });
+      expect(probes).toBe(1);
     });
   });
+
 });

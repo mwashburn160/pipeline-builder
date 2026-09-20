@@ -66,7 +66,13 @@ jest.mock('@/components/settings/TotpQrCode', () => ({
   TotpQrCode: ({ value }: { value: string }) => <div data-testid="qr">{value}</div>,
 }));
 
+// Turning the factor on or off changes `user.authFactors`, which the posture
+// strip above this panel reads off the profile — so the panel refreshes it.
+const refreshUser = jest.fn(async () => undefined);
+jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser }) }));
+
 import { TotpSection } from '../src/components/settings/TotpSection';
+import { clearQueryCache } from '../src/lib/query-cache';
 
 const status = (over: Record<string, unknown> = {}) => ({
   enabled: false, pending: false, activatedAt: null, lastUsedAt: null,
@@ -91,6 +97,8 @@ const codes = ['AAAAA-BBBBB', 'CCCCC-DDDDD'];
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The status is read through the shared cache, which outlives a test.
+  clearQueryCache();
   lastStepUpAction = '';
   lastStepUpTitle = '';
   enrolTotp.mockResolvedValue({ success: true, data: { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/x' } });
@@ -225,6 +233,42 @@ describe('TotpSection — once it is on', () => {
     expect(regenerateRecoveryCodes).toHaveBeenCalledWith('step-up-token');
     expect(await screen.findByText('AAAAA-BBBBB')).toBeInTheDocument();
     expect(screen.getByText(/your new recovery codes/i)).toBeInTheDocument();
+  });
+});
+
+describe('TotpSection — keeping the posture strip honest', () => {
+  // The strip at the top of the page derives passkey/authenticator/org-2FA
+  // state from `user.authFactors`, so a factor change that doesn't refresh the
+  // profile leaves it saying "Off" — and, because it gates the recovery-code
+  // item on `hasTotp`, that item never appears at all.
+  it('refreshes the profile after turning two-factor ON', async () => {
+    await renderSection(status());
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator app/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    fireEvent.change(screen.getByPlaceholderText('123456'), { target: { value: '123456' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /turn on/i })); });
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+
+  it('refreshes the profile after turning it OFF', async () => {
+    await renderSection(enabled());
+    fireEvent.click(screen.getByRole('button', { name: /turn off/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+
+  it('refreshes the profile after replacing the recovery codes', async () => {
+    await renderSection(enabled());
+    fireEvent.click(screen.getByRole('button', { name: /new recovery codes/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+
+  it('does not refresh it for merely starting an enrolment', async () => {
+    await renderSection(status());
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator app/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    expect(refreshUser).not.toHaveBeenCalled();
   });
 });
 

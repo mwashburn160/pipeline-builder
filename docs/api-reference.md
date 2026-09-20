@@ -142,18 +142,31 @@ answer before any credential exists:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/quotas` | Caller's org quotas (plugins/pipelines/apiCalls/aiCalls) |
-| `GET` | `/quotas/all` | All orgs' quotas (system admin only) |
+| `GET` | `/quotas/all` | All orgs' quotas (system admin only). `?limit=` 1–1000 (default 100) and `?offset=` 1-based, capped at 100 000 — deep paging past that is refused-by-clamp rather than turned into an unbounded collection scan |
 | `GET` | `/quotas/at-risk?threshold=80` | Orgs ≥ threshold% on any quota dimension (system admin only) |
-| `GET` | `/quotas/:orgId` | Specific org quotas (orgId in URL — auth scoped) |
+| `GET` | `/quotas/:orgId` | Specific org quotas (orgId in URL — auth scoped; the id is matched case-insensitively and canonicalized to lowercase for the lookup) |
 | `GET` | `/quotas/:orgId/:type` | Single quota type status |
 | `PUT` | `/quotas/:orgId` | Update tier/limits (system admin only) |
 | `POST` | `/quotas/:orgId/reset` | Reset usage counters (system admin only; **+ step-up**, service principals exempt) |
 | `POST` | `/quotas/:orgId/increment` | **Internal** (service-to-service only, no user token): increment usage (`amount` capped at 1000/call) |
 | `POST` | `/quotas/:orgId/decrement` | **Internal** (service-to-service only, no user token): roll back a reserve |
 
+**Pooled (account) limits and the `503` refusal.** For an org → team hierarchy the
+binding cap is the ROOT's, counted against the whole subtree; a team's own limits
+are seeded `-1` precisely because only the root's pooled cap is meant to apply.
+So when the pooled cap cannot be resolved (a hierarchy read fails), the quota
+service does NOT fall back to the team's own row — that would be unlimited, not
+degraded. It serves the last-known root cap for up to
+`QUOTA_POOL_FALLBACK_TTL_MS` (default 60s) and otherwise answers
+`503 SERVICE_UNAVAILABLE` ("Quota is temporarily unenforceable for
+organization …"), which reads and increments alike surface. A root or flat org
+is unaffected: its own row carries real limits, so enforcement continues there.
+Every such event increments `quota_pool_resolution_failed_total{quotaType,outcome}`
+with `outcome` = `cached` | `denied` | `own_limits` — alert on `denied`.
+
 ### Message Service
 
-Base path `/api/messages`. Reads require `messages:read`; writes require `messages:write`. Announcements (broadcast, `recipientOrgId: "*"`) are system-admin only.
+Base path `/api/messages`. Reads require `messages:read`; writes require `messages:write` — except contacting support, which every member may do with `messages:read` (see below). Announcements (broadcast, `recipientOrgId: "*"`) are system-admin only.
 
 | Method | Endpoint | Description | Permission |
 |--------|----------|-------------|------------|
@@ -162,11 +175,14 @@ Base path `/api/messages`. Reads require `messages:read`; writes require `messag
 | `GET` | `/messages/unread/count` | Unread count for the caller | `messages:read` |
 | `GET` | `/messages/:id` \| `/:id/thread` | A message / its full thread (viewer-scoped) | `messages:read` |
 | `POST` | `/messages` | Send a conversation or announcement | `messages:write` |
+| `POST` | `/messages/support` | Contact support: a conversation to the support desk. Body is `subject`, `content`, optional `priority` / `attachmentIds` — **no recipient**: the server forces `recipientOrgId` to the system support org and `channel` to `support`, and ignores any `recipientOrgId` / `recipientUserId` / `messageType` / `channel` in the body | `messages:read` |
 | `POST` | `/messages/:id/reply` | Reply to a thread | `messages:write` |
 | `POST` | `/messages/attachments` | Upload one attachment (multipart `file`) → returns its id | `messages:write` |
 | `GET` | `/messages/attachments/:id` | Download an attachment (auth-gated, inherits message visibility); `?thumb=1` serves the downscaled image thumbnail, falling back to the original | `messages:read` |
 | `GET` | `/messages/:id/attachments` | List a message's attachment metadata | `messages:read` |
 | `DELETE` \| `POST` | `/messages/:id[/restore]` | Soft-delete / restore (restore + step-up) | `messages:write` |
+
+**Contacting support:** reaching support is self-service, so `POST /messages/support` is gated on `messages:read` — the same authority the inbox needs — rather than `messages:write`. A read-only member can therefore file a request although they cannot send ordinary messages. The route is safe at that floor because the recipient is not a caller input: it is always the system support org, on the reserved `support` channel. Everything else (validation, attachment linking, the SSE ping, the send rate limit) matches `POST /messages`; announcements, broadcasts and per-user targeting do not apply. Attachments must still be uploaded through `POST /messages/attachments`, which remains `messages:write`.
 
 **Per-user direct messages:** a conversation `POST /messages` may include `recipientUserId` (a member of `recipientOrgId`) to target a single user — only that user (plus the sender org and system org) can see the message and its replies/attachments. Omit it for an org-wide message. `recipientUserId` is rejected on announcements/broadcasts.
 
@@ -182,11 +198,11 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `POST` | `/organization` | Create an organization or nested team | `org:settings` |
 | `GET` | `/organization/:id` | Get an organization, with a page of its member roster (`?membersLimit=` 1–500, default 100; `?membersOffset=`) — `memberCount` is always the full total. For a sysadmin it also carries the hierarchy: `parentOrgId`, `parentOrgName` and `teams: [{ orgId, orgName }]` (live teams) | — (own org / managed team / sysadmin) |
 | `PUT` | `/organization/:id` | Update an organization's name, slug and/or description (+ step-up). The only route that edits the description | *system admin* |
-| `DELETE` | `/organization/:id` | Soft-delete an organization (+ step-up): recovery snapshot, `purgeAfter` retention window, sessions cut → `202 { deletedAt, purgeAfter, snapshotId }`. Refused (`400`) while it has live teams | *system admin* |
+| `DELETE` | `/organization/:id` | Soft-delete an organization (+ step-up): recovery snapshot, `purgeAfter` retention window, sessions cut → `202 { deletedAt, purgeAfter, snapshotId }`. The window is `max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS)` — the org must outlive the rows its cascade tombstones. Refused (`400`) while it has live teams | *system admin* |
 | `POST` | `/organization/:id/restore` | Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (`409`) and room in the account's pooled seats (`409`), and re-syncs the root's tier + entitlements | `org:settings` (own org / managed team) |
-| `POST` | `/organization/:id/move` | Reparent (+ step-up). Body `{ parentOrgId: string \| null }`: a team to another eligible root (team/enterprise tier), a team out as a standalone root (`null`), or a root **with no teams** (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (`400`/`404`), a move over the destination's seat cap (`409`), and nesting a root that still has a billable subscription (`409`, cancel it first; `503` if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with `-1` quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → `{ organization }` (the detail DTO with hierarchy) | *system admin* |
+| `POST` | `/organization/:id/move` | Reparent (+ step-up). Body `{ parentOrgId: string \| null }`: a team to another eligible root (team/enterprise tier), a team out as a standalone root (`null`), or a root **with no teams** (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (`400`/`404`), a move over the destination's seat cap (`409`), a competing move that landed first (`409 ORG_MOVE_CONFLICT` — every structural check is re-asserted inside the transaction and the write is conditional on the parent this request read, so of two interleaved moves exactly one commits), and nesting a root that still has a billable subscription (`409`, cancel it first; `503` if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with `-1` quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → `{ organization }` (the detail DTO with hierarchy) | *system admin* |
 | `PATCH` | `/organization/:id/tier` | Change pricing tier (+ step-up) | *system admin* |
-| `GET` | `/organization/:id/export` | GDPR data export | `org:settings` |
+| `GET` | `/organization/:id/export` | GDPR data export — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; `failed` names any store that could not be read and `truncated` any that hit its cap | `org:settings` |
 | `PATCH` | `/organization/:id/transfer-owner` | Transfer ownership (+ step-up on an `aal: 2` session) | `org:settings` |
 | `GET` | `/organization/:id/members` | List members | — (member) |
 | `GET` | `/organization/:id/members/:userId/exists` | Active-membership probe (`{ isMember }`) — internal, used by the message service to reject a per-user DM to a non-member | — (service / member) |
@@ -258,7 +274,7 @@ from `POST /auth/step-up`).
 | `GET` | `/auth/sso/:orgId/authorize` | Start per-org SSO → `{ url, state }`. Serves **both protocols**: the org's `protocol` decides whether `url` is an OIDC authorization request or a SAML `AuthnRequest`, and the caller just redirects to it | — (pre-auth; enabled + `sso`-entitled) |
 | `POST` | `/auth/sso/:orgId/callback` | **OIDC** leg: `{ code, state }` → the same `{ accessToken }` + refresh cookie password login returns | the IdP's code + the state |
 | `GET` | `/auth/sso/:orgId/saml/metadata` | **SAML** service-provider metadata (XML) for the IdP administrator: entity ID, ACS URL (HTTP-POST), SLO URL (HTTP-Redirect + HTTP-POST), `WantAssertionsSigned`, `AuthnRequestsSigned` per the org's switch, the SP signing certificate and — only when the org enabled encrypted assertions — the encryption certificate. Works before the connection does and leaks nothing | — (public) |
-| `GET` \| `POST` | `/auth/sso/:orgId/saml/slo` | **SAML single logout** endpoint (HTTP-Redirect / HTTP-POST). A signed IdP **LogoutRequest** revokes that NameID's sessions in the org and is answered with a signed LogoutResponse; a signed **LogoutResponse** to ours lands the browser on sign-in. Unsigned, forged, replayed or foreign-issuer messages are refused | the IdP's signature |
+| `GET` \| `POST` | `/auth/sso/:orgId/saml/slo` | **SAML single logout** endpoint (HTTP-Redirect / HTTP-POST). A signed IdP **LogoutRequest** revokes that NameID's sessions in the org (in bounded batches, at most 1000 per request — the rest lapse with their refresh window and the cap is recorded on the audit event) and is answered with a signed LogoutResponse; a signed **LogoutResponse** to ours lands the browser on sign-in. Unsigned, forged, replayed or foreign-issuer messages are refused | the IdP's signature |
 | `POST` | `/auth/sso/:orgId/saml/acs` | **SAML** Assertion Consumer Service — the IdP posts `SAMLResponse` + `RelayState` here. Verifies the signature, issuer, audience and validity window, refuses IdP-initiated and replayed assertions, provisions JIT membership, then **redirects** to `/auth/sso/:orgId/saml` with a one-time `handoff` (or an `error` code). Never returns tokens | the assertion + the RelayState |
 | `POST` | `/auth/sso/:orgId/saml/complete` | Redeem that handoff, `{ handoff }` → the same `{ accessToken }` + refresh cookie password login returns. Single-use and org-bound; the session is minted **here**, so it records the redeeming browser | the handoff itself |
 | `POST` | `/auth/refresh` | Rotate an **interactive** session's token pair. The browser presents the `pb_refresh` cookie (empty body); a CLI caller posts `{ refreshToken }`. Machine sessions are refused (they renew through `/user/generate-token`) | refresh cookie **or** body token, + `X-Pb-Client` |

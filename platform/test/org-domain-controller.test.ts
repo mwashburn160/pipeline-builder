@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockCanAdminister = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+// The real `canAdministerOrg` falls through to a lazy `org-hierarchy.js` import
+// on the CROSS-ORG branch; stub the walk so the ancestor case is a decision, not
+// a Mongoose round-trip.
+const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockAddDomain = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockListDomains = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIsEntitled = jest.fn<(...a: unknown[]) => Promise<boolean>>();
@@ -21,17 +25,9 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   addDomainSchema: {},
   setDomainModeSchema: {},
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: (req: any, res: any) => { if (!req.user) { res.status(401).json({ success: false }); return false; } return true; },
-  canAdministerOrg: (...a: unknown[]) => mockCanAdminister(...a),
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { return await fn(req, res); } catch (e: any) {
-        const mapped = errorMap?.[e?.message];
-        if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
-        return res.status(500).json({ success: false, message: e?.message });
-      }
-    },
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
 jest.unstable_mockModule('../src/services/org-domain-service.js', () => ({
   orgDomainService: {
@@ -52,20 +48,42 @@ function makeRes() {
   res.json = jest.fn().mockReturnValue(res);
   return res;
 }
-const req = (over: any = {}) => ({ user: { sub: 'u1' }, params: { id: 'org-1' }, body: {}, ...over });
+/**
+ * `controller-helper` runs FOR REAL, so `canAdministerOrg` is satisfied by the
+ * FIXTURE, not by a stub: admin/owner of the exact org named in `params.id`.
+ */
+const ORG_ADMIN = { sub: 'u1', organizationId: 'org-1', role: 'admin' };
+/** Same org, no admin role — authenticated but NOT an administrator. */
+const MEMBER = { sub: 'u2', organizationId: 'org-1' };
+
+const req = (over: any = {}) => ({ user: ORG_ADMIN, params: { id: 'org-1' }, body: {}, ...over });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCanAdminister.mockResolvedValue(true);
+  mockIsAncestorOrg.mockResolvedValue(false); // flat org tree by default
   mockIsEntitled.mockResolvedValue(true);
 });
 
 describe('org-domain controller', () => {
   it('addOrgDomain: 403 when the caller does not administer the org', async () => {
-    mockCanAdminister.mockResolvedValue(false);
+    // A plain member of org-1: authenticated, but `isOrgAdmin` is false.
     const res = makeRes();
-    await (addOrgDomain as any)(req({ body: { domain: 'acme.com' } }), res);
+    await (addOrgDomain as any)(req({ user: MEMBER, body: { domain: 'acme.com' } }), res);
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockAddDomain).not.toHaveBeenCalled();
+  });
+
+  it('addOrgDomain: 403 for an admin of a DIFFERENT org', async () => {
+    const res = makeRes();
+    await (addOrgDomain as any)(req({ user: { sub: 'u3', organizationId: 'org-other', role: 'admin' }, body: { domain: 'acme.com' } }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockAddDomain).not.toHaveBeenCalled();
+  });
+
+  it('addOrgDomain: 401 for an anonymous caller', async () => {
+    const res = makeRes();
+    await (addOrgDomain as any)(req({ user: undefined, body: { domain: 'acme.com' } }), res);
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(mockAddDomain).not.toHaveBeenCalled();
   });
 

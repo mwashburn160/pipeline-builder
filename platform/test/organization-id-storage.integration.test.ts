@@ -30,6 +30,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { integrationSuite } from './helpers/integration-gate.js';
 
 // The real models transitively import platform config, which validates required
 // secrets at load outside dev (jest sets NODE_ENV=test, so the dev fallback is
@@ -42,11 +43,10 @@ process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 // 6.0.14 starts cleanly. Overridable via MONGOMS_VERSION.
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 
-const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
-
 // Gate the whole suite. When off, the heavy deps below are never imported, so the
-// default suite stays fast and needs no running mongod.
-const suite = RUN ? describe : describe.skip;
+// default suite stays fast and needs no running mongod. In CI the gate variable
+// is REQUIRED — see helpers/integration-gate.ts for why skipping there is unsafe.
+const suite = integrationSuite();
 
 suite('organization id storage (real Mongo, #13)', () => {
   // Loosely typed — deps load dynamically inside beforeAll so a skipped run

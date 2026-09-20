@@ -5,7 +5,7 @@ import { AlertCircle, AlertTriangle, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import type { Subscription } from '@/types';
-import { formatDate } from './helpers';
+import { formatDateLong } from '@/lib/format';
 
 /** Friendly labels for subscription status (avoids raw "Past_due" from CSS capitalize). */
 const STATUS_LABELS: Record<string, string> = {
@@ -96,7 +96,7 @@ export function SubscriptionStatusCard({
         </div>
         <div>
           <p className="text-sm text-fg-muted">Next Billing Date</p>
-          <p className="text-sm text-fg">{formatDate(subscription.currentPeriodEnd)}</p>
+          <p className="text-sm text-fg">{formatDateLong(subscription.currentPeriodEnd)}</p>
         </div>
       </div>
       {canChangePlan && (              <div className="mt-4 flex gap-3">

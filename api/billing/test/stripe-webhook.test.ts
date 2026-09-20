@@ -2,10 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for Stripe webhook route.
+ * The Stripe webhook's HANDLERS and the helpers they lean on.
+ *
+ * The ROUTE itself — signature refusals, the two-phase idempotency claim and
+ * the event-type dispatch table — lives in `stripe-webhook-route.test.ts`,
+ * which stands up a provider that really is a `StripeProvider`.
+ *
+ * It has to, and that is why the split exists: the provider double BELOW is a
+ * plain object, so the route's `active instanceof StripeProvider` guard is
+ * always false and every request stops at the first early return. This suite
+ * once carried a "signature verification" test that looked like route coverage
+ * and was in fact asserting the provider-not-configured branch — which is how
+ * `routes/stripe-webhook.ts` sat at 9% function coverage while appearing
+ * tested. The route scaffolding has been removed rather than repaired: the
+ * double is exactly right for driving handlers directly, which is all this
+ * suite now does.
  */
 
-import { jest, describe, it, expect, beforeAll, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock api-core
@@ -164,53 +178,12 @@ jest.unstable_mockModule('../src/helpers/signup-promotions.js', () => ({
   runSignupPromotions: (...a: unknown[]) => mockRunSignupPromotions(...a),
 }));
 
-const { sendError } = await import('@pipeline-builder/api-core');
-const { createStripeWebhookRoutes } = await import('../src/routes/stripe-webhook.js');
 const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated } = await import('../src/helpers/stripe-subscription-handlers.js');
 const { handlePaymentFailed } = await import('../src/helpers/stripe-invoice-handlers.js');
 
-// Since we can't easily test instanceof with mocks, we test the handler logic directly.
-// Extract the route handler from the router.
-function getWebhookHandler() {
-  const router = createStripeWebhookRoutes();
-  const layer = (router as unknown as { stack: Array<{ route: { path: string; stack: Array<{ handle: Function }> } }> })
-    .stack.find((l) => l.route?.path === '/stripe/webhook');
-  return layer?.route.stack[0].handle;
-}
-
-describe('Stripe Webhook Route', () => {
-  let handler: Function;
-
-  beforeAll(() => {
-    handler = getWebhookHandler()!;
-  });
-
+describe('Stripe webhook helpers', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  function makeReq(overrides: Record<string, unknown> = {}) {
-    return {
-      headers: { 'stripe-signature': 'sig_test' },
-      body: Buffer.from('{}'),
-      ...overrides,
-    };
-  }
-
-  function makeRes() {
-    return {} as Record<string, unknown>;
-  }
-
-  describe('signature verification', () => {
-    it('returns 400 when stripe-signature header is missing', async () => {
-      // The handler first checks for StripeProvider instanceof, which will fail
-      // since our mock doesn't extend StripeProvider.
-      // This tests the early return for missing provider.
-      const req = makeReq({ headers: {} });
-      await handler(req, makeRes());
-      // Provider check fails first due to instanceof
-      expect(sendError).toHaveBeenCalled();
-    });
   });
 
   describe('mapStripeStatus', () => {
@@ -247,15 +220,6 @@ describe('Stripe Webhook Route', () => {
 
     it('maps unknown status to incomplete', () => {
       expect(mapStripeStatus('some_new_status')).toBe('incomplete');
-    });
-  });
-
-  describe('findSubscriptionByStripeId', () => {
-    it('queries with correct filter', async () => {
-      mockFindByStripeId.mockResolvedValue(null);
-
-      await mockFindByStripeId('sub_test_123');
-      expect(mockFindByStripeId).toHaveBeenCalledWith('sub_test_123');
     });
   });
 

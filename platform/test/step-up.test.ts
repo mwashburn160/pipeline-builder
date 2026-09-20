@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn();
 const mockAudit = jest.fn();
@@ -40,10 +41,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   // Session-auth helpers the controllers now import (see utils/token.ts).

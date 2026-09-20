@@ -67,9 +67,13 @@ spec:
 # =============================================================================
 # Receives alerts from Prometheus (prometheus.yml `alerting.alertmanagers`
 # points here), routes them by `severity` label, and forwards to Slack.
-# Webhook URLs come from the optional `alertmanager-slack` Secret — if the
-# secret is absent the env vars are empty and Slack receivers no-op silently,
-# but the firing alerts still show in Alertmanager's UI / API.
+# The Slack webhook URLs are MOUNTED FILES from the `alertmanager-slack` Secret
+# (config/alertmanager/alertmanager.yml reads them with `api_url_file`), not env
+# vars — Alertmanager never expanded env vars in its config, which is why the
+# env-var wiring that used to be here delivered nothing. The Secret is created
+# unconditionally by setup, which REFUSES to deploy while the URLs are still
+# placeholders, so a missing Secret here is a loud FailedMount rather than a
+# silent no-op.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -110,7 +114,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: fix-permissions
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -127,26 +131,13 @@ spec:
               mountPath: /alertmanager
       containers:
         - name: alertmanager
-          image: prom/alertmanager:v0.33.1
+          image: prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d  # prom/alertmanager:v0.33.1
           args:
             - "--config.file=/etc/alertmanager/alertmanager.yml"
             - "--storage.path=/alertmanager"
           ports:
             - containerPort: 9093
               name: http
-          env:
-            - name: SLACK_WEBHOOK_URL_CRITICAL
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-slack
-                  key: SLACK_WEBHOOK_URL_CRITICAL
-                  optional: true
-            - name: SLACK_WEBHOOK_URL_WARNING
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-slack
-                  key: SLACK_WEBHOOK_URL_WARNING
-                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -187,6 +178,11 @@ spec:
             - name: alertmanager-relay
               mountPath: /etc/alertmanager-secrets
               readOnly: true
+            # Ops-team Slack webhook URLs, one file each, read per
+            # notification by the critical-slack / warning-slack receivers.
+            - name: alertmanager-slack
+              mountPath: /etc/alertmanager-slack
+              readOnly: true
             - name: alertmanager-storage
               mountPath: /alertmanager
       volumes:
@@ -200,6 +196,15 @@ spec:
             items:
               - key: ALERT_WEBHOOK_INSTANCE_TOKEN
                 path: relay-token
+        - name: alertmanager-slack
+          secret:
+            secretName: alertmanager-slack
+            defaultMode: 0444
+            items:
+              - key: SLACK_CRITICAL_WEBHOOK_URL
+                path: critical-url
+              - key: SLACK_WARNING_WEBHOOK_URL
+                path: warning-url
         - name: alertmanager-storage
           persistentVolumeClaim:
             claimName: alertmanager-data

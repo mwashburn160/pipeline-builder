@@ -14,6 +14,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const dbDelete = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -39,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   }),
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   lt: (col: unknown, val: unknown) => ltMock(col, val),
 }));
 

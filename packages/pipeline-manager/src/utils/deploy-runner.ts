@@ -3,6 +3,7 @@
 
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import { executeCdkShellCommand, resolveBoilerplatePath } from './cdk-utils.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
@@ -124,7 +125,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
     );
   } catch (buildError) {
     printWarning('Could not build registry payload — skipping registration', {
-      error: buildError instanceof Error ? buildError.message : String(buildError),
+      error: errorMessage(buildError),
     });
     return;
   }
@@ -136,14 +137,14 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
     try {
       const intentPath = await writePendingIntent(payload);
       printWarning('Pipeline registry update failed; queued for retry', {
-        error: regError instanceof Error ? regError.message : String(regError),
+        error: errorMessage(regError),
         retry: 'pipeline-manager pipeline register',
         intent: intentPath,
       });
     } catch (writeErr) {
       printWarning('Pipeline registry update failed (retry queue also failed)', {
-        error: regError instanceof Error ? regError.message : String(regError),
-        queueError: writeErr instanceof Error ? writeErr.message : String(writeErr),
+        error: errorMessage(regError),
+        queueError: errorMessage(writeErr),
       });
     }
   }

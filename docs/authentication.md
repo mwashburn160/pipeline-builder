@@ -998,9 +998,13 @@ Available when the IdP's **single-logout URL** is configured.
   that `NameID` — narrowed to the `SessionIndex` when the IdP names one — opened
   **in this org** is revoked through the same helper "sign out this device" uses:
   the refresh-session slot is removed at once, so nothing can renew it, and the
-  short-lived access token lapses within its TTL. The IdP then gets a **signed**
-  LogoutResponse (`Success`, echoing `RelayState`) at its SLO URL; with none
-  configured, the browser lands on the sign-in page.
+  short-lived access token lapses within its TTL. The revoke runs in bounded
+  batches (100 at a time, at most 1000 sessions per request) — the endpoint is
+  unauthenticated by construction, so one signed message must not be able to
+  turn into unbounded work; anything past the cap is recorded on the audit event
+  (`capped`) and those sessions lapse with their own refresh window. The IdP then
+  gets a **signed** LogoutResponse (`Success`, echoing `RelayState`) at its SLO
+  URL; with none configured, the browser lands on the sign-in page.
 - A refused logout message revokes nothing, redirects to
   `/auth/sso/:orgId/saml?error=SAML_INVALID_LOGOUT`, and is audited as a failure.
   Every SLO leg is audited as `sso.saml.logout` (`details.direction` `sp` / `idp`,
@@ -1927,39 +1931,24 @@ Rotation is by `kid` — publish the incoming key next to the retiring one, swit
 signing, then stop publishing the old one. No verifier restarts, and no session
 breaks. Operator steps: [Secret Rotation](runbooks/secret-rotation.md#user-token-signing-key-es256-rotated-by-kid).
 
-### Cutover — what stops working at release
+### Install — signing keys must exist before anything starts
 
-There is **no backward compatibility**: HS256 user tokens are not accepted after
-this change, and nothing accepts the old shape during a window. At release:
+Signing keys are **install prerequisites**, not a migration step. Platform is the
+only minter of user tokens and refuses to start without a key, and every service
+signs its own internal tokens, so a target that skipped these steps comes up
+dead rather than degraded. There is no shared-secret fallback to land on: no
+`JWT_SECRET`, no `REFRESH_TOKEN_SECRET`, and no target declares either.
 
-- **Every existing session ends.** Access AND refresh tokens were signed with the
-  shared secret, so every signed-in device must sign in again. There is nothing
-  to migrate — a refresh with an old token is a signature failure.
-- **Every step-up token dies** (they live 60 s, so this is invisible).
-- **Every access key's exchanged token dies** (they live 5 minutes). The keys
-  themselves are unaffected: they are opaque and stored as hashes, so the next
-  exchange simply returns an ES256 token. No key needs reissuing for this change.
-- **Stored machine credentials are unaffected by THIS change** — they are opaque
-  [service-account keys](#stored-machine-credentials-aws), not JWTs, so a signing
-  change cannot invalidate them. They do have their own one-time reissue, for a
-  different reason: they used to be a person's machine-session JWT. See
-  [Stored machine credentials (AWS)](#stored-machine-credentials-aws) and the
-  [cutover runbook](runbooks/access-key-cutover.md#machine-credentials-the-service-account-cutover).
-
-Operator checklist for the deploy itself:
-
-1. Generate the signing key **before** starting platform —
+1. Generate the user-token signing key **before** starting platform —
    `deploy/bin/token-signing-keys.sh <target>/certs` on the local targets, or
    create the KMS key and set `TOKEN_SIGNING_MODE=kms` +
    `TOKEN_SIGNING_KMS_KEY_ID`. Platform refuses to start without one.
-2. `REFRESH_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET_PREVIOUS` are **gone** — remove
-   them from `.env`. Nothing reads them; a refresh token is a user token now.
-3. `JWT_SECRET` is **gone**, along with `JWT_SECRET_PREVIOUS` and
-   `JWT_ALGORITHM` — remove them from `.env`. Internal service tokens are ES256
-   per service now; generate the keys with `deploy/bin/service-signing-keys.sh`
-   BEFORE starting any service, and deploy every service together (see
+2. Generate the per-service internal keys with
+   `deploy/bin/service-signing-keys.sh` BEFORE starting any service, and start
+   every service together — each one verifies its peers by `kid` against the
+   shared bundle (see
    [Internal service tokens](#internal-service-tokens-one-key-per-service)).
-4. The gateway no longer receives a signing secret: `deploy/*/nginx/jwt.js` decodes
+3. The gateway receives no signing secret: `deploy/*/nginx/jwt.js` decodes
    claims for the access log and the `x-org-id` / `x-user-id` hints and verifies
    nothing (ES256 verification needs an async JWKS fetch, which a synchronous
    njs `js_set` handler cannot make). Nothing is lost that was enforcing: the
@@ -1967,7 +1956,7 @@ Operator checklist for the deploy itself:
    tenant identity from the token it verified itself. The anti-spoof property
    also survives — nginx still OVERWRITES those headers on every proxied request,
    so a client cannot inject an org id of its choosing.
-5. Check `GET /.well-known/jwks.json` through the gateway before announcing the
+4. Check `GET /.well-known/jwks.json` through the gateway before announcing the
    deploy done: every verifier depends on it, and a target whose nginx does not
    proxy that path cannot verify any token.
 
@@ -2065,6 +2054,28 @@ none of those can raise the assurance level or make a sign-in look fresher than 
 was. An access key stores the creating session's values on its record, and an
 impersonation session inherits the operator's, so neither can raise assurance.
 
+### The tenant a request acts in
+
+`organizationId` on the verified token is the ONLY tenant authority for a person
+or an org service account. The `x-org-id` header is client-settable, so
+`getIdentity` (api-core) honors it in exactly two cases: an internal **service**
+principal, whose token names the signing service rather than the tenant it is
+acting for (the S2S hop convention — the org cascade, the quota client, the
+reporting ingest), and a request with no verified principal yet, which
+`requireAuth` immediately recomputes from the token. For a `user` or
+`service_account` principal the header is ignored outright — platform can mint a
+user token with **no** `organizationId` (a person between orgs, mid-invite,
+mid-onboarding), and that value flows straight into the Postgres RLS tenant GUC,
+so a header fallback there would let such a token name any tenant it liked. With
+no org on the token the request simply has no tenant and a route needing one
+refuses it. The sysadmin `x-org-id` override is unaffected: `requireAuth` writes
+it onto `req.user.organizationId` after verifying the `isSuperAdmin` claim.
+
+Whatever the source, the org id is canonicalized once (trim + lowercase,
+`normalizeOrgId`) so the RLS GUC, the app-layer `WHERE` clauses and every
+same-org comparison — platform's `controller-helper`, quota's `authorizeOrg` —
+agree on the spelling.
+
 Services reject a token that lacks these claims (an unknown `principalType`, a
 user principal with no assurance claims, a `service` principal whose subject
 doesn't name a service). There is no legacy shape: **every token minted before
@@ -2155,12 +2166,12 @@ sign-in whose approval supplies the step-up, so no password is typed; the printe
 key is what `PLATFORM_TOKEN` expects. `POST /user/tokens/revoke-all` ("Sign out
 everywhere") revokes every key the user holds, as does deleting the account.
 
-> **At release — no backward compatibility.** Every existing personal access
-> token stops working: they were JWTs, and JWT PATs are gone. **Announce the
-> cutover first**, then have each holder re-issue their credential from the keys
-> page (or `pipeline-manager auth pat`) and update wherever it is stored. See the
-> [Access key cutover runbook](runbooks/access-key-cutover.md) for the operator
-> checklist, including the AWS Secrets Manager entries.
+> **A key is the only shape.** There is no JWT personal access token to fall
+> back to — a key is a secret the server never had, so it can only be issued.
+> Each holder creates their own from the keys page (or `pipeline-manager auth
+> pat`) and stores it wherever their automation reads it. See
+> [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) for the
+> operator procedure, including the AWS Secrets Manager entries.
 
 ### Scoping a personal key to selected permissions
 
@@ -2557,12 +2568,11 @@ token it last minted keeps working until it expires, so use "Sign out everywhere
 (a `tokenVersion` bump, which ends every session of both kinds and revokes the
 user's access keys) when a credential must die now.
 
-> **Operators, at release**: every stored machine credential is reissued as a
-> service-account key — see [Stored machine credentials
-> (AWS)](#stored-machine-credentials-aws) and the
-> [cutover runbook](runbooks/access-key-cutover.md). Personal access tokens are
-> access keys as well. The secret never stores a refresh token, so consumers read
-> `password` — which now holds a `pb_sa_…` key rather than a JWT.
+> **Operators**: every stored machine credential is a service-account key — see
+> [Stored machine credentials (AWS)](#stored-machine-credentials-aws) and
+> [Access Keys and Machine Credentials](runbooks/access-key-cutover.md).
+> Personal access credentials are keys as well. The secret never stores a refresh
+> token, so consumers read `password`, which holds a `pb_sa_…` key.
 
 ---
 
@@ -2572,4 +2582,4 @@ user's access keys) when a credential must die now.
 - [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
 - [Billing Add-on Bundles](billing-bundles.md) — the `sso` add-on bundle and feature entitlements.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions, `user.step-up`, `user.passkey.*`, `user.key.*`, `device.authorize.*`.
-- [Access key cutover](runbooks/access-key-cutover.md) — the one-time reissue every deployment performs at this release.
+- [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) — issuing personal keys and provisioning the three stored machine credentials.

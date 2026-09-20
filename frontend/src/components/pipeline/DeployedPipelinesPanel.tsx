@@ -139,7 +139,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
               {rows.map((row) => (
                 <li key={`${row.id}:${row.pipelineId}`} className="py-2 flex items-center justify-between text-sm gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{row.pipelineName}</div>
+                    <div className="font-medium text-fg">{row.pipelineName}</div>
                     <div className="text-xs text-fg-muted mt-0.5">
                       {row.region && <span>{row.region}</span>}
                       {row.stackName && <span> · stack {row.stackName}</span>}
@@ -172,7 +172,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           maxWidth="max-w-md"
         >
           <div className="space-y-3 text-sm">
-            <p className="text-gray-700 dark:text-gray-300">
+            <p className="text-fg-muted">
               Remove <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployed-pipelines registry?
             </p>
             <div className="p-3 rounded border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 text-xs">
@@ -182,7 +182,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
               <button
                 onClick={() => setConfirmTarget(null)}
                 disabled={!!removing}
-                className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Cancel
               </button>

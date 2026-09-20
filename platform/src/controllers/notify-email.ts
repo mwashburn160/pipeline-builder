@@ -13,7 +13,7 @@
  * Auth: service-token only (rejects user JWTs), same gate as /audit/events.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { toOrgId } from '../helpers/org-id.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
@@ -66,7 +66,7 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
     return sendSuccess(res, 200, { ok, recipientCount: emails.length });
   } catch (err) {
     logger.warn('Notify-email send failed', {
-      orgId: body.orgId, error: err instanceof Error ? err.message : String(err),
+      orgId: body.orgId, error: errorMessage(err),
     });
     return sendError(res, 500, 'Failed to send email');
   }

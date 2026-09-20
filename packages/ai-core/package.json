@@ -98,7 +98,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.1.7",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -158,6 +158,18 @@
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 95,
+        "branches": 92,
+        "functions": 95,
+        "lines": 95
+      }
     }
   },
   "types": "lib/index.d.ts",

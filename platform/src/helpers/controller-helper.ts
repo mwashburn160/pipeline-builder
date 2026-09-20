@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 
 const logger = createLogger('platform-api');
@@ -42,9 +42,10 @@ export function withController(
 // Auth Helpers
 
 /**
- * `isOrgAdmin` excludes sysadmins (who get separate handling) AND members
- * of the legacy "system" content-holder org — the latter holds shared
- * sample data and is a content boundary, not a write target.
+ * `isOrgAdmin` excludes sysadmins (who get separate handling) AND members of
+ * the "system" content-holder org — that org is a live, load-bearing tenant
+ * holding the shared sample/template content every org reads, so it is a
+ * content boundary, not a write target.
  */
 export function isOrgAdmin(req: Request): boolean {
   const role = req.user?.role;
@@ -217,10 +218,27 @@ export function requireMemberManagementScope(req: Request, res: Response): Membe
 // Effective org access (org → team hierarchy)
 
 /**
+ * True when the caller's active org and the route's target org are the SAME
+ * tenant. Both sides go through api-core's {@link normalizeOrgId} — the one
+ * spelling rule the whole fleet uses (quota's `authorizeOrg` and every
+ * `getIdentity`-derived `orgId` normalize identically). Comparing the raw
+ * strings here meant a mixed-case 24-hex id in the JWT (or in the URL) resolved
+ * to the same Mongo document everywhere else while failing this equality — the
+ * caller was 403'd out of their OWN org, or fell through to a hierarchy walk
+ * that could not match either.
+ */
+function isSameOrg(activeOrgId: string | undefined, targetOrgId: string): boolean {
+  const active = normalizeOrgId(activeOrgId);
+  return active !== undefined && active === normalizeOrgId(targetOrgId);
+}
+
+/**
  * Lazy bridge to the hierarchy walk. `controller-helper` is imported very
  * widely (every controller pulls `withController`), so we avoid eagerly
  * importing the Mongoose models + platform config it would otherwise drag in —
- * the model chain only loads on the cross-org authorization path.
+ * the model chain only loads on the cross-org authorization path. Both ids
+ * arrive NORMALIZED (see {@link isSameOrg}) so the walk compares the same
+ * spelling the `parentOrgId` strings are stored in.
  */
 async function targetIsDescendantOf(activeOrgId: string, targetOrgId: string): Promise<boolean> {
   // Lazy (no model/config load at module init). The specifier MUST be a literal
@@ -246,8 +264,8 @@ export async function canAdministerOrg(req: Request, targetOrgId: string): Promi
   if (!isOrgAdmin(req)) return false;
   const activeOrgId = req.user?.organizationId;
   if (!activeOrgId) return false;
-  if (activeOrgId === targetOrgId) return true;
-  return targetIsDescendantOf(activeOrgId, targetOrgId);
+  if (isSameOrg(activeOrgId, targetOrgId)) return true;
+  return targetIsDescendantOf(normalizeOrgId(activeOrgId)!, normalizeOrgId(targetOrgId) ?? targetOrgId);
 }
 
 /**
@@ -272,8 +290,8 @@ export async function canManageOrgScope(req: Request, targetOrgId: string): Prom
   if (isSystemAdmin(req)) return true;
   const activeOrgId = req.user?.organizationId;
   if (!activeOrgId) return false;
-  if (activeOrgId === targetOrgId) return true;
-  return targetIsDescendantOf(activeOrgId, targetOrgId);
+  if (isSameOrg(activeOrgId, targetOrgId)) return true;
+  return targetIsDescendantOf(normalizeOrgId(activeOrgId)!, normalizeOrgId(targetOrgId) ?? targetOrgId);
 }
 
 /**
@@ -304,9 +322,9 @@ export async function canAccessOrg(req: Request, targetOrgId: string): Promise<b
   if (isSystemAdmin(req)) return true;
   const activeOrgId = req.user?.organizationId;
   if (!activeOrgId) return false;
-  if (activeOrgId === targetOrgId) return true;
+  if (isSameOrg(activeOrgId, targetOrgId)) return true;
   if (!isOrgAdmin(req)) return false;
-  return targetIsDescendantOf(activeOrgId, targetOrgId);
+  return targetIsDescendantOf(normalizeOrgId(activeOrgId)!, normalizeOrgId(targetOrgId) ?? targetOrgId);
 }
 
 // Error Handling

@@ -528,10 +528,10 @@ function decryptWithKey(blob: EncryptedBlob, key: Buffer): string {
 }
 
 /**
- * Type guard  handy for model layers that hold a column whose value may be
- * either a clear-text string (legacy / unencrypted) OR an encrypted blob
- * (post-migration). Mixed states arise mid-migration; the model decides
- * what to do (decrypt on read, encrypt on next write).
+ * Shape guard for a parsed `EncryptedBlob`. Callers hold a value that was JSON-
+ * decoded from a secret column and must not hand anything else to
+ * `decryptSecret`; this narrows it (or the caller rejects the value). Clear text
+ * is NOT a supported stored form — the only consumer throws on a non-blob.
  */
 export function isEncryptedBlob(value: unknown): value is EncryptedBlob {
   return ( typeof value === 'object'

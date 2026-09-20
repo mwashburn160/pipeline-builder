@@ -21,13 +21,13 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
-const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
-const suite = RUN ? describe : describe.skip;
+const suite = integrationSuite();
 
 suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
   let replSet: { getUri: () => string; stop: () => Promise<boolean> };

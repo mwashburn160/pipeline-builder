@@ -38,7 +38,7 @@ export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps)
       <ul className="divide-y divide-gray-100 dark:divide-gray-800">
         {REGISTRY_SHORTCUTS.map((s) => (
           <li key={s.keys.join('+')} className="flex items-center justify-between py-2">
-            <span className="text-sm text-gray-700 dark:text-gray-300">{s.description}</span>
+            <span className="text-sm text-fg-muted">{s.description}</span>
             <span className="flex gap-1">
               {s.keys.map((k) => (
                 <kbd

@@ -12,7 +12,7 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useUrlTab } from '../src/hooks/useUrlTab';
-import { formatDate, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
+import { formatDate, formatDateLong, formatDateMedium, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
 
 const replace = jest.fn();
 let query: Record<string, string> = {};
@@ -136,6 +136,21 @@ describe('shared date formatters', () => {
   it('never renders "Invalid Date"', () => {
     expect(formatDateTime('nonsense')).toBe('—');
     expect(formatTime('nonsense')).toBe('—');
+  });
+
+  // Three components hand-rolled these two, and the billing copy pinned
+  // 'en-US' — so one date on the billing page ignored the user's locale.
+  it('spells the month out, in the platform locale, for long/medium dates', () => {
+    expect(formatDateLong(iso)).toBe(new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+    expect(formatDateMedium(iso)).toBe(new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }));
+    expect(formatDateLong(iso)).not.toBe(formatDateMedium(iso));
+  });
+
+  it('keeps the shared null/invalid guards on the spelled-out forms', () => {
+    expect(formatDateLong(null)).toBe('—');
+    expect(formatDateMedium(undefined)).toBe('—');
+    expect(formatDateLong('nonsense')).toBe('—');
+    expect(formatDateMedium('nonsense', 'n/a')).toBe('n/a');
   });
 
   it('accepts a caller-supplied placeholder (logs keep the raw value)', () => {

@@ -25,9 +25,8 @@ export interface AuditFilter {
   action?: string;
   targetType?: string;
   targetId?: string;
-  /** Permission role involved (org.role.* actions). Field name kept as
-   *  `groupId` for audit-log backward compatibility. */
-  groupId?: string;
+  /** Permission role involved (org.role.* actions). */
+  roleId?: string;
   /** Sysadmin behind an impersonated action — "what was done under
    *  impersonation by X". */
   impersonatorId?: string;
@@ -53,7 +52,7 @@ export interface AuditCreateInput {
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
-  groupId?: string;
+  roleId?: string;
   impersonatorId?: string;
   outcome?: 'success' | 'failure';
   details?: Record<string, unknown>;
@@ -106,7 +105,7 @@ export function buildAuditQuery(filter: AuditFilter): Record<string, unknown> {
   }
   if (filter.targetType) query.targetType = filter.targetType;
   if (filter.targetId) query.targetId = filter.targetId;
-  if (filter.groupId) query.groupId = filter.groupId;
+  if (filter.roleId) query.roleId = filter.roleId;
   if (filter.impersonatorId) query.impersonatorId = filter.impersonatorId;
   if (filter.outcome) query.outcome = filter.outcome;
   if (filter.requestId) query.requestId = filter.requestId;

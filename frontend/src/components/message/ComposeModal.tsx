@@ -37,11 +37,15 @@ interface ComposeModalProps {
     priority?: MessagePriority;
     channel?: string;
     attachmentIds?: string[];
+    /** Route this through the contact-support endpoint (`POST /messages/support`),
+     *  which forces the recipient server-side and needs only `messages:read`. */
+    support?: boolean;
   }) => Promise<boolean>;
   /** Whether the current user holds `messages:write` — enables full compose
    *  (address another org/team directly) instead of the support-only contact
-   *  form. Users without it see the support-alias pre-fill with their own org's
-   *  other teams as datalist suggestions. */
+   *  form. Without it the recipient is not a choice at all: the only send such a
+   *  member may make is to support, so the "To" field is shown, fixed, as the
+   *  support alias. */
   canWrite: boolean;
   /** Whether the current user is a sysadmin. Gates ONLY the broadcast
    *  announcement toggle (recipient `*` fans out to every org) — a genuine
@@ -88,12 +92,12 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   // to seed the picker and to recognize a support send regardless of which alias.
   const aliasList = supportAliases?.length ? supportAliases : [supportAlias];
   const aliasSet = new Set(aliasList.map((a) => a.toLowerCase()));
-  // BOTH To-fields default to the configured support alias, so "New Message" is a
+  // The To-field defaults to the configured support alias, so "New Message" is a
   // one-click contact-support flow for everyone. A full-compose (`messages:write`)
   // user can overwrite it with an org id / team; leaving it as the alias routes to
-  // the system support inbox on send (see handleSend), same as the support-only user.
+  // the support desk on send (see handleSend), same as the support-only user —
+  // who has no To-field to edit at all.
   const [recipientOrgId, setRecipientOrgId] = useState(supportAlias);
-  const [supportRecipient, setSupportRecipient] = useState(supportAlias);
   // Optional per-user target within recipientOrgId ('' = whole org). Full-compose
   // only; cleared whenever the recipient org changes (handled in RecipientPicker).
   const [recipientUserId, setRecipientUserId] = useState('');
@@ -143,7 +147,6 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   useEffect(() => {
     if (!isOpen) return;
     setRecipientOrgId((cur) => (cur === DEFAULT_SUPPORT_ALIAS || cur === '' ? supportAlias : cur));
-    setSupportRecipient((cur) => (cur === DEFAULT_SUPPORT_ALIAS || cur === '' ? supportAlias : cur));
   }, [isOpen, supportAlias]);
 
   // Fresh draft each time the modal OPENS — don't carry a cancelled draft or its
@@ -187,20 +190,23 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       return;
     }
 
-    // The active To-field depends on whether the user has full compose rights.
-    const activeRecipient = (canWrite ? recipientOrgId : supportRecipient).trim();
-    // Leaving the To field as the configured support alias (either field) routes
-    // to the system support inbox with the support channel, regardless of compose
-    // rights. Any other value is passed through as recipientOrgId (the server also
+    // Without `messages:write` the recipient was never a choice: the only send
+    // available is to support, whose To-field is fixed. A full-compose user
+    // leaving the To field as a configured support alias means the same thing.
+    const activeRecipient = (canWrite ? recipientOrgId : supportAlias).trim();
+    // A support send goes to its OWN route (`POST /messages/support`), which
+    // forces the recipient server-side and asks only for `messages:read` — so a
+    // read-only member reaches support instead of a 403. Anything else is a
+    // POST /messages send with `recipientOrgId` passed through (the server also
     // resolves any configured alias / authorizes the target).
-    const isSupportSend = !isAnnouncement && aliasSet.has(activeRecipient.toLowerCase());
+    const isSupportSend = !isAnnouncement && (!canWrite || aliasSet.has(activeRecipient.toLowerCase()));
     const recipient = isAnnouncement
       ? '*'
       : (isSupportSend ? SYSTEM_ORG_ID : activeRecipient.toLowerCase());
+    // Only reachable in full compose: a support send and a broadcast both
+    // resolve to a recipient without the user typing one.
     if (!isAnnouncement && !recipient) {
-      setValidationError(canWrite
-        ? 'Recipient organization is required'
-        : 'Recipient is required');
+      setValidationError('Recipient organization is required');
       return;
     }
 
@@ -234,8 +240,11 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
         : undefined;
 
     const result = await sendAsync({
+      // Carried for the non-support path only: the support route ignores it
+      // (and the client drops it), because the server decides the recipient.
       recipientOrgId: recipient,
       messageType: isAnnouncement ? 'announcement' : 'conversation',
+      ...(isSupportSend && { support: true }),
       subject: autoSubject(content),
       content: content.trim(),
       priority: 'normal',
@@ -251,7 +260,6 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     if (result === true) {
       setContent('');
       setRecipientOrgId(supportAlias);
-      setSupportRecipient(supportAlias);
       setRecipientUserId('');
       setChannel('');
       setIsAnnouncement(false);
@@ -418,25 +426,21 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             </div>
           )}
 
-          {/* Support-only user: pre-filled support recipient (editable; type
-              to override with one of the user's other teams). */}
+          {/* Support-only user: the recipient is FIXED. Addressing another org
+              needs `messages:write`, so an editable field could only ever offer
+              a send the server refuses — and this compose posts to the
+              contact-support route, which decides the recipient itself. */}
           {!canWrite && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
               <span className="text-fg-muted">To:</span>
-              <input
-                type="text"
-                value={supportRecipient}
-                onChange={(e) => setSupportRecipient(e.target.value)}
-                list="compose-recipient-options"
-                className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0"
-                aria-label="Recipient (defaults to support; type a teammate or team name to override)"
-              />
+              <span className="flex-1 text-fg-muted font-medium" data-testid="support-recipient">{supportAlias}</span>
             </div>
           )}
 
-          {/* Shared recipient suggestions — the configured support alias plus any
-              teams the user can message; referenced by both To inputs above. */}
-          {!isAnnouncement && (
+          {/* Recipient suggestions — the configured support alias plus any teams
+              the user can message; referenced by the full-compose To input above
+              (the support-only form has no editable recipient). */}
+          {canWrite && !isAnnouncement && (
             <datalist id="compose-recipient-options">
               {aliasList.map((alias) => (
                 <option key={alias} value={alias}>
@@ -489,7 +493,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                       className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1"
                     >
                       <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
-                      <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
+                      <span className="truncate flex-1 text-fg-muted">{a.filename}</span>
                       <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
                       <button
                         type="button"

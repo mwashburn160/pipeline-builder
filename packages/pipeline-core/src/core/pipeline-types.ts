@@ -22,11 +22,9 @@ export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
 
 
 /**
- * Constants for metadata keys to avoid string typos.
- *
- * Key format: `aws:cdk:{namespace}:{property}` (all lowercase).
- * These match the keys produced by `getCustomKey(namespace, property)`
- * and looked up by `buildConfigFromMetadata`.
+ * Metadata key constants — re-exported from `@pipeline-builder/api-core`, which
+ * owns the single catalog the browser's metadata picker reads as well. Importing
+ * `MetadataKeys` from `@pipeline-builder/pipeline-core` keeps working.
  *
  * @example
  * ```typescript
@@ -36,107 +34,7 @@ export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
  * };
  * ```
  */
-export const MetadataKeys = {
-  // ── CodePipeline (namespace: pipelines:codepipeline) ──
-  SELF_MUTATION: 'aws:cdk:pipelines:codepipeline:selfmutation',
-  CROSS_ACCOUNT_KEYS: 'aws:cdk:pipelines:codepipeline:crossaccountkeys',
-  DOCKER_ENABLED_FOR_SELF_MUTATION: 'aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation',
-  DOCKER_ENABLED_FOR_SYNTH: 'aws:cdk:pipelines:codepipeline:dockerenabledforsynth',
-  ENABLE_KEY_ROTATION: 'aws:cdk:pipelines:codepipeline:enablekeyrotation',
-  PUBLISH_ASSETS_IN_PARALLEL: 'aws:cdk:pipelines:codepipeline:publishassetsinparallel',
-  REUSE_CROSS_REGION_SUPPORT_STACKS: 'aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks',
-  USE_CHANGE_SETS: 'aws:cdk:pipelines:codepipeline:usechangesets',
-  USE_PIPELINE_ROLE_FOR_ACTIONS: 'aws:cdk:pipelines:codepipeline:usepipelineroleforactions',
-  ARTIFACT_BUCKET: 'aws:cdk:pipelines:codepipeline:artifactbucket',
-  ASSET_PUBLISHING_CODE_BUILD_DEFAULTS: 'aws:cdk:pipelines:codepipeline:assetpublishingcodebuilddefaults',
-  CDK_ASSETS_CLI_VERSION: 'aws:cdk:pipelines:codepipeline:cdkassetscliversion',
-  CLI_VERSION: 'aws:cdk:pipelines:codepipeline:cliversion',
-  CODE_BUILD_DEFAULTS: 'aws:cdk:pipelines:codepipeline:codebuilddefaults',
-  CODE_PIPELINE: 'aws:cdk:pipelines:codepipeline:codepipeline',
-  CROSS_REGION_REPLICATION_BUCKETS: 'aws:cdk:pipelines:codepipeline:crossregionreplicationbuckets',
-  DOCKER_CREDENTIALS: 'aws:cdk:pipelines:codepipeline:dockercredentials',
-  PIPELINE_NAME: 'aws:cdk:pipelines:codepipeline:pipelinename',
-  PIPELINE_TYPE: 'aws:cdk:pipelines:codepipeline:pipelinetype',
-  PIPELINE_ROLE: 'aws:cdk:pipelines:codepipeline:role',
-  SELF_MUTATION_CODE_BUILD_DEFAULTS: 'aws:cdk:pipelines:codepipeline:selfmutationcodebuilddefaults',
-  SYNTH: 'aws:cdk:pipelines:codepipeline:synth',
-  SYNTH_CODE_BUILD_DEFAULTS: 'aws:cdk:pipelines:codepipeline:synthcodebuilddefaults',
-
-  // ── CodeBuildStep (namespace: pipelines:codebuildstep) ──
-  ACTION_ROLE: 'aws:cdk:pipelines:codebuildstep:actionrole',
-  ADDITIONAL_INPUTS: 'aws:cdk:pipelines:codebuildstep:additionalinputs',
-  BUILD_ENVIRONMENT: 'aws:cdk:pipelines:codebuildstep:buildenvironment',
-  CACHE: 'aws:cdk:pipelines:codebuildstep:cache',
-  COMMANDS: 'aws:cdk:pipelines:codebuildstep:commands',
-  CODE_BUILD_ENV: 'aws:cdk:pipelines:codebuildstep:env',
-  ENV_FROM_CFN_OUTPUTS: 'aws:cdk:pipelines:codebuildstep:envfromcfnoutputs',
-  FILE_SYSTEM_LOCATIONS: 'aws:cdk:pipelines:codebuildstep:filesystemlocations',
-  INPUT: 'aws:cdk:pipelines:codebuildstep:input',
-  INSTALL_COMMANDS: 'aws:cdk:pipelines:codebuildstep:installcommands',
-  LOGGING: 'aws:cdk:pipelines:codebuildstep:logging',
-  PARTIAL_BUILD_SPEC: 'aws:cdk:pipelines:codebuildstep:partialbuildspec',
-  PRIMARY_OUTPUT_DIRECTORY: 'aws:cdk:pipelines:codebuildstep:primaryoutputdirectory',
-  PROJECT_NAME: 'aws:cdk:pipelines:codebuildstep:projectname',
-  STEP_ROLE: 'aws:cdk:pipelines:codebuildstep:role',
-  ROLE_POLICY_STATEMENTS: 'aws:cdk:pipelines:codebuildstep:rolepolicystatements',
-  TIMEOUT: 'aws:cdk:pipelines:codebuildstep:timeout',
-
-  // ── ShellStep (namespace: pipelines:shellstep) ──
-  SHELL_ADDITIONAL_INPUTS: 'aws:cdk:pipelines:shellstep:additionalinputs',
-  SHELL_COMMANDS: 'aws:cdk:pipelines:shellstep:commands',
-  SHELL_ENV: 'aws:cdk:pipelines:shellstep:env',
-  SHELL_ENV_FROM_CFN_OUTPUTS: 'aws:cdk:pipelines:shellstep:envfromcfnoutputs',
-  SHELL_INPUT: 'aws:cdk:pipelines:shellstep:input',
-  SHELL_INSTALL_COMMANDS: 'aws:cdk:pipelines:shellstep:installcommands',
-  SHELL_PRIMARY_OUTPUT_DIRECTORY: 'aws:cdk:pipelines:shellstep:primaryoutputdirectory',
-
-  // ── BuildEnvironment (namespace: codebuild:buildenvironment) ──
-  PRIVILEGED: 'aws:cdk:codebuild:buildenvironment:privileged',
-  BUILD_IMAGE: 'aws:cdk:codebuild:buildenvironment:buildimage',
-  CERTIFICATE: 'aws:cdk:codebuild:buildenvironment:certificate',
-  COMPUTE_TYPE: 'aws:cdk:codebuild:buildenvironment:computetype',
-  DOCKER_SERVER: 'aws:cdk:codebuild:buildenvironment:dockerserver',
-  ENVIRONMENT_VARIABLES: 'aws:cdk:codebuild:buildenvironment:environmentvariables',
-  FLEET: 'aws:cdk:codebuild:buildenvironment:fleet',
-
-  // ── Network configuration (namespace: ec2:network) ──
-  NETWORK_TYPE: 'aws:cdk:ec2:network:type',
-  NETWORK_VPC_ID: 'aws:cdk:ec2:network:vpcid',
-  NETWORK_SUBNET_IDS: 'aws:cdk:ec2:network:subnetids',
-  NETWORK_SUBNET_TYPE: 'aws:cdk:ec2:network:subnettype',
-  NETWORK_AVAILABILITY_ZONES: 'aws:cdk:ec2:network:availabilityzones',
-  NETWORK_SUBNET_GROUP_NAME: 'aws:cdk:ec2:network:subnetgroupname',
-  NETWORK_SECURITY_GROUP_IDS: 'aws:cdk:ec2:network:securitygroupids',
-  NETWORK_TAGS: 'aws:cdk:ec2:network:tags',
-  NETWORK_VPC_NAME: 'aws:cdk:ec2:network:vpcname',
-  NETWORK_REGION: 'aws:cdk:ec2:network:region',
-
-  // ── IAM role configuration (namespace: iam:role) ──
-  ROLE_TYPE: 'aws:cdk:iam:role:type',
-  ROLE_ARN: 'aws:cdk:iam:role:rolearn',
-  ROLE_NAME: 'aws:cdk:iam:role:rolename',
-  ROLE_MUTABLE: 'aws:cdk:iam:role:mutable',
-
-  // ── Security group configuration (namespace: ec2:securitygroup) ──
-  SECURITY_GROUP_TYPE: 'aws:cdk:ec2:securitygroup:type',
-  SECURITY_GROUP_IDS: 'aws:cdk:ec2:securitygroup:securitygroupids',
-  SECURITY_GROUP_MUTABLE: 'aws:cdk:ec2:securitygroup:mutable',
-  SECURITY_GROUP_NAME: 'aws:cdk:ec2:securitygroup:securitygroupname',
-  SECURITY_GROUP_VPC_ID: 'aws:cdk:ec2:securitygroup:vpcid',
-
-  // ── Notifications (namespace: notifications) ──
-  NOTIFICATION_TOPIC_ARN: 'aws:cdk:notifications:topic:arn',
-  NOTIFICATION_EVENTS: 'aws:cdk:notifications:events',
-
-  // ── Pipeline operations (namespace: operations — custom synth in PipelineBuilder) ──
-  ENABLE_EXECUTION_EVENTS: 'aws:cdk:operations:executionevents',
-  ENABLE_METRICS: 'aws:cdk:operations:metrics',
-  ARTIFACT_RETENTION_DAYS: 'aws:cdk:operations:artifactretentiondays',
-  PIPELINE_VARIABLES: 'aws:cdk:operations:variables',
-
-  // ── Encryption (namespace: encryption — custom synth in PipelineBuilder) ──
-  KMS_KEY_ARN: 'aws:cdk:encryption:kmskeyarn',
-} as const;
+export { MetadataKeys, type MetadataKey } from '@pipeline-builder/api-core';
 
 /**
  * Prefix for AWS CDK metadata keys.

@@ -17,7 +17,7 @@ import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type S
 import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { dispatchImmediate } from './compliance-notifier.js';
-import type { ComplianceNotification } from './notification-channels.js';
+import type { NotificationMessage } from './notification-channels.js';
 import {
   getNotificationPreference,
   getOrgsWithPendingDigests,
@@ -52,7 +52,7 @@ export function isDigestDue(preference: ComplianceNotificationPreference | null,
 }
 
 /** Build one digest notification from an org's parked entries. */
-export function buildDigest(orgId: string, entries: PendingDigestEntry[]): ComplianceNotification {
+export function buildDigest(orgId: string, entries: PendingDigestEntry[]): NotificationMessage {
   const items = entries.map((e) => e.notification);
   const hasHigh = items.some((n) => n.priority === 'urgent' || n.priority === 'high');
   const lines = items.map((n) => `- ${n.subject}`);
@@ -61,7 +61,7 @@ export function buildDigest(orgId: string, entries: PendingDigestEntry[]): Compl
     messageType: 'conversation',
     priority: hasHigh ? 'high' : 'normal',
     subject: `Compliance digest: ${items.length} notification${items.length === 1 ? '' : 's'}`,
-    content: `You have ${items.length} batched compliance notification${items.length === 1 ? '' : 's'}:\n\n${lines.join('\n')}`,
+    body: `You have ${items.length} batched compliance notification${items.length === 1 ? '' : 's'}:\n\n${lines.join('\n')}`,
     payload: {
       event: 'compliance.digest',
       orgId,

@@ -1602,7 +1602,7 @@ export const deploymentTopic: HelpTopic = {
           "type": "list",
           "items": [
             "After a fresh deploy (which generates a new user-token signing key), re-run infra store-token before publishing — otherwise the crane push / CodeBuild image pull can 401.",
-            "Re-run it for ALL THREE credentials — the platform one, --scope registry:push (what CodeBuild presents to the registry) and --scope reporting:ingest (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see Authentication → Stored machine credentials (AWS). Credentials stored before this release stop working and must be reissued — they were JWTs, and the secret now holds an opaque pb_sa_… key in the same password field (cutover runbook)."
+            "Re-run it for ALL THREE credentials — the platform one, --scope registry:push (what CodeBuild presents to the registry) and --scope reporting:ingest (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see Authentication → Stored machine credentials (AWS). Each secret holds an opaque pb_sa_… key in its password field — the full procedure, including the ordering that matters, is in Access Keys and Machine Credentials."
           ]
         },
         {

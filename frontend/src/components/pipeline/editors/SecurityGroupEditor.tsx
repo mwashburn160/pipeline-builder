@@ -66,7 +66,7 @@ export default function SecurityGroupEditor({
               disabled={disabled}
               className="h-4 w-4 text-brand focus:ring-blue-500"
             />
-            <label htmlFor="sgMutable" className="ml-2 text-sm text-gray-700 dark:text-gray-300">Mutable</label>
+            <label htmlFor="sgMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
           </div>
         </div>
       )}

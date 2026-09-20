@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, validateBody, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
@@ -45,7 +45,7 @@ export function createUpdateRuleRoutes(): Router {
       // metadata only; never the full rule definition.
       emitComplianceAudit({
         action: 'compliance.rule.update',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: updated.id,

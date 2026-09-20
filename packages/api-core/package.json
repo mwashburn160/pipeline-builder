@@ -104,10 +104,13 @@
     "*": {
       "permissions": [
         "lib/types/permissions.d.ts"
+      ],
+      "metadata-keys": [
+        "lib/types/metadata-keys.d.ts"
       ]
     }
   },
-  "version": "4.1.7",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -167,6 +170,24 @@
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 95,
+        "branches": 88,
+        "functions": 88,
+        "lines": 95
+      },
+      "**/src/utils/audit.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      }
     }
   },
   "types": "lib/index.d.ts",
@@ -179,6 +200,10 @@
     "./permissions": {
       "types": "./lib/types/permissions.d.ts",
       "default": "./lib/types/permissions.js"
+    },
+    "./metadata-keys": {
+      "types": "./lib/types/metadata-keys.d.ts",
+      "default": "./lib/types/metadata-keys.js"
     },
     "./lib/*": "./lib/*",
     "./package.json": "./package.json"

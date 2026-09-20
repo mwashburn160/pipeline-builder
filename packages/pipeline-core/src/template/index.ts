@@ -39,7 +39,7 @@ export {
   detectCycles,
   allowedScopeRoots,
   type TemplateError,
-  type ValidationResult,
+  type TemplateValidationResult,
 } from './validate.js';
 
 // -- Convenience: high-level resolve() that walks + resolves + measures

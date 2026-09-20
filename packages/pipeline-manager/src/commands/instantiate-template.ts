@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as fs from 'fs';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import ora from 'ora';
 import pico from 'picocolors';
@@ -60,7 +61,7 @@ function readInputsFile(file: string): Record<string, string | number | boolean>
     parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch (error) {
     throw new ValidationError(
-      `Inputs file is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      `Inputs file is not valid JSON: ${errorMessage(error)}`,
       'inputs-file', file,
     );
   }

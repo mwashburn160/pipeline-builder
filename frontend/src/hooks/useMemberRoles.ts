@@ -3,7 +3,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
-import { roleDisplayName } from '@/lib/role-display';
 import api from '@/lib/api';
 import type { OrganizationMember, OrganizationRole } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -66,7 +65,7 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
     [],
   );
   const roleDisplayById = useCallback(
-    (id: string) => roleDisplayName(roles.find(r => r.id === id)?.name ?? id),
+    (id: string) => roles.find(r => r.id === id)?.name ?? id,
     [roles],
   );
 

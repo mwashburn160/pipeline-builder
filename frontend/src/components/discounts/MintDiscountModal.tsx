@@ -62,7 +62,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
     >
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Code</label>
+          <label className="block text-xs font-medium text-fg-muted">Code</label>
           <Input
             type="text"
             placeholder="50:percent:onetime"
@@ -81,7 +81,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           </p>
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Alias <span className="text-fg-subtle">(optional)</span></label>
+          <label className="block text-xs font-medium text-fg-muted">Alias <span className="text-fg-subtle">(optional)</span></label>
           <Input
             type="text"
             placeholder="e.g. LAUNCH50"
@@ -92,7 +92,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Target org id <span className="text-fg-subtle">(optional)</span></label>
+          <label className="block text-xs font-medium text-fg-muted">Target org id <span className="text-fg-subtle">(optional)</span></label>
           <Input
             type="text"
             placeholder="Leave blank for any org"
@@ -103,7 +103,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Campaign <span className="text-fg-subtle">(optional)</span></label>
+          <label className="block text-xs font-medium text-fg-muted">Campaign <span className="text-fg-subtle">(optional)</span></label>
           <Input
             type="text"
             placeholder="e.g. summer-2026"
@@ -115,7 +115,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Max redemptions <span className="text-fg-subtle">(optional)</span></label>
+            <label className="block text-xs font-medium text-fg-muted">Max redemptions <span className="text-fg-subtle">(optional)</span></label>
             <Input
               type="number"
               min={1}
@@ -127,7 +127,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Redeem by <span className="text-fg-subtle">(optional)</span></label>
+            <label className="block text-xs font-medium text-fg-muted">Redeem by <span className="text-fg-subtle">(optional)</span></label>
             <Input
               type="date"
               value={redeemBy}

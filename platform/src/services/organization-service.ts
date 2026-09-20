@@ -220,7 +220,7 @@ class OrganizationService {
       if (body.parentOrgId) {
         const parent = await Organization.findById(toOrgId(body.parentOrgId))
           .select('tier featureEntitlements').session(session).lean();
-        tier = (parent?.tier as QuotaTier) ?? DEFAULT_TIER;
+        tier = parent?.tier ?? DEFAULT_TIER;
         inheritedFeatures = (parent?.featureEntitlements as string[] | undefined) ?? [];
         quotas = Object.fromEntries(
           Object.keys(QUOTA_TIERS[tier].limits).map((k) => [k, -1]),
@@ -270,8 +270,7 @@ class OrganizationService {
     const parent = await Organization.findById(toOrgId(parentOrgId)).select('parentOrgId tier').lean();
     if (!parent) return 'not-found';
     if (parent.parentOrgId) return 'not-root';
-    const tier = parent.tier as QuotaTier | undefined;
-    if (!tierAllowsTeams(tier)) return 'tier-forbidden';
+    if (!tierAllowsTeams(parent.tier)) return 'tier-forbidden';
     return 'ok';
   }
 
@@ -391,7 +390,7 @@ class OrganizationService {
    * config — see {@link setTier} in organization-quota.js. Delegates; the public
    * method signature is unchanged.
    */
-  async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
+  async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
     return setTier(id, newTier);
   }
 

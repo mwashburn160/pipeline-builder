@@ -86,7 +86,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write`, `logs:export` | `logs:export` is admin/owner by default — viewing logs rides `observability:read`, but DOWNLOADING them is bulk egress an org may withhold from members. See [Logs](observability-logs.md#downloading). |
 | Insights | `reports:read`, `reports:rollup` | `:rollup` allows including descendant teams in reports |
-| Messaging | `messages:read`, `messages:write` | |
+| Messaging | `messages:read`, `messages:write` | `messages:read` also covers **contacting support** (`POST /messages/support`) — reaching support is self-service, and that route takes no recipient (the server always addresses the support desk). Sending to anyone else needs `messages:write`. |
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |
 | Registry | `registry:read`, `registry:write` | **Super Admin only** — never grantable to a custom Role |
 | Org settings | `org:settings` | General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export) |
@@ -211,7 +211,7 @@ rot.
 
 Each test also writes its table to `frontend/src/generated/route-table/<service>.json`
 (regenerate with `UPDATE_ROUTE_TABLES=1`), and the frontend's
-`test/route-permissions.test.ts` asserts that every gated control matches the
+`test/route-permissions.test.tsx` asserts that every gated control matches the
 route it calls on EVERY dimension the table records — permissions, entitlements
 (`features`), step-up, scopes, assurance and the admin-actions MFA policy
 (`orgAdminAssurance`) — so a UI gate can't drift from the API. Its `GATED_ROUTES_WITHOUT_A_CONTROL` registry closes the other direction:

@@ -150,7 +150,7 @@ export default function OrgDetailPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <KeyRound className="w-5 h-5 text-fg-muted" />
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Per-org KMS</h3>
+                    <h3 className="text-base font-semibold text-fg">Per-org KMS</h3>
                   </div>
                   {can('org:kms') && (
                     <button type="button" onClick={() => setShowKms(true)} className="action-link text-sm">
@@ -179,7 +179,7 @@ export default function OrgDetailPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-fg-muted" />
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">SSO / IdP</h3>
+                    <h3 className="text-base font-semibold text-fg">SSO / IdP</h3>
                   </div>
                   {can('org:idp') && (
                     <button type="button" onClick={() => setShowIdp(true)} className="action-link text-sm">
@@ -239,7 +239,7 @@ export default function OrgDetailPage() {
               <Card>
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles className="w-5 h-5 text-fg-muted" />
-                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Feature entitlements</h3>
+                  <h3 className="text-base font-semibold text-fg">Feature entitlements</h3>
                 </div>
                 {features.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
@@ -258,7 +258,7 @@ export default function OrgDetailPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Gauge className="w-5 h-5 text-fg-muted" />
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Quotas</h3>
+                    <h3 className="text-base font-semibold text-fg">Quotas</h3>
                   </div>
                   <Link href="/dashboard/quotas" className="action-link text-sm">Manage</Link>
                 </div>

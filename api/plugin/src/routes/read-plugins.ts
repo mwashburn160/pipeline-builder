@@ -114,7 +114,7 @@ export function createReadPluginRoutes(
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
     ctx: RequestContext,
-    setCacheHeader: boolean,
+    opts: { setCacheHeader: boolean },
   ) => {
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
@@ -123,7 +123,7 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
-    if (setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
+    if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
     return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   };
 
@@ -132,14 +132,14 @@ export function createReadPluginRoutes(
     if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
     const parsed = PluginFilterSchema.safeParse(filter);
     if (!parsed.success) return sendBadRequest(res, `Invalid filter: ${parsed.error.message}`, ErrorCode.VALIDATION_ERROR);
-    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, false);
+    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false });
   }));
 
   // GET /plugins/find — single plugin by filter
   router.get('/find', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validated = validateQuery(req, PluginFilterSchema);
     if (!validated.ok) return sendBadRequest(res, validated.error);
-    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, true);
+    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, { setCacheHeader: true });
   }));
 
   // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),

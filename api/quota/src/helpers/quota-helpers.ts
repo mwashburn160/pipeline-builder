@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 export type { QuotaTier } from '@pipeline-builder/api-core';
 export { QUOTA_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
@@ -56,6 +56,40 @@ export function computeQuotaStatus(
   const allowed = limit === -1 || used < limit;
 
   return { limit, used, remaining, allowed, unlimited: limit === -1, resetAt: usage.resetAt };
+}
+
+/**
+ * Whether a reservation was granted. Spelled out rather than passed as a bare
+ * boolean because {@link buildReserveResult}'s last argument is otherwise
+ * indistinguishable at the call site from the numbers before it — and the two
+ * outcomes mean opposite things to every caller of `reserveQuota`.
+ */
+export type ReserveOutcome = 'allowed' | 'exceeded';
+
+/**
+ * Build a {@link QuotaReserveResult} from raw usage figures. Centralizes the
+ * unlimited (`limit === -1` ⇒ remaining `-1`) logic and resetAt serialization
+ * so the read-back blocks across increment/decrement can't drift (they
+ * previously hand-rolled this with subtly inconsistent `-1` handling).
+ * `resetAt` accepts a Date or ISO string; `undefined` ⇒ omitted.
+ */
+export function buildReserveResult(
+  quotaType: QuotaType,
+  limit: number,
+  used: number,
+  resetAt: Date | string | undefined,
+  outcome: ReserveOutcome,
+): QuotaReserveResult {
+  return {
+    exceeded: outcome === 'exceeded',
+    quota: {
+      type: quotaType,
+      limit,
+      used,
+      remaining: limit === -1 ? -1 : Math.max(0, limit - used),
+      resetAt: resetAt ? new Date(resetAt).toISOString() : undefined,
+    },
+  };
 }
 
 // Org quota response — unified shape used by all endpoints

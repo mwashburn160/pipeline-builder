@@ -4,6 +4,7 @@
 // Mock function references  must be defined before jest.mock() calls
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockParseGitUrl = jest.fn();
@@ -106,7 +107,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 // Mock drizzle-orm operators as identity/passthrough functions
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   eq: jest.fn((_col: any, _val: any) => ({ type: 'eq', col: _col, val: _val })),
   or: jest.fn((...args: any[]) => ({ type: 'or', args })),
   and: jest.fn((...args: any[]) => ({ type: 'and', args })),
@@ -414,7 +415,7 @@ describe('POST /generate/from-url/stream', () => {
       { project: 'app', organization: 'test', synth: { source: { type: 'github' } } },
     ];
 
-    // Final output has no stages with pluginName actions, so autoCreateMissingPlugins
+    // Final output has no stages at all, so autoCreateMissingPlugins
     // will extract no plugin names and skip the plugin creation flow
     const finalOutputNoStages = {
       project: 'app',
@@ -559,10 +560,9 @@ describe('POST /generate/from-url/stream', () => {
   // Auto-plugin creation  missing plugins
 
   it('emits checking-plugins and creating-plugins events for missing plugins', async () => {
-    // Final output references plugins via stages[].steps[].plugin.name
-    // But extractPluginNames looks at stages[].actions[].pluginName
-    // Let's match the actual code: stages[].actions[].pluginName
-    const finalOutputWithActions = {
+    // Final output references plugins via stages[].steps[].plugin.name — the
+    // single shape extractPluginNames walks.
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'Pipeline with plugins',
@@ -574,15 +574,15 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [
-            { pluginName: 'nodejs-build' },
-            { pluginName: 'docker-push' },
+          steps: [
+            { plugin: { name: 'nodejs-build' } },
+            { plugin: { name: 'docker-push' } },
           ],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // findExistingPluginNames does ONE batched query (await db.select().from().where()),
     // resolved via the thenable chain — no .limit() call.
@@ -631,7 +631,7 @@ describe('POST /generate/from-url/stream', () => {
   // `echo "..."` / `RUN echo "Plugin ..."`). It must be rejected BEFORE the
   // deploy call — never escaped, never forwarded.
   it('rejects a shell-injection plugin name and never deploys it', async () => {
-    const finalOutputWithActions = {
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'Injection test',
@@ -643,15 +643,15 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [
-            { pluginName: 'safe-plugin' },
-            { pluginName: '"; rm -rf / #' },
+          steps: [
+            { plugin: { name: 'safe-plugin' } },
+            { plugin: { name: '"; rm -rf / #' } },
           ],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // Both names "missing" so each would be a deploy candidate.
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
@@ -693,7 +693,7 @@ describe('POST /generate/from-url/stream', () => {
   // Auto-plugin creation  existing plugins skip creation
 
   it('skips plugin creation when all referenced plugins already exist', async () => {
-    const finalOutputWithActions = {
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'Pipeline',
@@ -705,15 +705,15 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [
-            { pluginName: 'nodejs-build' },
-            { pluginName: 'test-runner' },
+          steps: [
+            { plugin: { name: 'nodejs-build' } },
+            { plugin: { name: 'test-runner' } },
           ],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // DB lookup: batched single query  both plugins exist
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
@@ -750,7 +750,7 @@ describe('POST /generate/from-url/stream', () => {
   // Auto-plugin creation  mixed existing and missing
 
   it('creates only missing plugins when some already exist', async () => {
-    const finalOutputWithActions = {
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'Mixed pipeline',
@@ -762,15 +762,15 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [
-            { pluginName: 'nodejs-build' },
-            { pluginName: 'new-plugin' },
+          steps: [
+            { plugin: { name: 'nodejs-build' } },
+            { plugin: { name: 'new-plugin' } },
           ],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // DB lookup: batched single query  nodejs-build exists, new-plugin does not
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
@@ -822,7 +822,7 @@ describe('POST /generate/from-url/stream', () => {
   // Auto-plugin creation  deploy failure records error
 
   it('records error in builds when plugin deployment fails', async () => {
-    const finalOutputWithActions = {
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'Deploy fail test',
@@ -834,12 +834,12 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [{ pluginName: 'failing-plugin' }],
+          steps: [{ plugin: { name: 'failing-plugin' } }],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // Batched lookup — failing-plugin not found.
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
@@ -872,7 +872,7 @@ describe('POST /generate/from-url/stream', () => {
   // Auto-plugin creation  non-202 status records HTTP error
 
   it('records HTTP error when plugin service returns non-success status', async () => {
-    const finalOutputWithActions = {
+    const finalOutputWithPlugins = {
       project: 'app',
       organization: 'test',
       description: 'HTTP error test',
@@ -884,12 +884,12 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [{ pluginName: 'bad-plugin' }],
+          steps: [{ plugin: { name: 'bad-plugin' } }],
         },
       ],
     };
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
 
     // Batched lookup — bad-plugin not found.
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
@@ -918,9 +918,9 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
-  // No stages or no pluginName references  auto-plugin skipped
+  // No stages or no step-plugin references  auto-plugin skipped
 
-  it('skips auto-plugin creation when output has no stages with actions', async () => {
+  it('skips auto-plugin creation when output has no stages with steps', async () => {
     const finalOutputNoStages = {
       project: 'app',
       organization: 'test',
@@ -1141,16 +1141,16 @@ describe('POST /generate/from-url/stream', () => {
       stages: [
         {
           stageName: 'Build',
-          actions: [
-            { pluginName: 'nodejs-build' },
-            { pluginName: 'nodejs-build' },
-            { pluginName: 'docker-push' },
+          steps: [
+            { plugin: { name: 'nodejs-build' } },
+            { plugin: { name: 'nodejs-build' } },
+            { plugin: { name: 'docker-push' } },
           ],
         },
         {
           stageName: 'Deploy',
-          actions: [
-            { pluginName: 'docker-push' },
+          steps: [
+            { plugin: { name: 'docker-push' } },
           ],
         },
       ],

@@ -342,7 +342,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
             onClick={() => { if (isWorking || mode === m) return; setMode(m); resetSpec(); setError(null); setSuccess(null); }}
             disabled={isWorking}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              mode === m ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-fg-muted hover:text-gray-700 dark:hover:text-gray-300'
+              mode === m ? 'bg-white dark:bg-gray-700 text-fg shadow-sm' : 'text-fg-muted hover:text-fg'
             }`}
           >
             {m === 'create' ? 'Create new' : 'Edit existing'}
@@ -446,10 +446,10 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
                   {FAILURE_BEHAVIORS.map((b) => <option key={b} value={b}>{b}</option>)}
                 </Select>
               </FormField>
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
                 <Checkbox checked={isActive} onChange={(e) => setIsActive(e.target.checked)} disabled={isWorking} /> Active
               </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
                 <Checkbox checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} disabled={isWorking} /> Default for its category
               </label>
             </div>

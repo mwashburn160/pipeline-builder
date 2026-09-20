@@ -17,10 +17,11 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { __mw: name });
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireStepUp: tagged('requireStepUp'),
   requireAuth: tagged('requireAuth'),
   audited: (...actions: string[]) => tagged(`audited:${actions.join(',')}`),

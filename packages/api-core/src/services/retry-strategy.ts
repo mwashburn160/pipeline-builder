@@ -20,12 +20,16 @@ const TRANSIENT_STATUS_CODES = [502, 503, 504];
  * Configuration for retry behavior.
  */
 export interface RetryConfig {
-  /** Maximum retry attempts for transient failures (default: 2) */
+  /** Retries AFTER the initial attempt (so `3` ⇒ up to 4 attempts). */
   maxRetries: number;
   /** Base delay between retries in ms — doubles each attempt (default: 200) */
   retryDelayMs: number;
-  /** Maximum retry attempts specifically for 429 rate limiting (default: 4) */
-  maxRateLimitRetries: number;
+  /**
+   * Maximum retry attempts specifically for 429 rate limiting (default:
+   * {@link DEFAULT_MAX_RATE_LIMIT_RETRIES}). HTTP-only — omit it for a
+   * non-HTTP consumer such as the database connection retry.
+   */
+  maxRateLimitRetries?: number;
 }
 
 /**
@@ -116,7 +120,7 @@ export function getRetryDecision(
   config: RetryConfig,
 ): RetryDecision {
   // 429 rate limiting — use Retry-After or longer backoff (4x base)
-  if (isRateLimited(statusCode) && attempt < config.maxRateLimitRetries) {
+  if (isRateLimited(statusCode) && attempt < (config.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES)) {
     const retryAfter = parseRetryAfter(headers['retry-after']);
     const rawDelay = retryAfter ?? (config.retryDelayMs * 4 * Math.pow(2, attempt));
     return {

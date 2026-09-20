@@ -86,27 +86,18 @@ export interface ComplianceRuleHistoryEntry {
   changedAt: string;
 }
 
-export interface ComplianceViolation {
-  ruleId: string;
-  ruleName: string;
-  policyId?: string;
-  field: string;
-  operator: string;
-  expectedValue: unknown;
-  actualValue: unknown;
-  severity: RuleSeverity;
-  message: string;
-}
-
-export interface ComplianceCheckResult {
-  passed: boolean;
-  violations: ComplianceViolation[];
-  warnings: ComplianceViolation[];
-  blocked: boolean;
-  rulesEvaluated: number;
-  rulesSkipped: number;
-  exemptionsApplied: string[];
-}
+/**
+ * A validation result and its violations come straight off the wire from the
+ * compliance service, so they are re-exported from the api-core client that
+ * parses them rather than re-declared here.
+ *
+ * The local copies had already drifted from that source of truth — `severity`
+ * had been narrowed to {@link RuleSeverity} (the service sends a free-form
+ * string) and `policyId` had lost its `| null`, which the service does send for
+ * an unattached rule. Nothing in the frontend depends on either narrowing:
+ * `severity` is only compared against literals, and `policyId` is never read.
+ */
+export type { ComplianceViolation, ComplianceCheckResult } from '@pipeline-builder/api-core';
 
 export interface ComplianceAuditEntry {
   id: string;

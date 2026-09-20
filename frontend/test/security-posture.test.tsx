@@ -25,6 +25,7 @@ const api = {
 jest.mock('@/lib/api', () => ({ __esModule: true, default: api }));
 
 import { SecurityPostureStrip, derivePosture } from '../src/components/security/SecurityPostureStrip';
+import { clearQueryCache } from '../src/lib/query-cache';
 import { OrgSecurityCard } from '../src/components/security/OrgSecurityCard';
 
 const baseUser = (over: Partial<User> = {}): User => ({
@@ -36,6 +37,9 @@ const baseUser = (over: Partial<User> = {}): User => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The TOTP status and session list are read through the shared cache, which
+  // outlives a test — a stale hit would answer the next test's mock.
+  clearQueryCache();
   entitled = true;
   api.getTotpStatus.mockResolvedValue({ success: true, data: { totp: { enabled: true, recoveryCodesRemaining: 2, recoveryCodesTotal: 10 } } });
   api.listSessions.mockResolvedValue({ success: true, data: { sessions: [{ id: 's1' }, { id: 's2' }, { id: 's3' }], machineSessions: [] } });

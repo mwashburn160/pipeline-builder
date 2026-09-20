@@ -69,7 +69,7 @@ export function ManageTeamsModal({
                   onChange={() => onToggleTeam(t.orgId)}
                   disabled={saving || isOwner}
                 />
-                <span className="flex-1 truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
+                <span className="flex-1 truncate text-fg">{t.orgName}</span>
                 {t.isMember && <Badge color={isOwner ? 'purple' : 'gray'}>{t.role}</Badge>}
                 {t.isMember && t.isActive === false && <Badge color="red">inactive</Badge>}
               </label>

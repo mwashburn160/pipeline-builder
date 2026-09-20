@@ -23,28 +23,33 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 // Muted-gray icon at rest; the tone only drives the HOVER colour, matching the
 // row-action pattern repeated across members/roles/etc.
+//
+// Every tone that HAS a semantic token uses it, so the whole kit flips with the
+// theme from one place. `indigo` / `purple` / `orange` keep raw palette classes
+// because the token set is deliberately limited to brand + success/warning/
+// danger/info — there is nothing to point them at.
 const TONE_CLASS: Record<IconButtonTone, string> = {
-  default: 'hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800',
-  primary: 'hover:text-brand hover:bg-blue-50 dark:hover:bg-blue-900/20',
+  default: 'hover:text-fg hover:bg-surface-muted',
+  primary: 'hover:text-brand hover:bg-info-bg',
   indigo: 'hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/20',
   purple: 'hover:text-purple-600 hover:bg-purple-50 dark:hover:text-purple-400 dark:hover:bg-purple-900/20',
-  danger: 'hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/20',
-  warn: 'hover:text-warning hover:bg-amber-50 dark:hover:bg-amber-900/20',
+  danger: 'hover:text-danger hover:bg-danger-bg',
+  warn: 'hover:text-warning hover:bg-warning-bg',
   orange: 'hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/20',
-  success: 'hover:text-success hover:bg-green-50 dark:hover:bg-green-900/20',
+  success: 'hover:text-success hover:bg-success-bg',
 };
 
 // Coloured icon AT REST + hover backdrop only (no hover text-shift) — for
 // stateful/always-coloured actions (active toggle, approve/reject).
 const REST_CLASS: Record<IconButtonTone, string> = {
-  default: 'text-fg-subtle hover:bg-gray-100 dark:hover:bg-gray-800',
-  primary: 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20',
+  default: 'text-fg-subtle hover:bg-surface-muted',
+  primary: 'text-info hover:bg-info-bg',
   indigo: 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20',
   purple: 'text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20',
-  danger: 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20',
-  warn: 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20',
+  danger: 'text-danger hover:bg-danger-bg',
+  warn: 'text-warning hover:bg-warning-bg',
   orange: 'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20',
-  success: 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20',
+  success: 'text-success hover:bg-success-bg',
 };
 
 /**
@@ -63,7 +68,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   // invisible cursor. Ring token matches `.btn` (globals.css).
   const classes = [
     'p-1.5 rounded-lg transition-colors',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
     colour,
     className,
   ].filter(Boolean).join(' ');

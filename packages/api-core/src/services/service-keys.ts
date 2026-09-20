@@ -59,6 +59,7 @@ import jwt from 'jsonwebtoken';
 import { publicJwkFrom, publicKeyFromJwk, type PublicJwk } from '../utils/jwk.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('service-keys');
 
@@ -121,7 +122,7 @@ function loadConfiguredSigningKey(file: string): LocalSigningKey {
   try {
     privateKey = crypto.createPrivateKey(readFileSync(file, 'utf8'));
   } catch (error) {
-    throw new ServiceKeyError(`Could not read the service signing key at ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ServiceKeyError(`Could not read the service signing key at ${file}: ${errorMessage(error)}`);
   }
   // publicJwkFrom rejects anything but an EC P-256 key, so a service configured
   // with (say) an RSA key fails HERE rather than minting tokens nobody verifies.
@@ -201,7 +202,7 @@ function parseBundle(raw: string, file: string): Map<string, { serviceName: stri
   try {
     document = JSON.parse(raw);
   } catch (error) {
-    throw new ServiceKeyError(`${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ServiceKeyError(`${file} is not valid JSON: ${errorMessage(error)}`);
   }
   const services = (document as Partial<ServiceKeyBundle>)?.services;
   if (!services || typeof services !== 'object') {
@@ -216,7 +217,7 @@ function parseBundle(raw: string, file: string): Map<string, { serviceName: stri
       } catch (error) {
         // One unusable entry must not discard the rest of the bundle — the same
         // rule the JWKS cache applies to platform's published set.
-        logger.warn('Skipping unusable service key', { serviceName, kid: jwk.kid, error: error instanceof Error ? error.message : String(error) });
+        logger.warn('Skipping unusable service key', { serviceName, kid: jwk.kid, error: errorMessage(error) });
       }
     }
   }
@@ -261,7 +262,7 @@ function verificationKeys(): Map<string, { serviceName: string; key: KeyObject }
     return byKid;
   } catch (error) {
     if (bundle) {
-      logger.warn('Service key bundle reload failed; continuing on the loaded copy', { file, error: error instanceof Error ? error.message : String(error) });
+      logger.warn('Service key bundle reload failed; continuing on the loaded copy', { file, error: errorMessage(error) });
       return bundle.byKid;
     }
     throw error instanceof ServiceKeyError ? error : new ServiceKeyError(String(error));

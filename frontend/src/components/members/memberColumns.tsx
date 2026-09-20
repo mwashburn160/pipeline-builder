@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { type Column } from '@/components/ui/DataTable';
-import { roleDisplayName } from '@/lib/role-display';
 import type { OrganizationMember } from '@/types';
 
 interface BuildMemberColumnsOptions {
@@ -89,7 +88,7 @@ export function buildMemberColumns({
           <div className="flex flex-wrap items-center gap-1">
             {assigned.map((r) => (
               <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-surface-muted text-fg-muted">
-                <ShieldCheck className="w-2.5 h-2.5 text-fg-subtle" />{roleDisplayName(r.name)}
+                <ShieldCheck className="w-2.5 h-2.5 text-fg-subtle" />{r.name}
               </span>
             ))}
           </div>

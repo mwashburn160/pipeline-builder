@@ -25,7 +25,6 @@ import { Pagination } from '@/components/ui/Pagination';
 import { RetryError } from '@/components/ui/RetryError';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel } from '@pipeline-builder/api-core/permissions';
-import { roleDisplayName } from '@/lib/role-display';
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -142,7 +141,7 @@ export default function RolesPage() {
     const email = addEmail.trim().toLowerCase();
     const result = await addForm.run(() => api.addRoleMember(orgId, addToRole.id, { email }));
     if (result !== null) {
-      toast.success(`Added ${email} to ${roleDisplayName(addToRole.name)}`);
+      toast.success(`Added ${email} to ${addToRole.name}`);
       setAddToRole(null);
       setAddEmail('');
       fetchRoles();
@@ -156,7 +155,7 @@ export default function RolesPage() {
     try {
       const res = await api.removeRoleMember(orgId, role.id, member.id);
       if (!res.success) throw new Error(res.message || 'Failed to remove from role');
-      toast.success(`Removed ${member.username} from ${roleDisplayName(role.name)}`);
+      toast.success(`Removed ${member.username} from ${role.name}`);
       setRemoveTarget(null);
       fetchRoles();
     } catch (err) {
@@ -224,7 +223,7 @@ export default function RolesPage() {
     if (!orgId || !deleteTarget) return;
     const result = await del.run(() => api.deleteRole(orgId, deleteTarget.id));
     if (result !== null) {
-      toast.success(`Deleted ${roleDisplayName(deleteTarget.name)}`);
+      toast.success(`Deleted ${deleteTarget.name}`);
       setDeleteTarget(null);
       fetchRoles();
     }
@@ -278,7 +277,7 @@ export default function RolesPage() {
                 title={
                   <span className="inline-flex flex-wrap items-center gap-2">
                     {isSuperRole ? <ShieldAlert className="w-4 h-4 text-danger" /> : <ShieldCheck className="w-4 h-4 text-fg-muted" />}
-                    {roleDisplayName(r.name)}
+                    {r.name}
                     {r.system
                       ? <Badge color={ROLE_BADGE[r.grantsRole]}>{r.grantsRole}</Badge>
                       : <Badge color="blue">custom</Badge>}
@@ -289,10 +288,10 @@ export default function RolesPage() {
                   <div className="flex items-center gap-1.5">
                     {editable && !r.system && (
                       <>
-                        <IconButton tone="primary" onClick={() => openEdit(r)} title={`Edit ${roleDisplayName(r.name)}`} aria-label={`Edit ${roleDisplayName(r.name)}`}>
+                        <IconButton tone="primary" onClick={() => openEdit(r)} title={`Edit ${r.name}`} aria-label={`Edit ${r.name}`}>
                           <Pencil className="w-4 h-4" />
                         </IconButton>
-                        <IconButton tone="danger" onClick={() => setDeleteTarget(r)} title={`Delete ${roleDisplayName(r.name)}`} aria-label={`Delete ${roleDisplayName(r.name)}`}>
+                        <IconButton tone="danger" onClick={() => setDeleteTarget(r)} title={`Delete ${r.name}`} aria-label={`Delete ${r.name}`}>
                           <Trash2 className="w-4 h-4" />
                         </IconButton>
                       </>
@@ -378,8 +377,8 @@ export default function RolesPage() {
                               onClick={() => setRemoveTarget({ role: r, member: m })}
                               disabled={!!blockReason}
                               className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-fg-muted disabled:hover:bg-transparent"
-                              title={blockReason ?? `Remove ${m.username} from ${roleDisplayName(r.name)}`}
-                              aria-label={`Remove ${m.username} from ${roleDisplayName(r.name)}`}
+                              title={blockReason ?? `Remove ${m.username} from ${r.name}`}
+                              aria-label={`Remove ${m.username} from ${r.name}`}
                             >
                               {blockReason ? <Crown className="w-4 h-4" /> : <UserMinus className="w-4 h-4" />}
                             </IconButton>
@@ -407,7 +406,7 @@ export default function RolesPage() {
       {/* Add member to a Role */}
       {addToRole && (
         <Modal
-          title={`Add member to ${roleDisplayName(addToRole.name)}`}
+          title={`Add member to ${addToRole.name}`}
           onClose={() => setAddToRole(null)}
           footer={
             <ModalFooter
@@ -444,7 +443,7 @@ export default function RolesPage() {
       {/* Remove confirmation with consequence warning */}
       {removeTarget && (
         <Modal
-          title={`Remove from ${roleDisplayName(removeTarget.role.name)}`}
+          title={`Remove from ${removeTarget.role.name}`}
           onClose={() => !removeLoading && setRemoveTarget(null)}
           footer={
             <ModalFooter
@@ -463,7 +462,7 @@ export default function RolesPage() {
             <div className="text-sm text-fg-muted">
               <p>
                 Remove <strong className="text-fg">{removeTarget.member.username}</strong> from{' '}
-                <strong className="text-fg">{roleDisplayName(removeTarget.role.name)}</strong>?
+                <strong className="text-fg">{removeTarget.role.name}</strong>?
               </p>
               {removeTarget.role.grantsRole === 'superadmin' && (
                 <p className="mt-2 text-amber-700 dark:text-amber-400">
@@ -487,7 +486,7 @@ export default function RolesPage() {
       {/* Create / edit a custom Role */}
       {editorOpen && (
         <Modal
-          title={editorRole ? `Edit ${roleDisplayName(editorRole.name)}` : 'New Role'}
+          title={editorRole ? `Edit ${editorRole.name}` : 'New Role'}
           onClose={() => !editorForm.loading && setEditorOpen(false)}
           footer={
             <ModalFooter
@@ -558,7 +557,7 @@ export default function RolesPage() {
       {deleteTarget && (
         <DeleteConfirmModal
           title="Delete Role"
-          itemName={roleDisplayName(deleteTarget.name)}
+          itemName={deleteTarget.name}
           loading={del.loading}
           onConfirm={handleDeleteRole}
           onCancel={() => setDeleteTarget(null)}

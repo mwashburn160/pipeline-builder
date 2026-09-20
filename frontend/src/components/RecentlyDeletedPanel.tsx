@@ -285,7 +285,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     {
       id: 'name',
       header: 'Name',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      cellClassName: 'font-medium text-fg',
       render: (r) => (
         <>{r.name}{r.version ? <span className="ml-1 text-xs text-fg-subtle">v{r.version}</span> : null}</>
       ),
@@ -334,7 +334,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     <Card>
       <div className="flex items-center gap-2 mb-2">
         <History className="w-5 h-5 text-fg-muted" />
-        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recently deleted</h2>
+        <h2 className="text-lg font-medium text-fg">Recently deleted</h2>
       </div>
       <p className="text-sm text-fg-muted mb-4">
         Soft-deleted {labels.plural} are kept for a retention window and can be restored until they&apos;re

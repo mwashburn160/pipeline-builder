@@ -121,4 +121,34 @@ describe('OrgIdentityCard — team tier', () => {
     expect(screen.queryByRole('combobox', { name: 'Change pricing tier' })).not.toBeInTheDocument();
     expect(screen.getByText('Tier inherited from parent')).toBeInTheDocument();
   });
+
+  it('shows an org on the billing-off `unlimited` tier as unlimited, not as Developer', () => {
+    // `unlimited` is never purchasable, so it isn't in the offered list — but
+    // it IS what every org is on when billing is disabled, and a <select> with
+    // no matching option silently displays (and would submit) the first one.
+    render(<OrgIdentityCard org={base({ tier: 'unlimited' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    const select = screen.getByRole('combobox', { name: 'Change pricing tier' });
+    expect(select).toHaveValue('unlimited');
+    expect(screen.getByRole('option', { name: 'Unlimited' })).toBeInTheDocument();
+  });
+
+  it('does not offer `unlimited` to an org that is not on it', () => {
+    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    expect(screen.queryByRole('option', { name: 'Unlimited' })).not.toBeInTheDocument();
+  });
+});
+
+describe('OrgIdentityCard — cache invalidation', () => {
+  it('drops the cached org lists after a tier change, so the switcher and lists agree', async () => {
+    const { invalidate } = jest.requireMock('@/lib/api-cache') as { invalidate: { organizations: jest.Mock } };
+    const updateOrganizationTier = jest.fn().mockResolvedValue({ success: true, data: {} });
+    (jest.requireMock('@/lib/api').default as Record<string, unknown>).updateOrganizationTier = updateOrganizationTier;
+
+    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Change pricing tier' }), { target: { value: 'team' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    await waitFor(() => expect(updateOrganizationTier).toHaveBeenCalledWith('org-9', 'team', 'step-up-token'));
+    expect(invalidate.organizations).toHaveBeenCalled();
+  });
 });

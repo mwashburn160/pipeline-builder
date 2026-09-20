@@ -188,7 +188,7 @@ export default function AlertsPage() {
                             {severityOf(a).toUpperCase()}
                           </span>
                           {suppressed && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-fg-muted">
                               <BellOff className="w-3 h-3" /> silenced
                             </span>
                           )}
@@ -230,14 +230,14 @@ export default function AlertsPage() {
 
           {activeSilences.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-fg-muted mb-2 flex items-center gap-2">
                 <Volume2 className="w-4 h-4" /> Active silences ({activeSilences.length})
               </h3>
               <div className="space-y-1">
                 {activeSilences.map((s) => (
                   <div key={s.id} className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="font-mono text-gray-700 dark:text-gray-300 truncate">
+                      <div className="font-mono text-fg-muted truncate">
                         {s.matchers.map(m => `${m.name}="${m.value}"`).join(', ')}
                       </div>
                       <div className="text-fg-muted mt-0.5">
@@ -346,7 +346,7 @@ function SilenceModal(props: {
       <div className="space-y-4">
         <div>
           <div className="text-xs font-medium text-fg-muted mb-1">Matchers</div>
-          <div className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
+          <div className="text-xs font-mono text-fg-muted break-all">
             {seedMatchers.map(m => `${m.name}="${m.value}"`).join(', ')}
           </div>
         </div>

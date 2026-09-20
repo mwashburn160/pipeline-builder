@@ -30,9 +30,12 @@
 #      kubectl get crd ciliumnetworkpolicies.cilium.io
 # 3. Add this file to your kustomization resources, OR apply directly:
 #      kubectl apply -f cilium-network-policies.yaml
-# 4. (Optional) Disable the legacy `allow-plugin-external-egress` policy
-#    in networkpolicy.yaml — the Cilium policy supersedes it. Without
-#    Cilium installed it has no effect anyway.
+# 4. Leave `allow-plugin-external-egress` in networkpolicy.yaml in place. It
+#    is NOT superseded and NOT legacy: it is the live CIDR-level baseline
+#    (public 443/80 minus link-local/RFC1918/CGNAT) that the standard CNI
+#    enforces today. The Cilium policy adds the FQDN layer standard
+#    NetworkPolicy cannot express; it does not replace the CIDR layer, and
+#    NetworkPolicies are additive, so keeping both is the intended shape.
 #
 # Per-org override flow:
 # Operator creates `cilium-network-policy-org-acme.yaml` with the org's

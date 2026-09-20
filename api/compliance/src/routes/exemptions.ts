@@ -14,6 +14,7 @@ import {
   validateBody,
   audited,
   requirePermission,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -149,7 +150,7 @@ export function createExemptionRoutes(): Router {
       if (validation.value.status === 'approved') {
         emitComplianceAudit({
           action: 'compliance.exemption.approve',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'exemption',
           targetId: id,
@@ -189,7 +190,7 @@ export function createExemptionRoutes(): Router {
     // entity it covered), never the exemption reason text.
     emitComplianceAudit({
       action: 'compliance.exemption.revoke',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'exemption',
       targetId: id,

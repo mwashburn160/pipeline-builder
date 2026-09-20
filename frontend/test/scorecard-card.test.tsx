@@ -9,6 +9,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import { ScorecardCard } from '../src/components/pipeline/ScorecardCard';
+import { GRADE_STYLES } from '../src/components/reports/DoraParts';
 import type { PipelineScorecard } from '../src/types';
 
 // Toggle the advanced_reporting entitlement per-test.
@@ -68,15 +69,19 @@ describe('ScorecardCard', () => {
     mockEnabled = false;
     mockSuperAdmin = true;
     render(<ScorecardCard pipelineId="p1" />);
-    await waitFor(() => expect(getPipelineScorecard).toHaveBeenCalledWith('p1'));
+    await waitFor(() => expect(getPipelineScorecard).toHaveBeenCalledWith('p1', expect.objectContaining({ signal: expect.anything() })));
     expect(screen.queryByTestId('feature-lock-advanced_reporting')).not.toBeInTheDocument();
   });
 
   it('renders the graded scorecard with the grade badge styled by grade', async () => {
     render(<ScorecardCard pipelineId="p1" />);
     const grade = await screen.findByText('A');
-    // Grade "A" carries the green grade-style classes (GRADE_STYLES['A']).
-    expect(grade).toHaveClass('bg-success-bg');
+    // The badge is styled BY GRADE. Asserted against the component's own
+    // GRADE_STYLES map rather than a hard-coded palette token, so re-theming the
+    // badge can't fail this test while the grade→style wiring is still correct —
+    // and rendering grade A with, say, grade F's style still does.
+    expect(grade).toHaveClass(...GRADE_STYLES.A.split(' '));
+    expect(grade).not.toHaveClass(...GRADE_STYLES.F.split(' '));
     expect(screen.getByText('Maturity scorecard')).toBeInTheDocument();
   });
 

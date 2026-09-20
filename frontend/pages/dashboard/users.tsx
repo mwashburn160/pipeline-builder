@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
-import { Users, Trash2, UserPlus } from 'lucide-react';
+import { Users, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -24,6 +24,9 @@ import { BreakglassModal } from '@/components/users/BreakglassModal';
 import { DirectMfaResetModal } from '@/components/users/DirectMfaResetModal';
 import Link from 'next/link';
 import { buildUserColumns } from '@/components/users/userColumns';
+import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionBar';
+import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/BulkSelectionBanner';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
 import api from '@/lib/api';
 import { interpretImpersonationStart } from '@/lib/impersonation-start';
@@ -119,15 +122,10 @@ export default function UsersPage() {
     async (signal) => (editingId ? (await api.getUser(editingId, { signal })).data?.user ?? null : null),
     [editingId],
   );
-  // Delayed auto-close after a successful create/edit (so the success message is
-  // readable). Tracked so it can't fire after unmount, and so a close scheduled
-  // for one user's editor never closes a different user's editor opened since.
-  const editCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const createCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (editCloseTimer.current) clearTimeout(editCloseTimer.current);
-    if (createCloseTimer.current) clearTimeout(createCloseTimer.current);
-  }, []);
+  // Delayed auto-close after a successful create/edit, so the success message is
+  // readable before the modal goes.
+  const editClose = useAutoCloseTimer();
+  const createClose = useAutoCloseTimer();
   const [editUsername, setEditUsername] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editOrgId, setEditOrgId] = useState('');
@@ -184,7 +182,7 @@ export default function UsersPage() {
   }, []);
 
   const openCreate = useCallback(() => {
-    if (createCloseTimer.current) { clearTimeout(createCloseTimer.current); createCloseTimer.current = null; }
+    createClose.cancel();
     setNewUser({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
     setOrgRoles([]);
     setSelectedRoleIds(new Set());
@@ -193,7 +191,7 @@ export default function UsersPage() {
     // Populate the org picker. Best-effort — a failure just leaves the
     // "— No organization —" default (users can still be created org-less).
     loadOrgOptions();
-  }, [createForm, loadOrgOptions]);
+  }, [createForm, loadOrgOptions, createClose]);
 
   const handleCreateUser = async () => {
     if (newUser.username.trim().length < 2) { createForm.setError('Username must be at least 2 characters'); return; }
@@ -215,8 +213,7 @@ export default function UsersPage() {
 
     if (result !== null) {
       list.refresh();
-      if (createCloseTimer.current) clearTimeout(createCloseTimer.current);
-      createCloseTimer.current = setTimeout(() => setShowCreate(false), 1200);
+      createClose.schedule(() => setShowCreate(false), 1200);
     }
   };
 
@@ -273,33 +270,17 @@ export default function UsersPage() {
   // selection survives across filter / page changes within a session —
   // matches the typical sysadmin flow (search → check several → repeat
   // with a different search → bulk-delete the union).
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { selectedIds, toggle: toggleSelected, toggleAll, clear: clearSelection, replace: replaceSelection } = useRowSelection();
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ deleted: number; failed: number; errors: string[] } | null>(null);
-
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   // Header checkbox: select-all / clear-all relative to the visible page.
   // Derive from `displayedUsers` (the "Super Admins only" facet), NOT the raw
   // page — otherwise select-all would select hidden rows and feed them into the
   // destructive bulk-delete.
   const visibleIds = useMemo(() => displayedUsers.map((u) => u.id).filter((id) => id !== user?.id), [displayedUsers, user]);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
-  const toggleSelectAllVisible = useCallback(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
-      else visibleIds.forEach((id) => next.add(id));
-      return next;
-    });
-  }, [visibleIds, allVisibleSelected]);
+  const allVisibleSelected = allSelected(selectedIds, visibleIds);
+  const toggleSelectAllVisible = useCallback(() => toggleAll(visibleIds), [toggleAll, visibleIds]);
 
   const executeBulkDelete = useCallback(async (stepUpToken: string) => {
     const ids = Array.from(selectedIds);
@@ -316,7 +297,7 @@ export default function UsersPage() {
           errors: failures.slice(0, 5).map((r) => `${r.id}: ${r.error}`),
         });
         // Drop successfully deleted from selection so the next click won't replay them.
-        setSelectedIds(new Set(failures.map((r) => r.id)));
+        replaceSelection(failures.map((r) => r.id));
         list.refresh();
       } else {
         list.setError(res.message || 'Bulk delete failed');
@@ -324,7 +305,7 @@ export default function UsersPage() {
     } catch (err) {
       list.setError(formatError(err, 'Bulk delete failed'));
     }
-  }, [selectedIds, list]);
+  }, [selectedIds, list, replaceSelection]);
 
   /** Load a user record into the editor's fields. */
   const fillEditor = useCallback((userItem: UserListItem) => {
@@ -336,7 +317,7 @@ export default function UsersPage() {
   }, []);
 
   const handleEditUser = (userItem: UserListItem) => {
-    if (editCloseTimer.current) { clearTimeout(editCloseTimer.current); editCloseTimer.current = null; }
+    editClose.cancel();
     fillEditor(userItem);
     setNewPassword('');
     editForm.reset();
@@ -407,9 +388,7 @@ export default function UsersPage() {
       detail.refetch();
       setNewPassword('');
       const savedId = editingUser.id;
-      if (editCloseTimer.current) clearTimeout(editCloseTimer.current);
-      editCloseTimer.current = setTimeout(() => {
-        editCloseTimer.current = null;
+      editClose.schedule(() => {
         setEditingUser((current) => (current?.id === savedId ? null : current));
       }, 1500);
     }
@@ -447,7 +426,7 @@ export default function UsersPage() {
     onDelete: (u) => setPendingDelete(u),
     onResetMfa: (u) => setResetMfaTarget(u),
   }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the column builder closes over per-render handlers; the listed values are what change it
     [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
@@ -495,8 +474,8 @@ export default function UsersPage() {
                 onClick={() => setSuperAdminsOnly((v) => !v)}
                 aria-pressed={superAdminsOnly}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${superAdminsOnly
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
               >
                 Super Admins only
               </button>
@@ -505,36 +484,18 @@ export default function UsersPage() {
         />
       </div>
 
-      {selectedIds.size > 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900/40 dark:bg-blue-900/20">
-          <span className="text-blue-800 dark:text-blue-200">
-            <strong>{selectedIds.size}</strong> user{selectedIds.size === 1 ? '' : 's'} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setSelectedIds(new Set())} className="action-link text-sm">Clear</button>
-            <Button
-              variant="danger"
-              onClick={() => setPendingBulkDelete(true)}
-              className="inline-flex items-center gap-1 text-sm"
-            >
-              <Trash2 className="h-4 w-4" /> Delete {selectedIds.size}
-            </Button>
-          </div>
-        </div>
-      )}
+      <BulkSelectionBanner
+        count={selectedIds.size}
+        noun="user"
+        actionLabel="Delete"
+        onClear={clearSelection}
+        onAction={() => setPendingBulkDelete(true)}
+      />
 
       {bulkResult && (
-        <div className={`mb-3 rounded-lg px-3 py-2 text-sm ${bulkResult.failed === 0 ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300'}`}>
-          <div>
-            Bulk delete finished — <strong>{bulkResult.deleted}</strong> deleted, <strong>{bulkResult.failed}</strong> failed.
-          </div>
-          {bulkResult.errors.length > 0 && (
-            <ul className="mt-1 list-disc pl-5 text-xs">
-              {bulkResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
-            </ul>
-          )}
-          <button onClick={() => setBulkResult(null)} className="mt-1 text-xs underline">Dismiss</button>
-        </div>
+        <BulkResultSummary failed={bulkResult.failed} errors={bulkResult.errors} onDismiss={() => setBulkResult(null)}>
+          Bulk delete finished — <strong>{bulkResult.deleted}</strong> deleted, <strong>{bulkResult.failed}</strong> failed.
+        </BulkResultSummary>
       )}
 
       {/* The "Super Admins only" facet is applied client-side over the current

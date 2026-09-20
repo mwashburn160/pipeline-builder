@@ -7,7 +7,12 @@
  * dashboard/quotas.tsx, dashboard/billing.tsx, and admin/orgs/[orgId].tsx.
  * Adding a new tier here updates every UI surface in one place.
  */
-export type TierKey = 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited';
+import type { QuotaTier } from '@pipeline-builder/api-core';
+
+/** The quota tiers, straight from the backend's own enum — never a local copy,
+ *  which is how `unlimited` (the DEFAULT when billing is off) kept getting
+ *  dropped from tier unions around the app. */
+export type TierKey = QuotaTier;
 
 export interface TierMeta {
   /** Lowercase enum key as stored by the quota service. */
@@ -18,6 +23,9 @@ export interface TierMeta {
   readonly pillClass: string;
   /** Tailwind classes for a coloured dot. */
   readonly dotClass: string;
+  /** `<Badge color>` for this tier, so a tier pill in a table can't fall back
+   *  to developer's colour for a tier the call site forgot about. */
+  readonly badgeColor: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
   /** Stable display order: developer < pro < team < enterprise. */
   readonly sort: number;
 }
@@ -28,6 +36,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     label: 'Developer',
     pillClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
     dotClass: 'bg-blue-500',
+    badgeColor: 'gray',
     sort: 0,
   },
   pro: {
@@ -35,6 +44,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     label: 'Pro',
     pillClass: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
     dotClass: 'bg-purple-500',
+    badgeColor: 'purple',
     sort: 1,
   },
   team: {
@@ -42,6 +52,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     label: 'Team',
     pillClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
     dotClass: 'bg-emerald-500',
+    badgeColor: 'green',
     sort: 2,
   },
   enterprise: {
@@ -49,6 +60,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     label: 'Enterprise',
     pillClass: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
     dotClass: 'bg-amber-500',
+    badgeColor: 'red',
     sort: 3,
   },
   // Billing-DISABLED default tier: everything uncapped. Meta exists so an org on
@@ -59,6 +71,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     label: 'Unlimited',
     pillClass: 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200',
     dotClass: 'bg-slate-500',
+    badgeColor: 'indigo',
     sort: 4,
   },
 };
@@ -70,4 +83,22 @@ export const TIER_KEYS: readonly TierKey[] = ['developer', 'pro', 'team', 'enter
 export function getTierMeta(tier: string | undefined | null): TierMeta {
   if (tier && tier in TIER_META) return TIER_META[tier as TierKey];
   return TIER_META.developer;
+}
+
+/** Every tier, selectable or not — for FILTERS and other read surfaces, which
+ *  must be able to name `unlimited` (on a billing-disabled install it is the
+ *  tier every organization is on). Purchase pickers use {@link TIER_KEYS}. */
+export const ALL_TIER_KEYS: readonly TierKey[] = Object.keys(TIER_META) as TierKey[];
+
+/**
+ * Tiers that may parent a team. Mirrors api-core's `TEAM_CAPABLE_TIERS` — the
+ * backend's `organizationService.checkParentEligible` is the authority, and
+ * `unlimited` (billing off) is the most permissive tier, so leaving it out here
+ * hid "Create team" on every billing-disabled deployment.
+ */
+export const TEAM_CAPABLE_TIERS: readonly TierKey[] = ['team', 'enterprise', 'unlimited'];
+
+/** Whether `tier` may parent a team. */
+export function tierAllowsTeams(tier: string | undefined | null): boolean {
+  return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
 }

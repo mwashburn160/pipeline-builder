@@ -13,6 +13,7 @@ import {
   createLogger,
   getParam,
   validateBody,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -64,12 +65,12 @@ const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHand
 
 /** Emit a `combo_expired` billing event + audit record for each combo a bundle
  *  change dropped. Shared by the add and remove handlers (was copy-pasted). */
-async function recordLostCombos(orgId: string, lost: ComboChange[], subscriptionId: string, actorId?: string): Promise<void> {
+async function recordLostCombos(orgId: string, lost: ComboChange[], subscriptionId: string, eventActorId?: string): Promise<void> {
   for (const c of lost) {
-    await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscriptionId, actorId);
+    await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscriptionId, eventActorId);
     getAuditClient().record({
       action: 'billing.combo.expired',
-      actorId: actorId ?? 'system',
+      actorId: eventActorId ?? 'system',
       orgId,
       targetId: c.comboId,
       details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId },
@@ -108,7 +109,7 @@ async function commitAddonChange(args: {
   eventDetails: Record<string, unknown>;
   auditDetails: Record<string, unknown>;
 }): Promise<SubscriptionDocument | null> {
-  const { subscription, tier, orgId, next, actorId, source, bundleId } = args;
+  const { subscription, tier, orgId, next, actorId: eventActorId, source, bundleId } = args;
   const committed = await Subscription.findOneAndUpdate(
     { _id: subscription._id, __v: subscription.__v },
     {
@@ -122,10 +123,10 @@ async function commitAddonChange(args: {
   const subscriptionId = committed._id.toString();
   await syncEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, next);
   await syncProviderAddons(committed.externalId, next, committed.interval, orgId, subscriptionId, source);
-  await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, actorId);
+  await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, eventActorId);
   getAuditClient().record({
     action: source === 'addon_add' ? 'billing.addon.add' : 'billing.addon.remove',
-    actorId: actorId ?? 'system',
+    actorId: eventActorId ?? 'system',
     orgId,
     targetId: bundleId,
     details: { ...args.auditDetails, subscriptionId },
@@ -369,7 +370,7 @@ export function createAddonRoutes(): Router {
   // DELETE /billing/subscriptions/:id/addons/:bundleId — remove a bundle.
   // The over-cap gate below blocks a removal that would drop a pooled cap under
   // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
-  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId, userId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const bundleId = getParam(req.params, 'bundleId');
@@ -420,7 +421,7 @@ export function createAddonRoutes(): Router {
       await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId: dep, cascadedFrom: bundleId }, committed._id.toString(), req.user?.sub);
       getAuditClient().record({
         action: 'billing.addon.remove',
-        actorId: req.user?.sub ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetId: dep,
         details: { bundleId: dep, cascadedFrom: bundleId, subscriptionId: committed._id.toString() },

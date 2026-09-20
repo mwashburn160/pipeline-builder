@@ -26,12 +26,13 @@ import {
   InstantiateTemplateSchema,
   type TemplateInput,
   audited,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { tokenize } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineTemplateService } from '../services/pipeline-template-service.js';
 
@@ -42,7 +43,7 @@ import { pipelineTemplateService } from '../services/pipeline-template-service.j
  * synth. Returns the undeclared var names.
  *
  * Only the fields the pipeline template validator/resolver actually resolve are
- * scanned — `project`/`projectName` and each `metadata.*` / `vars.*` value — and
+ * scanned — `project` and each `metadata.*` / `vars.*` value — and
  * each is tokenized INDIVIDUALLY (every such field is under the tokenizer's
  * per-field size cap and was already shape-validated by `validatePipelineTemplates`,
  * so a throw here would signal a real bug, not a large/quoted body). This avoids
@@ -59,7 +60,6 @@ function undeclaredVars(props: Record<string, unknown> | undefined, inputs: Temp
 
   const fields: string[] = [];
   if (typeof props?.project === 'string') fields.push(props.project);
-  if (typeof props?.projectName === 'string') fields.push(props.projectName as string);
   for (const v of Object.values(metadata)) if (typeof v === 'string') fields.push(v);
   for (const v of Object.values(vars)) if (typeof v === 'string') fields.push(v);
 
@@ -182,7 +182,7 @@ export function createPipelineTemplateRoutes(): Router {
 
     // Validate the `{{ }}` tokens in the template body (shape/roots/cycles).
     try {
-      validatePipelineTemplates({ props: body.props } as unknown as PipelineLike);
+      validatePipelineTemplates({ props: body.props });
     } catch (err) {
       return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
@@ -231,7 +231,7 @@ export function createPipelineTemplateRoutes(): Router {
     ctx.log('COMPLETED', 'Created pipeline template', { id: created.id });
     emitPipelineAudit({
       action: 'pipeline_template.create',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline_template',
       targetId: created.id,
@@ -260,7 +260,7 @@ export function createPipelineTemplateRoutes(): Router {
 
     if (body.props) {
       try {
-        validatePipelineTemplates({ props: body.props } as unknown as PipelineLike);
+        validatePipelineTemplates({ props: body.props });
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
@@ -298,7 +298,7 @@ export function createPipelineTemplateRoutes(): Router {
     ctx.log('COMPLETED', 'Updated pipeline template', { id });
     emitPipelineAudit({
       action: 'pipeline_template.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline_template',
       targetId: id,
@@ -324,7 +324,7 @@ export function createPipelineTemplateRoutes(): Router {
     ctx.log('COMPLETED', 'Deleted pipeline template', { id });
     emitPipelineAudit({
       action: 'pipeline_template.delete',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline_template',
       targetId: id,
@@ -345,7 +345,7 @@ export function createPipelineTemplateRoutes(): Router {
     ctx.log('COMPLETED', 'Restored pipeline template', { id: restored.id });
     emitPipelineAudit({
       action: 'pipeline_template.restore',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'pipeline_template',
@@ -370,7 +370,7 @@ export function createPipelineTemplateRoutes(): Router {
     ctx.log('COMPLETED', 'Purged pipeline template', { id: purgedId });
     emitPipelineAudit({
       action: 'pipeline_template.purge',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'pipeline_template',

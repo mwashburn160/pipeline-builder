@@ -68,10 +68,19 @@ const requeued = (id: string, ts: number) => job(id, { attemptsMade: 1, maxAttem
 /** A job that exhausted its DLQ retries. */
 const terminal = (id: string, ts: number) => job(id, { attemptsMade: 3, maxAttempts: 3, timestamp: ts });
 
+// The enforcer self-throttles on a module-level "last scan" timestamp, so the
+// clock must advance past the scan interval BETWEEN tests or every test after
+// the first is throttled out. Hold the fake clock explicitly rather than reading
+// `Date.now()` inside the spy: that only advanced because the PREVIOUS test's spy
+// was still installed when it was read (so each test compounded +10min off the
+// last fake value). Under `restoreMocks` the spy is gone by then, `Date.now()`
+// returns the real time, and the clock froze — throttling every test but the first.
+let fakeClock = Date.now();
+
 beforeEach(async () => {
   jest.clearAllMocks();
-  // The enforcer self-throttles; advance past the scan interval each test.
-  jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * 60 * 1000);
+  fakeClock += 10 * 60 * 1000;
+  jest.spyOn(Date, 'now').mockReturnValue(fakeClock);
 });
 
 describe('enforceDlqMaxSize', () => {

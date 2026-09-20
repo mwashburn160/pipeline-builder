@@ -79,13 +79,13 @@ export default function EnforcedRulesView() {
         <div className="space-y-6">
           {orgRules.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Org Rules ({orgRules.length})</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">Org Rules ({orgRules.length})</h3>
               <RuleTable rules={orgRules} />
             </div>
           )}
           {subscribedRules.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Subscribed Rules ({subscribedRules.length})</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">Subscribed Rules ({subscribedRules.length})</h3>
               <RuleTable rules={subscribedRules} />
             </div>
           )}

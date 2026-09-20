@@ -3,7 +3,8 @@
 
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles } from '@/lib/quota-helpers';
+import { pct, daysUntil, statusInfo, statusStyles, barStyles } from '@/lib/quota-helpers';
+import { fmtNum } from '@/lib/format';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
 import { QUOTA_META } from './constants';
 
@@ -52,14 +53,14 @@ export function QuotaCard({
     <Card>
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
+          <h3 className="text-base font-semibold text-fg">{meta.label}</h3>
           <p className="text-xs text-fg-muted mt-0.5">{meta.description}</p>
         </div>
         <StatusBadge used={quota.used} limit={quota.limit} />
       </div>
 
       <div className="flex items-baseline justify-between mb-2">
-        <span className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+        <span className="text-2xl font-semibold text-fg tabular-nums">
           {fmtNum(quota.used)}
         </span>
         <span className="text-sm text-fg-muted tabular-nums">

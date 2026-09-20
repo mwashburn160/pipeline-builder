@@ -17,7 +17,7 @@ export interface TemplateError {
   cycle?: string[];
 }
 
-export interface ValidationResult {
+export interface TemplateValidationResult {
   valid: boolean;
   errors: TemplateError[];
 }
@@ -52,7 +52,7 @@ export function validateTemplates<T extends object>(
   doc: T,
   isTemplatable: FieldPredicate,
   isKnownPath: (path: string[]) => boolean,
-): ValidationResult {
+): TemplateValidationResult {
   const errors: TemplateError[] = [];
   const entries: { field: string; tokens: Token[] }[] = [];
 

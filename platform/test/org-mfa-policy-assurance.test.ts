@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -34,11 +35,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   refuseWeakSession: (...a: unknown[]) => (refuseWeakSession as any)(...a),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: async () => true,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async () => undefined }));
@@ -70,9 +67,16 @@ function makeRes() {
   return r;
 }
 
-async function patch(body: Record<string, unknown>, aal: 1 | 2) {
+/**
+ * `controller-helper` runs FOR REAL, so the caller's authority lives in the
+ * FIXTURE: `canAdministerOrg` needs an admin/owner of the exact org the route
+ * targets. Pass `user: null` for an anonymous caller.
+ */
+const ORG_ADMIN = (aal: 1 | 2) => ({ sub: 'actor', organizationId: 'org1', role: 'admin', aal });
+
+async function patch(body: Record<string, unknown>, aal: 1 | 2, user: unknown = ORG_ADMIN(aal)) {
   const res = makeRes();
-  await updateMfaPolicy({ user: { sub: 'actor', organizationId: 'org1', aal }, params: { id: 'org1' }, body } as any, res, jest.fn() as any);
+  await updateMfaPolicy({ user, params: { id: 'org1' }, body } as any, res, jest.fn() as any);
   return res;
 }
 
@@ -97,6 +101,19 @@ describe('isLoosening', () => {
 });
 
 describe('PATCH /organization/:id/mfa-policy — directional assurance', () => {
+  it('refuses an anonymous caller with 401, and writes nothing', async () => {
+    const res = await patch({ requireMfa: true }, 1, null);
+    expect(res._status).toBe(401);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses a plain MEMBER of the org with 403, and writes nothing', async () => {
+    // No `role` → `isOrgAdmin` is false → `canAdministerOrg` refuses.
+    const res = await patch({ requireMfa: true }, 2, { sub: 'member', organizationId: 'org1', aal: 2 });
+    expect(res._status).toBe(403);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
   it('lets a single-factor admin TURN ON the requirement', async () => {
     const res = await patch({ requireMfa: true }, 1);
     expect(res._status).toBe(200);

@@ -179,7 +179,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           )}
 
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
-            <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current binding</div>
+            <div className="font-medium text-fg-muted mb-1">Current binding</div>
             <div className="text-fg-muted">
               {configured
                 ? <>Configured · keyId <code className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currentKeyId}</code></>

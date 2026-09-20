@@ -31,6 +31,7 @@
 
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('entity-events');
 
@@ -97,7 +98,7 @@ class EntityEventEmitter {
           target: event.target,
           eventType: event.eventType,
           entityId: event.entityId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       });
     }

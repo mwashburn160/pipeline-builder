@@ -123,7 +123,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
   return (
     <Modal title={`Delete ${refs.length} tag${refs.length === 1 ? '' : 's'}`} onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
-        <div className="text-sm text-gray-700 dark:text-gray-300">
+        <div className="text-sm text-fg-muted">
           You are about to delete <strong>{refs.length}</strong> tag{refs.length === 1 ? '' : 's'} from <span className="font-mono">{repo}</span>.
         </div>
 
@@ -161,7 +161,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
               onChange={(e) => setConfirmPhrase(e.target.value)}
               placeholder={expectedPhrase}
               aria-label={`Type ${expectedPhrase} to confirm bulk delete`}
-              className="w-full px-3 py-1.5 text-sm font-mono border border-red-400 dark:border-red-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              className="w-full px-3 py-1.5 text-sm font-mono border border-red-400 dark:border-red-600 rounded-md bg-white dark:bg-gray-800 text-fg"
               autoFocus
             />
           </div>

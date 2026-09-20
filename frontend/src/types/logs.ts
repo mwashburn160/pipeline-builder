@@ -81,7 +81,7 @@ export interface LogContextResponse {
 }
 
 /** Severity ordering for the level rail / filter chips. */
-export const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
+const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 export type LogLevel = typeof LOG_LEVELS[number];
 
 /** Normalize the many spellings services emit ('warning', 'ERROR', 'fatal'). */

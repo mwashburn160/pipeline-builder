@@ -555,9 +555,11 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local + cloud metadata
-              - 192.168.0.0/16 # private LAN
-              - 100.64.0.0/10 # CGNAT
+              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
       ports:
         - port: 443
           protocol: TCP
@@ -566,7 +568,28 @@ spec:
 
 ---
 # =============================================================================
-# Billing External Egress — billing may call external payment providers
+# Billing External Egress — billing calls the external payment provider
+# (api.stripe.com; AWS Marketplace metering for the marketplace provider).
+#
+# This rule USED TO HAVE NO `to:` AT ALL, which in NetworkPolicy means "every
+# destination": billing could open 443 to anything reachable from the pod,
+# including the VPC's internal services and the Kubernetes API server. It now
+# names 0.0.0.0/0 explicitly and carves out every private range, so the only
+# thing left is the public internet — where Stripe actually is.
+#
+# The carve-out does NOT cut billing off from the rest of the stack: in-namespace
+# traffic (postgres, redis, quota, platform) is allowed by `allow-internal-egress`
+# above and DNS by `allow-dns-egress`, and NetworkPolicies are additive — an
+# `except` in THIS rule cannot subtract from what another rule allows.
+#
+# Ambient note: constraining `to:` on an egress rule is the thing that breaks a
+# MESH-INTERNAL hop, because ambient redirects that traffic via a link-local
+# address — which is why the prometheus mesh-scrape rule further down is
+# deliberately ports-only. It is safe HERE for the same reason it is safe on the
+# platform rule below, which has carried the identical link-local carve-out since
+# the OAuth fix and demonstrably reaches the public internet: this rule governs a
+# PUBLIC-internet leg, not a mesh hop.
+# FQDN-scoping (stripe-only) needs Cilium — see cilium-network-policies.yaml.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -579,7 +602,16 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - ports:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+      ports:
         - port: 443
           protocol: TCP
 
@@ -590,9 +622,21 @@ spec:
 # The namespace is ambient-enrolled, so this egress is subject to NetworkPolicy;
 # with no allow rule the CNI SILENTLY DROPS the SYN and the OAuth client hangs
 # until its connect timeout, then fails (looks like a ztunnel stall — it isn't).
-# Hardened like plugin egress: public 443 EXCEPT link-local (cloud metadata /
-# IMDS), private LAN, and CGNAT, since platform holds JWT-signing secrets and
-# must never reach 169.254.169.254. FQDN-scoping (google-only) needs Cilium.
+# Platform also fetches USER-SUPPLIED URLs — per-org alert webhook destinations,
+# OIDC discovery documents, SAML IdP metadata — so an attacker who can set one of
+# those controls the destination. That makes this rule the SSRF backstop, and it
+# therefore carves out EVERY private range (all of RFC1918, not just 192.168/16)
+# plus link-local/IMDS and CGNAT: a crafted URL can no longer pivot to an
+# in-VPC service or to 169.254.169.254, and platform holds the JWT-signing
+# secrets that would make such a pivot expensive.
+#
+# What is left is the public internet, which is where everything platform
+# legitimately calls lives: OAuth/OIDC IdPs (accounts.google.com,
+# login.microsoftonline.com, graph.facebook.com, api.linkedin.com, gitlab.com,
+# Cognito), SES, HIBP (api.pwnedpasswords.com) and the FIDO MDS blob
+# (mds.fidoalliance.org). In-namespace traffic is unaffected — it is allowed by
+# `allow-internal-egress`, and NetworkPolicies are additive.
+# FQDN-scoping (per-IdP) needs Cilium — see cilium-network-policies.yaml.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -609,9 +653,11 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local + cloud metadata
-              - 192.168.0.0/16 # private LAN
-              - 100.64.0.0/10 # CGNAT
+              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
       ports:
         - port: 443
           protocol: TCP
@@ -641,57 +687,21 @@ spec:
         - port: 10250
           protocol: TCP
 
----
 # =============================================================================
-# Plugin Build Isolation — restrict plugin pod egress during builds
+# Plugin egress — governed by the policies ABOVE (VPC CNI = standard NetworkPolicy)
 # =============================================================================
-# Overrides the broad allow-internal-egress for plugin pods.
-# Plugin pods can only reach registry, postgres, redis, DNS, and HTTPS/HTTP.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: plugin-build-isolation
-  namespace: pipeline-builder
-spec:
-  podSelector:
-    matchLabels:
-      app: plugin
-  policyTypes:
-    - Egress
-  egress:
-    # Allow DNS resolution
-    - to: []
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-    # Allow registry access
-    - to:
-        - podSelector:
-            matchLabels:
-              app: registry
-      ports:
-        - port: 5000
-    # Allow PostgreSQL
-    - to:
-        - podSelector:
-            matchLabels:
-              app: postgres
-      ports:
-        - port: 5432
-    # Allow Redis
-    - to:
-        - podSelector:
-            matchLabels:
-              app: redis
-      ports:
-        - port: 6379
-    # Allow outbound HTTPS (package downloads)
-    - to: []
-      ports:
-        - port: 443
-        - port: 80
+# A former `plugin-build-isolation` policy was removed here. It tried to NARROW
+# plugin egress, but k8s NetworkPolicies are purely ADDITIVE — its `- to: []`
+# rule on 443/80 re-opened egress to ALL destinations (including 169.254.169.254
+# / IMDS on port 80), DEFEATING the link-local exception in
+# `allow-plugin-external-egress`. Plugin egress is now governed by:
+#   - allow-dns-egress           (DNS, all pods)
+#   - allow-internal-egress      (in-namespace pods: registry, postgres, redis, …)
+#   - allow-plugin-external-egress (public 443/80, EXCEPT link-local/LAN/CGNAT —
+#                                  so a compromised build can't reach cloud metadata)
+# True FQDN-level egress allow-listing (per-registry/per-package) is NOT
+# expressible in standard NetworkPolicy / the VPC CNI — it needs Cilium; see
+# cilium-network-policies.yaml (opt-in, not in this kustomization).
 
 ---
 # =============================================================================
@@ -715,7 +725,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [message, registry, minio-init, loki, prometheus, minio, thanos-store-gateway]
+                values: [message, registry, minio-init, loki, prometheus, minio, thanos-store-gateway, thanos-compact]
       ports:
         - port: 9000
 ---

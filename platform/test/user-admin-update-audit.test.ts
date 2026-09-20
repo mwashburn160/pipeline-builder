@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -29,13 +30,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireMemberManagementScope: (...a: unknown[]) => mockRequireScope(...a),
-  canManageOrgScope: async () => true,
-  isOrgAdmin: () => false,
-  // Pass-through wrapper — just run the handler (errorMap arg ignored).
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 

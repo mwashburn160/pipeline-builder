@@ -4,7 +4,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { alertDestinationService } from './alert-destination-service.js';
-import { getNotificationChannel, type NotificationMessage, type Severity } from './notification-channels.js';
+import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification, type Severity } from './notification-channels.js';
 import { config } from '../config/index.js';
 import { incCounter } from '../observability/metrics.js';
 
@@ -112,17 +112,25 @@ function alertSeverity(alert: Alert): Severity {
 }
 
 /** Map an Alertmanager alert + destination onto the transport-agnostic message. */
-function toNotificationMessage(d: OrgAlertDestination, alert: Alert): NotificationMessage {
-  return {
-    severity: alertSeverity(alert),
+function toNotificationMessage(d: OrgAlertDestination, alert: Alert): AlertNotification {
+  const severity = alertSeverity(alert);
+  const base = {
+    severity,
     status: alert.status,
     timestamp: alert.startsAt,
     title: alert.labels.alertname ?? 'Alert',
     summary: alert.annotations.summary ?? '',
     detail: alert.annotations.description,
     labels: alert.labels,
+  };
+  return {
+    ...base,
     recipientOrgId: d.orgId,
-    raw: alert, // generic `webhook` channel forwards this unchanged
+    subject: subjectLine(base),
+    body: plainTextBody(base),
+    priority: severityToPriority(severity),
+    messageType: 'announcement',
+    payload: alert, // generic `webhook` channel forwards this unchanged
     dedupeKey: alert.fingerprint,
   };
 }

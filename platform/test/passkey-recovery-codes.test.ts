@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -25,24 +26,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-  // Linking stubs for the rest of the module (reached through the import graph).
-  isOrgAdmin: () => false,
-  requireAuth: () => true,
-  requireAuthUserId: (req: any) => req.user?.sub,
-  requireSystemAdmin: () => false,
-  requireOrgMembership: () => null,
-  requireAuthContext: () => null,
-  getAdminContext: () => ({}),
-  requireAdminContext: () => null,
-  requireMemberManagementScope: () => null,
-  canAdministerOrg: async () => false,
-  canManageOrgScope: async () => false,
-  requireOrgScope: async () => false,
-  canAccessOrg: async () => false,
-  handleControllerError: () => undefined,
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ closeBootstrapExceptionOnEnrolment: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));

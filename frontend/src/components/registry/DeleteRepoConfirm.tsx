@@ -74,12 +74,12 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
   return (
     <Modal title="Delete Repository" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
-        <div className="text-sm text-gray-700 dark:text-gray-300">
+        <div className="text-sm text-fg-muted">
           {isEmpty
             ? 'This repository has no tags — prune the empty shell it left in the catalog:'
             : 'You are about to delete the entire repository and every tag it contains:'}
         </div>
-        <div className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
+        <div className="font-mono text-sm text-fg break-all">
           {repo}
         </div>
 

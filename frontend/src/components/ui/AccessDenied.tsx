@@ -41,7 +41,7 @@ export function AccessDenied({ denial }: { denial: AccessDenial }) {
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
           <ShieldOff className="h-7 w-7 text-fg-subtle" aria-hidden="true" />
         </div>
-        <h1 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
+        <h1 className="mt-4 text-lg font-semibold text-fg">
           You don&apos;t have access to this page
         </h1>
         <p className="mt-2 text-sm text-fg-muted">

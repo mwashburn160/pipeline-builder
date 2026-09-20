@@ -29,6 +29,27 @@ export type MessageView = 'all' | 'announcements' | 'conversations';
  *  own argument because the page debounces it separately). */
 export type MessageFilters = Omit<MessageListFilters, 'search'>;
 
+/**
+ * One compose submission. `support: true` marks a contact-support send, which
+ * goes to `POST /messages/support` — the route that forces the recipient
+ * server-side and asks only for `messages:read`, so a read-only member can use
+ * it. The recipient/targeting fields are then ignored (they are the composer's
+ * view of a send the server decides), exactly as the route ignores them.
+ */
+export interface SendMessageInput {
+  recipientOrgId: string;
+  recipientUserId?: string;
+  messageType: MessageType;
+  subject: string;
+  content: string;
+  priority?: MessagePriority;
+  channel?: string;
+  /** Ids of previously-uploaded attachments to link to the message. */
+  attachmentIds?: string[];
+  /** Send it through the contact-support route instead of POST /messages. */
+  support?: boolean;
+}
+
 /** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
   messages: Message[];
@@ -56,7 +77,7 @@ interface UseMessagesReturn {
   loadMore: () => Promise<void>;
   fetchMessages: () => Promise<void>;
   fetchUnreadCount: () => Promise<void>;
-  sendMessage: (data: { recipientOrgId: string; recipientUserId?: string; messageType: MessageType; subject: string; content: string; priority?: MessagePriority; channel?: string }) => Promise<Message | null>;
+  sendMessage: (data: SendMessageInput) => Promise<Message | null>;
   replyToMessage: (threadId: string, content: string, attachmentIds?: string[]) => Promise<Message | null>;
   markAsRead: (id: string) => Promise<void>;
   markThreadAsRead: (id: string) => Promise<void>;
@@ -183,30 +204,25 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, []);
 
-  const { execute: sendMessageRaw, error: sendError } = useAsyncCallback(async (data: {
-    recipientOrgId: string;
-    recipientUserId?: string;
-    messageType: MessageType;
-    subject: string;
-    content: string;
-    priority?: MessagePriority;
-    channel?: string;
-  }): Promise<Message | null> => {
-    const result = await api.sendMessage(data);
+  const { execute: sendMessageRaw, error: sendError } = useAsyncCallback(async (data: SendMessageInput): Promise<Message | null> => {
+    // A support send goes to its OWN route, whose recipient the server forces:
+    // it is gated on `messages:read`, so a member without `messages:write`
+    // reaches support instead of a 403 from POST /messages. The recipient the
+    // composer computed is dropped here rather than sent and ignored.
+    const result = data.support
+      ? await api.sendSupportMessage({
+        subject: data.subject,
+        content: data.content,
+        priority: data.priority,
+        attachmentIds: data.attachmentIds,
+      })
+      : await api.sendMessage(data);
     await fetchMessages();
     await fetchUnreadCount();
     return result.data || null;
   });
 
-  const sendMessage = useCallback(async (data: {
-    recipientOrgId: string;
-    recipientUserId?: string;
-    messageType: MessageType;
-    subject: string;
-    content: string;
-    priority?: MessagePriority;
-    channel?: string;
-  }): Promise<Message | null> => {
+  const sendMessage = useCallback(async (data: SendMessageInput): Promise<Message | null> => {
     const result = await sendMessageRaw(data);
     if (!result && !sendError) setError('Failed to send message');
     return result;

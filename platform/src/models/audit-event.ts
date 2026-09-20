@@ -488,7 +488,6 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.tier.override',
   // Operator-only reseed of the invoice ledger from the payment provider's
   // invoice history (POST /billing/admin/backfill).
-  'billing.ledger.backfill',
   'billing.addon.add',
   'billing.addon.remove',
   'billing.addon.prune',
@@ -574,9 +573,8 @@ export interface AuditEventDocument extends Document {
   targetType?: string;
   targetId?: string;
   /** Permission role involved (org.role.* actions). Promoted out of
-   *  `details` so reviewers can filter "who touched role X". Field name kept
-   *  as `groupId` for audit-log backward compatibility. */
-  groupId?: string;
+   *  `details` so reviewers can filter "who touched role X". */
+  roleId?: string;
   /** Sysadmin who initiated an impersonation session, when the actor is
    *  acting under an impersonation token. Lets reviewers unmask "viewed-as". */
   impersonatorId?: string;
@@ -630,9 +628,9 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
   affectedOrgId: { type: String, index: true },
   targetType: { type: String },
   targetId: { type: String, index: true },
-  // Sparse: only group/impersonation/correlation events set these, so the
+  // Sparse: only role/impersonation/correlation events set these, so the
   // index skips the (vast majority of) documents that leave them unset.
-  groupId: { type: String, index: { sparse: true } },
+  roleId: { type: String, index: { sparse: true } },
   impersonatorId: { type: String, index: { sparse: true } },
   outcome: { type: String, enum: ['success', 'failure'] },
   details: { type: Schema.Types.Mixed },

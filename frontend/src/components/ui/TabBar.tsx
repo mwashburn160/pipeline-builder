@@ -39,7 +39,7 @@ export function tabId(idPrefix: string, id: string): string {
 }
 
 /** DOM id of the panel a state tab controls. */
-export function tabPanelId(idPrefix: string, id: string): string {
+function tabPanelId(idPrefix: string, id: string): string {
   return `${idPrefix}-panel-${id}`;
 }
 

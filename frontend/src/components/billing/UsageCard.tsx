@@ -7,7 +7,7 @@ import type { UsageRollup } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { formatDate } from './helpers';
+import { formatDateLong } from '@/lib/format';
 
 /** Quota-type → human label. Keep in sync with the keys returned by
  * `GET /api/billing/usage`; falls back to the raw key for new types so the
@@ -71,7 +71,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               className="mt-0.5 block w-full rounded border border-default bg-surface px-2 py-1 text-sm text-fg"
             />
           ) : (
-            <p className="text-sm text-fg">{formatDate(rollup.period.start)}</p>
+            <p className="text-sm text-fg">{formatDateLong(rollup.period.start)}</p>
           )}
         </div>
         <div>
@@ -86,7 +86,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               className="mt-0.5 block w-full rounded border border-default bg-surface px-2 py-1 text-sm text-fg"
             />
           ) : (
-            <p className="text-sm text-fg">{formatDate(rollup.period.end)}</p>
+            <p className="text-sm text-fg">{formatDateLong(rollup.period.end)}</p>
           )}
         </div>
       </div>

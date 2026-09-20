@@ -68,9 +68,11 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 // assert the orchestration (upsert per role + a single recompute) without the
 // real role-derivation machinery.
 const RL_ROLE_NOT_FOUND = 'RL_ROLE_NOT_FOUND';
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({
+  assertNotLastPrivilegedMember: jest.fn(),
+}));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertActorMayAssignBuiltinAdmin: jest.fn(),
-  assertNotLastPrivilegedMember: jest.fn(),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),

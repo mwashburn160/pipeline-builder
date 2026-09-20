@@ -42,6 +42,9 @@ jest.mock('@/components/ui/FeatureLock', () => ({
   FeatureLock: ({ flag }: { flag: string }) => <div data-testid={`feature-lock-${flag}`} />,
 }));
 
+const invalidateOrganizations = jest.fn();
+jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: () => invalidateOrganizations() } }));
+
 const getOwnOrgIdpConfig = jest.fn();
 const updateOrganizationIdentity = jest.fn();
 jest.mock('@/lib/api', () => ({
@@ -102,5 +105,8 @@ describe('TeamSettingsDrawer', () => {
 
     await waitFor(() => expect(updateOrganizationIdentity).toHaveBeenCalledWith('team-7', { name: 'Platform Eng' }));
     await waitFor(() => expect(onRenamed).toHaveBeenCalled());
+    // The switcher and every org list read the name through the shared cache,
+    // so they keep the old one until it is dropped.
+    expect(invalidateOrganizations).toHaveBeenCalled();
   });
 });

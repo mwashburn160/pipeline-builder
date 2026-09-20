@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
-import { roleDisplayName } from '@/lib/role-display';
 import type { FormState } from '@/hooks/useFormState';
 import type { NewUserState, OrgRoleOption } from './types';
 
@@ -139,7 +138,7 @@ export function CreateUserModal({
                     onChange={() => onToggleRole(g.id)}
                     disabled={form.loading}
                   />
-                  <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(g.name)}</span>
+                  <span className="font-medium text-gray-800 dark:text-gray-200">{g.name}</span>
                   {g.grantsRole !== 'member' && (
                     <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
                   )}
@@ -148,7 +147,7 @@ export function CreateUserModal({
             </div>
           </div>
         )}
-        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <label className="flex items-center gap-2 text-sm text-fg-muted">
           <Checkbox
             checked={newUser.isSuperAdmin}
             onChange={(e) => setNewUser((s) => ({ ...s, isSuperAdmin: e.target.checked }))}

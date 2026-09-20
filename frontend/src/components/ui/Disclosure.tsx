@@ -50,7 +50,7 @@ const DEFAULT_ROOT_CLASS =
   'group border border-gray-200 dark:border-gray-700 rounded-xl';
 
 const DEFAULT_SUMMARY_CLASS =
-  'cursor-pointer list-none w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors';
+  'cursor-pointer list-none w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors';
 
 const DEFAULT_BODY_CLASS = 'px-4 pb-4 border-t border-gray-200 dark:border-gray-700';
 

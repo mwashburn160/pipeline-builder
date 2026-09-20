@@ -14,6 +14,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   const actual = jest.requireActual('@pipeline-builder/api-core');
   return {
@@ -40,20 +41,12 @@ jest.unstable_mockModule('../src/observability/audit-store-client.js', () => ({
   queryAuditStore: (...a: unknown[]) => mockAuditStore(...a),
 }));
 
-// Mock the controller-helper functions we depend on. The controller uses
-// requireAuth (gate) + getAdminContext (sysadmin / org-admin predicates) —
-// per-org scoping confines data; sysadmin sees all orgs.
+// controller-helper runs FOR REAL (see helpers/controller-helper-mock.ts): its
+// `requireAuth` gate and `getAdminContext` predicates are driven by the request
+// fixture, not by spies. Only api-core's `isSystemAdmin` stays mocked (above) —
+// platform-admin authority is a JWT claim the controller cannot derive locally.
 const mockIsSystemAdmin = jest.fn<(req?: unknown) => boolean>();
-const mockIsOrgAdmin = jest.fn<(req?: unknown) => boolean>();
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_desc: string, fn: any) => fn,
-  requireAuth: jest.fn(),
-  getAdminContext: (req: unknown) => ({
-    isSuperAdmin: mockIsSystemAdmin(req),
-    isOrgAdmin: mockIsOrgAdmin(req),
-    adminType: 'org admin',
-  }),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 // The controller now audits silence create/delete; stub the audit helper so the
 // test doesn't pull in the real audit-service / mongoose chain.
@@ -61,12 +54,9 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
   audit: jest.fn(),
 }));
 
-const { requireAuth } = await import('../src/helpers/controller-helper.js');
 const { observabilityQuery, observabilityAuditQuery, observabilityCatalog } = await import('../src/observability/controller.js');
 
 import type { Request, Response } from 'express';
-
-const mockRequireAuth = requireAuth as jest.MockedFunction<typeof requireAuth>;
 
 
 function makeRes(): Response & { _status: number; _body: unknown } {
@@ -80,24 +70,34 @@ function makeRes(): Response & { _status: number; _body: unknown } {
   return r as Response & { _status: number; _body: unknown };
 }
 
-function makeReq(query: Record<string, string> = {}, user?: { organizationId?: string }): Request {
-  return { query, user } as unknown as Request;
+/** A signed-in plain member: enough for `requireAuth`, no admin authority. */
+const MEMBER = { sub: 'u1' };
+/** An org admin — `isOrgAdmin` reads `role`, so this is what grants org-admin surfaces. */
+const ORG_ADMIN = { sub: 'a1', organizationId: 'org-1', role: 'admin' };
+
+/**
+ * `user` defaults to a signed-in member; pass `null` for an ANONYMOUS caller
+ * (the real `requireAuth` then 401s), or `ORG_ADMIN` for the admin surfaces.
+ */
+function makeReq(
+  query: Record<string, string> = {},
+  user: { sub?: string; organizationId?: string; role?: string } | null = MEMBER,
+): Request {
+  return { query, user: user ?? undefined } as unknown as Request;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Default: authenticated + sysadmin (broadest case so test setup is short)
-  mockRequireAuth.mockReturnValue(true);
+  // Default: a signed-in caller (via makeReq) who is a platform admin — the
+  // broadest case, so most tests need no extra setup.
   mockIsSystemAdmin.mockReturnValue(true);
-  mockIsOrgAdmin.mockReturnValue(false);
 });
 
 describe('observabilityQuery', () => {
   it('returns 401 when caller is not authenticated', async () => {
-    mockRequireAuth.mockReturnValue(false);
     const res = makeRes();
-    await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
-    expect(mockRequireAuth).toHaveBeenCalled();
+    await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }, null), res);
+    expect(res._status).toBe(401);
     // requireAuth sends the 401 itself; controller bails without firing a query
     expect(mockPromQuery).not.toHaveBeenCalled();
     expect(mockPromQueryRange).not.toHaveBeenCalled();
@@ -181,9 +181,8 @@ describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
 
   it('403s an org admin requesting a fleet-wide instant metric (platform_orgs_total)', async () => {
     mockIsSystemAdmin.mockReturnValue(false);
-    mockIsOrgAdmin.mockReturnValue(true);
     const res = makeRes();
-    await observabilityQuery(makeReq({ key: 'platform_orgs_total' }), res);
+    await observabilityQuery(makeReq({ key: 'platform_orgs_total' }, ORG_ADMIN), res);
     expect(res._status).toBe(403);
     expect((res._body as { message?: string }).message).toMatch(/system admin/);
     expect(mockPromQuery).not.toHaveBeenCalled();
@@ -239,9 +238,8 @@ describe('observabilityCatalog', () => {
 
   it('offers an org admin their org-scoped audit trail, but still no fleet-wide keys', async () => {
     mockIsSystemAdmin.mockReturnValue(false);
-    mockIsOrgAdmin.mockReturnValue(true);
     const res = makeRes();
-    await observabilityCatalog(makeReq(), res);
+    await observabilityCatalog(makeReq({}, ORG_ADMIN), res);
     const keys = keysOf(res);
     expect(keys).toContain('audit_recent_events');
     expect(keys).not.toContain('platform_orgs_total');
@@ -255,18 +253,17 @@ describe('observabilityCatalog', () => {
 });
 
 describe('audit trail (audit-store) — org-scoped, admin-only', () => {
-  const ORG_USER = { organizationId: 'org-1' };
+  // The admin surface: an org ADMIN by fixture (the real `isOrgAdmin` reads `role`).
+  const ORG_USER = ORG_ADMIN;
 
   beforeEach(() => {
     mockIsSystemAdmin.mockReturnValue(false);
-    mockIsOrgAdmin.mockReturnValue(true);
     mockAuditStore.mockResolvedValue({ kind: 'stream', entries: [{ time: '1', line: 'pipeline:p1', labels: {} }] });
   });
 
   it('403s a plain org member (the audit trail is an admin surface)', async () => {
-    mockIsOrgAdmin.mockReturnValue(false);
     const res = makeRes();
-    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, { sub: 'm1', organizationId: 'org-1' }), res);
     expect(res._status).toBe(403);
     expect(mockAuditStore).not.toHaveBeenCalled();
   });
@@ -325,16 +322,16 @@ describe('audit trail (audit-store) — org-scoped, admin-only', () => {
 });
 
 describe('observabilityAuditQuery', () => {
-  const ORG_USER = { organizationId: 'org-1' };
+  const ORG_USER = ORG_ADMIN;
 
   beforeEach(() => {
     mockAuditStore.mockResolvedValue({ kind: 'stream', entries: [] });
   });
 
   it('returns 401 when caller is not authenticated', async () => {
-    mockRequireAuth.mockReturnValue(false);
     const res = makeRes();
-    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, null), res);
+    expect(res._status).toBe(401);
     expect(mockAuditStore).not.toHaveBeenCalled();
   });
 

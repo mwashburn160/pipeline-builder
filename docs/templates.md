@@ -63,7 +63,7 @@ Pipeline templates can only **self-reference** — one metadata key can interpol
 | `metadata.*` | Any other metadata key in the same pipeline |
 | `vars.*` | Any `vars` key in the same pipeline |
 
-Templatable fields in a pipeline config: `projectName`, `metadata.*` string values, `vars.*` string values. Identity fields (`id`, `orgId`, `stages`, `plugins[]`) are **not** templatable.
+Templatable fields in a pipeline config: `project`, `metadata.*` string values, `vars.*` string values. Identity fields (`id`, `orgId`, `stages`, `plugins[]`) are **not** templatable.
 
 **Exception — the GitHub source token.** `synth.source.options.token` is templatable against the **pipeline scope** (`pipeline.*`, the same scope plugin specs see), so a secret reference can be parameterized per org:
 
@@ -136,7 +136,7 @@ If a template uses `| default: '...'`, the key is treated as **optional** and ca
 ```json
 {
   "id": "bb234ff6-8b2e-41e3-9758-fb23b63916cd",
-  "projectName": "{{ vars.service }}-{{ metadata.env }}",
+  "project": "{{ vars.service }}-{{ metadata.env }}",
   "orgId": "acmecorp",
   "metadata": {
     "env": "prod",
@@ -159,7 +159,7 @@ After pass-1 resolution, the pipeline looks like:
 
 ```json
 {
-  "projectName": "checkout-prod",
+  "project": "checkout-prod",
   "metadata": {
     "env": "prod",
     "region": "us-east-1",
@@ -190,7 +190,7 @@ Pipeline has circular template references:
 Before templates — hardcoded per environment:
 
 ```yaml
-# plugins/deployment/kubectl-deploy-prod/plugin-spec.yaml
+# plugins/deploy/kubectl-deploy-prod/plugin-spec.yaml
 name: kubectl-deploy-prod
 commands:
   - "kubectl apply -f k8s/prod/ -n checkout-prod"
@@ -200,7 +200,7 @@ commands:
 After templates — one plugin serves N environments:
 
 ```yaml
-# plugins/deployment/kubectl-deploy/plugin-spec.yaml
+# plugins/deploy/kubectl-deploy/plugin-spec.yaml
 name: kubectl-deploy
 version: 2.0.0
 pluginType: CodeBuildStep

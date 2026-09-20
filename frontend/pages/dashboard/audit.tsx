@@ -11,25 +11,24 @@
  *   - `actorId`       — "what did user X do"
  *   - `impersonatorId` — "what was done while operator X was viewing as someone"
  *   - `targetType` / `targetId` — "what happened to this pipeline / user / …"
- *   - `groupId`       — every event of one grouped operation (a bulk action)
+ *   - `roleId`        — every event touching one permission role (`org.role.*`)
  *   - `requestId`, `outcome`, `from` / `to`
  *   - sysadmin only: `orgId` ("what org X's people did") and `affectedOrgId`
  *     ("what was done TO org X"). The backend pins an org admin to their own
  *     org, so those two are never offered to one.
  *
- * Every filter is a URL param, so deep-links from other surfaces (org-detail
- * "View audit log") land with the right scope, and the ids on each row are
- * buttons that narrow the list to that actor / impersonator / target / group.
+ * Filter state, debouncing, offset reset, URL sync and pagination all come from
+ * `useListPage` — the same hook every other list page uses. Deep-links from
+ * other surfaces (org-detail "View audit log") land with the right scope, and
+ * the ids on each row are buttons that narrow the list to that actor /
+ * impersonator / target / role.
  */
 
-import { Select } from '@/components/ui/Select';
-import { SearchInput } from '@/components/ui/SearchInput';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/router';
+import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
+import { Activity, ArrowLeft, Download, Ban, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFetch } from '@/hooks/useFetch';
+import { useListPage, type FilterField } from '@/hooks/useListPage';
 import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -42,12 +41,13 @@ import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
-import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterBar } from '@/components/ui/FilterBar';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { formatError } from '@/lib/constants';
+import { AuditFilterPanel } from '@/components/audit/AuditFilterPanel';
+import { ChainVerifyStrip } from '@/components/audit/ChainVerifyStrip';
 import { downloadCsv, downloadJsonl, datedFilename } from '@/lib/csv-export';
 import { redactDetails } from '@/lib/redact';
-import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
+import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { formatDateTime } from '@/lib/format';
@@ -56,6 +56,31 @@ const DEFAULT_LIMIT = 50;
 
 /** The action string for a denied-authorization audit event. */
 const DENIED_ACTION = 'authz.denied';
+
+/**
+ * Every field `GET /audit` accepts, declared unconditionally so the shape of
+ * `useListPage`'s filter state never depends on who is looking. The two
+ * sysadmin-only scopes are gated where they're READ instead (rendered by
+ * `AuditFilterPanel`, counted by `activeFilterCount`, sent by the fetcher),
+ * which keeps an org admin's deep-link to `?orgId=…` inert exactly as before.
+ *
+ * Module-level so the array identity is stable across renders.
+ */
+const FILTER_FIELDS: FilterField[] = [
+  { key: 'action', type: 'text', defaultValue: '', primary: true },
+  { key: 'actorId', type: 'text', defaultValue: '' },
+  { key: 'requestId', type: 'text', defaultValue: '' },
+  // Selects (and the two date inputs) commit immediately; only free text debounces.
+  { key: 'outcome', type: 'select', defaultValue: '' },
+  { key: 'targetType', type: 'select', defaultValue: '' },
+  { key: 'targetId', type: 'text', defaultValue: '' },
+  { key: 'impersonatorId', type: 'text', defaultValue: '' },
+  { key: 'roleId', type: 'text', defaultValue: '' },
+  { key: 'from', type: 'select', defaultValue: '' },
+  { key: 'to', type: 'select', defaultValue: '' },
+  { key: 'orgId', type: 'text', defaultValue: '' },
+  { key: 'affectedOrgId', type: 'text', defaultValue: '' },
+];
 
 /** A row id rendered as a button that narrows the list to it. */
 function FilterChip({ label, value, onFilter, title, children }: {
@@ -81,56 +106,40 @@ function FilterChip({ label, value, onFilter, title, children }: {
 }
 
 export default function AuditPage() {
-  const router = useRouter();
   const { accessDenied, isReady, user, isSuperAdmin } = useAuthGuard();
   const [selected, setSelected] = useState<AuditLogEvent | null>(null);
-
-  // Hydrate filters from URL on first render. `action`, `actorId`,
-  // `affectedOrgId` are deep-linkable from other admin pages.
-  const [action, setAction] = useState<string>('');
-  const [actorId, setActorId] = useState<string>('');
-  const [affectedOrgId, setAffectedOrgId] = useState<string>('');
-  const [requestId, setRequestId] = useState<string>('');
-  const [outcome, setOutcome] = useState<'' | 'success' | 'failure'>('');
-  // Target-type scope (e.g. pipeline / plugin / user). Empty = any target.
-  const [targetType, setTargetType] = useState<string>('');
-  const [targetId, setTargetId] = useState<string>('');
-  const [impersonatorId, setImpersonatorId] = useState<string>('');
-  const [groupId, setGroupId] = useState<string>('');
-  // "What org X's people did" — sysadmin only (org admins are pinned server-side).
-  const [orgId, setOrgId] = useState<string>('');
-  // createdAt range bounds (ISO date strings from <input type="date">, or empty).
-  const [from, setFrom] = useState<string>('');
-  const [to, setTo] = useState<string>('');
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   // The full filter panel is collapsed by default to reclaim vertical space;
   // an active-filter count badge on the toggle signals when filters are on.
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  useEffect(() => {
-    if (!router.isReady) return;
-    if (typeof router.query.action === 'string') setAction(router.query.action);
-    if (typeof router.query.actorId === 'string') setActorId(router.query.actorId);
-    // `affectedOrgId` is a sysadmin-only scope: the backend ignores it for
-    // org-admins (they're forced to their own org), so hydrating it for a
-    // non-sysadmin would render a banner asserting a scope that isn't in
-    // effect. Gate the state on `isSuperAdmin` so it only exists when it bites.
-    if (isSuperAdmin && typeof router.query.affectedOrgId === 'string') setAffectedOrgId(router.query.affectedOrgId);
-    // `requestId` deep-links from "view related events" affordances; `outcome`
-    // lets a dashboard panel link straight to failed logins.
-    if (typeof router.query.requestId === 'string') setRequestId(router.query.requestId);
-    if (router.query.outcome === 'success' || router.query.outcome === 'failure') setOutcome(router.query.outcome);
-    if (typeof router.query.targetType === 'string') setTargetType(router.query.targetType);
-    if (typeof router.query.targetId === 'string') setTargetId(router.query.targetId);
-    if (typeof router.query.impersonatorId === 'string') setImpersonatorId(router.query.impersonatorId);
-    if (typeof router.query.groupId === 'string') setGroupId(router.query.groupId);
-    // Same reasoning as affectedOrgId: only a sysadmin's `orgId` takes effect.
-    if (isSuperAdmin && typeof router.query.orgId === 'string') setOrgId(router.query.orgId);
-    // createdAt range deep-links (e.g. "events since <incident time>").
-    if (typeof router.query.from === 'string') setFrom(router.query.from);
-    if (typeof router.query.to === 'string') setTo(router.query.to);
-  }, [router.isReady, router.query, isSuperAdmin]);
+  const list = useListPage<AuditLogEvent>({
+    fields: FILTER_FIELDS,
+    enabled: isReady,
+    pageSize: DEFAULT_LIMIT,
+    urlSync: true,
+    fetcher: async (params, signal) => {
+      const { limit, offset, outcome, orgId, affectedOrgId, ...rest } = params;
+      const res = await api.listAuditEvents({
+        ...rest,
+        // Org admins are pinned to their own org by the backend; these two are
+        // sysadmin-only and never sent for anyone else — even if a deep-link
+        // put them in the filter state.
+        ...(isSuperAdmin && orgId ? { orgId } : {}),
+        ...(isSuperAdmin && affectedOrgId ? { affectedOrgId } : {}),
+        ...(outcome ? { outcome: outcome as 'success' | 'failure' } : {}),
+        limit: Number(limit),
+        offset: Number(offset),
+      }, { signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load audit events');
+      return { items: res.data.events, pagination: res.data.pagination };
+    },
+  });
+  const { filters, updateFilter, clearFilters } = list;
+  const events = list.data;
+  const action = filters.action ?? '';
+  // Only a sysadmin's copy of these two is ever in effect (see FILTER_FIELDS).
+  const affectedOrgId = isSuperAdmin ? (filters.affectedOrgId ?? '') : '';
+  const orgIdFilter = isSuperAdmin ? (filters.orgId ?? '') : '';
 
   // Org id → display name lookup, so org references render as `name (id)`
   // instead of a bare ObjectId. Read through the shared query cache (the orgs
@@ -160,98 +169,24 @@ export default function AuditPage() {
     );
   };
 
-  // Hash-chain tamper-verify (sysadmin only). Runs against the org currently in
-  // scope — the affected-org filter when set, else the sysadmin's own org.
+  // Hash-chain tamper-verify runs against the org currently in scope — the
+  // affected-org filter when set, else the sysadmin's own org.
   const verifyOrgId = affectedOrgId || user?.organizationId || '';
-  const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<AuditChainVerification | null>(null);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-
-  const runVerify = async () => {
-    if (!verifyOrgId) return;
-    setVerifying(true);
-    setVerifyResult(null);
-    setVerifyError(null);
-    try {
-      const res = await api.verifyAuditChain(verifyOrgId);
-      if (res.success && res.data) setVerifyResult(res.data);
-      else setVerifyError(res.message || 'Failed to verify audit chain');
-    } catch (e) {
-      setVerifyError(formatError(e, 'Failed to verify audit chain'));
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  // Reset any stale verify result when the org in scope changes.
-  useEffect(() => { setVerifyResult(null); setVerifyError(null); }, [verifyOrgId]);
 
   const deniedActive = action === DENIED_ACTION;
-  const toggleDenied = () => {
-    setAction((prev) => (prev === DENIED_ACTION ? '' : DENIED_ACTION));
-    setOffset(0);
-  };
+  const toggleDenied = () => updateFilter('action', deniedActive ? '' : DENIED_ACTION);
 
   // Count of applied filter fields — surfaced as a badge on the (collapsed)
   // filter toggle so users know a scope is in effect without expanding it.
+  // Computed here rather than taken from the hook so the two sysadmin-only
+  // scopes stay uncounted for an org admin who deep-linked one.
   const activeFilterCount = [
-    action, actorId, requestId, outcome, targetType, targetId, impersonatorId, groupId, from, to,
-    isSuperAdmin && affectedOrgId, isSuperAdmin && orgId,
+    action, filters.actorId, filters.requestId, filters.outcome, filters.targetType,
+    filters.targetId, filters.impersonatorId, filters.roleId, filters.from, filters.to,
+    affectedOrgId, orgIdFilter,
   ].filter(Boolean).length;
-
-  const clearFilters = () => {
-    setAction('');
-    setActorId('');
-    setRequestId('');
-    setOutcome('');
-    setTargetType('');
-    setTargetId('');
-    setImpersonatorId('');
-    setGroupId('');
-    setFrom('');
-    setTo('');
-    setAffectedOrgId('');
-    setOrgId('');
-    setOffset(0);
-  };
-
-  /** Narrow to one value from a row (actor, impersonator, target, group, org). */
-  const narrow = (set: (v: string) => void, value: string) => {
-    set(value);
-    setOffset(0);
-  };
-
-  const filters = useMemo(() => ({
-    ...(action && { action }),
-    ...(actorId && { actorId }),
-    ...(requestId && { requestId }),
-    ...(outcome && { outcome }),
-    ...(targetType && { targetType }),
-    ...(targetId && { targetId }),
-    ...(impersonatorId && { impersonatorId }),
-    ...(groupId && { groupId }),
-    ...(from && { from }),
-    ...(to && { to }),
-    // Org admins are pinned to their own org by the backend; these two are
-    // sysadmin-only and never sent for anyone else.
-    ...(isSuperAdmin && affectedOrgId && { affectedOrgId }),
-    ...(isSuperAdmin && orgId && { orgId }),
-    offset,
-    limit,
-  }), [action, actorId, requestId, outcome, targetType, targetId, impersonatorId, groupId, from, to, affectedOrgId, orgId, isSuperAdmin, offset, limit]);
-
-  const list = useFetch(
-    async (signal) => {
-      if (!isReady) return null;
-      const res = await api.listAuditEvents(filters, { signal });
-      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load audit events');
-      return res.data;
-    },
-    [isReady, filters],
-  );
-  const events: AuditLogEvent[] = list.data?.events ?? [];
-  const total = list.data?.pagination.total ?? 0;
-  const loading = list.loading;
+  // FilterBar's badge excludes the primary search (the action field).
+  const advancedFilterCount = activeFilterCount - (action ? 1 : 0);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -267,7 +202,7 @@ export default function AuditPage() {
       {isSuperAdmin && affectedOrgId && (
         <div className="mb-4">
           <button
-            onClick={() => { setAffectedOrgId(''); setOffset(0); }}
+            onClick={() => updateFilter('affectedOrgId', '')}
             className="action-link inline-flex items-center gap-1 text-sm"
           >
             <ArrowLeft className="w-4 h-4" /> Clear org scope (showing events affecting org {affectedOrgId})
@@ -277,75 +212,27 @@ export default function AuditPage() {
 
       {/* Hash-chain integrity verify — sysadmin only. Unobtrusive: a button
           plus an inline result badge sitting above the filters. */}
-      {isSuperAdmin && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Button
-            onClick={runVerify}
-            disabled={verifying || !verifyOrgId}
-            variant="secondary"
-            className="inline-flex items-center gap-1.5"
-            title={verifyOrgId
-              ? `Verify the audit hash-chain for org ${verifyOrgId}`
-              : 'No org in scope to verify'}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            {verifying ? 'Verifying…' : 'Verify integrity'}
-          </Button>
-          {verifyOrgId && (
-            <span className="text-xs text-fg-muted inline-flex items-center gap-1">
-              org {renderOrgRef(verifyOrgId)}
-            </span>
-          )}
-          {verifyError && (
-            <span className="inline-flex items-center gap-1 text-xs text-danger">
-              <ShieldQuestion className="w-4 h-4" /> {verifyError}
-            </span>
-          )}
-          {verifyResult && (verifyResult.ok ? (
-            <Badge color="green">
-              <span className="inline-flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Chain intact ({verifyResult.count} event{verifyResult.count === 1 ? '' : 's'})
-              </span>
-            </Badge>
-          ) : (
-            <Badge color="red">
-              <span className="inline-flex items-center gap-1">
-                <ShieldAlert className="w-3.5 h-3.5" />
-                TAMPER DETECTED — chain broken at {verifyResult.brokenAt ?? 'unknown'}
-              </span>
-            </Badge>
-          ))}
-        </div>
-      )}
+      {isSuperAdmin && <ChainVerifyStrip orgId={verifyOrgId} renderOrgRef={renderOrgRef} />}
 
-      <ErrorAlert message={list.error ? formatError(list.error, 'Failed to load audit events') : null} className="mb-4" />
+      <ErrorAlert message={list.error} className="mb-4" />
 
-      {/* Toolbar: collapsible-filter toggle + quick filters. Keeps the tall
-          input grid out of the way until the user reaches for it. */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((o) => !o)}
-          aria-expanded={filtersOpen}
-          aria-controls="audit-filter-panel"
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-            activeFilterCount > 0
-              ? 'border-info-border bg-info-bg text-info'
-              : 'border-default bg-surface text-fg-muted hover:bg-surface-muted'
-          }`}
-          title={filtersOpen ? 'Hide filters' : 'Show filters'}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          Filters
-          {activeFilterCount > 0 && (
-            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand text-white text-2xs font-semibold">
-              {activeFilterCount}
-            </span>
-          )}
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
-        </button>
+      {/* Search + collapsible advanced panel (count badge, clear-all) — the
+          shared FilterBar every other list page uses. */}
+      <FilterBar
+        searchValue={action}
+        onSearchChange={(v) => updateFilter('action', v)}
+        searchPlaceholder="Filter by action (substring match)"
+        showAdvanced={filtersOpen}
+        onToggleAdvanced={() => setFiltersOpen((o) => !o)}
+        advancedFilterCount={advancedFilterCount}
+        onClearAll={clearFilters}
+        advancedContent={
+          <AuditFilterPanel filters={filters} onChange={updateFilter} isSuperAdmin={isSuperAdmin} />
+        }
+      />
 
+      {/* Quick filters that stay visible with the panel collapsed. */}
+      <div className="mt-2 mb-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={toggleDenied}
@@ -373,119 +260,7 @@ export default function AuditPage() {
         )}
       </div>
 
-      {/* Filter bar — collapsed by default (see toggle above). */}
-      {filtersOpen && (
-      <div id="audit-filter-panel" className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
-        <SearchInput
-          placeholder="Filter by action (substring match)"
-          aria-label="Filter by action"
-          value={action}
-          onChange={(v) => { setAction(v); setOffset(0); }}
-        />
-        <FilterInput
-          type="text"
-          placeholder="Actor user id"
-          aria-label="Filter by actor user id"
-          value={actorId}
-          onChange={(e) => { setActorId(e.target.value); setOffset(0); }}
-        />
-        <FilterInput
-          type="text"
-          placeholder="Request id (correlation)"
-          aria-label="Filter by request id"
-          value={requestId}
-          onChange={(e) => { setRequestId(e.target.value); setOffset(0); }}
-        />
-        <Select
-          aria-label="Filter by outcome"
-          value={outcome}
-          onChange={(e) => { setOutcome(e.target.value as '' | 'success' | 'failure'); setOffset(0); }}
-          className="filter-input"
-        >
-          <option value="">All outcomes</option>
-          <option value="success">Success</option>
-          <option value="failure">Failure</option>
-        </Select>
-        <FilterInput
-          type="text"
-          placeholder="Impersonator user id"
-          aria-label="Filter by impersonator user id"
-          value={impersonatorId}
-          onChange={(e) => { setImpersonatorId(e.target.value); setOffset(0); }}
-        />
-        <FilterInput
-          type="text"
-          placeholder="Target id"
-          aria-label="Filter by target id"
-          value={targetId}
-          onChange={(e) => { setTargetId(e.target.value); setOffset(0); }}
-        />
-        <FilterInput
-          type="text"
-          placeholder="Group id (one grouped operation)"
-          aria-label="Filter by group id"
-          value={groupId}
-          onChange={(e) => { setGroupId(e.target.value); setOffset(0); }}
-        />
-        <Select
-          aria-label="Filter by target type"
-          value={targetType}
-          onChange={(e) => { setTargetType(e.target.value); setOffset(0); }}
-          className="filter-input"
-        >
-          <option value="">Any target type</option>
-          <option value="pipeline">Pipeline</option>
-          <option value="plugin">Plugin</option>
-          <option value="user">User</option>
-          <option value="organization">Organization</option>
-          <option value="role">Role</option>
-          <option value="invitation">Invitation</option>
-          <option value="policy">Policy</option>
-          <option value="rule">Rule</option>
-          <option value="dashboard">Dashboard</option>
-        </Select>
-        <label className="flex items-center gap-2 text-xs text-fg-muted">
-          <span className="shrink-0">From</span>
-          <FilterInput
-            type="date"
-            aria-label="Filter events created on or after"
-            value={from}
-            max={to || undefined}
-            onChange={(e) => { setFrom(e.target.value); setOffset(0); }}
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-fg-muted">
-          <span className="shrink-0">To</span>
-          <FilterInput
-            type="date"
-            aria-label="Filter events created on or before"
-            value={to}
-            min={from || undefined}
-            onChange={(e) => { setTo(e.target.value); setOffset(0); }}
-          />
-        </label>
-        {isSuperAdmin && (
-          <>
-            <FilterInput
-              type="text"
-              placeholder="Org id — events by its members (sysadmin)"
-              aria-label="Filter by org id"
-              value={orgId}
-              onChange={(e) => { setOrgId(e.target.value); setOffset(0); }}
-            />
-            <FilterInput
-              type="text"
-              placeholder="Affected org id (sysadmin filter)"
-              aria-label="Filter by affected org id"
-              value={affectedOrgId}
-              onChange={(e) => { setAffectedOrgId(e.target.value); setOffset(0); }}
-            />
-          </>
-        )}
-      </div>
-      )}
-
-      {loading && !list.data && (
+      {list.isLoading && events.length === 0 && (
         <Card className="mt-2 overflow-hidden">
           <div className="divide-y divide-default">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -521,14 +296,14 @@ export default function AuditPage() {
                 affectedOrgId: e.affectedOrgId ?? '',
                 targetType: e.targetType ?? '',
                 targetId: e.targetId ?? '',
-                groupId: e.groupId ?? '',
+                roleId: e.roleId ?? '',
                 ip: e.ip ?? '',
                 userAgent: e.userAgent ?? '',
                 requestId: e.requestId ?? '',
                 traceId: e.traceId ?? '',
                 details: e.details ? JSON.stringify(redactDetails(e.details)) : '',
               })),
-              ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'groupId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
+              ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'roleId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
               datedFilename('audit-page'),
             )}
             variant="secondary"
@@ -553,7 +328,7 @@ export default function AuditPage() {
 
       {/* Results */}
       <Card className="mt-2 overflow-hidden">
-        {events.length === 0 && !loading ? (
+        {events.length === 0 && !list.isLoading ? (
           <EmptyState
             icon={Activity}
             title="No matching audit events"
@@ -592,13 +367,13 @@ export default function AuditPage() {
                     and offers one compact copy affordance apiece. Org id is
                     suppressed when it's just the org already in scope. */}
                 <div className="mt-1 text-2xs text-fg-subtle flex flex-wrap gap-x-3 gap-y-1 items-center">
-                  <FilterChip label="actor" value={event.actorId} title="Show only this actor's events" onFilter={() => narrow(setActorId, event.actorId)} />
+                  <FilterChip label="actor" value={event.actorId} title="Show only this actor's events" onFilter={() => updateFilter('actorId', event.actorId)} />
                   {event.impersonatorId && (
-                    <FilterChip label="via" value={event.impersonatorId} title="Show everything done while this operator was impersonating" onFilter={() => narrow(setImpersonatorId, event.impersonatorId!)} />
+                    <FilterChip label="via" value={event.impersonatorId} title="Show everything done while this operator was impersonating" onFilter={() => updateFilter('impersonatorId', event.impersonatorId!)} />
                   )}
                   {event.orgId && event.orgId !== user.organizationId && (
                     isSuperAdmin
-                      ? <FilterChip label="org" value={event.orgId} title="Show only events by this org's members" onFilter={() => narrow(setOrgId, event.orgId!)}>{renderOrgRef(event.orgId)}</FilterChip>
+                      ? <FilterChip label="org" value={event.orgId} title="Show only events by this org's members" onFilter={() => updateFilter('orgId', event.orgId!)}>{renderOrgRef(event.orgId)}</FilterChip>
                       : <span className="inline-flex items-center gap-1">org {renderOrgRef(event.orgId)}</span>
                   )}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
@@ -610,17 +385,17 @@ export default function AuditPage() {
                         label={event.targetType}
                         value={event.targetId}
                         title="Show only events on this target"
-                        onFilter={() => { setTargetType(event.targetType!); narrow(setTargetId, event.targetId!); }}
+                        onFilter={() => { updateFilter('targetType', event.targetType!); updateFilter('targetId', event.targetId!); }}
                       />
                     ) : <code>{event.targetType}</code>
                   )}
-                  {event.groupId && (
-                    <FilterChip label="group" value={event.groupId} title="Show every event of this grouped operation" onFilter={() => narrow(setGroupId, event.groupId!)} />
+                  {event.roleId && (
+                    <FilterChip label="role" value={event.roleId} title="Show every event touching this permission role" onFilter={() => updateFilter('roleId', event.roleId!)} />
                   )}
                   {event.requestId && (
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setRequestId(event.requestId!); setOffset(0); }}
+                      onClick={(e) => { e.stopPropagation(); updateFilter('requestId', event.requestId!); }}
                       className="inline-flex items-center gap-1 hover:underline hover:text-fg"
                       title="Filter to this request's correlation id"
                     >
@@ -639,12 +414,12 @@ export default function AuditPage() {
         )}
       </Card>
 
-      {total > limit && (
+      {list.pagination.total > list.pagination.limit && (
         <div className="mt-3">
           <Pagination
-            pagination={{ total, offset, limit }}
-            onPageChange={(nextOffset) => setOffset(nextOffset)}
-            onPageSizeChange={(size) => { setLimit(size); setOffset(0); }}
+            pagination={list.pagination}
+            onPageChange={list.handlePageChange}
+            onPageSizeChange={list.handlePageSizeChange}
           />
         </div>
       )}
@@ -679,7 +454,7 @@ export default function AuditPage() {
                 <dt className="text-fg-muted">Impersonator</dt>
                 <dd className="inline-flex items-center gap-2">
                   <CopyableId value={selected.impersonatorId} size="sm" />
-                  <button type="button" className="action-link text-xs" onClick={() => { narrow(setImpersonatorId, selected.impersonatorId!); setSelected(null); }}>
+                  <button type="button" className="action-link text-xs" onClick={() => { updateFilter('impersonatorId', selected.impersonatorId!); setSelected(null); }}>
                     All their impersonated actions
                   </button>
                 </dd>
@@ -693,13 +468,13 @@ export default function AuditPage() {
                 <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} size="sm" /></>}</dd>
               </>
             )}
-            {selected.groupId && (
+            {selected.roleId && (
               <>
-                <dt className="text-fg-muted">Group</dt>
+                <dt className="text-fg-muted">Role</dt>
                 <dd className="inline-flex items-center gap-2">
-                  <CopyableId value={selected.groupId} size="sm" />
-                  <button type="button" className="action-link text-xs" onClick={() => { narrow(setGroupId, selected.groupId!); setSelected(null); }}>
-                    Whole operation
+                  <CopyableId value={selected.roleId} size="sm" />
+                  <button type="button" className="action-link text-xs" onClick={() => { updateFilter('roleId', selected.roleId!); setSelected(null); }}>
+                    Every event on this role
                   </button>
                 </dd>
               </>

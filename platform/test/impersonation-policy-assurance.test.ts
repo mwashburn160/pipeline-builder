@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -26,14 +27,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   refuseWeakSession: (...a: unknown[]) => (refuseWeakSession as any)(...a),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: async () => true,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async () => undefined }));
+// `canAdministerOrg` lazily imports org-hierarchy on the CROSS-org branch, so
+// `isAncestorOrg` has to exist here too (a flat tree: nobody is anyone's
+// ancestor) — otherwise the cross-org case throws instead of being refused.
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getOrgName: async () => undefined,
+  isAncestorOrg: async () => false,
+}));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
@@ -52,9 +55,21 @@ function makeRes() {
   return r;
 }
 
-async function patch(body: Record<string, unknown>, aal: 1 | 2) {
+/**
+ * The route is `canAdministerOrg`-gated and that gate runs FOR REAL (see
+ * helpers/controller-helper-mock.ts): it reads `req.user.role` via `isOrgAdmin`
+ * and compares `req.user.organizationId` with the `:id` param. Authority is
+ * therefore carried by the FIXTURE — `role: 'admin'` over the caller's own org
+ * — not by stubbing the gate. `user` is overridable so the negative case below
+ * can send a caller the gate must refuse.
+ */
+async function patch(body: Record<string, unknown>, aal: 1 | 2, user?: Record<string, unknown>) {
   const res = makeRes();
-  await updateImpersonationPolicy({ user: { sub: 'actor', organizationId: 'org1', aal }, params: { id: 'org1' }, body } as any, res, jest.fn() as any);
+  await updateImpersonationPolicy(
+    { user: user ?? { sub: 'actor', organizationId: 'org1', role: 'admin', aal }, params: { id: 'org1' }, body } as any,
+    res,
+    jest.fn() as any,
+  );
   return res;
 }
 
@@ -99,5 +114,23 @@ describe('PATCH /organization/:id/impersonation-policy', () => {
 
   it('lets an aal-2 admin loosen', async () => {
     expect((await patch({ impersonationPolicy: 'open', allowSelfApproval: true }, 2))._status).toBe(200);
+  });
+
+  // Negative: the tenancy/role gate itself, not the assurance gate. A plain
+  // MEMBER of the very same org holds no `admin`/`owner` role, so
+  // `canAdministerOrg` refuses before any assurance check and nothing is
+  // written — even for a TIGHTENING change an admin would be allowed to make.
+  it('403s a non-admin member of the same org, and writes nothing', async () => {
+    const res = await patch({ impersonationPolicy: 'denied' }, 2, { sub: 'member', organizationId: 'org1', role: 'member', aal: 2 });
+    expect(res._status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(refuseWeakSession).not.toHaveBeenCalled();
+  });
+
+  // Negative: an admin of a DIFFERENT org gets no reach into org1.
+  it('403s an admin of an unrelated org', async () => {
+    const res = await patch({ impersonationPolicy: 'denied' }, 2, { sub: 'other', organizationId: 'org2', role: 'admin', aal: 2 });
+    expect(res._status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

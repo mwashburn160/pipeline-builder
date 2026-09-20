@@ -77,6 +77,18 @@ if [ ! -f "$DEPLOY_DIR/.env" ]; then
   fi
 fi
 
+# Bring an EXISTING .env up to date with keys added to .env.example since it was
+# seeded (additive only — existing values are never touched). Without this a key
+# added later never reaches an installed .env, and `compose up` dies on an unset
+# variable reference (or, worse, materialises an empty secret). Same call the
+# minikube target makes.
+pb_sync_env_keys "$DEPLOY_DIR/.env" "$DEPLOY_DIR/.env.example"
+
+# ALERT DELIVERY PRE-FLIGHT. Fails the deploy while a Slack webhook URL is still
+# a placeholder — alerting that 404s into nothing is indistinguishable from
+# healthy alerting. Set both SLACK_*_WEBHOOK_URL empty in .env to run without it.
+pb_check_alert_delivery "$DEPLOY_DIR/.env" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+
 # -----------------------------------------------------------------------
 # Ensure TLS certificates exist
 # -----------------------------------------------------------------------

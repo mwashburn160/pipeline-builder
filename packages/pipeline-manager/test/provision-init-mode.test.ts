@@ -30,15 +30,11 @@ describe('resolveInitMode', () => {
     expect(resolveInitMode({ init: '' })).toBeNull();
   });
 
-  it('maps the deprecated aliases', () => {
-    expect(resolveInitMode({ init: false })).toBe('skip'); // --no-init
-    expect(resolveInitMode({ autoInit: true })).toBe('auto'); // --auto-init
-    expect(resolveInitMode({ autoInit: false })).toBe('manual'); // --no-auto-init
-  });
-
-  it('lets the new --init flag win over a deprecated alias', () => {
-    // e.g. `--init manual --auto-init` → manual (the new flag is authoritative).
-    expect(resolveInitMode({ init: 'manual', autoInit: true })).toBe('manual');
-    expect(resolveInitMode({ init: 'skip', autoInit: false })).toBe('skip');
+  it('ignores a non-string --init (no boolean alias exists any more)', () => {
+    // `--init` is a value flag; commander can never hand it `true`/`false`, and the
+    // old boolean aliases (--no-init/--auto-init/--no-auto-init) are gone — anything
+    // that isn't a string falls through to the default.
+    expect(resolveInitMode({ init: false } as { init?: unknown })).toBe('auto');
+    expect(resolveInitMode({ init: undefined })).toBe('auto');
   });
 });

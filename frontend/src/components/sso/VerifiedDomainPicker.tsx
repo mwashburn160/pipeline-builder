@@ -75,7 +75,7 @@ export function VerifiedDomainPicker({
 
   return (
     <fieldset className="space-y-2" disabled={disabled}>
-      <legend className="text-sm font-medium text-gray-700 dark:text-gray-300">Verified domains served by this connection</legend>
+      <legend className="text-sm font-medium text-fg-muted">Verified domains served by this connection</legend>
       {domains.map((domain) => (
         <label key={domain} className="flex items-center gap-2 text-sm">
           <Checkbox checked={value.includes(domain)} onChange={() => toggle(domain)} aria-label={domain} />

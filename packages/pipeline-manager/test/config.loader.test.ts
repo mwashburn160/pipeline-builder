@@ -22,12 +22,21 @@ const passthroughPackageJson = (...args: unknown[]): unknown => {
 };
 mockReadFileSync.mockImplementation(passthroughPackageJson as never);
 
-jest.unstable_mockModule('fs', () => ({
-  __esModule: true,
+// `statSync`/`mkdtempSync`/… are not used by config-loader itself, but mocking a
+// core module replaces it for the WHOLE graph pulled in by the import below
+// (api-core's service-keys reads a key file with statSync), so the stub has to
+// carry every name that graph imports or the ESM link step fails.
+const fsStub = {
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
-  default: { existsSync: mockExistsSync, readFileSync: mockReadFileSync },
-}));
+  statSync: jest.fn(() => ({ isFile: () => false, mode: 0o600, size: 0 })),
+  mkdtempSync: jest.fn(() => '/tmp/pm-test'),
+  writeFileSync: jest.fn(),
+  rmSync: jest.fn(),
+  mkdirSync: jest.fn(),
+};
+jest.unstable_mockModule('fs', () => ({ __esModule: true, ...fsStub, default: fsStub }));
+jest.unstable_mockModule('node:fs', () => ({ __esModule: true, ...fsStub, default: fsStub }));
 
 jest.unstable_mockModule('yaml', () => ({
   __esModule: true,

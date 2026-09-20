@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.8",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -116,6 +116,24 @@
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 84,
+        "branches": 77,
+        "functions": 82,
+        "lines": 84
+      },
+      "**/src/routes/token.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      }
     }
   },
   "type": "module",

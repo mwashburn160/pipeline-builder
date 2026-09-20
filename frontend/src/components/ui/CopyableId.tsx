@@ -40,7 +40,7 @@ export function CopyableId({ value, display, size }: Props) {
 
   return (
     <span className="inline-flex items-center gap-1.5 align-middle">
-      <code className={`${CODE_CLASS[effectiveSize]} text-gray-700 dark:text-gray-300 break-all`}>
+      <code className={`${CODE_CLASS[effectiveSize]} text-fg-muted break-all`}>
         {display ?? value}
       </code>
       <button

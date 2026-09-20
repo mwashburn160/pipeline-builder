@@ -7,6 +7,14 @@
 # defines pb_* functions only (no side effects). The minikube target sources it too, but
 # only for the kubectl-free `pb_split_app_env` (it has its own create helpers).
 #
+# SHELL OPTIONS: this file is SOURCED, never executed, so it deliberately sets
+# NO `set -euo pipefail`. `set` inside a sourced file mutates the CALLER's shell
+# — it would silently turn on errexit for whatever sourced us (including an
+# interactive shell, where a failed command would then close the terminal).
+# Every caller already runs under `set -euo pipefail`; these functions therefore
+# propagate failure the portable way, by RETURNING non-zero, so they behave the
+# same whether or not the caller has errexit on.
+#
 # Caller contract — set these BEFORE calling, and source the target's .env first (the
 # secret VALUES come from it):
 #   PB_KUBECTL    the kubectl runner — "kubectl" (eks) or "mk kubectl" (ec2: runs kubectl as
@@ -37,7 +45,8 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@"
 #
 # Secret detection is by NAME, so a newly added *_PASSWORD / *_SECRET / *_TOKEN / *_KEY /
 # API key lands in the Secret without touching this function. Knobs that merely contain
-# those words (…_TOKEN_EXPIRES_IN, …_TOKEN_URL, …_KEY_ID, PASSWORD_MIN_LENGTH) stay config.
+# those words (…_TOKEN_EXPIRES_IN, …_TOKEN_URL, …_KEY_ID, PASSWORD_MIN_LENGTH,
+# PASSWORD_BREACH_CHECK*) stay config.
 # `…_PREVIOUS` is secret too — every rotation-overlap value
 # (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS, SECRET_ENCRYPTION_KEY_PREVIOUS, …) is the
 # same credential as the key it supersedes, so it must never land in the ConfigMap.
@@ -69,6 +78,11 @@ pb_split_app_env() {
       key = $0; sub(/=.*/, "", key)
       if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
           || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_)/) next
+      # PASSWORD_BREACH_CHECK* are knobs, not credentials — a mode, a public
+      # k-anonymity endpoint and a timeout. They only CONTAIN "PASSWORD", so the
+      # by-name rule below would otherwise bury them in the Secret, where an
+      # operator can neither see nor diff the outbound URL the platform calls.
+      if (key ~ /^PASSWORD_BREACH_CHECK/) { print line > cfg; next }
       if (key ~ /(_EXPIRES_IN|_ISSUER|_SERVICE|_REALM|_TTL_MS|_TOKEN_URL|_KEY_ID|_LENGTH|_KMS|ATTRIBUTE_KEYS)$/) { print line > cfg; next }
       if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI|_PREVIOUS)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print line > sec; next }
       print line > cfg
@@ -112,6 +126,15 @@ pb_create_app_secrets() {
   # in alertmanager.yml) and injected into platform's ALERT_WEBHOOK_INSTANCES.
   pb_secret alertmanager-relay   --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN" \
     --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS="${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"
+  # Ops-team Slack webhook URLs for the platform-wide critical/warning receivers,
+  # mounted as FILES into alertmanager (api_url_file) — a webhook URL is a bearer
+  # credential, so it belongs here and not in the alertmanager-config ConfigMap.
+  # Created unconditionally (never `optional:`) so a missing value is a loud
+  # FailedMount; the values themselves are pre-flighted by
+  # pb_check_alert_delivery, which the caller runs before this.
+  pb_secret alertmanager-slack \
+    --from-literal=SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}" \
+    --from-literal=SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
   # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
   # Secret in k8s/minio.yaml — which is what it used to be, with working

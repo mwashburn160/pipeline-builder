@@ -5,7 +5,7 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
-import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
+import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification } from './notification-channels.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('alert-destination-service');
@@ -63,6 +63,14 @@ function maskTarget(target: string): string {
   return '••••' + target.slice(-12);
 }
 
+/** Strip + mask the target field for API responses. The caller still knows
+ *  *which* destination (label / channel / severity) — they just can't read
+ *  back the secret URL. Module-level (not a class static) so the single
+ *  definition is also the single export the controller imports. */
+export function toApiDestination(d: OrgAlertDestination): Omit<OrgAlertDestination, 'target'> & { target: string; hasTarget: boolean } {
+  return { ...d, target: maskTarget(d.target), hasTarget: !!d.target };
+}
+
 /**
  * Org-scoped CRUD for alert notification destinations. Multi-tenant routing:
  * when an alert fires with `tenancy=org` and an `org_id` label, the platform's
@@ -70,13 +78,6 @@ function maskTarget(target: string): string {
  * severity ≤ minSeverity, and forwards.
  */
 export class AlertDestinationService {
-  /** Strip + mask the target field for API responses. The caller still knows
-   *  *which* destination (label / channel / severity) — they just can't read
-   *  back the secret URL. */
-  static toApiDestination(d: OrgAlertDestination): Omit<OrgAlertDestination, 'target'> & { target: string; hasTarget: boolean } {
-    return { ...d, target: maskTarget(d.target), hasTarget: !!d.target };
-  }
-
   /**
    * Sysadmin cross-tenant list: every alert destination in every org.
    *
@@ -184,17 +185,24 @@ export class AlertDestinationService {
 
     const now = new Date().toISOString();
     const actorLabel = actor.email || actor.userId;
-    const msg: NotificationMessage = {
-      severity: 'info',
-      status: 'firing',
+    const base = {
+      severity: 'info' as const,
+      status: 'firing' as const,
       timestamp: now,
       title: 'Pipeline Builder — test alert',
       summary: `Manual test notification sent by ${actorLabel} at ${now}.`,
       detail: 'If you can see this message, this alert destination is configured correctly. No real alert is firing.',
       labels: { alertname: 'PipelineBuilderTestAlert', severity: 'info' },
+    };
+    const msg: AlertNotification = {
+      ...base,
       recipientOrgId: dest.orgId,
+      subject: subjectLine(base),
+      body: plainTextBody(base),
+      priority: severityToPriority(base.severity),
+      messageType: 'announcement',
       // Body forwarded unchanged by the generic `webhook` channel.
-      raw: { test: true, message: 'Pipeline Builder test alert', destinationId, sentBy: actorLabel, sentAt: now },
+      payload: { test: true, message: 'Pipeline Builder test alert', destinationId, sentBy: actorLabel, sentAt: now },
     };
 
     // Reuse the relay's cross-cutting concern: a bounded-timeout AbortController
@@ -354,7 +362,3 @@ export class AlertDestinationService {
 }
 
 export const alertDestinationService = new AlertDestinationService();
-
-// Back-compat named export — alert-destinations controller imports
-// `toApiDestination` directly; delegates to the static method above.
-export const toApiDestination = AlertDestinationService.toApiDestination;

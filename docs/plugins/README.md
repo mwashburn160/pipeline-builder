@@ -481,6 +481,12 @@ Key rules:
 ./deploy/bin/verify-plugin-urls.sh          # sanity-check download URLs in Dockerfiles
 ```
 
+`verify-plugin-urls.sh` also runs in CI (`.github/workflows/plugin-urls.yml`): on
+any PR that touches a plugin `Dockerfile`, weekly on a schedule, and on demand.
+It is deliberately not part of the release gate — its verdict depends on
+third-party uptime — so run it locally before opening a version bump rather than
+finding out from the scheduled run.
+
 ### Updating a Version
 
 1. Edit the `ARG` default — the runtime in the ecosystem base

@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import YAML from 'yaml';
 import {
@@ -245,7 +246,7 @@ function writeToFile(filePath: string, content: string, format: OutputFormat, ap
   } catch (error) {
     printError('Failed to write file', {
       path: filePath,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     throw error;
   }
@@ -259,7 +260,7 @@ export function ensureOutputDirectory(outputPath: string): void {
   } catch (error) {
     printError('Failed to create directory', {
       path: outputPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     throw error;
   }

@@ -8,6 +8,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
@@ -25,14 +26,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => {
-    try { await fn(req, res); } catch (err) {
-      const e = err as { statusCode?: number; code?: string; message: string };
-      res.status(e.statusCode ?? 500).json({ success: false, message: e.message, code: e.code });
-    }
-  },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/superadmin-bootstrap.js', () => ({ maybePromoteNewUser: jest.fn(async () => undefined) }));
@@ -63,6 +57,18 @@ function makeRes() {
   res.json = jest.fn().mockReturnValue(res);
   return res;
 }
+/**
+ * A faithful stand-in for production's `PasswordPolicyServiceError`
+ * (src/helpers/password-policy.ts), which is what the real
+ * `assertNewPasswordAcceptable` throws. The `name` is load-bearing: with the
+ * real `withController` restored, the throw is answered by
+ * `handleControllerError`, and its ServiceError branch honours `statusCode` +
+ * `code` ONLY when `name` contains `ServiceError`. A plain `Error` carrying the
+ * same two fields falls through to the 500 fallback instead.
+ */
+const policyRefusal = (code: string, message: string) =>
+  Object.assign(new Error(message), { name: 'PasswordPolicyServiceError', statusCode: 400, code });
+
 const body = { username: 'newbie', email: 'new@example.com', password: 'Passw0rdPassw0rd' };
 
 beforeEach(() => jest.clearAllMocks());
@@ -84,7 +90,7 @@ describe('POST /auth/register — password policy', () => {
   });
 
   it('a refused password creates nothing', async () => {
-    mockAssertAcceptable.mockRejectedValueOnce(Object.assign(new Error('breached'), { statusCode: 400, code: 'PASSWORD_BREACHED' }));
+    mockAssertAcceptable.mockRejectedValueOnce(policyRefusal('PASSWORD_BREACHED', 'breached'));
     const res = makeRes();
     await (register as any)({ body, headers: {} }, res);
     expect(res.status).toHaveBeenCalledWith(400);

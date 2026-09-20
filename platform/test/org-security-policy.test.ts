@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
@@ -20,7 +21,6 @@ const mockRefuseWeak = jest.fn((_req: unknown, res: any, _o: unknown) => {
   res.status(403).json({ success: false, code: 'ASSURANCE_REQUIRED' });
   return true;
 });
-let administers = true;
 let orgDoc: Record<string, unknown> = {};
 let lineage: Array<Record<string, unknown>> = [];
 let mfaEnforced = false;
@@ -36,11 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: (req: any) => !!req.user,
-  canAdministerOrg: async () => administers,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async (id: string) => `name-of-${id}` }));
 jest.unstable_mockModule('../src/helpers/org-policy-lineage.js', () => ({ readOrgPolicyLineage: async () => lineage }));
@@ -87,8 +83,15 @@ function makeRes() {
   res.json = jest.fn().mockReturnValue(res);
   return res;
 }
-const admin = { sub: 'u1', organizationId: 'org-1', aal: 1 };
-const req = (body: Record<string, unknown> = {}) => ({ user: admin, params: { id: 'org-1' }, body, headers: {} }) as any;
+// `controller-helper` runs FOR REAL: `canAdministerOrg` reads `user.role` and
+// `user.organizationId`, so the caller's authority is the FIXTURE. This is an
+// admin/owner of the exact org the routes target (`params.id`).
+const admin = { sub: 'u1', organizationId: 'org-1', role: 'admin', aal: 1 };
+/** Same org, no admin role — authenticated, but administers nothing. */
+const member = { sub: 'u1', organizationId: 'org-1', aal: 1 };
+// `user` defaults to the org admin; pass `null` for an ANONYMOUS caller.
+const req = (body: Record<string, unknown> = {}, user: unknown = admin) =>
+  ({ user, params: { id: 'org-1' }, body, headers: {} }) as any;
 async function run(handler: unknown, r: any) {
   const res = makeRes();
   await (handler as (q: any, s: any) => Promise<void>)(r, res);
@@ -97,7 +100,6 @@ async function run(handler: unknown, r: any) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  administers = true;
   orgDoc = {};
   lineage = [{ _id: 'org-1' }];
   mfaEnforced = false;
@@ -110,9 +112,20 @@ beforeEach(() => {
 
 describe('password policy', () => {
   it('refuses an org the caller does not administer', async () => {
-    administers = false;
-    const res = await run(ctrl.getPasswordPolicy, req());
+    const res = await run(ctrl.getPasswordPolicy, req({}, member));
     expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('refuses an anonymous caller, and writes nothing', async () => {
+    const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, null));
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin member on the WRITE path, and writes nothing', async () => {
+    const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, member));
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
   });
 
   it('raising the minimum is open to a single-factor admin, and audited with both sides', async () => {

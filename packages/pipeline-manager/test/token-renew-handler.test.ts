@@ -40,7 +40,6 @@ const STORED = {
 
 const ENV = {
   PLATFORM_SECRET_NAME: 'pipeline-builder/acme/reporting-ingest',
-  PLATFORM_BASE_URL: 'https://pipeline-builder.com',
   RENEW_DAYS: '30',
   AWS_REGION: 'us-east-1',
 };
@@ -195,12 +194,21 @@ describe('token-renew-handler (key rotator)', () => {
     expect(calls().some(([url]) => url.includes('/auth/key/revoke'))).toBe(false);
   });
 
-  it('reports the platform recorded IN the secret, not just the env var', async () => {
+  it('reads the platform URL recorded IN the secret (the only source)', async () => {
     mockSend.mockImplementation((cmd) => (cmd.__type === 'Get'
       ? Promise.resolve({ SecretString: JSON.stringify({ ...STORED, platformUrl: 'https://other.example.com' }) })
       : Promise.resolve({})));
     await handler();
     expect(calls()[0][0]).toBe('https://other.example.com/api/auth/key/rotate');
+  });
+
+  it('throws when the secret records no platformUrl', async () => {
+    const { platformUrl: _drop, ...noUrl } = STORED;
+    mockSend.mockImplementation((cmd) => (cmd.__type === 'Get'
+      ? Promise.resolve({ SecretString: JSON.stringify(noUrl) })
+      : Promise.resolve({})));
+    await expect(handler()).rejects.toThrow(/missing platformUrl/);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('REFUSES a secret still holding a pre-cutover JWT, naming the fix', async () => {

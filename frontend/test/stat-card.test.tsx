@@ -9,7 +9,7 @@
  */
 
 import { render, screen } from '@testing-library/react';
-import { StatCard } from '../src/components/reports/StatCard';
+import { StatCard } from '../src/components/ui/StatCard';
 
 describe('StatCard', () => {
   it('renders the centered variant (default) with value + label', () => {

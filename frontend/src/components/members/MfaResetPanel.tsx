@@ -57,6 +57,10 @@ export function MfaResetPanel({
   const [approving, setApproving] = useState<MfaResetRequest | null>(null);
   const [denying, setDenying] = useState<MfaResetRequest | null>(null);
   const [busy, setBusy] = useState(false);
+  // Text for the always-mounted live region in the card. A decision removes the
+  // row it was made on, so without this the only feedback a screen-reader user
+  // gets is a list that silently got shorter.
+  const [announcement, setAnnouncement] = useState('');
 
   const requests = read.data ?? [];
   const pending = requests.filter((r) => r.status === 'pending');
@@ -71,11 +75,18 @@ export function MfaResetPanel({
     setBusy(true);
     try {
       const res = await api.approveMfaReset(orgId, request.id, {}, stepUpToken);
-      if (res.success) toast.success(res.message || `Two-factor authentication reset for ${request.targetEmail}`);
-      else toast.error(res.message || 'Could not approve the reset');
+      const message = res.success
+        ? (res.message || `Two-factor authentication reset for ${request.targetEmail}`)
+        : (res.message || 'Could not approve the reset');
+      (res.success ? toast.success : toast.error)(message);
+      setAnnouncement(message);
     } catch (err) {
       // The shell's dialog already explains a single-factor session.
-      if (!(err instanceof MfaRequiredError)) toast.error(formatError(err, 'Could not approve the reset'));
+      if (!(err instanceof MfaRequiredError)) {
+        const message = formatError(err, 'Could not approve the reset');
+        toast.error(message);
+        setAnnouncement(message);
+      }
     } finally {
       setBusy(false);
       read.refetch();
@@ -83,15 +94,20 @@ export function MfaResetPanel({
   };
 
   const deny = async (request: MfaResetRequest) => {
-    setDenying(null);
     setBusy(true);
     try {
       const res = await api.denyMfaReset(orgId, request.id);
-      if (res.success) toast.success(res.message || 'Request closed');
-      else toast.error(res.message || 'Could not close the request');
+      const message = res.success ? (res.message || 'Request closed') : (res.message || 'Could not close the request');
+      (res.success ? toast.success : toast.error)(message);
+      setAnnouncement(message);
     } catch (err) {
-      toast.error(formatError(err, 'Could not close the request'));
+      const message = formatError(err, 'Could not close the request');
+      toast.error(message);
+      setAnnouncement(message);
     } finally {
+      // The dialog stays up, showing its in-flight state, until the call
+      // settles — closing on the click left Deny looking like it did nothing.
+      setDenying(null);
       setBusy(false);
       read.refetch();
     }
@@ -103,6 +119,9 @@ export function MfaResetPanel({
       title="Pending two-factor resets"
       description="A reset removes a member's passkeys, authenticator app and recovery codes. It needs a second owner or admin to approve it."
     >
+      {/* Always mounted and initially empty: a live region inserted together
+          with its text is not announced. */}
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
       {read.error && !read.data ? (
         <RetryError message={formatError(read.error, 'Could not load reset requests')} onRetry={read.refetch} />
       ) : (
@@ -191,6 +210,7 @@ export function MfaResetPanel({
         <ConfirmDialog
           title={denying.requestedBy === currentUserId ? 'Withdraw this request?' : 'Deny this request?'}
           confirmLabel={denying.requestedBy === currentUserId ? 'Withdraw' : 'Deny'}
+          loading={busy}
           onConfirm={() => deny(denying)}
           onCancel={() => setDenying(null)}
         >

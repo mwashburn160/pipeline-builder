@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import api, { ApiError } from '@/lib/api';
+import api from '@/lib/api';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -79,9 +79,6 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       }
     }).catch((err) => {
       if (cancelled) return;
-      // Legacy safety net: older backends 404'd when no config existed; the
-      // endpoint now returns 200 + `config: null`, but tolerate a 404 too.
-      if (err instanceof ApiError && err.statusCode === 404) return;
       setError(formatError(err));
     })
       .finally(() => !cancelled && setLoading(false));
@@ -182,7 +179,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
           {existing && (
             <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
-              <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current config</div>
+              <div className="font-medium text-fg-muted mb-1">Current config</div>
               <div className="text-fg-muted">
                 Provider: <code className="text-xs">{existing.provider}</code> ·
                 {' '}Secret: {existing.hasClientSecret ? 'on file' : <em>not set</em>} ·

@@ -64,7 +64,7 @@ export default function AuditActivityRedirect() {
     const { id: _ignored, ...passThrough } = router.query;
     void router.replace({ pathname: `/dashboard/observability/${targetId}`, query: passThrough });
     // Capture the query at redirect time; re-renders shouldn't re-trigger it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the query is captured at redirect time; re-renders must not re-trigger it
   }, [router.isReady, targetId]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;

@@ -6,10 +6,10 @@
   "tasks": {
     "audit": {
       "name": "audit",
-      "description": "Check for known vulnerabilities in dependencies",
+      "description": "Check runtime dependencies for known High/Critical vulnerabilities (same command as the security-audit workflow)",
       "steps": [
         {
-          "exec": "pnpm audit --audit-level=high"
+          "exec": "pnpm audit --prod --audit-level high"
         }
       ]
     },

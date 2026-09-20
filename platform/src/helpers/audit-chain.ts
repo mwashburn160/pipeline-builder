@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash, randomUUID } from 'crypto';
-import { createLogger, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
+import { createLogger, scrubAwsIdentifiers, errorMessage } from '@pipeline-builder/api-core';
 import AuditEvent, { type AuditEventDocument } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
@@ -28,9 +28,9 @@ const logger = createLogger('audit-chain');
  * - Digest: `hash = sha256(canonical)` where `canonical` is a STABLE, sorted-key
  *   JSON serialization of ALL of the event's immutable, write-once fields
  *   (action, actorId, actorEmail, actorRole, orgId, affectedOrgId, targetType,
- *   targetId, groupId, impersonatorId, outcome, details, ip, userAgent,
+ *   targetId, roleId, impersonatorId, outcome, details, ip, userAgent,
  *   requestId, traceId, createdAt) PLUS the `prevHash` — so tampering with any
- *   forensic-attribution field (e.g. `impersonatorId`, `groupId`) is detectable.
+ *   forensic-attribution field (e.g. `impersonatorId`, `roleId`) is detectable.
  *   Sorted keys + a normalization of every absent field to `null`
  *   make re-computation from the stored row reproducible regardless of key order
  *   or undefined-vs-missing quirks in what Mongo returns.
@@ -76,7 +76,7 @@ export function hashErrorSentinel(): string {
 }
 
 /** Whether a stored `hash` is an un-verifiable-hash marker rather than a digest. */
-export function isHashErrorSentinel(hash: unknown): boolean {
+function isHashErrorSentinel(hash: unknown): boolean {
   return typeof hash === 'string' && (hash === HASH_ERROR_SENTINEL || hash.startsWith(`${HASH_ERROR_SENTINEL}:`));
 }
 
@@ -102,7 +102,7 @@ function stableStringify(value: unknown): string {
  * only). Every field here is set at event creation and never updated
  * (`timestamps.updatedAt` is off), so hashing them makes a post-hoc mutation of
  * ANY of them detectable — notably `impersonatorId` (who really acted, under a
- * "view-as" token) and `groupId` (which Role was touched), the high-value
+ * "view-as" token) and `roleId` (which Role was touched), the high-value
  * forensic-attribution fields an attacker would want to rewrite.
  */
 export interface AuditHashFields {
@@ -114,7 +114,7 @@ export interface AuditHashFields {
   affectedOrgId?: string | null;
   targetType?: string | null;
   targetId?: string | null;
-  groupId?: string | null;
+  roleId?: string | null;
   impersonatorId?: string | null;
   outcome?: string | null;
   details?: Record<string, unknown> | null;
@@ -142,7 +142,7 @@ export function computeAuditHash(f: AuditHashFields): string {
     affectedOrgId: f.affectedOrgId ?? null,
     targetType: f.targetType ?? null,
     targetId: f.targetId ?? null,
-    groupId: f.groupId ?? null,
+    roleId: f.roleId ?? null,
     impersonatorId: f.impersonatorId ?? null,
     outcome: f.outcome ?? null,
     details: f.details ?? null,
@@ -189,7 +189,7 @@ function withChainLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }
 
 /**
@@ -415,7 +415,7 @@ export async function verifyAuditChain(chainKey: string): Promise<AuditChainVeri
         affectedOrgId: raw.affectedOrgId as string | undefined,
         targetType: raw.targetType as string | undefined,
         targetId: raw.targetId as string | undefined,
-        groupId: raw.groupId as string | undefined,
+        roleId: raw.roleId as string | undefined,
         impersonatorId: raw.impersonatorId as string | undefined,
         outcome: raw.outcome as string | undefined,
         details: raw.details as Record<string, unknown> | undefined,

@@ -143,10 +143,10 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       : 'left-0 right-0 top-full mt-1.5';
   const menu = open && canSwitch && (
     <div
-      className={`absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden ${menuPosition}`}
+      className={`absolute z-50 bg-surface border border-default rounded-xl shadow-xl overflow-hidden ${menuPosition}`}
       role="menu"
     >
-      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
+      <div className="px-3 py-2 border-b border-default text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
         Switch organization
       </div>
       <div className="py-1 max-h-64 overflow-y-auto">
@@ -162,8 +162,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
               style={depth ? { paddingLeft: '1.75rem' } : undefined}
               className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
                 isActive
-                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  ? 'bg-info-bg text-info font-medium'
+                  : 'text-fg-muted hover:bg-surface-muted'
               }`}
             >
               {depth > 0 || org.parentOrgId
@@ -235,12 +235,12 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
             aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
             aria-haspopup={canSwitch ? 'menu' : undefined}
             aria-expanded={canSwitch ? open : undefined}
-            className={`relative flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 transition-colors ${
-              canSwitch ? 'hover:border-blue-400 dark:hover:border-blue-600 cursor-pointer' : 'cursor-default'
+            className={`relative flex items-center justify-center w-10 h-10 rounded-lg border border-default bg-info-bg text-info transition-colors ${
+              canSwitch ? 'hover:border-info-border cursor-pointer' : 'cursor-default'
             }`}
           >
             <Building2 className="w-5 h-5" />
-            {canSwitch && <ChevronsUpDown className="w-3 h-3 text-fg-subtle absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-900 rounded-full" />}
+            {canSwitch && <ChevronsUpDown className="w-3 h-3 text-fg-subtle absolute -bottom-0.5 -right-0.5 bg-surface rounded-full" />}
           </button>
         </Tooltip>
         {menu}
@@ -259,18 +259,18 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
         aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
         aria-haspopup={canSwitch ? 'menu' : undefined}
         aria-expanded={canSwitch ? open : undefined}
-        className={`group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/60 shadow-sm transition-colors ${
-          canSwitch ? 'hover:bg-white dark:hover:bg-gray-800 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer' : 'cursor-default'
+        className={`group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border border-default bg-surface-muted/80 shadow-sm transition-colors ${
+          canSwitch ? 'hover:bg-surface hover:border-info-border cursor-pointer' : 'cursor-default'
         }`}
       >
-        <span className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 shrink-0">
+        <span className="flex items-center justify-center w-8 h-8 rounded-md bg-info-bg text-info shrink-0">
           {activeIsTeam ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
         </span>
         <span className="flex-1 min-w-0 text-left">
           <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
             {activeIsTeam && activeOrg ? teamCaption(activeOrg) : 'Organization'}
           </span>
-          <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
+          <span className="block text-sm font-semibold text-fg truncate leading-tight">
             {activeName}
           </span>
         </span>

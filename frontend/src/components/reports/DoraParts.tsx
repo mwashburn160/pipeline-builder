@@ -22,7 +22,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
-import { StatCard } from './StatCard';
+import { StatCard } from '@/components/ui/StatCard';
 // Small shared report pieces stay in ReportHelpers — see the module note.
 import { SectionHeading, fmtDate } from './ReportHelpers';
 import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';

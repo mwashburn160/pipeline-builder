@@ -206,7 +206,10 @@ export interface OrganizationDocument extends Document {
   deletedAt?: Date | null;
   /**
    * When the purge sweep may run the destructive cascade for this soft-deleted
-   * org (= `deletedAt` + `organization.deletionRetentionDays`). Until then a
+   * org (= `deletedAt` + `orgPurgeRetentionMs()`, i.e. the greater of
+   * `organization.deletionRetentionDays` and the shared row-level
+   * `SOFT_DELETE_RETENTION_DAYS` — the org must outlive the rows it owns).
+   * Until then a
    * sysadmin/owner can restore. Sparse-indexed for the sweep's
    * `{ purgeAfter: { $lte: now } }` scan.
    */

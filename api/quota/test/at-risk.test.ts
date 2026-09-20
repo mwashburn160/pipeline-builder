@@ -235,3 +235,34 @@ describe('GET /quotas/at-risk', () => {
     expect(findAll).toHaveBeenCalledTimes(2); // distinct threshold → fresh scan
   });
 });
+
+/**
+ * GET /quotas/all — the sysadmin org listing. `limit` was always clamped but
+ * `offset` was not, so `?offset=99999999999` made Mongo walk (and discard)
+ * every matching document before returning an empty page.
+ */
+describe('GET /quotas/all pagination bounds', () => {
+  let handler: (req: any, res: any) => Promise<unknown>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    handler = getHandler('/all');
+    findAll.mockResolvedValue([]);
+  });
+
+  it('clamps an absurd offset instead of passing it through to the skip', async () => {
+    await handler({ query: { offset: '99999999999' } } as any, makeRes());
+    // MAX_LIST_OFFSET is 100_000, and the param is 1-based.
+    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 99_999 });
+  });
+
+  it('clamps a negative offset to the first page', async () => {
+    await handler({ query: { offset: '-5' } } as any, makeRes());
+    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 0 });
+  });
+
+  it('passes an ordinary offset through unchanged', async () => {
+    await handler({ query: { offset: '3', limit: '25' } } as any, makeRes());
+    expect(findAll).toHaveBeenCalledWith({ limit: 25, offset: 2 });
+  });
+});

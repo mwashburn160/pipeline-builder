@@ -61,7 +61,7 @@ export const MESSAGE_SSE_BASE_RETRY_DELAY_MS = 2000;
 export const EPOCH_MS_THRESHOLD = 1e12;
 
 /** Display names for the sign-in providers, for buttons and error copy. */
-export const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<string, string> = {
   google: 'Google',
   github: 'GitHub',
   facebook: 'Facebook',

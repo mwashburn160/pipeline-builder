@@ -35,7 +35,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
           <Icon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-sm font-semibold text-fg">
             {topic.title}
           </h3>
           <p className="text-xs text-fg-muted truncate">

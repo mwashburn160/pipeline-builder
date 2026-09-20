@@ -15,6 +15,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockMemberships = jest.fn<(...a: unknown[]) => Promise<Array<{ userId: unknown }>>>();
@@ -27,11 +28,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: async () => true,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
@@ -67,7 +64,12 @@ function makeRes() {
   return r;
 }
 
-const req = () => ({ user: { sub: 'u1', organizationId: 'org1' }, params: { id: 'org1' } }) as any;
+/**
+ * `controller-helper` runs FOR REAL, so the READ gate (`canAdministerOrg`) is
+ * satisfied by the FIXTURE: an admin/owner of the org named in `params.id`.
+ */
+const ORG_ADMIN = { sub: 'u1', organizationId: 'org1', role: 'admin' };
+const req = (user: unknown = ORG_ADMIN) => ({ user, params: { id: 'org1' } }) as any;
 
 /** Read the policy and return the enrolment block. */
 async function read() {
@@ -84,6 +86,22 @@ beforeEach(() => {
 });
 
 describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
+  it('refuses a caller who does not administer the org, and counts nothing', async () => {
+    // A plain member of org1: authenticated, but `isOrgAdmin` is false.
+    mockMemberships.mockResolvedValue([{ userId: 'u1' }]);
+    const res = makeRes();
+    await getMfaPolicy(req({ sub: 'u9', organizationId: 'org1' }), res, jest.fn() as any);
+    expect(res._status).toBe(403);
+    expect(mockMemberships).not.toHaveBeenCalled();
+  });
+
+  it('refuses an anonymous caller with 401', async () => {
+    const res = makeRes();
+    await getMfaPolicy(req(null), res, jest.fn() as any);
+    expect(res._status).toBe(401);
+    expect(mockMemberships).not.toHaveBeenCalled();
+  });
+
   it('counts active members and how many hold a factor', async () => {
     mockMemberships.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }]);
     mockPasskeyUserIds.mockResolvedValue(['u1']);

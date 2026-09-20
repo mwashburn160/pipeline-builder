@@ -80,12 +80,16 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
+// `incCounter` is a spy (not the default no-op) so the shared persist-tail
+// suite at the bottom can assert the domain metric actually fires on EVERY
+// send route — the step a fourth route is most likely to forget.
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock({ incCounter: mockIncCounter }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-const { sendBadRequest, sendError, isSystemAdmin, isServicePrincipal, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, sendError, isSystemAdmin, isServicePrincipal, sendEntityNotFound, validateBody } = await import('@pipeline-builder/api-core');
 const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
 
 const mockSseManager = createMockSseManager();
@@ -539,6 +543,156 @@ describe('POST /messages (create)', () => {
   });
 });
 
+/**
+ * Contact-support route. Its whole point is that the recipient is NOT a caller
+ * input: whatever the body claims, the message lands in the system support
+ * inbox on the reserved `support` channel. The permission floor (messages:read,
+ * so a read-only member can reach support) rides the route middleware and is
+ * exercised in route-permissions.test.ts, where the full stack runs.
+ */
+describe('POST /messages/support', () => {
+  const handler = getHandler(createRouter, 'post', '/support');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('sends to the system support inbox on the support channel (201)', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-support', subject: 'Help' });
+
+    const req = mockReq({ body: { subject: 'Help', content: 'Something is broken', priority: 'normal' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org-1',
+        recipientOrgId: SYSTEM_ORG,
+        recipientUserId: null,
+        messageType: 'conversation',
+        channel: 'support',
+        subject: 'Help',
+        content: 'Something is broken',
+      }),
+      'user-1',
+    );
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      SYSTEM_ORG,
+      'MESSAGE',
+      'New message',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-support', subject: 'Help' }),
+    );
+  });
+
+  it('IGNORES a forged recipientOrgId / recipientUserId / messageType / channel', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-forged' });
+
+    const req = mockReq({
+      body: {
+        // Every one of these is a caller attempt to re-aim the route.
+        recipientOrgId: 'victim-org',
+        recipientUserId: 'victim-user',
+        messageType: 'announcement',
+        channel: 'general',
+        subject: 'Help',
+        content: 'Something is broken',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientOrgId: SYSTEM_ORG,
+        recipientUserId: null,
+        messageType: 'conversation',
+        channel: 'support',
+      }),
+      'user-1',
+    );
+    // Nothing addressed to the forged org was created or notified.
+    expect(mockCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: 'victim-org' }),
+      expect.anything(),
+    );
+    expect(mockSseManager.send).toHaveBeenCalledWith(SYSTEM_ORG, 'MESSAGE', 'New message', expect.anything());
+    expect(mockSseManager.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('links attachmentIds to the support message', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-support-att' });
+    mockLinkToMessage.mockResolvedValue([{ id: 'att-1' }]);
+
+    const req = mockReq({ body: { subject: 'Help', content: 'log attached', attachmentIds: ['att-1'] } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockLinkToMessage).toHaveBeenCalledWith(['att-1'], 'msg-support-att', 'org-1', 'user-1');
+  });
+
+  it('logs when an attachment does not link, and still creates the message', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-support-partial' });
+    mockLinkToMessage.mockResolvedValue([]);
+
+    const req = mockReq({ body: { subject: 'Help', content: 'log attached', attachmentIds: ['att-1'] } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(req.context.log).toHaveBeenCalledWith('WARN', 'Some attachments did not link', expect.anything());
+  });
+
+  it('emits no audit event — a support thread is 1:1 message content', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-support-audit' });
+
+    const req = mockReq({ body: { subject: 'Help', content: 'Something is broken' } });
+    await handler(req, mockRes());
+
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+
+  it('400s an invalid body without touching the service', async () => {
+    const req = mockReq({ body: undefined, context: { identity: { orgId: 'ORG-1', userId: 'user-1' }, log: jest.fn(), requestId: 'req-1' } });
+    const res = mockRes();
+    // The shared mock validateBody rejects a body with no caller-supplied
+    // fields — i.e. subject/content missing, which the real schema also rejects.
+    (validateBody as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Subject is required' });
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Subject is required', 'VALIDATION_ERROR');
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('403s when the support inbox is not reachable (the gate is asserted, not assumed)', async () => {
+    mockIsRecipientReachable.mockResolvedValueOnce(false);
+
+    const req = mockReq({ body: { subject: 'Help', content: 'Something is broken' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendError).toHaveBeenCalledWith(
+      res,
+      403,
+      'You cannot send a message to that organization',
+      'INSUFFICIENT_PERMISSIONS',
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('survives an SSE failure — the message is already persisted', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-support-sse' });
+    (mockSseManager.send as jest.Mock).mockImplementationOnce(() => { throw new Error('boom'); });
+
+    const req = mockReq({ body: { subject: 'Help', content: 'Something is broken' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(req.context.log).toHaveBeenCalledWith('WARN', 'Failed to send SSE notification', expect.anything());
+  });
+});
+
 describe('POST /messages/:id/reply', () => {
   const handler = getHandler(createRouter, 'post', '/:id/reply');
 
@@ -822,6 +976,99 @@ describe('SSE notification resilience (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+});
+
+/**
+ * The persist tail every send route shares (`persistAndRespond`): create the
+ * row → link attachments → COMPLETED log → `message_events_total` → SSE ping →
+ * 201. It was written out three times before, so each copy could drop a step on
+ * its own; these assert all three routes still run the whole sequence.
+ */
+describe('shared persist tail', () => {
+  const routes: Array<[label: string, path: string, body: Record<string, unknown>, recipient: string]> = [
+    ['send', '/', {
+      recipientOrgId: SYSTEM_ORG,
+      messageType: 'conversation',
+      subject: 'Hello',
+      content: 'Body',
+      priority: 'normal',
+    }, SYSTEM_ORG],
+    ['support', '/support', { subject: 'Help', content: 'Broken', priority: 'normal' }, SYSTEM_ORG],
+  ];
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it.each(routes)('%s counts the domain metric and pushes the SSE ping', async (_label, path, body, recipient) => {
+    mockCreate.mockResolvedValue({ id: 'msg-tail', subject: String(body.subject) });
+
+    const res = mockRes();
+    await getHandler(createRouter, 'post', path)(mockReq({ body }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockIncCounter).toHaveBeenCalledWith('message_events_total', { action: 'created' });
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      recipient,
+      'MESSAGE',
+      'New message',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-tail' }),
+    );
+  });
+
+  it('reply counts the metric and pushes a threaded SSE ping', async () => {
+    mockFindVisibleById.mockResolvedValue({
+      id: 'root-1',
+      orgId: 'org-1',
+      recipientOrgId: SYSTEM_ORG,
+      recipientUserId: null,
+      subject: 'Root',
+      priority: 'normal',
+      channel: null,
+      messageType: 'conversation',
+      threadId: null,
+    });
+    mockCreate.mockResolvedValue({ id: 'reply-tail' });
+
+    const res = mockRes();
+    await getHandler(createRouter, 'post', '/:id/reply')(
+      mockReq({ params: { id: 'root-1' }, body: { content: 'Replying' } }),
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockIncCounter).toHaveBeenCalledWith('message_events_total', { action: 'created' });
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      SYSTEM_ORG,
+      'MESSAGE',
+      'New reply',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'reply-tail', threadId: 'root-1' }),
+    );
+  });
+
+  it('links the caller\'s attachments and WARNs on a shortfall without failing the send', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-attach', subject: 'Hello' });
+    // Two ids requested, one linked — a bogus/foreign/already-linked id.
+    mockLinkToMessage.mockResolvedValueOnce([{ id: 'att-1' }]);
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: SYSTEM_ORG,
+        messageType: 'conversation',
+        subject: 'Hello',
+        content: 'Body',
+        priority: 'normal',
+        attachmentIds: ['att-1', 'att-2'],
+      },
+    });
+    const res = mockRes();
+    await getHandler(createRouter, 'post', '/')(req, res);
+
+    expect(mockLinkToMessage).toHaveBeenCalledWith(['att-1', 'att-2'], 'msg-attach', 'org-1', 'user-1');
+    expect(req.context.log).toHaveBeenCalledWith(
+      'WARN', 'Some attachments did not link', { requested: 2, linked: 1 },
+    );
+    // Non-fatal: the message still stands.
     expect(res.status).toHaveBeenCalledWith(201);
   });
 });

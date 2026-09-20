@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -120,7 +120,7 @@ export async function computeStorageUsage(
               if (!isNotFound(childErr)) {
                 incomplete = true;
                 logger.warn('Child manifest fetch failed during storage rollup', {
-                  repo, tag, childDigest, error: childErr instanceof Error ? childErr.message : String(childErr),
+                  repo, tag, childDigest, error: errorMessage(childErr),
                 });
               }
             }
@@ -130,7 +130,7 @@ export async function computeStorageUsage(
           if (!isNotFound(err)) {
             incomplete = true;
             logger.warn('Manifest fetch failed during storage rollup', {
-              repo, tag, error: err instanceof Error ? err.message : String(err),
+              repo, tag, error: errorMessage(err),
             });
           }
         }
@@ -138,7 +138,7 @@ export async function computeStorageUsage(
     } catch (err) {
       if (!isNotFound(err)) incomplete = true;
       logger.warn('Tag list failed during storage rollup', {
-        repo, error: err instanceof Error ? err.message : String(err),
+        repo, error: errorMessage(err),
       });
     }
   }
@@ -165,7 +165,7 @@ export async function computeStorageUsage(
         // byte total is complete → fail closed.
         incomplete = true;
         logger.warn('Blob HEAD failed during storage rollup', {
-          digest, repo, error: err instanceof Error ? err.message : String(err),
+          digest, repo, error: errorMessage(err),
         });
         break;
       }

@@ -84,7 +84,7 @@ lean_filter() {
   if [ "$LEAN" != "1" ]; then cat; return; fi
   awk '
     function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali|ask-model)(-.*)?$/)
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali|ask-model)(-.*)?$/)
       d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
@@ -127,6 +127,13 @@ PB_KUBECTL="mk kubectl"
 PB_NAMESPACE="$NAMESPACE"
 . "$BIN_DIR/k8s-resources.sh"
 
+# Shared .env helpers (deploy/bin/gen-env-secrets.sh) — sourced here only for the
+# alert-delivery pre-flight (pb_check_alert_delivery). Secret GENERATION is
+# bootstrap.sh's job; this file defines functions only, so sourcing it twice in a
+# provision is harmless.
+# shellcheck source=../../../bin/gen-env-secrets.sh
+. "$BIN_DIR/gen-env-secrets.sh"
+
 # Fail fast if a core tool is missing. bootstrap.sh installs these on first boot;
 # a standalone re-run on a fresh box then gets ONE clear error instead of failing
 # deep in the bring-up. (istioctl is handled separately by ensure_istioctl.)
@@ -152,6 +159,11 @@ set +a
 # m5.4xlarge), leaving room for the rest of the single-node stack. envsubst has
 # no `:-default`, so the fallback lives here.
 : "${BUILDKIT_MEMORY_LIMIT:=3072Mi}"; export BUILDKIT_MEMORY_LIMIT
+
+# ALERT DELIVERY PRE-FLIGHT. Fails the provision while a Slack webhook URL is
+# still a placeholder — alerting that 404s into nothing is indistinguishable
+# from healthy alerting, so it has to be caught here and not at 3am.
+pb_check_alert_delivery "$ENV_FILE" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
 
 # Grant minikube user read access to deploy assets (manifests, configs, nginx)
 # Exclude .env and auth dirs which contain secrets

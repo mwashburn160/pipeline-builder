@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, envInt, errorMessage, type NotificationMessage } from '@pipeline-builder/api-core';
 import {
   getNotificationChannel,
   type ChannelTarget,
-  type ComplianceNotification,
 } from './notification-channels.js';
 import type { Violation } from '../engine/rule-engine.js';
 import {
@@ -32,7 +31,7 @@ function buildNotification(
   target: string,
   entityName: string,
   violations: Violation[],
-): ComplianceNotification {
+): NotificationMessage {
   const summary = violations
     .map((v) => `- ${v.ruleName}: ${v.message} (${v.severity})`)
     .join('\n');
@@ -43,7 +42,7 @@ function buildNotification(
       messageType: 'conversation',
       priority: 'high',
       subject: `Compliance violation: ${target} "${entityName}" blocked`,
-      content: `A ${target} operation was blocked by compliance rules.\n\n**Entity:** ${entityName}\n**Violations:**\n${summary}`,
+      body: `A ${target} operation was blocked by compliance rules.\n\n**Entity:** ${entityName}\n**Violations:**\n${summary}`,
       payload: {
         event: 'compliance.block',
         orgId,
@@ -59,7 +58,7 @@ function buildNotification(
     messageType: 'conversation',
     priority: 'normal',
     subject: `Compliance warnings: ${target} "${entityName}"`,
-    content: `A ${target} operation raised compliance warnings (not blocked).\n\n**Entity:** ${entityName}\n**Warnings:**\n${summary}`,
+    body: `A ${target} operation raised compliance warnings (not blocked).\n\n**Entity:** ${entityName}\n**Warnings:**\n${summary}`,
     payload: {
       event: 'compliance.warning',
       orgId,
@@ -76,7 +75,7 @@ async function dispatch(
   orgId: string,
   channelName: 'in-app' | 'webhook' | 'email',
   target: ChannelTarget,
-  notification: ComplianceNotification,
+  notification: NotificationMessage,
 ): Promise<boolean> {
   const channel = getNotificationChannel(channelName);
   if (!channel) return false;
@@ -96,7 +95,12 @@ async function dispatch(
     orgId,
     channel: channelName,
     status: result.ok ? 'sent' : 'failed',
-    payload: notification.payload,
+    // The shared `NotificationMessage.payload` is `unknown` (platform forwards a
+    // raw Alertmanager body through the same field); compliance always builds an
+    // object, and the log column is jsonb — narrow rather than cast blindly.
+    payload: (notification.payload && typeof notification.payload === 'object'
+      ? notification.payload
+      : {}) as Record<string, unknown>,
     webhookResponseCode: result.code,
     webhookError: result.error,
   });
@@ -109,7 +113,7 @@ async function dispatch(
 export async function dispatchImmediate(
   orgId: string,
   preference: ComplianceNotificationPreference | null,
-  notification: ComplianceNotification,
+  notification: NotificationMessage,
 ): Promise<boolean> {
   // Returns whether EVERY enabled channel delivered. The digest scheduler marks a
   // batch `sent` only when this is true: a PARTIAL success (e.g. in-app ok but a
@@ -123,7 +127,7 @@ export async function dispatchImmediate(
   let allDelivered = await dispatch(orgId, 'in-app', {}, notification);
 
   if (preference?.webhookUrl) {
-    allDelivered = (await dispatch(orgId, 'webhook', { url: preference.webhookUrl, secret: preference.webhookSecret ?? undefined }, notification)) && allDelivered;
+    allDelivered = (await dispatch(orgId, 'webhook', { value: preference.webhookUrl, secret: preference.webhookSecret ?? undefined }, notification)) && allDelivered;
   }
 
   if (preference?.emailEnabled) {
@@ -137,7 +141,7 @@ export async function dispatchImmediate(
 async function deliverToEnabledChannels(
   orgId: string,
   preference: ComplianceNotificationPreference | null,
-  notification: ComplianceNotification,
+  notification: NotificationMessage,
 ): Promise<void> {
   if (preference && preference.digestMode && preference.digestMode !== 'immediate') {
     await recordPendingDigest(orgId, notification);

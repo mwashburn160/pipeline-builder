@@ -257,6 +257,11 @@ set -a
 . "$ENV_FILE"
 set +a
 
+# ALERT DELIVERY PRE-FLIGHT. Fails the provision while a Slack webhook URL is
+# still a placeholder — alerting that 404s into nothing is indistinguishable
+# from healthy alerting, so it has to be caught here and not at 3am.
+pb_check_alert_delivery "$ENV_FILE" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 # app-env ConfigMap from .env (non-comment, non-blank; ${VAR} refs expanded).

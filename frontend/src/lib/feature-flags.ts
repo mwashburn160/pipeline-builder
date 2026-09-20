@@ -33,7 +33,7 @@
  *
  * Which flags are enforced WHERE — and therefore which ones must have a UI gate —
  * lives in `feature-gates.ts`, checked against the generated route tables by
- * `frontend/test/route-permissions.test.ts`. Add a flag there too.
+ * `frontend/test/route-permissions.test.tsx`. Add a flag there too.
  *   - `compliance_standard` / `compliance_advanced` → curated compliance rule
  *                           libraries sold as add-on bundles. They gate the
  *                           curated-content-set section on the compliance page

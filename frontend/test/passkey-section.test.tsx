@@ -53,8 +53,13 @@ jest.mock('@/components/admin/StepUpModal', () => ({
     <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>
   ),
 }));
+// Enrolling/removing/renaming a factor changes `user.authFactors`, which the
+// posture strip above this panel reads — so the panel refreshes the profile.
+const refreshUser = jest.fn(async () => undefined);
+jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser }) }));
 
 import { PasskeySection } from '../src/components/settings/PasskeySection';
+import { clearQueryCache } from '../src/lib/query-cache';
 
 const passkey = (over: Record<string, unknown> = {}) => ({
   id: 'pk1',
@@ -72,6 +77,8 @@ const renderSection = async (readOnly = false) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The TOTP status is read through the shared cache, which outlives a test.
+  clearQueryCache();
   webauthnSupported = true;
   listPasskeys.mockResolvedValue({ success: true, data: { passkeys: [passkey()] } });
   registerPasskey.mockResolvedValue({ passkey: passkey({ id: 'pk2', name: 'New key' }) });
@@ -184,6 +191,37 @@ describe('PasskeySection', () => {
     await renderSection();
     expect(screen.queryByText(/no passkeys yet/i)).not.toBeInTheDocument();
     expect(screen.getByText(/network down/i)).toBeInTheDocument();
+  });
+});
+
+describe('PasskeySection — keeping the posture strip honest', () => {
+  // The strip at the top of the page reports `user.authFactors.passkeyCount`,
+  // so a change here that doesn't refresh the profile leaves it saying "None".
+  const addOne = async () => {
+    await renderSection();
+    fireEvent.change(screen.getByRole('textbox', { name: /name/i }), { target: { value: 'Laptop' } });
+    fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+  };
+
+  it('refreshes the profile after adding a passkey', async () => {
+    await addOne();
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+
+  it('refreshes the profile after removing one', async () => {
+    await renderSection();
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+
+  it('refreshes the profile after a rename', async () => {
+    await renderSection();
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }));
+    fireEvent.change(screen.getByLabelText('Passkey name'), { target: { value: 'Phone' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /save name/i })); });
+    await waitFor(() => expect(refreshUser).toHaveBeenCalled());
   });
 });
 

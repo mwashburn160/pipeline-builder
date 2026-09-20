@@ -30,7 +30,7 @@ import { changedIdpFields } from './idp-diff';
  * blank-line-separated chunk, which is how IdP consoles that hand out raw base64
  * present them.
  */
-export function parseCertificates(text: string): string[] {
+function parseCertificates(text: string): string[] {
   const pemBlocks = text.match(/-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----/g);
   if (pemBlocks && pemBlocks.length > 0) return pemBlocks.map((b) => b.trim());
   return text.split(/\n\s*\n/).map((c) => c.replace(/\s+/g, '')).filter(Boolean);

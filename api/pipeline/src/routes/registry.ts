@@ -14,6 +14,7 @@ import {
   requirePermission,
   validateBody,
   audited,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -83,7 +84,7 @@ export function createRegistryRoutes(): Router {
       // ONLY — never the CodePipeline ARN, which embeds the AWS account id.
       emitPipelineAudit({
         action: 'pipeline.registry.register',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
         targetId: v.pipelineId,
@@ -145,7 +146,7 @@ export function createRegistryRoutes(): Router {
     // handle (UUID) only — never the CodePipeline ARN / AWS account id.
     emitPipelineAudit({
       action: 'pipeline.registry.deregister',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline',
       targetId: deleted.pipelineId,

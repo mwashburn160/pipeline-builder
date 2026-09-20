@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import { type Pipeline, type PipelineResponse } from '../types/index.js';
 import { createAuthenticatedClient, printCommandHeader, printSslWarning, withRegionOption, withSslOptions } from '../utils/command-utils.js';
@@ -173,7 +174,7 @@ async function postRegistration(
   } catch (err) {
     printWarning('Registration failed', {
       pipelineId,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     return false;
   }

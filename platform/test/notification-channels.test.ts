@@ -4,21 +4,39 @@
 /**
  * Tests for the per-transport notification channels (services/notification-channels).
  *
- * pipeline-core (schema + withTenantTx), the email service, and the platform
- * config are mocked so the channels load without a DB / SMTP / SES chain;
- * `fetch` is stubbed for the HTTP channels. api-core is the shared real-ish mock.
+ * The webhook + slack + email TRANSPORTS are api-core's shared factories now,
+ * and their behaviour — pin the vetted IP, refuse redirects, HMAC, caps, the
+ * skipped/dedupe semantics — is asserted against the real code in
+ * `packages/api-core/test/notification-channels.test.ts`. The factories are
+ * stubbed here with recording transports so this suite can assert what belongs
+ * to PLATFORM: the alert→message mapping (severity → subject/priority/body),
+ * the Slack renderer, and the `in-app` transport that writes the shared
+ * `messages` table directly.
+ *
+ * pipeline-core (schema + withTenantTx), the email service and the platform
+ * config are mocked so the channels load without a DB / SMTP / SES chain.
  */
 
-import { createHmac } from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- mocks --------------------------------------------------------------------
 
-// SSRF guard hook: the webhook channel calls `assertSafeUrl` before connecting.
-// Default resolves (safe); a test can make it reject to assert the guard blocks
-// the send. Injected into the api-core mock below.
-const mockAssertSafeUrl = jest.fn<(url: string) => Promise<void>>(async () => {});
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Recording stand-ins for the shared transports, plus the options each factory
+// was configured with (that is how the Slack renderer is reached).
+const webhookOpts: Record<string, any>[] = [];
+const emailOpts: Record<string, any>[] = [];
+const sent: { channel: string; msg: any; target: any }[] = [];
+const results: Record<string, any> = { webhook: { ok: true, code: 200 }, slack: { ok: true, code: 200 } };
+const recordingChannel = (name: string) => ({
+  channel: name,
+  deliver: async (msg: any, target: any) => {
+    sent.push({ channel: name, msg, target });
+    return results[name];
+  },
+});
 
 const insertedRows: Array<Record<string, unknown>> = [];
 const mockValues = jest.fn((row: Record<string, unknown>) => { insertedRows.push(row); return Promise.resolve(); });
@@ -29,7 +47,31 @@ const mockSend = jest.fn<(opts: { to: string; subject: string; text?: string }) 
 const mockConfig = { email: { enabled: true }, observability: { alertEmailDedupeTtlMs: 600_000 } };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  assertSafeUrl: (url: string) => mockAssertSafeUrl(url),
+  createWebhookChannel: (opts: Record<string, any> = {}) => {
+    webhookOpts.push(opts);
+    return recordingChannel(opts.name ?? 'webhook');
+  },
+  createEmailChannel: (opts: Record<string, any>) => {
+    emailOpts.push(opts);
+    return {
+      channel: 'email',
+      deliver: async (msg: any, target: any) => {
+        if (opts.enabled && !opts.enabled()) return { ok: false, skipped: true, error: 'email-disabled' };
+        const ok = await opts.send({
+          to: target.value,
+          orgId: msg.recipientOrgId,
+          targetUsers: target.targetUsers ?? null,
+          subject: msg.subject,
+          text: msg.body,
+        });
+        return ok ? { ok: true } : { ok: false, error: 'email-send-failed' };
+      },
+    };
+  },
+  createChannelRegistry: (channels: { channel: string }[]) => {
+    const byName = new Map(channels.map((c) => [c.channel, c]));
+    return (name: string) => byName.get(name) ?? null;
+  },
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { __table: 'messages' } },
@@ -41,37 +83,43 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: mockConfig }));
 
-const { getNotificationChannel } = await import('../src/services/notification-channels.js');
-import type { NotificationMessage, ChannelTarget } from '../src/services/notification-channels.js';
+const { getNotificationChannel, plainTextBody, severityToPriority, subjectLine } =
+  await import('../src/services/notification-channels.js');
+import type { AlertNotification, ChannelTarget } from '../src/services/notification-channels.js';
 
 // -- fixtures -----------------------------------------------------------------
 
-const baseMsg = (over: Partial<NotificationMessage> = {}): NotificationMessage => ({
-  severity: 'critical',
-  status: 'firing',
+const ALERT = {
+  severity: 'critical' as const,
+  status: 'firing' as const,
   timestamp: '2026-06-17T00:00:00Z',
   title: 'HighErrorRate',
   summary: 'Error rate is high',
   detail: 'Above 5% for 10m',
   labels: { alertname: 'HighErrorRate', severity: 'critical', org_id: 'o1', region: 'us-east-1' },
+};
+
+const baseMsg = (over: Partial<AlertNotification> = {}): AlertNotification => ({
+  ...ALERT,
   recipientOrgId: 'o1',
-  raw: { kind: 'raw-alert', fingerprint: 'fp-1' },
+  subject: subjectLine(ALERT),
+  body: plainTextBody(ALERT),
+  priority: severityToPriority(ALERT.severity),
+  messageType: 'announcement',
+  payload: { kind: 'raw-alert', fingerprint: 'fp-1' },
   dedupeKey: 'fp-1',
   ...over,
 });
 const target = (over: Partial<ChannelTarget> = {}): ChannelTarget => ({ value: 'https://x', orgId: 'o1', ...over });
 const signal = () => new AbortController().signal;
 
-const fetchMock = jest.fn<typeof fetch>();
 beforeEach(() => {
   insertedRows.length = 0;
   mockSend.mockClear();
   mockConfig.email.enabled = true;
-  mockAssertSafeUrl.mockReset();
-  mockAssertSafeUrl.mockResolvedValue(undefined);
-  fetchMock.mockReset();
-  fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
-  global.fetch = fetchMock as unknown as typeof fetch;
+  sent.length = 0;
+  results.webhook = { ok: true, code: 200 };
+  results.slack = { ok: true, code: 200 };
 });
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -89,18 +137,36 @@ describe('getNotificationChannel', () => {
 // -- slack --------------------------------------------------------------------
 
 describe('slack channel', () => {
-  it('POSTs a slack attachment payload and reports ok on 2xx', async () => {
-    const res = await getNotificationChannel('slack')!.deliver(baseMsg(), target({ value: 'https://hooks.slack.com/x' }), signal());
-    expect(res).toEqual({ ok: true, code: 200 });
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://hooks.slack.com/x');
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.attachments[0].title).toContain('[CRITICAL] HighErrorRate');
-    expect(body.attachments[0].color).toBe('#dc2626');
+  it('is the SHARED webhook transport with a Slack renderer (not a bespoke fetch)', () => {
+    // The old bespoke sender ran NO SSRF guard at all. Building Slack from the
+    // shared factory is what closed that hole, so assert it is built that way.
+    const slack = webhookOpts.find((o) => o.name === 'slack');
+    expect(slack).toBeDefined();
+    expect(typeof slack!.render).toBe('function');
   });
 
-  it('reports failed (with code) on non-2xx', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500 } as Response);
+  it('renders a severity-coloured attachment payload', () => {
+    const slack = webhookOpts.find((o) => o.name === 'slack')!;
+    const body = slack.render(baseMsg()) as any;
+
+    expect(body.attachments[0].title).toContain('[CRITICAL] HighErrorRate');
+    expect(body.attachments[0].color).toBe('#dc2626');
+    expect(body.attachments[0].text).toBe('Error rate is high');
+    // Noise labels are filtered out of the field list.
+    const fieldTitles = body.attachments[0].fields.map((f: any) => f.title);
+    expect(fieldTitles).toContain('region');
+    expect(fieldTitles).not.toContain('alertname');
+  });
+
+  it('uses a resolved emoji + colour for a resolved warning', () => {
+    const slack = webhookOpts.find((o) => o.name === 'slack')!;
+    const body = slack.render(baseMsg({ severity: 'warning', status: 'resolved' })) as any;
+    expect(body.attachments[0].color).toBe('#eab308');
+    expect(body.attachments[0].title).toContain('✅');
+  });
+
+  it('relays the transport outcome unchanged', async () => {
+    results.slack = { ok: false, code: 500 };
     const res = await getNotificationChannel('slack')!.deliver(baseMsg(), target(), signal());
     expect(res).toEqual({ ok: false, code: 500 });
   });
@@ -109,50 +175,29 @@ describe('slack channel', () => {
 // -- webhook ------------------------------------------------------------------
 
 describe('webhook channel', () => {
-  it('forwards msg.raw unchanged and is unsigned without a secret', async () => {
+  it('is the SHARED generic transport — no custom name or renderer', () => {
+    const generic = webhookOpts.find((o) => o.name === undefined);
+    expect(generic).toBeDefined();
+    // No renderer ⇒ `msg.payload` (the raw Alertmanager body) is forwarded
+    // verbatim, so existing webhook consumers keep the shape they expect.
+    expect(generic!.render).toBeUndefined();
+  });
+
+  it('hands the destination target straight to the shared transport', async () => {
     const msg = baseMsg();
-    await getNotificationChannel('webhook')!.deliver(msg, target(), signal());
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.body).toBe(JSON.stringify(msg.raw));
-    expect((init.headers as Record<string, string>)['X-PB-Signature']).toBeUndefined();
+    await getNotificationChannel('webhook')!.deliver(msg, target({ value: 'https://hooks.example.com/x', secret: 's3cr3t' }), signal());
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].channel).toBe('webhook');
+    expect(sent[0].target).toMatchObject({ value: 'https://hooks.example.com/x', secret: 's3cr3t' });
+    expect(sent[0].msg.payload).toEqual(msg.payload);
   });
 
-  it('HMAC-signs the body when a secret is present', async () => {
-    const msg = baseMsg();
-    await getNotificationChannel('webhook')!.deliver(msg, target({ secret: 's3cr3t' }), signal());
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    const expected = `sha256=${createHmac('sha256', 's3cr3t').update(init.body as string).digest('hex')}`;
-    expect((init.headers as Record<string, string>)['X-PB-Signature']).toBe(expected);
-  });
-
-  // -- SSRF regression --------------------------------------------------------
-
-  it('runs the SSRF guard against the target and sends with redirect: manual', async () => {
-    await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://hooks.example.com/x' }), signal());
-    expect(mockAssertSafeUrl).toHaveBeenCalledWith('https://hooks.example.com/x');
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.redirect).toBe('manual');
-  });
-
-  it('REJECTS a target the SSRF guard blocks (private/metadata IP) and never connects', async () => {
-    mockAssertSafeUrl.mockRejectedValueOnce(new Error('url resolves to a private address'));
-    const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://169-254-169-254.sslip.io/' }), signal());
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain('private address');
-    expect(fetchMock).not.toHaveBeenCalled(); // fail-closed: no outbound request
-  });
-
-  it('treats a 3xx redirect as a FAILED delivery (no rebinding pivot, no false green)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 302, type: 'default' } as Response);
+  it('relays a refused redirect as a failed delivery', async () => {
+    results.webhook = { ok: false, code: 302, error: 'webhook url redirected (refused)' };
     const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target(), signal());
     expect(res.ok).toBe(false);
     expect(res.code).toBe(302);
-  });
-
-  it('passes an SSRF-clean public target through to fetch', async () => {
-    const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://ok.example.com/hook' }), signal());
-    expect(res).toEqual({ ok: true, code: 200 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -189,35 +234,48 @@ describe('in-app channel', () => {
 // -- email --------------------------------------------------------------------
 
 describe('email channel', () => {
-  it('sends to the address and dedupes a retried (alert, recipient) within the window', async () => {
-    const msg = baseMsg({ dedupeKey: 'fp-dedupe' });
-    const tgt = target({ value: 'ops@acme.com' });
-    const first = await getNotificationChannel('email')!.deliver(msg, tgt, signal());
-    expect(first).toEqual({ ok: true });
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'ops@acme.com', subject: '[CRITICAL] HighErrorRate' }));
-
-    const second = await getNotificationChannel('email')!.deliver(msg, tgt, signal());
-    expect(second).toEqual({ ok: true, skipped: true });
-    expect(mockSend).toHaveBeenCalledTimes(1); // not re-sent
+  it('configures the shared transport with the deploy switch and the dedupe window', () => {
+    // The dedupe/skipped SEMANTICS are api-core's (asserted there). Platform's
+    // job is to supply the deploy's email switch and the alert dedupe TTL —
+    // Alertmanager retries its webhook, so an identical (alert, recipient)
+    // inside the window must not be re-mailed.
+    expect(emailOpts).toHaveLength(1);
+    expect(emailOpts[0].dedupeTtlMs).toBe(600_000);
+    expect(typeof emailOpts[0].enabled).toBe('function');
+    expect(emailOpts[0].enabled()).toBe(true);
+    mockConfig.email.enabled = false;
+    expect(emailOpts[0].enabled()).toBe(false);
   });
 
-  it('reports skipped without sending when email is disabled', async () => {
+  it('sends the rendered subject + body to the target address via EmailService', async () => {
+    const res = await getNotificationChannel('email')!.deliver(
+      baseMsg(), target({ value: 'ops@acme.com' }), signal());
+
+    expect(res).toEqual({ ok: true });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.to).toBe('ops@acme.com');
+    expect(arg.subject).toBe('[CRITICAL] HighErrorRate');
+    // Body carries summary + detail + non-noise labels + status footer.
+    expect(arg.text).toContain('Error rate is high');
+    expect(arg.text).toContain('region=us-east-1');
+    expect(arg.text).toContain('Status: firing');
+  });
+
+  it('reports skipped without sending when email is disabled on the deploy', async () => {
     mockConfig.email.enabled = false;
-    const res = await getNotificationChannel('email')!.deliver(baseMsg({ dedupeKey: 'fp-disabled' }), target({ value: 'a@b.com' }), signal());
+    const res = await getNotificationChannel('email')!.deliver(
+      baseMsg(), target({ value: 'a@b.com' }), signal());
+
     expect(res).toEqual({ ok: false, skipped: true, error: 'email-disabled' });
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it('reports failed (and does not record dedupe) when the send fails', async () => {
+  it('reports failed when EmailService cannot send', async () => {
     mockSend.mockResolvedValueOnce(false);
-    const msg = baseMsg({ dedupeKey: 'fp-fail' });
-    const tgt = target({ value: 'c@d.com' });
-    const first = await getNotificationChannel('email')!.deliver(msg, tgt, signal());
-    expect(first).toEqual({ ok: false, error: 'email-send-failed' });
-    // a failed send is NOT deduped — the next webhook retry sends again
-    const second = await getNotificationChannel('email')!.deliver(msg, tgt, signal());
-    expect(second).toEqual({ ok: true });
-    expect(mockSend).toHaveBeenCalledTimes(2);
+    const res = await getNotificationChannel('email')!.deliver(
+      baseMsg(), target({ value: 'c@d.com' }), signal());
+
+    expect(res).toEqual({ ok: false, error: 'email-send-failed' });
   });
 });

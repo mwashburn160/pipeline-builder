@@ -13,9 +13,9 @@ const LIFECYCLE_COLOR: Record<Lifecycle, 'green' | 'yellow' | 'gray'> = {
 
 /**
  * Shared lifecycle pill so every surface (My Services, pipeline/plugin detail, …)
- * renders the `lifecycle` field identically. Unset (legacy rows) → "production".
+ * renders the `lifecycle` field identically. The column is `notNull` with a
+ * DEFAULT, so there is no unset case to fall back for.
  */
-export function LifecycleBadge({ value }: { value?: Lifecycle | null }) {
-  const lc: Lifecycle = value ?? 'production';
-  return <Badge color={LIFECYCLE_COLOR[lc]}>{lc}</Badge>;
+export function LifecycleBadge({ value }: { value: Lifecycle }) {
+  return <Badge color={LIFECYCLE_COLOR[value]}>{value}</Badge>;
 }

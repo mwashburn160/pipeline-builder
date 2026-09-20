@@ -54,7 +54,7 @@ function tierCount(n: number, tone?: 'red' | 'amber') {
     ? 'text-gray-300 dark:text-gray-600'
     : tone === 'red' ? 'text-red-600 dark:text-red-400 font-medium'
       : tone === 'amber' ? 'text-amber-600 dark:text-amber-400 font-medium'
-        : 'text-gray-900 dark:text-gray-100';
+        : 'text-fg';
   return <span className={`tabular-nums ${cls}`}>{n}</span>;
 }
 
@@ -290,7 +290,7 @@ export default function BuildQueuePage() {
       {status?.tiers && Object.keys(status.tiers).length > 0 && (
         <Card className="mt-6">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-tier breakdown</h3>
+            <h3 className="text-sm font-semibold text-fg">Per-tier breakdown</h3>
             <span className="text-xs text-fg-muted">One BullMQ queue per pricing tier</span>
           </div>
           {tiersIdle && !showBreakdown ? (
@@ -331,7 +331,7 @@ export default function BuildQueuePage() {
           transition={{ duration: 0.3, delay: 0.3 }}
         >
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <h2 className="text-lg font-semibold text-fg">
               Failed Builds
               <span className="ml-2 text-sm font-normal text-fg-muted">
                 ({status.failed})
@@ -372,7 +372,7 @@ export default function BuildQueuePage() {
           transition={{ duration: 0.3, delay: 0.35 }}
         >
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-warning" />
               Dead Letter Queue
               <span className="text-sm font-normal text-fg-muted">

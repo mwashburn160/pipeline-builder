@@ -53,7 +53,7 @@ export function useBuildStatus(requestId: string | null) {
   useTicketedSSE({
     subscriptionKey: requestId && api.isAuthenticated() ? requestId : null,
     getTicket: (id) => api.getBuildLogTicket(id),
-    buildUrl: (ticket, id) => `/api/plugin/logs/${id}?ticket=${encodeURIComponent(ticket)}`,
+    buildUrl: (ticket, id) => `/api/plugins/logs/${id}?ticket=${encodeURIComponent(ticket)}`,
     onMessage: (data) => {
       const parsed = data as BuildEvent;
       setEvents((prev) => {

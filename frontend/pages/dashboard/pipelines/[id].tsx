@@ -357,7 +357,7 @@ export default function PipelineDetailPage() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Rocket className="w-5 h-5 text-fg-muted" />
-                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Deployment</h3>
+                  <h3 className="text-base font-semibold text-fg">Deployment</h3>
                 </div>
                 <Link href="/dashboard/deployments" className="action-link text-xs">All deployments →</Link>
               </div>
@@ -394,7 +394,7 @@ export default function PipelineDetailPage() {
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <GitBranch className="w-5 h-5 text-fg-muted" />
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
+                <h3 className="text-base font-semibold text-fg">Identity</h3>
               </div>
               <div className="flex flex-wrap items-center gap-1">
                 <Badge color={pipeline.visibility === 'public' ? 'green' : 'gray'}>{pipeline.visibility}</Badge>
@@ -468,7 +468,7 @@ export default function PipelineDetailPage() {
           {/* Recent runs card — derived from org-wide execution-count
               aggregate. Absent if the pipeline has no recorded runs. */}
           <Card>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Recent runs</h3>
+            <h3 className="text-base font-semibold text-fg mb-3">Recent runs</h3>
             {execStats ? (
               <dl className="text-sm space-y-1.5">
                 <div className="flex justify-between">
@@ -522,7 +522,7 @@ export default function PipelineDetailPage() {
               (in-progress only) calls StopPipelineExecution. Both refetch the
               list after a short delay so the change surfaces. */}
           <Card className="lg:col-span-2">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Executions</h3>
+            <h3 className="text-base font-semibold text-fg mb-3">Executions</h3>
             {execLoading && !executions && <LoadingSpinner />}
             {execError && <RetryError message={execError} onRetry={loadExecutions} />}
             {!execLoading && !execError && executions && executions.length === 0 && (

@@ -198,9 +198,11 @@ describe('ComplianceRuleService', () => {
         orgId: 'org-1',
         name: 'security-scan-custom',
         scope: 'org',
-        forkedFromRuleId: 'src',
         createdBy: 'user-1',
       }), 'user-1');
+      // No lineage column is written — the clone's provenance lives in the
+      // `/clone` route's audit event, not on the row.
+      expect(createSpy.mock.calls[0][0]).not.toHaveProperty('forkedFromRuleId');
       expect((result as { id: string }).id).toBe('new');
     });
   });

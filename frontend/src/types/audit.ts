@@ -25,7 +25,9 @@ export interface AuditLogEvent {
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
-  groupId?: string;
+  /** Permission Role the action touched (`org.role.*`), promoted out of
+   *  `details` so reviewers can filter "who touched role X". */
+  roleId?: string;
   impersonatorId?: string;
   outcome?: 'success' | 'failure';
   details?: Record<string, unknown>;

@@ -41,9 +41,3 @@ export function webauthnErrorMessage(err: unknown, fallback = 'Passkey request f
   if (name && MESSAGES[name]) return MESSAGES[name];
   return formatError(err, fallback);
 }
-
-/** True when the failure was the person cancelling the browser's prompt. */
-export function isWebAuthnCancel(err: unknown): boolean {
-  const name = (err as { name?: string } | null)?.name;
-  return name === 'NotAllowedError' || name === 'AbortError';
-}

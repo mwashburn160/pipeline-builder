@@ -316,7 +316,7 @@ export default function TemplatesPage() {
             {gallery.map((t) => (
               <Card key={t.id} className="flex flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t.name}</h3>
+                  <h3 className="font-semibold text-fg">{t.name}</h3>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-2xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
                     <span
@@ -365,15 +365,15 @@ export default function TemplatesPage() {
         <Modal title={`Use “${selected.name}”`} onClose={() => (submitting ? undefined : setSelected(null))} maxWidth="max-w-lg" footer={modalFooter}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project <span className="text-danger">*</span></label>
+              <label className="block text-sm font-medium text-fg-muted mb-1">Project <span className="text-danger">*</span></label>
               <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="my-service" disabled={submitting} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pipeline name</label>
+              <label className="block text-sm font-medium text-fg-muted mb-1">Pipeline name</label>
               <Input value={pipelineName} onChange={(e) => setPipelineName(e.target.value)} placeholder="(defaults to org-project-pipeline)" disabled={submitting} />
             </div>
             <div>
-              <label htmlFor="tpl-pipeline-visibility" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pipeline visibility</label>
+              <label htmlFor="tpl-pipeline-visibility" className="block text-sm font-medium text-fg-muted mb-1">Pipeline visibility</label>
               <VisibilitySelect
                 id="tpl-pipeline-visibility"
                 value={pipelineVisibility}
@@ -389,7 +389,7 @@ export default function TemplatesPage() {
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Template inputs</h4>
                 {selected.inputs.map((inp) => (
                   <div key={inp.name}>
-                    <label htmlFor={`tpl-input-${inp.name}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label htmlFor={`tpl-input-${inp.name}`} className="block text-sm font-medium text-fg-muted mb-1">
                       {inp.label || inp.name}
                       {inp.required && inp.default === undefined && <span className="text-danger"> *</span>}
                     </label>

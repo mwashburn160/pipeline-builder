@@ -61,6 +61,10 @@ async function flushSave() {
   for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve(); });
 }
 
+/** These render the full users page through a step-up confirm — far past
+ *  jest's 5s default once the suite runs in parallel. */
+const SLOW_PAGE_TEST_MS = 30_000;
+
 describe('UsersPage editor auto-close', () => {
   beforeEach(() => {
     mockAuthGuard({ isSuperAdmin: true, isAdmin: true, user: { id: 'op', organizationId: 'system' } });
@@ -91,7 +95,9 @@ describe('UsersPage editor auto-close', () => {
 
     act(() => { jest.advanceTimersByTime(2000); });
     expect(screen.getByText('Editing bob@acme.com')).toBeInTheDocument();
-  });
+    // Rendering the whole users page twice over, through a step-up confirm,
+    // runs 3-4s on its own and overran the 5s default under a parallel suite.
+  }, SLOW_PAGE_TEST_MS);
 
   it("still closes the saved user's editor after the delay", async () => {
     render(<UsersPage />);
@@ -106,5 +112,5 @@ describe('UsersPage editor auto-close', () => {
 
     act(() => { jest.advanceTimersByTime(2000); });
     expect(screen.queryByText('Editing alice@acme.com')).not.toBeInTheDocument();
-  });
+  }, SLOW_PAGE_TEST_MS);
 });

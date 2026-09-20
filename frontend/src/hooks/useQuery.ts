@@ -87,7 +87,7 @@ export function useQuery<T>(
       });
     return () => controller.abort();
     // `run` is read through a ref; the key is the dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `run` is read through a ref; the cache key is the real dependency
   }, [key, active, staleMs, forceTick, epoch]);
 
   const refetch = useCallback(() => {

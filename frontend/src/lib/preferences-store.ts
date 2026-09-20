@@ -46,7 +46,7 @@ interface StoredRecord {
   rev: Record<PreferenceSlice, number>;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = {
+const DEFAULT_PREFERENCES: Preferences = {
   favorites: [],
   notifications: DEFAULT_NOTIFICATION_PREFS,
 };
@@ -138,7 +138,7 @@ const loads = new Map<string, Promise<void>>();
  * them into the cache, slice by slice, skipping any slice written locally since
  * the load started.
  */
-export function loadPreferences(userId: string | undefined, orgId: string | undefined): Promise<void> {
+function loadPreferences(userId: string | undefined, orgId: string | undefined): Promise<void> {
   const key = preferencesStorageKey(userId, orgId);
   if (!key || typeof window === 'undefined') return Promise.resolve();
   let load = loads.get(key);

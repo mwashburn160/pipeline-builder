@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, parsePage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
@@ -133,8 +133,10 @@ class OrgMembersService {
       .lean();
     if (!org) return null;
 
-    const limit = Math.min(Math.max(1, opts.limit ?? MEMBER_LIST_DEFAULT_LIMIT), MEMBER_LIST_MAX_LIMIT);
-    const offset = Math.max(0, opts.offset ?? 0);
+    const { limit, offset } = parsePage(opts as Record<string, unknown>, {
+      def: MEMBER_LIST_DEFAULT_LIMIT,
+      max: MEMBER_LIST_MAX_LIMIT,
+    });
 
     const filter: Record<string, unknown> = { organizationId: toOrgId(orgId) };
     if (opts.role) filter.role = opts.role;

@@ -71,12 +71,18 @@ function validateChannelTarget(channel: string, target: string): string | null {
 }
 
 /**
- * SSRF check for the generic `webhook` channel: an org controls the URL, so
- * reject any host that is — or resolves to — a private/loopback/link-local/
- * metadata address before we ever store it. Returns an error string (for a 400)
- * or null when the target is safe / not a webhook. Slack targets are already
- * host-allowlisted to hooks.slack.com by `validateChannelTarget`, so they need
- * no DNS check. The delivery path re-runs the same guard as defense in depth.
+ * Create/update-time SSRF check for the generic `webhook` channel: an org
+ * controls the URL, so reject any host that is — or resolves to — a
+ * private/loopback/link-local/metadata address before we ever STORE it.
+ * Returns an error string (for a 400) or null when the target is safe / not a
+ * webhook. Slack targets are already host-allowlisted to hooks.slack.com by
+ * `validateChannelTarget`, so they need no DNS check.
+ *
+ * This is `assertSafeUrl`'s one sanctioned use: pure validation with nothing
+ * about to connect. The DELIVERY path does not re-run it — it uses api-core's
+ * `safeFetch`, which re-resolves, pins the vetted address into the socket and
+ * refuses redirects, so a host re-pointed at an internal address after this
+ * check still can't be reached.
  */
 async function checkWebhookTargetSafe(channel: string | undefined, target: string): Promise<string | null> {
   if (channel !== 'webhook' || !target) return null;

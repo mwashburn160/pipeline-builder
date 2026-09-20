@@ -133,7 +133,7 @@ function codeKey(deviceCode: string): string {
 }
 
 /** A user code in canonical form: upper case, alphabet characters only. */
-export function normalizeUserCode(raw: unknown): string | null {
+function normalizeUserCode(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const stripped = raw.toUpperCase().replace(/[^A-Z]/g, '');
   if (stripped.length !== USER_CODE_LENGTH) return null;

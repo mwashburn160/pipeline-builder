@@ -35,10 +35,16 @@ metadata:
     app: image-registry
     app.kubernetes.io/component: backend
 spec:
-  # Start at 1: 2 replicas at boot saturate gp3 EBS baseline throughput and
-  # stall every other pod's image pull for 10+ min (see the HPA note below).
-  # The HPA (minReplicas: 1) scales up on real load.
-  replicas: 1
+  # Start at 2 so the first rollout already satisfies the PDB; the HPA below
+  # owns the count from then on.
+  #
+  # The old "start at 1" note here was inherited from the single-node targets,
+  # where two replicas pulling the same ~250MB image at boot saturate one gp3
+  # volume's baseline throughput and stall every other pod's image pull. On EKS
+  # the replicas land on different nodes, each with its own EBS volume and its
+  # own image cache, so that contention does not arise. ec2/minikube keep the
+  # single replica — see their copies of this file.
+  replicas: 2
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -73,7 +79,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-registry
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -231,12 +237,14 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: image-registry
-  # minReplicas: 1 on single-node minikube — two replicas pulling the
-  # same ~250MB image in parallel saturates gp3 EBS baseline throughput
-  # and blocks every other pod's image pull for 10+ minutes at boot.
-  # HPA scales up to 5 under real load, by which point the image is
-  # already cached in the kubelet and the second pod boots in seconds.
-  minReplicas: 1
+  # 2 on this target: EKS is MULTI-NODE, so a second replica is a real
+  # availability gain (different node, different AZ) and — with the
+  # `minAvailable: 1` PodDisruptionBudget below — it is what lets a node drain
+  # finish at all. At one replica that PDB is a deadlock: Auto Mode recycles
+  # nodes routinely, and evicting the only pod would break the budget, so the
+  # drain blocks until it is force-terminated. The HPA still scales further on
+  # load. (ec2/minikube stay at 1 — single-node clusters, nothing to drain.)
+  minReplicas: 2
   maxReplicas: 5
   metrics:
     - type: Resource

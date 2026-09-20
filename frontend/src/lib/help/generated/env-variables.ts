@@ -413,6 +413,46 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Ops-team Slack alert delivery"
+        },
+        {
+          "type": "text",
+          "content": "Deploy inputs only — platform never reads these. They are the destinations for PLATFORM-WIDE alerts (severity=critical / warning), which is a different path from the per-org relay above: the relay fans out to each tenant's own configured destinations, these two are the operator's channels."
+        },
+        {
+          "type": "text",
+          "content": "Alertmanager does not expand environment variables in its config, so the deploy writes each URL into the alertmanager-slack Secret (k8s) / a compose secret (docker) and mounts it as a file that config/alertmanager/alertmanager.yml reads with api_url_file. The URLs therefore never land in a ConfigMap, and rotating one is a Secret update plus a pod restart with no config change."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "SLACK_CRITICAL_WEBHOOK_URL",
+              "—",
+              "Slack incoming-webhook URL for the paging channel (#ops-pager in the shipped config). A credential — anyone holding it can post to that channel."
+            ],
+            [
+              "SLACK_WARNING_WEBHOOK_URL",
+              "—",
+              "Slack incoming-webhook URL for the non-paging channel (#ops-warnings)."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Every target's setup refuses to deploy while either is still CHANGE_ME (pb_check_alert_delivery in deploy/bin/gen-env-secrets.sh). Alerting that 404s into nothing is indistinguishable from healthy alerting, so this is a hard gate rather than a runtime warning. To run deliberately without ops-team Slack — local dev, or a site that only uses per-org destinations — set both to an empty value: setup then prints a banner saying platform-wide alerts will be visible only in Alertmanager's own UI/API, and continues. Setting one and not the other is refused."
+        },
+        {
+          "type": "text",
+          "content": "The same pre-flight also rejects alertmanager.yml if a webhook URL is ever pasted back into it inline."
+        },
+        {
+          "type": "text",
           "content": "OAuth / social login (Optional)"
         },
         {
@@ -1173,14 +1213,19 @@ export const envVariablesTopic: HelpTopic = {
               "Global rate limit window (15 min)"
             ],
             [
-              "RATE_LIMIT_MAX",
-              "100",
-              "Per-route rate limit"
+              "REGISTRY_TOKEN_RATE_LIMIT_MAX",
+              "60",
+              "image-registry /token: requests per window per (source IP, username) — also listed under Docker Registry"
             ],
             [
-              "RATE_LIMIT_WINDOW_MS",
+              "REGISTRY_TOKEN_RATE_LIMIT_IP_MAX",
+              "300",
+              "image-registry /token: requests per window per source IP across all usernames"
+            ],
+            [
+              "REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS",
               "60000",
-              "Per-route rate limit window (1 min)"
+              "image-registry /token rate-limit window (ms)"
             ],
             [
               "AUTH_LIMITER_MAX",
@@ -1243,6 +1288,10 @@ export const envVariablesTopic: HelpTopic = {
               "Unlimited-tier rate-limit multiplier (billing-disabled default tier)"
             ]
           ]
+        },
+        {
+          "type": "note",
+          "content": "SCIM has no rate-limit env vars. The /scim/v2/* limiter is fixed at 600 requests / 60 s from the SCIM_RATE_LIMIT_MAX / SCIM_RATE_LIMIT_WINDOW_MS constants in platform/src/constants/scim.ts — changing it is a code change, not configuration."
         },
         {
           "type": "note",
@@ -2057,11 +2106,6 @@ export const envVariablesTopic: HelpTopic = {
               "Docker push timeout (5 min)"
             ],
             [
-              "SERVICE_TIMEOUT",
-              "30000",
-              "Inter-service HTTP call timeout"
-            ],
-            [
               "HTTP_CLIENT_TIMEOUT",
               "5000",
               "Internal HTTP client timeout"
@@ -2434,6 +2478,511 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Override the served model with OLLAMA_MODEL (default qwen2.5-coder:7b). It must name the same model OPENAI_COMPATIBLE_MODELS advertises — advertising one the container has not pulled sends the request to a server that has never heard of it, which closes the connection mid-stream (AI_APICallError: Cannot connect to API: other side closed). Guarding that is why the workload is held NotReady/unhealthy until ollama list actually shows the model (a startupProbe in k8s, a healthcheck on docker) rather than merely until the server is listening. Model weights persist on the ask-model-models volume/PVC."
+        }
+      ]
+    },
+    {
+      "id": "operational-tuning",
+      "title": "Operational Tuning",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Lower-level knobs read through api-core's shared env readers (envInt / envBool / envStr). Every one has a working default — set them only when you are deliberately tuning a deployment. A test (packages/api-core/test/env-documented.test.ts) fails the build if a variable is read through those readers and is not listed somewhere in this document, so this section cannot silently fall behind the code."
+        },
+        {
+          "type": "text",
+          "content": "Alerts & notifications"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "ALERTMANAGER_URL",
+              "http://alertmanager:9093",
+              "In-cluster Alertmanager base URL the platform queries for live alerts"
+            ],
+            [
+              "ALERTMANAGER_TIMEOUT_MS",
+              "5000",
+              "Per-request timeout for Alertmanager queries"
+            ],
+            [
+              "ALERT_DELIVERY_TIMEOUT_MS",
+              "5000",
+              "Bounded timeout for one alert-destination delivery (and for a manual test send)"
+            ],
+            [
+              "ALERT_EMAIL_DEDUPE_TTL_MS",
+              "600000",
+              "At-least-once dedupe window for alert email. Alertmanager retries its webhook, so an identical (alert, recipient) inside this window is suppressed"
+            ],
+            [
+              "ALERT_DESTINATION_MAX_LABEL",
+              "100",
+              "Max characters in an alert destination's label"
+            ],
+            [
+              "ALERT_DESTINATION_MAX_TARGET",
+              "2048",
+              "Max characters in an alert destination's target (webhook URL / email address)"
+            ],
+            [
+              "ALERT_WEBHOOK_LIMITER_MAX",
+              "3000",
+              "Requests per window allowed on the Alertmanager relay endpoint. Sized for a burst fan-out, not for human traffic"
+            ],
+            [
+              "ALERT_WEBHOOK_LIMITER_WINDOWMS",
+              "60000",
+              "Rate-limit window for the Alertmanager relay endpoint"
+            ],
+            [
+              "OBSERVABILITY_LIMITER_MAX",
+              "120",
+              "Requests per window on the observability query endpoints (PromQL, logs)"
+            ],
+            [
+              "OBSERVABILITY_LIMITER_WINDOWMS",
+              "60000",
+              "Rate-limit window for the observability query endpoints"
+            ],
+            [
+              "PLATFORM_SCRAPER_INTERVAL_MS",
+              "60000",
+              "Interval for the platform's own metrics scrape loop"
+            ],
+            [
+              "READINESS_MONITOR_INTERVAL_MS",
+              "15000",
+              "Interval at which a service re-probes its dependencies for the readiness endpoint"
+            ],
+            [
+              "SHUTDOWN_TIMEOUT_MS",
+              "15000",
+              "Grace period for in-flight requests during coordinated shutdown before the process exits"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Auth, sessions & audit"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "AUTH_VERIFICATION_TOKEN_TTL_MS",
+              "86400000",
+              "Lifetime of an email-verification / password-reset token (24h)"
+            ],
+            [
+              "SESSION_REVOCATION_TTL_SECONDS",
+              "3600",
+              "How long a published tokenVersion bump is retained in Redis. Must exceed the access-token lifetime or a revocation can lapse before the token it revokes"
+            ],
+            [
+              "AUDIT_RETENTION_DAYS",
+              "90",
+              "Retention for platform audit events. Drives the Mongo TTL index"
+            ],
+            [
+              "MONGO_MAX_POOL",
+              "20",
+              "Mongo connection-pool ceiling"
+            ],
+            [
+              "MONGO_MIN_POOL",
+              "2",
+              "Mongo connection-pool floor"
+            ],
+            [
+              "MONGO_SERVER_SELECTION_MS",
+              "5000",
+              "Mongo server-selection timeout"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Org lifecycle & invitations"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "INVITATION_SWEEP_INTERVAL_MS",
+              "3600000",
+              "Interval of the expired-invitation reaper (leader-locked)"
+            ],
+            [
+              "ORG_DELETION_RETENTION_DAYS",
+              "7",
+              "Grace period between a soft-deleted org and its hard purge"
+            ],
+            [
+              "ORG_PURGE_SWEEP_INTERVAL_MS",
+              "3600000",
+              "Interval of the org-purge sweep (leader-locked)"
+            ],
+            [
+              "ORG_CASCADE_HTTP_TIMEOUT_MS",
+              "5000",
+              "Per-service timeout for an org-cascade (delete/suspend) fan-out call"
+            ],
+            [
+              "DOMAIN_REVERIFY_INTERVAL_MS",
+              "86400000",
+              "Interval of the domain-ownership re-verification sweep"
+            ],
+            [
+              "DOMAIN_REVERIFY_STALE_MS",
+              "604800000",
+              "Age at which a verified domain is re-checked (7 days)"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Billing reconciliation"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "BILLING_PROVISION_RETRY_ATTEMPTS",
+              "3",
+              "Retries when provisioning a subscription against the billing service"
+            ],
+            [
+              "BILLING_PROVISION_RETRY_BASE_MS",
+              "200",
+              "Base backoff between provisioning retries (exponential)"
+            ],
+            [
+              "BILLING_RECONCILE_INTERVAL_MS",
+              "300000",
+              "Interval of the billing↔org entitlement drift reconciler"
+            ],
+            [
+              "BILLING_RECONCILE_BATCH_SIZE",
+              "50",
+              "Orgs compared per reconciler tick"
+            ],
+            [
+              "BILLING_RECONCILE_JITTER_MS",
+              "250",
+              "Random delay between reconciler batches, so replicas don't burst together"
+            ],
+            [
+              "BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS",
+              "900000",
+              "Interval of the billing service's own entitlement-drift sweep"
+            ],
+            [
+              "BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK",
+              "200",
+              "Subscriptions examined per entitlement-drift tick"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Compliance"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "COMPLIANCE_MAX_REGEX_LENGTH",
+              "100",
+              "Max length of a rule-authored regex pattern. Authoring hygiene — it is not the ReDoS bound"
+            ],
+            [
+              "COMPLIANCE_REGEX_TIMEOUT_MS",
+              "50",
+              "Hard wall-clock deadline for one rule-authored regex match. A match that exceeds it is aborted and treated as a violation (fail-closed)"
+            ],
+            [
+              "COMPLIANCE_NOTIFY_TIMEOUT_MS",
+              "5000",
+              "Per-channel timeout for a compliance notification delivery"
+            ],
+            [
+              "COMPLIANCE_AUDIT_RETENTION_DAYS",
+              "180",
+              "Retention for compliance check-log rows"
+            ],
+            [
+              "COMPLIANCE_MAX_ATTRIBUTE_DEPTH",
+              "10",
+              "Max nesting depth of a validation request's attribute object"
+            ],
+            [
+              "COMPLIANCE_MAX_ATTRIBUTE_KEYS",
+              "100",
+              "Max keys in a validation request's attribute object"
+            ],
+            [
+              "COMPLIANCE_SCAN_CONCURRENCY",
+              "10",
+              "Entities evaluated in parallel during a compliance scan"
+            ],
+            [
+              "COMPLIANCE_SCAN_ENTITY_PAGE_SIZE",
+              "1000",
+              "Rows read per page while enumerating scan targets"
+            ],
+            [
+              "COMPLIANCE_SCAN_ENTITY_MAX_TOTAL",
+              "100000",
+              "Hard ceiling on entities examined by one scan"
+            ],
+            [
+              "COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE",
+              "10",
+              "Entities processed between scan-progress writes"
+            ],
+            [
+              "COMPLIANCE_SERVICE_TIMEOUT",
+              "5000",
+              "Platform's timeout when calling the compliance service"
+            ],
+            [
+              "MESSAGE_SERVICE_TIMEOUT",
+              "5000",
+              "Platform's timeout when calling the message service"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Quotas"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "QUOTA_TIER_DEVELOPER_LABEL",
+              "Developer",
+              "Display label for the developer tier"
+            ],
+            [
+              "QUOTA_TIER_PRO_LABEL",
+              "Pro",
+              "Display label for the pro tier"
+            ],
+            [
+              "QUOTA_TIER_TEAM_LABEL",
+              "Team",
+              "Display label for the team tier"
+            ],
+            [
+              "QUOTA_TIER_ENTERPRISE_LABEL",
+              "Enterprise",
+              "Display label for the enterprise tier"
+            ],
+            [
+              "QUOTA_DEFAULT_DASHBOARDS",
+              "developer-tier value",
+              "Dashboard limit for an org with no tier resolved"
+            ],
+            [
+              "QUOTA_DEFAULT_ALERT_RULES",
+              "developer-tier value",
+              "Alert-rule limit for an org with no tier resolved"
+            ],
+            [
+              "QUOTA_DEFAULT_ALERT_DESTINATIONS",
+              "developer-tier value",
+              "Alert-destination limit for an org with no tier resolved"
+            ],
+            [
+              "QUOTA_DEFAULT_IDP_CONFIGS",
+              "developer-tier value",
+              "IdP-config limit for an org with no tier resolved"
+            ],
+            [
+              "QUOTA_DEFAULT_STORAGE_BYTES",
+              "developer-tier value",
+              "Registry-storage limit for an org with no tier resolved"
+            ],
+            [
+              "QUOTA_AT_RISK_CACHE_TTL_MS",
+              "60000",
+              "TTL of the \"orgs near their limit\" summary cache"
+            ],
+            [
+              "QUOTA_POOL_FALLBACK_TTL_MS",
+              "60000",
+              "TTL of the cached pooled-root fallback used when the hierarchy lookup fails"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Dashboards"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "DASHBOARD_MAX_NAME",
+              "150",
+              "Max characters in a dashboard name"
+            ],
+            [
+              "DASHBOARD_MAX_DESCRIPTION",
+              "1000",
+              "Max characters in a dashboard description"
+            ],
+            [
+              "DASHBOARD_MAX_PANELS",
+              "50",
+              "Max panels in one dashboard"
+            ],
+            [
+              "DASHBOARD_MAX_PANEL_TITLE",
+              "200",
+              "Max characters in a panel title"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Plugin upload safety"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PLUGIN_MAX_EXTRACT_ENTRIES",
+              "10000",
+              "Max entries extracted from an uploaded plugin archive (zip-bomb guard)"
+            ],
+            [
+              "PLUGIN_MAX_EXTRACT_RATIO",
+              "50",
+              "Max uncompressed:compressed ratio allowed for an uploaded archive"
+            ],
+            [
+              "PLUGIN_MAX_EXTRACT_BYTES",
+              "upload cap × ratio",
+              "Absolute ceiling on bytes extracted from one archive"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Reporting retention"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "REPORTING_RETENTION_STARTUP_DELAY_MS",
+              "120000",
+              "Delay before the first retention sweep after boot"
+            ],
+            [
+              "REPORTING_RETENTION_LOCK_TTL_MS",
+              "1800000",
+              "Leader-lock TTL held while a retention sweep runs"
+            ],
+            [
+              "REPORTING_RETENTION_BATCH_SIZE",
+              "1000",
+              "Rows deleted per retention batch"
+            ],
+            [
+              "REPORTING_RETENTION_MAX_BATCHES",
+              "50",
+              "Max batches per table per sweep, so one sweep can't run unbounded"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Service-to-service resilience"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "S2S_BREAKER_ENABLED",
+              "true",
+              "Enable the service-to-service circuit breaker"
+            ],
+            [
+              "S2S_BREAKER_THRESHOLD",
+              "5",
+              "Consecutive failures before the breaker opens for a peer"
+            ],
+            [
+              "S2S_BREAKER_COOLDOWN_MS",
+              "10000",
+              "How long the breaker stays open before a trial request"
+            ],
+            [
+              "ASK_HTTP_TIMEOUT_MS",
+              "30000",
+              "Timeout for the ask service's internal HTTP calls (long because answers stream)"
+            ],
+            [
+              "MAX_PAGE_OFFSET",
+              "100000",
+              "Hard ceiling on ?offset= across paginated endpoints — bounds a deep-paging scan"
+            ]
+          ]
         }
       ]
     }

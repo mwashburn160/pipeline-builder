@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal } from '@pipeline-builder/api-core';
+import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -354,19 +354,16 @@ const MONGO_RETRY_MAX_MS = 10000;
 async function initDependencies(): Promise<void> {
   const { maxPoolSize, minPoolSize, serverSelectionTimeoutMs: serverSelectionTimeoutMS } = config.mongodb;
 
-  let delay = MONGO_RETRY_BASE_MS;
-  for (;;) {
-    try {
-      await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
-      break;
-    } catch (err) {
-      logger.warn(`MongoDB connect failed, retrying in ${delay}ms`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      await sleep(delay);
-      delay = Math.min(delay * 2, MONGO_RETRY_MAX_MS);
-    }
-  }
+  await retryForever(
+    () => mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS }),
+    {
+      baseMs: MONGO_RETRY_BASE_MS,
+      maxMs: MONGO_RETRY_MAX_MS,
+      onAttemptFailed: (err, delayMs) => logger.warn(`MongoDB connect failed, retrying in ${delayMs}ms`, {
+        error: errorMessage(err),
+      }),
+    },
+  );
   logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
 
   // Register the process-wide authorization-denial auditor. Platform gates its
@@ -390,7 +387,7 @@ async function initDependencies(): Promise<void> {
       details: { method: info.method, path: info.path, required: info.required },
     }).catch((err) => {
       logger.warn('Failed to persist authz.denied audit event', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     });
   });
@@ -402,7 +399,7 @@ async function initDependencies(): Promise<void> {
     await bootstrapSuperAdmins();
   } catch (err) {
     logger.error('Super-admin bootstrap failed (service will still come ready)', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   }
 
@@ -416,7 +413,7 @@ async function initDependencies(): Promise<void> {
     await backfillRbacRoles();
   } catch (err) {
     logger.error('RBAC Roles backfill failed (service will still come ready)', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   }
 
@@ -431,7 +428,7 @@ async function initDependencies(): Promise<void> {
     const { runWithLeaderLock } = await import('./utils/leader-lock.js');
     void reconcilePendingBillingSubscriptions().catch((err) => {
       logger.error('Billing reconcile (boot drain) failed (service will still come ready)', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     });
     const intervalMs = config.billing.reconcileIntervalMs;
@@ -478,7 +475,7 @@ async function initDependencies(): Promise<void> {
     bootstrapPerOrgKmsProvider();
   } catch (err) {
     logger.error('Per-org KMS provider bootstrap failed; aborting startup', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     process.exit(1);
   }

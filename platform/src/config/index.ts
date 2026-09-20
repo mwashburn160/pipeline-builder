@@ -1,22 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
+import { envInt, QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
 import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
-
-/**
- * Integer env var with a default. Unlike `Number(env) || fallback`, an explicit
- * `0` is honored (several knobs use 0 to disable a sweep).
- * @internal
- */
-function intEnv(envVar: string, fallback: number): number {
-  const raw = process.env[envVar];
-  if (raw === undefined || raw.trim() === '') return fallback;
-  const n = parseInt(raw, 10);
-  return Number.isNaN(n) ? fallback : n;
-}
 
 /** Default platform URL used as fallback for PLATFORM_BASE_URL, CORS, OAuth callbacks, and service URLs. */
 const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
@@ -116,7 +104,7 @@ requireEncryptionKey();
 
 export const config = {
   app: {
-    port: parseInt(process.env.PORT || '3000', 10),
+    port: envInt('PORT', 3000),
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
   },
 
@@ -125,11 +113,11 @@ export const config = {
   deployTarget: process.env.DEPLOY_TARGET || 'local',
 
   server: {
-    trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
+    trustProxy: envInt('TRUST_PROXY', 1),
     /** How often the readiness monitor re-checks Mongo after boot. */
-    readinessMonitorIntervalMs: intEnv('READINESS_MONITOR_INTERVAL_MS', 15_000),
+    readinessMonitorIntervalMs: envInt('READINESS_MONITOR_INTERVAL_MS', 15_000),
     /** Force-exit deadline for a graceful shutdown. */
-    shutdownTimeoutMs: intEnv('SHUTDOWN_TIMEOUT_MS', 15_000),
+    shutdownTimeoutMs: envInt('SHUTDOWN_TIMEOUT_MS', 15_000),
   },
 
   cors: {
@@ -140,8 +128,8 @@ export const config = {
   },
 
   rateLimit: {
-    max: parseInt(process.env.LIMITER_MAX || '100', 10),
-    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10), // 15 min
+    max: envInt('LIMITER_MAX', 100),
+    windowMs: envInt('LIMITER_WINDOWMS', 900000), // 15 min
     /**
      * Per-tier multipliers on top of `rateLimit.max`. A premium-plan org
      * gets its baseline budget multiplied; free/unauthenticated callers
@@ -159,8 +147,8 @@ export const config = {
       // compile error, matching the sibling `tierExpiresIn`'s VALID_TIERS derivation.
     } satisfies Record<QuotaTier, number>,
     auth: {
-      max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
-      windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min
+      max: envInt('AUTH_LIMITER_MAX', 20),
+      windowMs: envInt('AUTH_LIMITER_WINDOWMS', 900000), // 15 min
     },
     // Observability endpoints (catalog query, range query, log query) hit
     // Prometheus / Loki directly. A noisy operator clicking through panels
@@ -170,8 +158,8 @@ export const config = {
     // refetch on mount, so the budget must cover a couple of full page
     // loads in a window or legitimate views 429. 120 req / min default.
     observability: {
-      max: parseInt(process.env.OBSERVABILITY_LIMITER_MAX || '120', 10),
-      windowMs: parseInt(process.env.OBSERVABILITY_LIMITER_WINDOWMS || '60000', 10), // 1 min
+      max: envInt('OBSERVABILITY_LIMITER_MAX', 120),
+      windowMs: envInt('OBSERVABILITY_LIMITER_WINDOWMS', 60000), // 1 min
     },
     /**
      * Dedicated bucket for the Alertmanager relay webhook.
@@ -189,8 +177,8 @@ export const config = {
      * which is exactly when throttling is most harmful.
      */
     alertWebhook: {
-      max: parseInt(process.env.ALERT_WEBHOOK_LIMITER_MAX || '3000', 10),
-      windowMs: parseInt(process.env.ALERT_WEBHOOK_LIMITER_WINDOWMS || '60000', 10), // 1 min
+      max: envInt('ALERT_WEBHOOK_LIMITER_MAX', 3000),
+      windowMs: envInt('ALERT_WEBHOOK_LIMITER_WINDOWMS', 60000), // 1 min
     },
   },
   /**
@@ -211,13 +199,13 @@ export const config = {
     instances: parseAlertWebhookInstances(process.env.ALERT_WEBHOOK_INSTANCES),
   },
   auth: {
-    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    passwordMinLength: envInt('PASSWORD_MIN_LENGTH', 8),
     /**
      * bcrypt cost factor for password hashing. Lives under `auth`, not
      * `auth.jwt` — it has nothing to do with JWT signing; the previous
      * placement was a copy-paste artifact.
      */
-    passwordSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
+    passwordSaltRounds: envInt('BCRYPT_SALT_ROUNDS', 12),
     jwt: {
       /**
        * ES256 user-token signing (roadmap #5). `mode: 'kms'` keeps the private
@@ -243,7 +231,7 @@ export const config = {
       // stateless services reject stale tokens immediately, but if that publish
       // (or Redis) is unavailable, a stale token can only outlive the change by at
       // most this TTL before natural expiry forces a refresh.
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '900', 10), // 15 min
+      expiresIn: envInt('JWT_EXPIRES_IN', 900), // 15 min
       /** Pinned on every token platform signs and checked on every token it verifies,
        *  when set. Must match what api-core's requireAuth expects. */
       issuer: process.env.JWT_ISSUER || undefined,
@@ -260,8 +248,11 @@ export const config = {
       // compile error here.
       tierExpiresIn: Object.fromEntries(
         VALID_TIERS.map((tier) => {
-          const raw = process.env[`JWT_EXPIRES_IN_${tier.toUpperCase()}`];
-          return [tier, raw ? parseInt(raw, 10) : undefined];
+          const name = `JWT_EXPIRES_IN_${tier.toUpperCase()}`;
+          // Sentinel-free "unset stays unset": envInt cannot express undefined,
+          // so probe first, then parse through the shared reader. A SET value is
+          // returned as-is (an explicit 0 stays 0) — only "absent" is undefined.
+          return [tier, process.env[name]?.trim() ? envInt(name, 0) : undefined];
         }),
       ) as Record<QuotaTier, number | undefined>,
     },
@@ -273,7 +264,7 @@ export const config = {
       //
       // Also the Max-Age of the browser's refresh cookie, which reads this same
       // variable directly — see helpers/session-cookie.ts.
-      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10), // 30 days
+      expiresIn: envInt('REFRESH_TOKEN_EXPIRES_IN', 2592000), // 30 days
     },
     /**
      * Email-verification token lifetime (ms). 24 h default; tokens are
@@ -281,7 +272,7 @@ export const config = {
      * UX trade-off (users following a stale link have to re-request).
      * Previously read inline in services/auth-service.ts.
      */
-    verificationTokenTtlMs: parseInt(process.env.AUTH_VERIFICATION_TOKEN_TTL_MS || '86400000', 10),
+    verificationTokenTtlMs: envInt('AUTH_VERIFICATION_TOKEN_TTL_MS', 86400000),
     /**
      * TTL (seconds) for a published session-revocation entry (Redis key
      * `authrev:tv:<userId>`). This is a CEILING/floor: the effective TTL used at
@@ -291,7 +282,7 @@ export const config = {
      * revoked token slip through the services' fail-open read). Defaults to a
      * safe 1-hour ceiling well above the 15-min base access-token lifetime.
      */
-    sessionRevocationTtlSeconds: parseInt(process.env.SESSION_REVOCATION_TTL_SECONDS || '3600', 10),
+    sessionRevocationTtlSeconds: envInt('SESSION_REVOCATION_TTL_SECONDS', 3600),
     /**
      * OAuth 2.0 device authorization grant (RFC 8628) — how `pipeline-manager
      * auth login` signs in without ever holding a password.
@@ -303,14 +294,14 @@ export const config = {
      * advertised interval spends ~120 polls over the full TTL.
      */
     device: {
-      ttlMs: intEnv('DEVICE_CODE_TTL_MS', 600_000), // 10 min
-      intervalSeconds: intEnv('DEVICE_CODE_INTERVAL_SECONDS', 5),
-      maxPolls: intEnv('DEVICE_CODE_MAX_POLLS', 200),
+      ttlMs: envInt('DEVICE_CODE_TTL_MS', 600_000), // 10 min
+      intervalSeconds: envInt('DEVICE_CODE_INTERVAL_SECONDS', 5),
+      maxPolls: envInt('DEVICE_CODE_MAX_POLLS', 200),
       /** Cap on the in-memory pending-state fallback (Redis-less deployments). */
-      maxPending: intEnv('DEVICE_MAX_PENDING', 1000),
+      maxPending: envInt('DEVICE_MAX_PENDING', 1000),
       /** How long an approval's step-up proof stays good for the session the
        *  CLI collects on its next poll (one poll interval plus slack). */
-      approvalGraceMs: intEnv('DEVICE_APPROVAL_GRACE_MS', 300_000), // 5 min
+      approvalGraceMs: envInt('DEVICE_APPROVAL_GRACE_MS', 300_000), // 5 min
     },
 
     /**
@@ -330,9 +321,9 @@ export const config = {
      */
     webauthn: {
       ...resolveWebAuthnConfig(process.env, process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL),
-      challengeTtlMs: intEnv('WEBAUTHN_CHALLENGE_TTL_MS', 120_000), // 2 min
+      challengeTtlMs: envInt('WEBAUTHN_CHALLENGE_TTL_MS', 120_000), // 2 min
       /** Cap on the in-memory challenge fallback (Redis-less deployments). */
-      maxPendingCeremonies: intEnv('WEBAUTHN_MAX_PENDING_CEREMONIES', 1000),
+      maxPendingCeremonies: envInt('WEBAUTHN_MAX_PENDING_CEREMONIES', 1000),
       /**
        * FIDO Metadata Service (MDS3) — only consulted when an org sets an
        * authenticator (AAGUID) allowlist. Registration into such an org requests
@@ -355,8 +346,8 @@ export const config = {
           if (raw.toLowerCase() === 'off') return undefined;
           return raw || 'https://mds.fidoalliance.org/';
         })(),
-        fetchTimeoutMs: intEnv('FIDO_MDS_FETCH_TIMEOUT_MS', 10_000),
-        refreshMs: intEnv('FIDO_MDS_REFRESH_MS', 86_400_000), // 24 h
+        fetchTimeoutMs: envInt('FIDO_MDS_FETCH_TIMEOUT_MS', 10_000),
+        refreshMs: envInt('FIDO_MDS_REFRESH_MS', 86_400_000), // 24 h
       },
     },
 
@@ -379,7 +370,7 @@ export const config = {
     passwordBreachCheck: {
       mode: (process.env.PASSWORD_BREACH_CHECK || 'hibp').trim().toLowerCase() === 'off' ? 'off' as const : 'hibp' as const,
       rangeUrl: process.env.PASSWORD_BREACH_CHECK_URL || 'https://api.pwnedpasswords.com/range/',
-      timeoutMs: intEnv('PASSWORD_BREACH_CHECK_TIMEOUT_MS', 2_000),
+      timeoutMs: envInt('PASSWORD_BREACH_CHECK_TIMEOUT_MS', 2_000),
     },
 
     /**
@@ -391,8 +382,8 @@ export const config = {
      * consume it.
      */
     loginThrottle: {
-      perAccountMax: intEnv('LOGIN_ACCOUNT_LIMITER_MAX', 10),
-      perAccountWindowMs: intEnv('LOGIN_ACCOUNT_LIMITER_WINDOWMS', 900_000), // 15 min
+      perAccountMax: envInt('LOGIN_ACCOUNT_LIMITER_MAX', 10),
+      perAccountWindowMs: envInt('LOGIN_ACCOUNT_LIMITER_WINDOWMS', 900_000), // 15 min
     },
 
     /**
@@ -412,18 +403,18 @@ export const config = {
        *  QR. A deployment-identifying label, not a secret. */
       issuer: process.env.TOTP_ISSUER || 'Pipeline Builder',
       /** Consecutive failures before the account's TOTP is locked out. */
-      maxFailures: intEnv('TOTP_MAX_FAILURES', 5),
+      maxFailures: envInt('TOTP_MAX_FAILURES', 5),
       /** How long that lockout lasts. */
-      lockoutMs: intEnv('TOTP_LOCKOUT_MS', 900_000), // 15 min
+      lockoutMs: envInt('TOTP_LOCKOUT_MS', 900_000), // 15 min
       /**
        * Lifetime of the sign-in MFA challenge — the handle a password sign-in
        * returns INSTEAD of a session when the account has TOTP. Long enough to
        * unlock a phone and read a code, short enough that a captured handle is
        * worthless. Held in the shared Redis pending-state store.
        */
-      challengeTtlMs: intEnv('TOTP_LOGIN_CHALLENGE_TTL_MS', 300_000), // 5 min
+      challengeTtlMs: envInt('TOTP_LOGIN_CHALLENGE_TTL_MS', 300_000), // 5 min
       /** Cap on the in-memory challenge fallback (Redis-less deployments). */
-      maxPendingChallenges: intEnv('TOTP_MAX_PENDING_CHALLENGES', 1000),
+      maxPendingChallenges: envInt('TOTP_MAX_PENDING_CHALLENGES', 1000),
     },
   },
 
@@ -437,9 +428,9 @@ export const config = {
     })(),
     // Pool sizing: bound the connection ceiling so multiple replicas don't
     // exhaust Mongo's default cap.
-    maxPoolSize: intEnv('MONGO_MAX_POOL', 20),
-    minPoolSize: intEnv('MONGO_MIN_POOL', 2),
-    serverSelectionTimeoutMs: intEnv('MONGO_SERVER_SELECTION_MS', 5000),
+    maxPoolSize: envInt('MONGO_MAX_POOL', 20),
+    minPoolSize: envInt('MONGO_MIN_POOL', 2),
+    serverSelectionTimeoutMs: envInt('MONGO_SERVER_SELECTION_MS', 5000),
   },
 
   email: {
@@ -449,7 +440,7 @@ export const config = {
     provider: (process.env.EMAIL_PROVIDER || 'smtp') as 'smtp' | 'ses',
     smtp: {
       host: process.env.SMTP_HOST || 'localhost',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      port: envInt('SMTP_PORT', 587),
       secure: process.env.SMTP_SECURE === 'true',
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
@@ -469,12 +460,12 @@ export const config = {
   },
 
   invitation: {
-    expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7', 10),
-    maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50', 10),
+    expirationDays: envInt('INVITATION_EXPIRATION_DAYS', 7),
+    maxPendingPerOrg: envInt('INVITATION_MAX_PENDING_PER_ORG', 50),
     // How often the reaper flips stale `pending` invites (past `expiresAt`) to
     // `expired`. The capacity/roster queries already exclude stale rows at read
     // time, so this sweep is durability/hygiene — default hourly.
-    sweepIntervalMs: parseInt(process.env.INVITATION_SWEEP_INTERVAL_MS || '3600000', 10),
+    sweepIntervalMs: envInt('INVITATION_SWEEP_INTERVAL_MS', 3600000),
   },
 
   organization: {
@@ -483,43 +474,49 @@ export const config = {
     // the org durably, and cuts access at the token chokepoint. The purge sweep
     // then runs the destructive cascade for any org whose `purgeAfter` has
     // lapsed. Default 7-day grace so an accidental delete can be restored.
-    deletionRetentionDays: parseInt(process.env.ORG_DELETION_RETENTION_DAYS || '7', 10),
+    //
+    // FLOOR: the effective deadline is `max(this, SOFT_DELETE_RETENTION_DAYS)`
+    // — see `orgPurgeRetentionMs` in services/org-cascade-service.ts. The org
+    // must outlive the rows it owns, which the cascade tombstones under the
+    // shared 30-day row window; purging the org first orphaned those rows for
+    // the remainder. Raising this above the row window takes effect as written.
+    deletionRetentionDays: envInt('ORG_DELETION_RETENTION_DAYS', 7),
     // How often the purge sweep scans for expired soft-deleted orgs and runs the
     // fail-closed cascade. Default hourly; the sweep is idempotent and never
     // throws (log + continue), so a transient failure retries next tick.
-    purgeSweepIntervalMs: parseInt(process.env.ORG_PURGE_SWEEP_INTERVAL_MS || '3600000', 10),
+    purgeSweepIntervalMs: envInt('ORG_PURGE_SWEEP_INTERVAL_MS', 3600000),
     // Timeout for the purge cascade's HTTP DELETEs to quota/billing/message.
-    cascadeHttpTimeoutMs: intEnv('ORG_CASCADE_HTTP_TIMEOUT_MS', 5000),
+    cascadeHttpTimeoutMs: envInt('ORG_CASCADE_HTTP_TIMEOUT_MS', 5000),
     // Domain-based join: how often the re-verification sweep runs (0 disables it)
     // and how long since the last successful DNS check before a domain is re-checked.
-    domainReverifyIntervalMs: intEnv('DOMAIN_REVERIFY_INTERVAL_MS', 24 * 60 * 60 * 1000),
-    domainReverifyStaleMs: intEnv('DOMAIN_REVERIFY_STALE_MS', 7 * 24 * 60 * 60 * 1000),
+    domainReverifyIntervalMs: envInt('DOMAIN_REVERIFY_INTERVAL_MS', 24 * 60 * 60 * 1000),
+    domainReverifyStaleMs: envInt('DOMAIN_REVERIFY_STALE_MS', 7 * 24 * 60 * 60 * 1000),
   },
 
   oauth: {
     /** Base URL for OAuth callback redirects (e.g. https://yourdomain.com) */
     callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
-    stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000', 10), // 10 min
-    cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000', 10), // 1 min
+    stateTtlMs: envInt('OAUTH_STATE_TTL_MS', 600000), // 10 min
+    cleanupIntervalMs: envInt('OAUTH_CLEANUP_INTERVAL_MS', 60000), // 1 min
     /** Cap on the in-memory pending-state fallback shared by the social OAuth
      *  and SSO flows (used only when Redis is not configured). */
-    maxPendingStates: intEnv('OAUTH_MAX_PENDING_STATES', 1000),
+    maxPendingStates: envInt('OAUTH_MAX_PENDING_STATES', 1000),
     /** OIDC discovery/JWKS cache TTL. Kept short so IdP key rotation is picked
      *  up quickly; a `kid` miss also forces a live JWKS refetch regardless. */
-    oidcDocCacheTtlMs: intEnv('OIDC_DOC_CACHE_TTL_MS', 60 * 60 * 1000),
+    oidcDocCacheTtlMs: envInt('OIDC_DOC_CACHE_TTL_MS', 60 * 60 * 1000),
     /** Clock skew tolerated on a SAML assertion's NotBefore / NotOnOrAfter.
      *  Small on purpose — this is the allowance for ordinary NTP drift between
      *  the IdP and this deployment, not a way to accept stale assertions. */
-    samlClockSkewMs: intEnv('SAML_CLOCK_SKEW_MS', 60 * 1000),
+    samlClockSkewMs: envInt('SAML_CLOCK_SKEW_MS', 60 * 1000),
     /** How long an unanswered SAML AuthnRequest id stays valid, i.e. how long a
      *  user has to finish signing in at their IdP. */
-    samlRequestTtlMs: intEnv('SAML_REQUEST_TTL_MS', 10 * 60 * 1000),
+    samlRequestTtlMs: envInt('SAML_REQUEST_TTL_MS', 10 * 60 * 1000),
     /** Floor on how long a SPENT assertion id is remembered for replay refusal.
      *  The real window is the assertion's own NotOnOrAfter when that is longer. */
-    samlAssertionReplayTtlMs: intEnv('SAML_ASSERTION_REPLAY_TTL_MS', 10 * 60 * 1000),
+    samlAssertionReplayTtlMs: envInt('SAML_ASSERTION_REPLAY_TTL_MS', 10 * 60 * 1000),
     /** How long the one-time handoff minted by the ACS stays redeemable — the
      *  few seconds it takes the browser to follow one redirect. */
-    samlHandoffTtlMs: intEnv('SAML_HANDOFF_TTL_MS', 2 * 60 * 1000),
+    samlHandoffTtlMs: envInt('SAML_HANDOFF_TTL_MS', 2 * 60 * 1000),
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',
@@ -586,44 +583,42 @@ export const config = {
   observability: {
     /** How often each replica samples the org/user count gauges. Anything under
      *  30s isn't useful since Prometheus polls every 15s. */
-    scraperIntervalMs: intEnv('PLATFORM_SCRAPER_INTERVAL_MS', 60_000),
+    scraperIntervalMs: envInt('PLATFORM_SCRAPER_INTERVAL_MS', 60_000),
     /** Default timeout for any single Alertmanager call. */
-    alertmanagerTimeoutMs: intEnv('ALERTMANAGER_TIMEOUT_MS', 5000),
+    alertmanagerTimeoutMs: envInt('ALERTMANAGER_TIMEOUT_MS', 5000),
     /** Per-destination delivery timeout for the alert relay and test sends — a
      *  slow Slack tenant shouldn't hold up the relay (Alertmanager retries). */
-    alertDeliveryTimeoutMs: intEnv('ALERT_DELIVERY_TIMEOUT_MS', 5000),
+    alertDeliveryTimeoutMs: envInt('ALERT_DELIVERY_TIMEOUT_MS', 5000),
     /** At-least-once dedupe window for alert email: an identical (alert,
      *  recipient) email inside it is suppressed. */
-    alertEmailDedupeTtlMs: intEnv('ALERT_EMAIL_DEDUPE_TTL_MS', 10 * 60 * 1000),
+    alertEmailDedupeTtlMs: envInt('ALERT_EMAIL_DEDUPE_TTL_MS', 10 * 60 * 1000),
     /** Alert destination field caps. Slack hooks are ~85 chars, but enterprise
      *  webhooks with long signed query params can be much longer. */
-    alertDestinationMaxLabel: intEnv('ALERT_DESTINATION_MAX_LABEL', 100),
-    alertDestinationMaxTarget: intEnv('ALERT_DESTINATION_MAX_TARGET', 2048),
+    alertDestinationMaxLabel: envInt('ALERT_DESTINATION_MAX_LABEL', 100),
+    alertDestinationMaxTarget: envInt('ALERT_DESTINATION_MAX_TARGET', 2048),
     /** Custom dashboard size caps (defend against pathological payloads). */
-    dashboardMaxName: intEnv('DASHBOARD_MAX_NAME', 150),
-    dashboardMaxDescription: intEnv('DASHBOARD_MAX_DESCRIPTION', 1000),
-    dashboardMaxPanelTitle: intEnv('DASHBOARD_MAX_PANEL_TITLE', 200),
-    dashboardMaxPanels: intEnv('DASHBOARD_MAX_PANELS', 50),
+    dashboardMaxName: envInt('DASHBOARD_MAX_NAME', 150),
+    dashboardMaxDescription: envInt('DASHBOARD_MAX_DESCRIPTION', 1000),
+    dashboardMaxPanelTitle: envInt('DASHBOARD_MAX_PANEL_TITLE', 200),
+    dashboardMaxPanels: envInt('DASHBOARD_MAX_PANELS', 50),
   },
 
   audit: {
     // How many days to retain audit events. Read by the AuditEvent TTL
     // index; was previously parsed inline in models/audit-event.ts.
-    retentionDays: parseInt(process.env.AUDIT_RETENTION_DAYS || '90', 10),
+    retentionDays: envInt('AUDIT_RETENTION_DAYS', 90),
   },
 
   quota: {
     // Quota microservice connection
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
-    servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
-    serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000', 10), // 5s
+    servicePort: envInt('QUOTA_SERVICE_PORT', 3000),
+    serviceTimeout: envInt('QUOTA_SERVICE_TIMEOUT', 5000), // 5s
     // Usage-counter period, shared with the quota service (same env var). A
     // service account's OWN token-exchange budget rolls over on this period, so
-    // its quota window matches every other quota in the deployment. NaN-guarded
-    // the same way the quota service guards it.
-    resetDays: Number.isFinite(parseInt(process.env.QUOTA_RESET_DAYS || '3', 10))
-      ? parseInt(process.env.QUOTA_RESET_DAYS || '3', 10)
-      : 3,
+    // its quota window matches every other quota in the deployment. `envInt`
+    // already falls back on a malformed value, so the old NaN re-guard is gone.
+    resetDays: envInt('QUOTA_RESET_DAYS', 3),
     // Quota tier presets (each tier defines its own limits and reset periods).
     // Consumed by Organization model schema defaults.
     tier: {
@@ -656,29 +651,29 @@ export const config = {
   billing: {
     enabled: (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.BILLING_SERVICE_HOST || 'billing',
-    servicePort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
-    serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10), // 5s
+    servicePort: envInt('BILLING_SERVICE_PORT', 3000),
+    serviceTimeout: envInt('BILLING_SERVICE_TIMEOUT', 5000), // 5s
     // Paid-signup provisioning: retry the billing subscription POST a couple of
     // times with short backoff before persisting the durable pending marker.
-    provisionRetryAttempts: parseInt(process.env.BILLING_PROVISION_RETRY_ATTEMPTS || '3', 10),
-    provisionRetryBaseMs: parseInt(process.env.BILLING_PROVISION_RETRY_BASE_MS || '200', 10),
+    provisionRetryAttempts: envInt('BILLING_PROVISION_RETRY_ATTEMPTS', 3),
+    provisionRetryBaseMs: envInt('BILLING_PROVISION_RETRY_BASE_MS', 200),
     // Reconcile cadence for orgs whose signup billing bootstrap failed
     // (pendingBillingPlanId marker). 0 disables the periodic pass (boot drain still runs).
-    reconcileIntervalMs: parseInt(process.env.BILLING_RECONCILE_INTERVAL_MS || '300000', 10), // 5 min
+    reconcileIntervalMs: envInt('BILLING_RECONCILE_INTERVAL_MS', 300000), // 5 min
     // Max orgs a single reconcile pass processes (oldest-marked first). Bounds
     // pass duration so it can't overlap the next interval; leftovers roll to the
     // following pass. The interval itself IS the retry loop.
-    reconcileBatchSize: parseInt(process.env.BILLING_RECONCILE_BATCH_SIZE || '50', 10),
+    reconcileBatchSize: envInt('BILLING_RECONCILE_BATCH_SIZE', 50),
     // Max random per-org jitter (ms) inside a reconcile pass, so a fleet-wide
     // billing outage doesn't produce a synchronized retry thundering-herd.
-    reconcileJitterMs: parseInt(process.env.BILLING_RECONCILE_JITTER_MS || '250', 10),
+    reconcileJitterMs: envInt('BILLING_RECONCILE_JITTER_MS', 250),
   },
 
   compliance: {
     enabled: (process.env.COMPLIANCE_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
-    servicePort: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
-    serviceTimeout: parseInt(process.env.COMPLIANCE_SERVICE_TIMEOUT || '5000', 10), // 5s
+    servicePort: envInt('COMPLIANCE_SERVICE_PORT', 3000),
+    serviceTimeout: envInt('COMPLIANCE_SERVICE_TIMEOUT', 5000), // 5s
   },
 
   // Message service — used for service-to-service in-app notifications (P2b
@@ -687,8 +682,8 @@ export const config = {
   message: {
     enabled: (process.env.MESSAGE_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.MESSAGE_SERVICE_HOST || 'message',
-    servicePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
-    serviceTimeout: parseInt(process.env.MESSAGE_SERVICE_TIMEOUT || '5000', 10), // 5s
+    servicePort: envInt('MESSAGE_SERVICE_PORT', 3000),
+    serviceTimeout: envInt('MESSAGE_SERVICE_TIMEOUT', 5000), // 5s
   },
 } as const;
 

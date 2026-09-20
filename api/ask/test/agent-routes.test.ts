@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const SERVICE_TOKEN = 'Bearer service-minted-token';
 
@@ -43,7 +44,7 @@ const mockGetServiceAuthHeader = jest.fn<(...a: unknown[]) => string>(() => SERV
 const mockReserveQuota = jest.fn<(...a: unknown[]) => unknown>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } }));
 const mockDecrementQuota = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,

@@ -1,22 +1,5 @@
 [
   {
-    "method": "POST",
-    "path": "/billing/admin/backfill",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
-    "servicePrincipal": false,
-    "internalCallers": [],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "billing.ledger.backfill"
-    ]
-  },
-  {
     "method": "GET",
     "path": "/billing/admin/discounts",
     "auth": true,

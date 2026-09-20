@@ -12,7 +12,7 @@ interface HelpSectionProps {
 export function HelpSectionCard({ title, blocks }: HelpSectionProps) {
   return (
     <div className="mb-6">
-      <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-3">
+      <h4 className="text-lg font-medium text-fg mb-3">
         {title}
       </h4>
       <div className="space-y-4">

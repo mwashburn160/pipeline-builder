@@ -69,6 +69,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     complianceReportSchedule: { orgId: 'compliance_report_schedules.org_id' },
   },
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+  // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
+  // FLOOR under the org's own purge deadline.
+  softDeleteRetentionMs: () => 30 * 24 * 60 * 60 * 1000,
 }));
 
 const mockInvitationDeleteMany = jest.fn();
@@ -98,13 +101,13 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 }));
 jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockIdpDeleteMany },
+  default: { deleteMany: mockIdpDeleteMany, find: mongoFinds.orgIdpConfig },
 }));
 // IdP group → Role mappings (3a) — cleaned up with the IdP config they belong to.
 const mockIdpGroupMappingDeleteMany = jest.fn();
 jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockIdpGroupMappingDeleteMany },
+  default: { deleteMany: mockIdpGroupMappingDeleteMany, find: mongoFinds.idpGroupMapping },
 }));
 
 const mockOrgDomainDeleteMany = jest.fn();
@@ -113,13 +116,46 @@ const mockServiceAccountFind = jest.fn();
 const mockServiceAccountDeleteMany = jest.fn();
 const mockSaKeyDeleteMany = jest.fn();
 const mockRoleAssignmentDeleteMany = jest.fn();
+const mockSamlSessionDeleteMany = jest.fn();
+
+/**
+ * Mongoose query stub covering every chain the cascade + export use
+ * (`.select().lean()`, `.sort().limit().lean()`, plain `.lean()`).
+ */
+const findChain = (rows: unknown[] = []) => {
+  const c: any = { lean: async () => rows, select: () => c, sort: () => c, limit: () => c };
+  return c;
+};
+
+/**
+ * Every collection the export reads, so a new cascade target shows up as a
+ * missing mock here rather than a silently empty artifact. Each entry is the
+ * model's `find` spy; the reflection test below asserts the export names them.
+ */
+const mongoFinds = {
+  orgIdpConfig: jest.fn(() => findChain()),
+  idpGroupMapping: jest.fn(() => findChain()),
+  orgDomain: jest.fn(() => findChain()),
+  joinRequest: jest.fn(() => findChain()),
+  samlSession: jest.fn(() => findChain()),
+  personalAccessToken: jest.fn(() => findChain()),
+  userOrganization: jest.fn(() => findChain()),
+  roleAssignment: jest.fn(() => findChain()),
+  role: jest.fn(() => findChain()),
+};
+
 jest.unstable_mockModule('../src/models/org-domain.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockOrgDomainDeleteMany },
+  default: { deleteMany: mockOrgDomainDeleteMany, find: mongoFinds.orgDomain },
 }));
 jest.unstable_mockModule('../src/models/join-request.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockJoinRequestDeleteMany },
+  default: { deleteMany: mockJoinRequestDeleteMany, find: mongoFinds.joinRequest },
+}));
+// SAML SLO bookkeeping — org-scoped, so it goes with the org.
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockSamlSessionDeleteMany, find: mongoFinds.samlSession },
 }));
 // Service accounts (#2): org property, so the purge deletes them along with
 // every key and Role assignment they hold.
@@ -129,11 +165,19 @@ jest.unstable_mockModule('../src/models/service-account.js', () => ({
 }));
 jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockSaKeyDeleteMany, updateMany: jest.fn() },
+  default: { deleteMany: mockSaKeyDeleteMany, updateMany: jest.fn(), find: mongoFinds.personalAccessToken },
 }));
 jest.unstable_mockModule('../src/models/role-assignment.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockRoleAssignmentDeleteMany },
+  default: { deleteMany: mockRoleAssignmentDeleteMany, find: mongoFinds.roleAssignment },
+}));
+jest.unstable_mockModule('../src/models/role.js', () => ({
+  __esModule: true,
+  default: { find: mongoFinds.role },
+}));
+jest.unstable_mockModule('../src/models/user-organization.js', () => ({
+  __esModule: true,
+  default: { find: mongoFinds.userOrganization },
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
@@ -145,7 +189,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-const { cascadeDeleteOrg, exportOrg, CASCADE_TABLE_NAMES } = await import('../src/services/org-cascade-service.js');
+const { cascadeDeleteOrg, exportOrg, CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES } = await import('../src/services/org-cascade-service.js');
 const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 // The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is
@@ -174,8 +218,10 @@ beforeEach(() => {
   mockIdpGroupMappingDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockOrgDomainDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockJoinRequestDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockSamlSessionDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  for (const find of Object.values(mongoFinds)) find.mockImplementation(() => findChain());
   // One service account with two keys, so the purge's teardown leg is exercised.
-  mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'sa-1' }]) }) });
+  mockServiceAccountFind.mockReturnValue(findChain([{ _id: 'sa-1' }]));
   mockServiceAccountDeleteMany.mockResolvedValue({ deletedCount: 1 });
   mockSaKeyDeleteMany.mockResolvedValue({ deletedCount: 2 });
   mockRoleAssignmentDeleteMany.mockResolvedValue({ deletedCount: 1 });
@@ -267,10 +313,11 @@ describe('cascadeDeleteOrg', () => {
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
   });
 
-  it('drops mongo invitations + audit events + idp configs', async () => {
+  it('drops mongo invitations + audit events + idp configs + saml sessions', async () => {
     mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 3 });
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 12 });
     mockIdpDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockSamlSessionDeleteMany.mockResolvedValue({ deletedCount: 4 });
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
@@ -281,10 +328,13 @@ describe('cascadeDeleteOrg', () => {
       idpGroupMappings: 0,
       orgDomains: 0,
       joinRequests: 0,
+      // SAML SLO rows are org-scoped and went with the org.
+      samlSessions: 4,
       // Service accounts are org property — the purge takes them and their keys.
       serviceAccounts: 1,
       serviceAccountKeys: 2,
     });
+    expect(mockSamlSessionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
     // The live delete is exactly this org's own hash chain (chain key =
     // affectedOrgId). An event this org's members performed on ANOTHER org
     // (orgId = org-acme, affectedOrgId = other) is a link in THAT org's chain;
@@ -468,6 +518,56 @@ describe('exportOrg', () => {
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');
     expect(dump.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  /**
+   * The Mongo twin of the CASCADE_TABLE_NAMES drift guard. The export used to
+   * carry ONLY invitations + audit events while the teardown removed the IdP
+   * config, group mappings, domains, join requests, SAML sessions, service
+   * accounts + keys, memberships, Role assignments and Roles — so the
+   * soft-delete "recovery snapshot" could not actually restore an org, and the
+   * portability artifact under-reported what the platform held.
+   */
+  it('DRIFT GUARD: every collection the teardown removes appears in the artifact', async () => {
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    const missing = [...CASCADE_MONGO_COLLECTION_NAMES].filter((name) => !(name in dump.mongo));
+    expect(missing).toEqual([]);
+    // And the set actually names the collections that were previously omitted.
+    for (const name of [
+      'idpConfigs', 'idpGroupMappings', 'orgDomains', 'joinRequests', 'samlSessions',
+      'serviceAccounts', 'serviceAccountKeys', 'memberships', 'roleAssignments', 'roles',
+    ]) {
+      expect(CASCADE_MONGO_COLLECTION_NAMES.has(name)).toBe(true);
+    }
+  });
+
+  it('captures the rows of each newly covered collection', async () => {
+    mongoFinds.orgIdpConfig.mockReturnValue(findChain([{ entityId: 'idp' }]));
+    mongoFinds.orgDomain.mockReturnValue(findChain([{ domain: 'acme.test' }]));
+    mongoFinds.userOrganization.mockReturnValue(findChain([{ userId: 'u1' }, { userId: 'u2' }]));
+    mongoFinds.role.mockReturnValue(findChain([{ name: 'Admin' }]));
+    mockServiceAccountFind.mockReturnValue(findChain([{ _id: 'sa-1' }]));
+    mongoFinds.personalAccessToken.mockReturnValue(findChain([{ _id: 'k1', prefix: 'pb_sa' }]));
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(dump.mongo.idpConfigs).toHaveLength(1);
+    expect(dump.mongo.orgDomains).toHaveLength(1);
+    expect(dump.mongo.memberships).toHaveLength(2);
+    expect(dump.mongo.roles).toHaveLength(1);
+    expect(dump.mongo.serviceAccounts).toHaveLength(1);
+    expect(dump.mongo.serviceAccountKeys).toHaveLength(1);
+  });
+
+  it('never exports a service-account key HASH (the stored form of the secret)', async () => {
+    const select = jest.fn(() => findChain([{ _id: 'k1' }]));
+    mockServiceAccountFind.mockReturnValue(findChain([{ _id: 'sa-1' }]));
+    mongoFinds.personalAccessToken.mockReturnValue({ select } as never);
+
+    await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(select).toHaveBeenCalledWith('-keyHash');
   });
 
   it('caps the audit read so one tenant cannot exhaust the heap', async () => {

@@ -4,6 +4,7 @@
 import { useCallback, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import type { OrganizationMember, MemberTeam } from '@/types';
 
 interface UseMemberTeamsOptions {
@@ -45,8 +46,6 @@ export function useMemberTeams({ orgId }: UseMemberTeamsOptions) {
     } finally {
       setTeamsLoading(false);
     }
-    // orgId is captured; openManageTeams is only called for the active org's members.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const closeManageTeams = useCallback(() => setManageTeamsTarget(null), []);
@@ -108,6 +107,8 @@ export function useMemberTeams({ orgId }: UseMemberTeamsOptions) {
     // Fold what actually applied back into the roster so a re-save diffs against
     // the new truth and re-attempts ONLY the failures (never a done add/remove).
     if (appliedAdds.size > 0 || appliedRemoves.size > 0) {
+      // Each touched team's member list is cached and now wrong.
+      for (const id of [...appliedAdds, ...appliedRemoves]) invalidate.orgMembers(id);
       setTeamRoster(prev => prev.map(t =>
         appliedAdds.has(t.orgId) ? { ...t, isMember: true, role: t.role ?? 'member' }
           : appliedRemoves.has(t.orgId) ? { ...t, isMember: false }

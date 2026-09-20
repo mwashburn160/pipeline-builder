@@ -23,7 +23,8 @@ function mockClipboard(writeText: (text: string) => Promise<void>) {
 
 describe('Downloads page install-command copy', () => {
   const firstCopy = () => screen.getAllByRole('button', { name: 'Copy to clipboard' })[0];
-  const showsCheck = (btn: HTMLElement) => btn.querySelector('svg')?.getAttribute('class')?.includes('text-green-500') ?? false;
+  // The checkmark rides the success token now that the page is tokenised.
+  const showsCheck = (btn: HTMLElement) => btn.querySelector('svg')?.getAttribute('class')?.includes('text-success') ?? false;
 
   it('copies the command and shows the checkmark once the write resolves', async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);

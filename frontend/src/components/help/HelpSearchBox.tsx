@@ -25,7 +25,7 @@ export function HelpSearchBox({ query, onQueryChange, inputRef, topicCount, resu
 
   return (
     <Card>
-      <label htmlFor="help-search" className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
+      <label htmlFor="help-search" className="text-sm font-semibold text-fg inline-flex items-center gap-2">
         <Search className="w-4 h-4 text-fg-subtle" />
         Search the docs
       </label>
@@ -64,7 +64,7 @@ export function HelpSearchBox({ query, onQueryChange, inputRef, topicCount, resu
         <p id="help-search-status" aria-live="polite" className="text-xs text-fg-muted">
           {searching
             ? resultCount === 0
-              ? <>No matches for <span className="font-medium text-gray-700 dark:text-gray-300">&quot;{query}&quot;</span> — try a broader term.</>
+              ? <>No matches for <span className="font-medium text-fg-muted">&quot;{query}&quot;</span> — try a broader term.</>
               : <>{resultCount} of {topicCount} topics · {sectionCount} matching {sectionCount === 1 ? 'section' : 'sections'}</>
             : <>{topicCount} topics. Press <kbd className="font-mono">/</kbd> to search, <kbd className="font-mono">Esc</kbd> to clear.</>}
         </p>

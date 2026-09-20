@@ -9,6 +9,8 @@
 #   - a querier: a Prometheus-compatible HTTP query API (9090) that fans out to
 #     every StoreAPI — the sidecar (recent, still-local blocks) AND the
 #     store-gateway (older, archived blocks) — and de-duplicates the overlap.
+# The third Thanos component, the COMPACTOR (retention, downsampling, block
+# merging — the only one that deletes), lives in thanos-compact.yaml.
 #
 # `PROMETHEUS_URL` points services at the QUERIER (not Prometheus directly) so a
 # PromQL query spans recent + long-term history. KEDA autoscaling deliberately
@@ -77,7 +79,7 @@ spec:
         fsGroup: 65534
       containers:
         - name: thanos-store-gateway
-          image: quay.io/thanos/thanos:v0.39.2
+          image: quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80  # quay.io/thanos/thanos:v0.39.2
           args:
             - "store"
             - "--objstore.config-file=/etc/thanos/objstore.yml"
@@ -202,7 +204,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: thanos-query
-          image: quay.io/thanos/thanos:v0.39.2
+          image: quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80  # quay.io/thanos/thanos:v0.39.2
           args:
             - "query"
             - "--http-address=0.0.0.0:9090"

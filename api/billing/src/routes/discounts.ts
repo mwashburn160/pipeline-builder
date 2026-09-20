@@ -17,6 +17,7 @@ import {
   parseQueryInt,
   parseQueryIntClamped,
   parseQueryString,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -90,7 +91,7 @@ export function createDiscountRoutes(): Router {
   // ── Generation ───────────────────────────────────────────────────
 
   // POST /billing/admin/discounts — mint a discount record.
-  router.post('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.generate'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.generate'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, DiscountMintSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -118,7 +119,7 @@ export function createDiscountRoutes(): Router {
     await createBillingEvent(body.targetOrgId ?? orgId, 'discount_generated', { discountId: _id, kind: spec.kind, unit: spec.unit, value: spec.value }, undefined, req.user?.sub);
     getAuditClient().record({
       action: 'billing.discount.generate',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: _id,
       details: { discountId: _id, kind: spec.kind, unit: spec.unit, value: spec.value, targetOrgId: body.targetOrgId },
@@ -131,7 +132,7 @@ export function createDiscountRoutes(): Router {
   // ── Issuance ─────────────────────────────────────────────────────
 
   // POST /billing/admin/discounts/:id/token — Mode B: mint/re-issue an opaque token.
-  router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.issue'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.issue'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findById(id);
@@ -155,7 +156,7 @@ export function createDiscountRoutes(): Router {
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_issued', { discountId: id }, undefined, req.user?.sub);
     getAuditClient().record({
       action: 'billing.discount.issue',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { discountId: id },
@@ -165,7 +166,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/admin/discounts/:id/apply — Mode A: direct grant to a target org.
-  router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.apply'), withRoute(async ({ req, res }) => {
+  router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.apply'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountApplySchema);
@@ -180,7 +181,7 @@ export function createDiscountRoutes(): Router {
 
     getAuditClient().record({
       action: 'billing.discount.apply',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId: targetOrgId,
       targetId: id,
       details: { discountId: id, kind: discount.kind, affectedOrgId: targetOrgId, via: 'system' },
@@ -234,7 +235,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // PUT /billing/admin/discounts/:id — edit / revoke (isActive:false).
-  router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId }) => {
+  router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountUpdateSchema);
@@ -256,7 +257,7 @@ export function createDiscountRoutes(): Router {
       await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_revoked', { discountId: id }, undefined, req.user?.sub);
       getAuditClient().record({
         action: 'billing.discount.revoke',
-        actorId: req.user?.sub ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetId: id,
         details: { discountId: id },
@@ -266,7 +267,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // DELETE /billing/admin/discounts/:id — hard revoke.
-  router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
@@ -274,7 +275,7 @@ export function createDiscountRoutes(): Router {
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_revoked', { discountId: id }, undefined, req.user?.sub);
     getAuditClient().record({
       action: 'billing.discount.revoke',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { discountId: id },
@@ -297,7 +298,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/discounts — redeem a token or public alias.
-  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -309,7 +310,7 @@ export function createDiscountRoutes(): Router {
 
     getAuditClient().record({
       action: 'billing.discount.apply',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: discount._id,
       details: { discountId: discount._id, kind: discount.kind, affectedOrgId: orgId, via: 'self-service' },
@@ -322,7 +323,7 @@ export function createDiscountRoutes(): Router {
   // recurring discount (no more per-period credits). Credits already granted
   // persist on the balance until consumed — there is nothing to detach at the
   // provider (discounts are usage credits, not coupons).
-  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId, userId }) => {
     const discountId = getParam(req.params, 'discountId');
     if (!discountId) return sendError(res, 400, 'discountId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -337,7 +338,7 @@ export function createDiscountRoutes(): Router {
     await createBillingEvent(orgId, 'discount_removed', { discountId }, subscription._id.toString(), req.user?.sub);
     getAuditClient().record({
       action: 'billing.discount.remove',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: discountId,
       details: { discountId, subscriptionId: subscription._id.toString() },

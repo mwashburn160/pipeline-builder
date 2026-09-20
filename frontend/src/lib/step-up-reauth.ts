@@ -27,10 +27,10 @@ import { api } from './api';
 import type { ReauthProvider } from '@/types';
 
 /** Prefix the backend puts on every re-auth `state`. */
-export const REAUTH_STATE_PREFIX = 'reauth.';
+const REAUTH_STATE_PREFIX = 'reauth.';
 
 /** Same-origin channel the callback page answers on. */
-export const REAUTH_CHANNEL = 'pb-step-up-reauth';
+const REAUTH_CHANNEL = 'pb-step-up-reauth';
 
 /** What the callback page sends back. */
 export interface ReauthResult {

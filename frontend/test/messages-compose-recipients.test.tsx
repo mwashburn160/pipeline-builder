@@ -29,10 +29,11 @@ jest.mock('@/hooks/useMessageNotifications', () => ({
 jest.mock('@/hooks/usePolling', () => ({ __esModule: true, usePolling: () => {} }));
 
 // Capture what the page hands the compose modal.
-const composeProps: Array<{ recipientSuggestions?: unknown }> = [];
+type ComposeProps = { recipientSuggestions?: unknown; onUploadAttachment?: unknown; canWrite?: unknown; onSend?: unknown };
+const composeProps: ComposeProps[] = [];
 jest.mock('next/dynamic', () => ({
   __esModule: true,
-  default: () => (props: { recipientSuggestions?: unknown }) => {
+  default: () => (props: ComposeProps) => {
     composeProps.push(props);
     return <div data-testid="compose" />;
   },
@@ -87,4 +88,32 @@ it('does not call the listing without messages:write', async () => {
   await screen.findByTestId('compose');
   expect(getRecipientOrgs).not.toHaveBeenCalled();
   expect(composeProps.at(-1)?.recipientSuggestions).toEqual([]);
+});
+
+/** The compose modal's own props — the `next/dynamic` stub also stands in for
+ *  the page's other lazy child (the recently-deleted panel), so pick the render
+ *  that carries compose's `onSend`. */
+const lastCompose = () => composeProps.filter((p) => 'onSend' in p).at(-1);
+
+it('hands compose the attachment uploader only to a writer', async () => {
+  // `POST /messages/attachments` is messages:write; ComposeModal hides its
+  // attach control when no uploader is supplied, so the support-only contact
+  // form a reader gets cannot start an upload the route would refuse.
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
+  render(<MessagesPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New Message' }));
+
+  await waitFor(() => expect(lastCompose()).toBeDefined());
+  expect(typeof lastCompose()?.onUploadAttachment).toBe('function');
+  expect(lastCompose()?.canWrite).toBe(true);
+});
+
+it('withholds the attachment uploader from a reader', async () => {
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => false });
+  render(<MessagesPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Contact Support' }));
+
+  await waitFor(() => expect(lastCompose()).toBeDefined());
+  expect(lastCompose()?.onUploadAttachment).toBeUndefined();
+  expect(lastCompose()?.canWrite).toBe(false);
 });

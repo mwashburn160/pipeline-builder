@@ -122,7 +122,7 @@ export function FailedJobsTable({
               className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                 categoryFilter === null
                   ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               All
@@ -138,7 +138,7 @@ export function FailedJobsTable({
                     ? cat === 'permanent'
                       ? 'border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
                       : 'border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 {cat}
@@ -152,16 +152,16 @@ export function FailedJobsTable({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/50">
-                <th scope="col" className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Job ID</th>
+                <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Job ID</th>
                 <SortHeader label="Plugin" field="pluginName" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {showCategory && (
-                  <th scope="col" className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Category</th>
+                  <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Category</th>
                 )}
                 <SortHeader label="Attempts" field="attemptsMade" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Failed At" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Error" field="error" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {onAction && (
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium text-gray-700 dark:text-gray-300">Actions</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-medium text-fg-muted">Actions</th>
                 )}
               </tr>
             </thead>
@@ -178,7 +178,7 @@ export function FailedJobsTable({
                   <td className="px-4 py-2.5 font-mono text-xs text-fg-muted whitespace-nowrap">
                     {job.id?.slice(0, 12)}
                   </td>
-                  <td className="px-4 py-2.5 text-gray-900 dark:text-gray-100 font-medium">
+                  <td className="px-4 py-2.5 text-fg font-medium">
                     {job.pluginName || '—'}
                   </td>
                   {showCategory && (

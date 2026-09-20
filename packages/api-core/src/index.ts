@@ -25,6 +25,7 @@
  * - getParam, getOrgId — request parameter extraction
  * - parseQueryInt, parseQueryString — query string parsing
  * - getIdentity — identity extraction from requests
+ * - actorId — the audit actor for a route context (one `system` sentinel)
  * - errorMessage — safe error-to-string conversion
  *
  * **Constants**
@@ -36,6 +37,7 @@
  * - CacheService — in-memory TTL cache
  * - ComplianceClient — compliance service client
  * - EntityEventEmitter — domain event pub/sub
+ * - retryForever — capped-backoff wait for a dependency that must come up
  *
  * **Errors**
  * - AppError, NotFoundError, ForbiddenError — typed HTTP error classes
@@ -48,6 +50,31 @@
  *
  * **OpenAPI**
  * - Schema registry and spec generation
+ */
+
+/**
+ * PUBLIC SURFACE POLICY
+ *
+ * The root re-exports the ten sub-barrels, and each SUB-BARREL is the allow-list
+ * for its own area — that is where a module is either `export *`'d or narrowed
+ * to the names services may use. Internals are excluded there rather than here,
+ * so the exclusion sits next to the code that defines them and cannot be missed
+ * by someone adding a module.
+ *
+ * Currently narrowed (the rest is the intended surface):
+ * - `services/retry-strategy` — decision functions only; `parseRetryAfter` and
+ *   `addJitter` are backoff internals.
+ * - `services/circuit-breaker` — `CircuitOpenError` + `resetCircuitBreakers`;
+ *   the `CircuitBreaker` class is wired by the shared HTTP client, not by
+ *   services.
+ * - `services/service-keys` — verify/inspect only; signing, the key bundle and
+ *   `_resetServiceKeysForTests` stay inside.
+ * - `utils/jwk` — constants, shapes, decoders and the two signer-facing helpers
+ *   platform needs; `jwkThumbprint` / `publicKeyFromJwk` stay inside.
+ *
+ * api-core's own modules and its `testing/` helpers reach the excluded symbols
+ * by DEEP import (`@pipeline-builder/api-core/lib/services/service-keys.js`),
+ * which is also how the unit tests reach them.
  */
 
 // Types

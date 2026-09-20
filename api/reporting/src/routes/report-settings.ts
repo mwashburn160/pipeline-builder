@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -61,7 +61,7 @@ export function createReportSettingsRoutes(): Router {
     // outlive the request log. Emitted only after the upsert landed.
     emitReportingAudit({
       action: 'reporting.settings.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'reporting-settings',
       targetId: orgId,

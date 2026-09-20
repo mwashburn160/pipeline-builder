@@ -5,7 +5,7 @@
  * superadmin grant/revoke controller tests.
  *
  * Under the single-source model the controller delegates the actual grant/revoke
- * to `roles-service` (`grantPlatformAdmin`/`revokePlatformAdmin`), which assigns
+ * to `platform-admin-roles` (`grantPlatformAdmin`/`revokePlatformAdmin`), which assigns
  * or removes the system-org Super Admin Role and recomputes — so the flag and
  * `recomputeUserOrgRole` can never diverge. These tests assert the controller's
  * orchestration: sysadmin gate, self-revoke guard, 404, idempotency (audit only
@@ -13,10 +13,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUserFindById = jest.fn();
-const mockRequireSystemAdmin = jest.fn();
 const mockAudit = jest.fn();
 const mockGrantPlatformAdmin = jest.fn<() => Promise<{ changed: boolean }>>();
 const mockRevokePlatformAdmin = jest.fn<() => Promise<{ changed: boolean }>>();
@@ -27,18 +27,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireSystemAdmin: (req: any, res: any) => mockRequireSystemAdmin(req, res),
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+jest.unstable_mockModule('../src/services/platform-admin-roles.js', () => ({
   grantPlatformAdmin: (...a: unknown[]) => mockGrantPlatformAdmin(...(a as [])),
   revokePlatformAdmin: (...a: unknown[]) => mockRevokePlatformAdmin(...(a as [])),
 }));
@@ -56,10 +52,17 @@ function mockRes() {
 const findsUser = (email: string | null) =>
   mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(email ? { email } : null) });
 
+// `requireSystemAdmin` runs FOR REAL (helpers/controller-helper-mock.ts): it reads
+// `req.user` (401) and api-core's `isSystemAdmin` — the JWT's `isSuperAdmin`
+// claim — for the 403. So the caller's authority is carried by the FIXTURE.
+/** The signed-in platform administrator these endpoints are for. */
+const SYSADMIN = { sub: 'admin', isSuperAdmin: true };
+/** A signed-in org owner: authenticated, but holds no platform grant. */
+const ORG_OWNER = { sub: 'owner1', organizationId: 'org-1', role: 'owner' };
+
 beforeEach(() => {
   mockUserFindById.mockReset();
   findsUser('target@example.com');
-  mockRequireSystemAdmin.mockReset().mockReturnValue(true);
   mockAudit.mockReset();
   mockGrantPlatformAdmin.mockReset().mockResolvedValue({ changed: true });
   mockRevokePlatformAdmin.mockReset().mockResolvedValue({ changed: true });
@@ -67,7 +70,7 @@ beforeEach(() => {
 
 describe('addUserGrant (POST /api/admin/users/:id/grants)', () => {
   it('delegates to grantPlatformAdmin and audits on a real change', async () => {
-    const req: any = { user: { sub: 'admin' }, params: { id: 'target' }, body: { grant: 'platform-admin' } };
+    const req: any = { user: SYSADMIN, params: { id: 'target' }, body: { grant: 'platform-admin' } };
     const res = mockRes();
     await (addUserGrant as unknown as (req: any, res: any) => Promise<void>)(req, res);
 
@@ -87,7 +90,7 @@ describe('addUserGrant (POST /api/admin/users/:id/grants)', () => {
     mockGrantPlatformAdmin.mockResolvedValue({ changed: false });
     const res = mockRes();
     await (addUserGrant as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'target' }, body: { grant: 'platform-admin' } },
+      { user: SYSADMIN, params: { id: 'target' }, body: { grant: 'platform-admin' } },
       res,
     );
 
@@ -98,11 +101,34 @@ describe('addUserGrant (POST /api/admin/users/:id/grants)', () => {
     }));
   });
 
+  it('refuses an org owner (granting platform-admin is sysadmin-only)', async () => {
+    const res = mockRes();
+    await (addUserGrant as unknown as (req: any, res: any) => Promise<void>)(
+      { user: ORG_OWNER, params: { id: 'target' }, body: { grant: 'platform-admin' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockGrantPlatformAdmin).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('401s an unauthenticated caller', async () => {
+    const res = mockRes();
+    await (addUserGrant as unknown as (req: any, res: any) => Promise<void>)(
+      { params: { id: 'target' }, body: { grant: 'platform-admin' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockGrantPlatformAdmin).not.toHaveBeenCalled();
+  });
+
   it('404s (no grant attempted) when the user does not exist', async () => {
     findsUser(null);
     const res = mockRes();
     await (addUserGrant as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'ghost' }, body: { grant: 'platform-admin' } },
+      { user: SYSADMIN, params: { id: 'ghost' }, body: { grant: 'platform-admin' } },
       res,
     );
 
@@ -113,7 +139,7 @@ describe('addUserGrant (POST /api/admin/users/:id/grants)', () => {
 
 describe('removeUserGrant (DELETE /api/admin/users/:id/grants)', () => {
   it('delegates to revokePlatformAdmin and audits on a real change', async () => {
-    const req: any = { user: { sub: 'admin' }, params: { id: 'target' }, body: { grant: 'platform-admin' } };
+    const req: any = { user: SYSADMIN, params: { id: 'target' }, body: { grant: 'platform-admin' } };
     const res = mockRes();
     await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(req, res);
 
@@ -131,7 +157,7 @@ describe('removeUserGrant (DELETE /api/admin/users/:id/grants)', () => {
   it('refuses self-revoke and never touches the service', async () => {
     const res = mockRes();
     await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'me' }, params: { id: 'me' }, body: { grant: 'platform-admin' } },
+      { user: { ...SYSADMIN, sub: 'me' }, params: { id: 'me' }, body: { grant: 'platform-admin' } },
       res,
     );
 
@@ -140,11 +166,23 @@ describe('removeUserGrant (DELETE /api/admin/users/:id/grants)', () => {
     expect(mockRevokePlatformAdmin).not.toHaveBeenCalled();
   });
 
+  it('refuses an org owner (revoking a platform grant is sysadmin-only)', async () => {
+    const res = mockRes();
+    await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(
+      { user: ORG_OWNER, params: { id: 'target' }, body: { grant: 'platform-admin' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockRevokePlatformAdmin).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
   it('is an idempotent no-op (no audit) when the service reports changed:false', async () => {
     mockRevokePlatformAdmin.mockResolvedValue({ changed: false });
     const res = mockRes();
     await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'target' }, body: { grant: 'platform-admin' } },
+      { user: SYSADMIN, params: { id: 'target' }, body: { grant: 'platform-admin' } },
       res,
     );
 

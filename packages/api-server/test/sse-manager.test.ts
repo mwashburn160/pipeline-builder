@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock uuid (ESM-only module) and createLogger (Winston open handles) before imports
 jest.unstable_mockModule('uuid', () => ({
   v7: () => 'mock-uuid-v7',
 }));
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ...actualApiCore,
   createLogger: () => ({
     info: jest.fn(),

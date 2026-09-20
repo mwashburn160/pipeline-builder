@@ -29,6 +29,8 @@
  * counting is good enough to skip them but we don't dive in to inject)
  */
 
+import { errorMessage } from '@pipeline-builder/api-core';
+
 /** Set of PromQL reserved words / function names that look like metric
  * names but aren't. Identifiers in this set never get the org_id matcher
  * even if not followed by `(`  covers things like `by (foo)` where `by`
@@ -334,7 +336,7 @@ export function validateOrgIdMatchers(expr: string, orgId: string): { ok: true }
     }
     selectors = findMetricSelectors(expr);
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message: String(err) };
+    return { ok: false, message: errorMessage(err) };
   }
   for (const sel of selectors) {
     try {
@@ -347,7 +349,7 @@ export function validateOrgIdMatchers(expr: string, orgId: string): { ok: true }
         };
       }
     } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message: String(err) };
+      return { ok: false, message: errorMessage(err) };
     }
   }
   return { ok: true };

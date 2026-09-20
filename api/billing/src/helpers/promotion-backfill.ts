@@ -13,7 +13,7 @@
  * like the other multi-org billing crons. No-op unless BILLING_PROMOTIONS_ENABLED.
  */
 
-import { createEnvRedisLock, createLogger, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { createEnvRedisLock, createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { batchEvaluatePromotion, reconcilePromotionSpend } from './promotion-engine.js';
@@ -34,7 +34,7 @@ async function runBackfillCycle(): Promise<void> {
       if (res.granted > 0) logger.info('Promotion backfill granted', { promotionId: promo._id, ...res });
     } catch (err) {
       logger.error('Promotion backfill cycle errored (fail-soft)', {
-        promotionId: promo._id, error: err instanceof Error ? err.message : String(err),
+        promotionId: promo._id, error: errorMessage(err),
       });
     }
   }

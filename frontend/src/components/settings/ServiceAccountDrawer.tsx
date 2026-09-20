@@ -2,13 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import api from '@/lib/api';
-import { useFetch } from '@/hooks/useFetch';
-import { SideDrawer } from '@/components/ui/SideDrawer';
+import { EntityDetailDrawer } from '@/components/ui/EntityDetailDrawer';
 import { Badge } from '@/components/ui/Badge';
-import { DescriptionList } from '@/components/ui/DescriptionList';
-import { LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
-import { RetryError } from '@/components/ui/RetryError';
 import { AccessKeyTable, type KeyRow } from '@/components/settings/AccessKeyTable';
 import { formatDateTime } from '@/lib/format';
 import { permissionLabel } from '@pipeline-builder/api-core/permissions';
@@ -41,49 +37,41 @@ export function ServiceAccountDrawer({
   onRevokeKey: (account: ServiceAccount, key: KeyRow) => void;
   onClose: () => void;
 }) {
-  const { data: account, error, refetch } = useFetch(
-    async (signal) => {
-      const res = await api.getServiceAccount(orgId, accountId, { signal });
-      if (!res.data?.serviceAccount) throw new Error('Service account not found');
-      return res.data.serviceAccount;
-    },
-    [orgId, accountId, version],
-  );
-
   return (
-    <SideDrawer
-      title={account?.name ?? 'Service account'}
+    <EntityDetailDrawer<ServiceAccount>
+      fetch={async (signal) => {
+        const res = await api.getServiceAccount(orgId, accountId, { signal });
+        if (!res.data?.serviceAccount) throw new Error('Service account not found');
+        return res.data.serviceAccount;
+      }}
+      deps={[orgId, accountId, version]}
       ariaLabel="Service account details"
-      subtitle={account && (
+      fallbackTitle="Service account"
+      title={(account) => account.name}
+      subtitle={(account) => (
         <>
           {account.disabled ? <Badge color="red">disabled</Badge> : <Badge color="green">active</Badge>}
           <span>no seat</span>
         </>
       )}
+      errorMessage="Failed to load the service account"
       onClose={onClose}
+      items={(account) => [
+        { label: 'Description', value: account.description || '—' },
+        { label: 'Created', value: <>{formatDateTime(account.createdAt)} by {account.createdByEmail ?? 'unknown'}</> },
+        { label: 'Last used', value: account.lastUsedAt ? <RelativeTime value={account.lastUsedAt} /> : 'Never' },
+        {
+          label: 'Token budget',
+          value: account.tokenBudget === -1
+            ? `Unlimited (${account.usage.exchanges} exchanges this period)`
+            : `${account.usage.exchanges} / ${account.tokenBudget} exchanges this period`,
+        },
+        { label: 'Period resets', value: formatDateTime(account.usage.resetAt) },
+        { label: 'Roles', value: account.roles.length > 0 ? account.roles.map((r) => r.name).join(', ') : 'None' },
+      ]}
     >
-      {error ? (
-        <RetryError message={error.message || 'Failed to load the service account'} onRetry={refetch} />
-      ) : !account ? (
-        <LoadingSpinner />
-      ) : (
-        <div className="space-y-6">
-          <DescriptionList
-            items={[
-              { label: 'Description', value: account.description || '—' },
-              { label: 'Created', value: <>{formatDateTime(account.createdAt)} by {account.createdByEmail ?? 'unknown'}</> },
-              { label: 'Last used', value: account.lastUsedAt ? <RelativeTime value={account.lastUsedAt} /> : 'Never' },
-              {
-                label: 'Token budget',
-                value: account.tokenBudget === -1
-                  ? `Unlimited (${account.usage.exchanges} exchanges this period)`
-                  : `${account.usage.exchanges} / ${account.tokenBudget} exchanges this period`,
-              },
-              { label: 'Period resets', value: formatDateTime(account.usage.resetAt) },
-              { label: 'Roles', value: account.roles.length > 0 ? account.roles.map((r) => r.name).join(', ') : 'None' },
-            ]}
-          />
-
+      {(account) => (
+        <>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted mb-2">
               Effective permissions ({account.permissions.length})
@@ -111,8 +99,8 @@ export function ServiceAccountDrawer({
               emptyDescription="Issue one with “New key” on the account's card."
             />
           </div>
-        </div>
+        </>
       )}
-    </SideDrawer>
+    </EntityDetailDrawer>
   );
 }

@@ -42,7 +42,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { createRole } = await import('../src/services/roles-service.js');
+const { createRole } = await import('../src/services/role-crud.js');
 const { RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION, RL_PERMISSION_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
 
 // These tests exercise the invalid / not-assignable gates, which fire

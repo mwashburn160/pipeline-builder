@@ -14,14 +14,3 @@ export function formatPrice(cents: number, opts?: { suffix?: string }): string {
   if (cents === 0) return 'Free';
   return `${formatCents(cents)}${opts?.suffix ?? ''}`;
 }
-
-/**
- * Formats an ISO date string as a human-readable date.
- * @param iso - ISO 8601 date string.
- * @returns Localized date string, e.g. "February 25, 2026".
- */
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
-  });
-}

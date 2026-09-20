@@ -44,7 +44,7 @@ export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: Si
         >
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-mono text-gray-900 dark:text-gray-100 break-all">{title}</h2>
+              <h2 className="text-sm font-mono text-fg break-all">{title}</h2>
               {subtitle && <div className="mt-1 text-xs text-fg-muted flex items-center gap-2 flex-wrap">{subtitle}</div>}
             </div>
             <button

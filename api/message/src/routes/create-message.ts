@@ -8,6 +8,7 @@ import {
   sendSuccess,
   ErrorCode,
   getParam,
+  getPrimarySupportAlias,
   isSystemAdmin,
   isServicePrincipal,
   requirePermission,
@@ -18,12 +19,15 @@ import {
   resolveRecipientAlias,
   sendEntityNotFound,
   errorMessage,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg } from '@pipeline-builder/api-server';
-import type { SSEManager } from '@pipeline-builder/api-server';
+import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import type { Response } from 'express';
 import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
+import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
@@ -37,10 +41,14 @@ type MessageInsert = typeof schema.message.$inferInsert;
  *
  * Registers:
  * - POST /messages           -- create a new announcement or conversation
+ * - POST /messages/support   -- contact the support desk (recipient forced)
  * - POST /messages/:id/reply -- reply to an existing thread
  * @param sseManager - SSE manager for pushing real-time notifications
  * @returns Express Router
  */
+/** Reserved channel every support-contact message is filed under, so system-org
+ *  readers can filter the support desk out of the rest of their inbox. */
+const SUPPORT_CHANNEL = 'support';
 /** Per-org send limiter — a single org can't flood messages/replies (each one
  *  fans out over SSE + writes rows). Shared across send + reply. Env-overridable.
  *  Verified service principals are exempt; unauthenticated falls back to per-IP. */
@@ -50,6 +58,76 @@ const sendLimiter = rateLimitByOrg({
   windowMs: Math.max(1000, Number.parseInt(process.env.MESSAGE_SEND_RATE_WINDOW_MS ?? '60000', 10) || 60000),
   message: 'Too many messages sent, please slow down.',
 });
+
+/** Everything the shared persist tail needs beyond the row itself. */
+interface PersistOptions {
+  /** The row to insert. */
+  data: MessageInsert;
+  /** Tenant + author, used for the attachment-link ownership check. */
+  orgId: string;
+  userId: string;
+  /** Pre-uploaded attachment ids the client asked to attach, if any. */
+  attachmentIds?: string[];
+  /** WARN line when fewer attachments linked than were requested. */
+  partialAttachmentWarning: string;
+  /** COMPLETED log line + its structured fields (`id` is added here). */
+  completed: { label: string; details?: Record<string, unknown> };
+  /** SSE payload, minus `messageId` — only known after the insert. */
+  notification: Omit<NewMessageNotification, 'messageId'>;
+  /** Runs once the row is durable and the ping is out, before the 201 is
+   *  written. POST / uses it to emit the announcement audit event. */
+  onPersisted?: (messageId: string) => void;
+  /** Human-readable text on the 201. */
+  successMessage: string;
+}
+
+/**
+ * The tail every send route shares: insert the row, link the caller's
+ * pre-uploaded attachments, log COMPLETED, count the domain metric, push the
+ * real-time NEW_MESSAGE ping, and answer 201 with the org-name-enriched row.
+ *
+ * Extracted because it was written out three times (send / support / reply)
+ * and every copy had to remember the SAME two easily-forgotten steps — the
+ * `message_events_total` counter and the SSE notify. A fourth send route that
+ * skipped either would leave the metric silently under-counting and the
+ * recipient's inbox not refreshing, with nothing failing to say so.
+ *
+ * Attachment linking is deliberately non-fatal: only the caller's own
+ * still-pending uploads link (enforced in the service), so a mismatch means the
+ * client sent a bogus / foreign / already-linked id. The message stands with
+ * whatever validly linked, and the shortfall is logged.
+ */
+async function persistAndRespond(
+  sseManager: SSEManager,
+  ctx: RequestContext,
+  res: Response,
+  opts: PersistOptions,
+): Promise<void> {
+  const message = await messageService.create(opts.data, opts.userId);
+
+  if (opts.attachmentIds?.length) {
+    const linked = await attachmentService.linkToMessage(opts.attachmentIds, message.id, opts.orgId, opts.userId);
+    if (linked.length !== opts.attachmentIds.length) {
+      ctx.log('WARN', opts.partialAttachmentWarning, { requested: opts.attachmentIds.length, linked: linked.length });
+    }
+  }
+
+  ctx.log('COMPLETED', opts.completed.label, { id: message.id, ...opts.completed.details });
+
+  // Domain metric — a message row was created. Tagged by action only to keep
+  // label cardinality bounded (no orgId/messageId).
+  incCounter('message_events_total', { action: 'created' });
+
+  notifyNewMessage(
+    sseManager,
+    { ...opts.notification, messageId: message.id },
+    (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }),
+  );
+
+  opts.onPersisted?.(message.id);
+
+  return sendSuccess(res, 201, await enrichOneWithOrgNames(message), opts.successMessage);
+}
 
 export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
@@ -139,12 +217,127 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       updatedBy: userId,
     };
 
+    return persistAndRespond(sseManager, ctx, res, {
+      data: messageData,
+      orgId,
+      userId,
+      attachmentIds,
+      partialAttachmentWarning: 'Some attachments did not link',
+      completed: { label: 'Message created', details: { messageType } },
+      notification: {
+        recipientOrgId,
+        subject,
+        targeted: !!recipientUserId,
+        senderOrgId: orgId,
+        messageType,
+      },
+      // Audit ONLY admin broadcasts. Announcements are sysadmin org-wide
+      // broadcasts (gated above to messageType==='announcement' + recipient '*');
+      // 1:1 conversations/replies are intentionally NOT audited — they are noisy
+      // and would pull private message content into the trail. `details` carries
+      // SAFE METADATA ONLY (subject/type/recipient scope) — never the body.
+      // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
+      onPersisted: (messageId) => {
+        if (messageType !== 'announcement') return;
+        getAuditClient().record({
+          action: 'message.announcement.create',
+          actorId: actorId({ userId }),
+          orgId,
+          targetId: messageId,
+          details: {
+            subject,
+            messageType,
+            recipientScope: 'org-wide',
+          },
+        }, 'message');
+      },
+      successMessage: 'Message created successfully',
+    });
+  }));
+
+  // POST /messages/support — Contact the support desk.
+  //
+  // Reaching support is SELF-SERVICE: every member who can open the messages
+  // page must be able to file a request, including a read-only member who holds
+  // no `messages:write` and therefore cannot use POST / (whose write gate stays
+  // correct for ordinary org-to-org sends). So the floor here is the same
+  // `messages:read` the inbox itself requires — and it rides the ROUTE, not the
+  // handler, so the generated route table advertises it truthfully. Plain
+  // `requirePermission`, never `requirePermissionOrService`: a service principal
+  // has no support request of its own to file (support-replies-out go back
+  // through POST /, where a service token may target any org).
+  //
+  // Shares the send limiter with POST / and POST /:id/reply — one org can't
+  // flood the desk by switching routes.
+  //
+  // Deliberately NOT audited, exactly like the 1:1 conversation POST / creates:
+  // only admin broadcasts and the destructive delete/restore/purge reach the
+  // central trail (see the `audited` note on POST / and the route-coverage
+  // exception that records this).
+  router.post('/support', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), sendLimiter, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    // The recipient is NOT a client input on this route. Whatever the body
+    // carried for recipientOrgId / recipientUserId / messageType / channel is
+    // OVERWRITTEN here, before validation — a forged recipient is discarded,
+    // never honoured and never an error the caller can probe. Everything else
+    // (subject / content / priority / attachmentIds) goes through the SAME
+    // MessageCreateSchema the ordinary send validates against.
+    const supportAlias = getPrimarySupportAlias();
+    req.body = {
+      ...(req.body as Record<string, unknown> | undefined),
+      recipientOrgId: supportAlias,
+      recipientUserId: undefined,
+      messageType: 'conversation' as const,
+      channel: SUPPORT_CHANNEL,
+    };
+
+    const validation = validateBody(req, MessageCreateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    // Read back ONLY the caller-owned fields; the recipient is re-derived from
+    // the forced alias below rather than from the validated body, so no schema
+    // change can ever let a client value decide where this lands.
+    const { subject, content, priority, attachmentIds } = validation.value;
+
+    // Same alias resolution the ordinary send uses (support@… → system org).
+    // When SUPPORT_ALIASES is unconfigured the primary alias is the well-known
+    // fallback, which resolves to itself — the support desk is the system org
+    // either way, so fall back to it explicitly rather than addressing a
+    // nonexistent org named after the alias.
+    const { resolvedOrgId, wasAlias } = resolveRecipientAlias(supportAlias);
+    const recipientOrgId = wasAlias ? resolvedOrgId : SYSTEM_ORG_ID;
+
+    // Same reachability semantics as POST / — the system support inbox is
+    // reachable from every org (its fast path needs no lookup). Asserted rather
+    // than assumed so that if the support desk ever moves off the system org,
+    // this route can't quietly become a cross-tenant send path.
+    if (!(await isRecipientReachable(orgId, recipientOrgId))) {
+      ctx.log('WARN', 'Support inbox is not reachable', { recipientOrgId });
+      return sendError(res, 403, 'You cannot send a message to that organization', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    ctx.log('INFO', 'Contacting support', { recipientOrgId, subject });
+
+    const messageData: MessageInsert = {
+      orgId,
+      recipientOrgId: recipientOrgId.toLowerCase(),
+      // Support is an org→desk conversation: never per-user targeted, never an
+      // announcement, and always filed under the support channel.
+      recipientUserId: null,
+      messageType: 'conversation',
+      channel: SUPPORT_CHANNEL,
+      subject,
+      content,
+      priority,
+      createdBy: userId,
+      updatedBy: userId,
+    };
+
     const message = await messageService.create(messageData, userId);
 
-    // Link any pre-uploaded attachments to this message. Only the caller's own
-    // still-pending uploads link (enforced in the service); a mismatch means the
-    // client sent a bogus/foreign/already-linked id — logged, non-fatal (the
-    // message stands with whatever validly linked).
+    // Same attachment linking as POST /: only the caller's own still-pending
+    // uploads link (enforced in the service); a mismatch is logged, non-fatal.
     if (attachmentIds?.length) {
       const linked = await attachmentService.linkToMessage(attachmentIds, message.id, orgId, userId);
       if (linked.length !== attachmentIds.length) {
@@ -152,40 +345,18 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       }
     }
 
-    ctx.log('COMPLETED', 'Message created', { id: message.id, messageType });
+    ctx.log('COMPLETED', 'Support message created', { id: message.id });
 
-    // Domain metric — a message was created. Tagged by action only to keep
-    // label cardinality bounded (no orgId/messageId).
     incCounter('message_events_total', { action: 'created' });
 
     notifyNewMessage(sseManager, {
       recipientOrgId,
       messageId: message.id,
       subject,
-      targeted: !!recipientUserId,
+      targeted: false,
       senderOrgId: orgId,
-      messageType,
+      messageType: 'conversation',
     }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
-
-    // Audit ONLY admin broadcasts. Announcements are sysadmin org-wide
-    // broadcasts (gated above to messageType==='announcement' + recipient '*');
-    // 1:1 conversations/replies are intentionally NOT audited — they are noisy
-    // and would pull private message content into the trail. `details` carries
-    // SAFE METADATA ONLY (subject/type/recipient scope) — never the body.
-    // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
-    if (messageType === 'announcement') {
-      getAuditClient().record({
-        action: 'message.announcement.create',
-        actorId: req.user?.sub ?? userId ?? 'system',
-        orgId,
-        targetId: message.id,
-        details: {
-          subject,
-          messageType,
-          recipientScope: 'org-wide',
-        },
-      }, 'message');
-    }
 
     return sendSuccess(res, 201, await enrichOneWithOrgNames(message), 'Message created successfully');
   }));

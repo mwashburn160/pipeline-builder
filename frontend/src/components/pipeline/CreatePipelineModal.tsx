@@ -253,7 +253,7 @@ export default function CreatePipelineModal({
   const jsonPreview = showPreview && previewJson ? (
     <div className="border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
+        <span className="text-sm font-medium text-fg-muted">JSON Preview</span>
         <button
           onClick={() => setShowPreview(false)}
           className="text-fg-subtle hover:text-fg text-sm transition-colors"
@@ -396,13 +396,13 @@ export default function CreatePipelineModal({
           {complianceResult.violations.map((v, i) => (
             <div key={`v-${i}`} className="flex items-start gap-2 mt-1">
               <Badge color="red">{v.severity === 'critical' ? 'Critical' : v.severity === 'error' ? 'Error' : 'Violation'}</Badge>
-              <span className="text-sm text-gray-700 dark:text-gray-300">{v.message}</span>
+              <span className="text-sm text-fg-muted">{v.message}</span>
             </div>
           ))}
           {complianceResult.warnings.map((w, i) => (
             <div key={`w-${i}`} className="flex items-start gap-2 mt-1">
               <Badge color="yellow">Warn</Badge>
-              <span className="text-sm text-gray-700 dark:text-gray-300">{w.message}</span>
+              <span className="text-sm text-fg-muted">{w.message}</span>
             </div>
           ))}
         </div>

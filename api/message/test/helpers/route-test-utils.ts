@@ -76,7 +76,7 @@ export function routeApiCoreOverrides(): Record<string, unknown> {
 
 /** api-server namespace: a withRoute that mirrors the real org/user extraction
  *  and 500-on-throw, plus empty route chains. */
-export function routeApiServerMock(): Record<string, unknown> {
+export function routeApiServerMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const sendBadRequestForRoute = (res: any, msg: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg });
   };
@@ -107,6 +107,9 @@ export function routeApiServerMock(): Record<string, unknown> {
     // Return [] so the route stack contains only guards + the final withRoute handler.
     createProtectedRoute: jest.fn(() => []),
     createAuthenticatedWithOrgRoute: jest.fn(() => []),
+    // Last so a suite can swap in a spy (e.g. `incCounter`) to assert on a
+    // side effect the default no-op silently swallows.
+    ...overrides,
   };
 }
 
@@ -154,18 +157,30 @@ export function getHandler(router: any, method: string, path: string) {
 }
 
 export function mockReq(overrides: Record<string, unknown> = {}): any {
-  return {
+  const user = (overrides.user as { sub?: string } | undefined) ?? { sub: 'user-1' };
+  const base = {
     params: {},
     query: {},
     body: {},
     headers: { authorization: 'Bearer tok' },
-    user: { sub: 'user-1' },
+    user,
     context: {
-      identity: { orgId: 'ORG-1', userId: 'user-1' },
+      // Derived from `user.sub`, mirroring api-core's `getIdentity` (the JWT
+      // `sub` IS the identity userId). A fixture that overrides `user` without
+      // this got a request no real caller can produce — JWT subject `admin-9`
+      // but route-context userId `user-1` — so a route reading either one could
+      // pass its test and be wrong in production.
+      identity: { orgId: 'ORG-1', userId: user?.sub ?? '' },
       log: jest.fn(),
       requestId: 'req-1',
     },
+  };
+  return {
+    ...base,
     ...overrides,
+    // A suite that overrides `context` usually means "tweak one field"; merge so
+    // the derived identity above isn't silently dropped.
+    context: { ...base.context, ...((overrides.context as Record<string, unknown> | undefined) ?? {}) },
   };
 }
 

@@ -50,7 +50,7 @@ export function useFetch<T>(
       onError: setError,
       onSettled: () => setLoading(false),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's `deps` are spread in, so the list size is not statically known
   }, [...deps, tick]);
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);

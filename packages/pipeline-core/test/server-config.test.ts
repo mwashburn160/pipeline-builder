@@ -132,8 +132,6 @@ describe('loadRateLimitConfig', () => {
 
     expect(config.max).toBe(100);
     expect(config.windowMs).toBe(900000);
-    expect(config.legacyHeaders).toBe(false);
-    expect(config.standardHeaders).toBe(true);
   });
 
   it('overrides from env', () => {

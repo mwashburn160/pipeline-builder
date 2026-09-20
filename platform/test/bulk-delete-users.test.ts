@@ -12,11 +12,11 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockDeleteUserById = jest.fn();
 const mockLookupPrimaryOrgId = jest.fn();
 const mockAudit = jest.fn();
-const mockRequireScope = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -89,15 +89,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   adminCreateUserSchema: {},
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireMemberManagementScope: (req: any, res: any) => mockRequireScope(req, res),
-  canManageOrgScope: async () => true,
-  isOrgAdmin: () => false,
-  // Consumed transitively via user-admin.js -> user-profile.js.
-  requireAuthUserId: jest.fn(),
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userAdminService: {
@@ -115,6 +107,15 @@ jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
 const { bulkDeleteUsers, deleteUserById } = await import('../src/controllers/user-admin.js');
 
 
+// `requireMemberManagementScope` runs FOR REAL (helpers/controller-helper-mock.ts):
+// no `req.user` → 401; api-core's `isSystemAdmin` (the JWT's `isSuperAdmin`
+// claim) → `{ isSuperAdmin: true }`; otherwise the caller's `organizationId` →
+// `{ isSuperAdmin: false, orgId }`. Authority therefore lives in the FIXTURE.
+/** The platform administrator these account-level endpoints are for. */
+const SYSADMIN = { sub: 'sysadmin', isSuperAdmin: true };
+/** An org admin with `members:manage` in their own org — org-scoped, never fleet-wide. */
+const ORG_ADMIN = { sub: 'org-admin', organizationId: 'org-1', role: 'admin' };
+
 function mockRes() {
   const res: any = {};
   res.status = jest.fn(() => res);
@@ -126,13 +127,11 @@ beforeEach(() => {
   mockDeleteUserById.mockReset();
   mockLookupPrimaryOrgId.mockReset();
   mockAudit.mockReset();
-  mockRequireScope.mockReset();
 });
 
 describe('bulkDeleteUsers', () => {
   it('rejects org admins (sysadmin-only)', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
-    const req: any = { user: { sub: 'u1' }, body: { ids: ['a'] } };
+    const req: any = { user: ORG_ADMIN, body: { ids: ['a'] } };
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(req, res);
     expect(res.status).toHaveBeenCalledWith(403);
@@ -140,44 +139,50 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('rejects empty / missing ids array', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'u1' }, body: {} },
+      { user: SYSADMIN, body: {} },
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  it('401s an unauthenticated caller before any delete', async () => {
+    const res = mockRes();
+    await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
+      { body: { ids: ['a'] } },
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockDeleteUserById).not.toHaveBeenCalled();
+  });
+
   it('rejects batches over 100 ids', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const ids = Array.from({ length: 101 }, (_, i) => `u${i}`);
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'sysadmin' }, body: { ids } },
+      { user: SYSADMIN, body: { ids } },
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('rejects non-string ids', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'sysadmin' }, body: { ids: ['ok', 42 as unknown as string] } },
+      { user: SYSADMIN, body: { ids: ['ok', 42 as unknown as string] } },
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('refuses to self-delete and continues with the rest', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-1');
     mockDeleteUserById.mockResolvedValue(undefined);
 
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'me' }, body: { ids: ['me', 'someone-else'] } },
+      { user: { ...SYSADMIN, sub: 'me' }, body: { ids: ['me', 'someone-else'] } },
       res,
     );
 
@@ -191,13 +196,12 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('audits each successful delete with bulk=true marker', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-9');
     mockDeleteUserById.mockResolvedValue(undefined);
 
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'sysadmin' }, body: { ids: ['x', 'y'] } },
+      { user: SYSADMIN, body: { ids: ['x', 'y'] } },
       res,
     );
 
@@ -210,7 +214,6 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('records mapped error messages for known service errors', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue(undefined);
     mockDeleteUserById
       .mockResolvedValueOnce(undefined)
@@ -218,7 +221,7 @@ describe('bulkDeleteUsers', () => {
 
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'sysadmin' }, body: { ids: ['ok', 'owner'] } },
+      { user: SYSADMIN, body: { ids: ['ok', 'owner'] } },
       res,
     );
 
@@ -229,13 +232,12 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('falls through to raw error text on unknown errors', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue(undefined);
     mockDeleteUserById.mockRejectedValue(new Error('mongo timeout'));
 
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'sysadmin' }, body: { ids: ['x'] } },
+      { user: SYSADMIN, body: { ids: ['x'] } },
       res,
     );
 
@@ -246,22 +248,20 @@ describe('bulkDeleteUsers', () => {
 
 describe('deleteUserById — deleting an account is platform-admin only', () => {
   it('refuses an org admin, even for a member of their own organization', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     const res = mockRes();
     await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'member' } }, res,
+      { user: ORG_ADMIN, params: { id: 'member' } }, res,
     );
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockDeleteUserById).not.toHaveBeenCalled();
   });
 
   it('lets a platform admin delete an account', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-9');
     mockDeleteUserById.mockResolvedValue(undefined);
     const res = mockRes();
     await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'root' }, params: { id: 'member' } }, res,
+      { user: { ...SYSADMIN, sub: 'root' }, params: { id: 'member' } }, res,
     );
     expect(mockDeleteUserById).toHaveBeenCalledWith('member');
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.user.delete', expect.objectContaining({ affectedOrgId: 'org-9' }));

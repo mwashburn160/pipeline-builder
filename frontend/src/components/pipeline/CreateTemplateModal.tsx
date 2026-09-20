@@ -311,7 +311,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
         <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Inputs (parameters)</span>
+            <span className="text-sm font-medium text-fg-muted">Inputs (parameters)</span>
             <div className="flex items-center gap-3">
               <Button type="button" variant="link" onClick={parameterizeRepo} disabled={saving || !source?.props} className="text-xs">
                 <Wand2 className="w-3.5 h-3.5 mr-1 inline" /> Parameterize repository

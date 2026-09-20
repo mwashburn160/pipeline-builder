@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, parsePaginationParams } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, parsePaginationParams, errorMessage } from '@pipeline-builder/api-core';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from './oauth.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -160,7 +160,7 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
     outcome: 'success',
     ip: req.ip,
     details: { email: accepted.email, role: accepted.role, via: oauthProvider },
-  }).catch((err) => logger.warn('Failed to write invitation.accept audit event', { error: err instanceof Error ? err.message : String(err) }));
+  }).catch((err) => logger.warn('Failed to write invitation.accept audit event', { error: errorMessage(err) }));
 
   logger.info('Invitation accepted via OAuth', { oauthProvider });
   sendSuccess(res, 200, undefined, 'Invitation accepted successfully via OAuth');

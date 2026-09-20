@@ -84,6 +84,35 @@ describe('authorizeOrg', () => {
       expect(next).toHaveBeenCalled();
     });
 
+    it('CANONICALIZES :orgId for everything downstream', () => {
+      // The service compares org ids as STRINGS (`String(_id)` is lowercase
+      // hex, `parentOrgId` is stored lowercase), so a mixed-case param that
+      // passed this guard used to resolve to "no such org / no hierarchy".
+      // Platform now normalizes identically (helpers/controller-helper.ts), so
+      // one spelling rule holds across the hop.
+      mockIsSystemAdmin.mockReturnValue(false);
+      const { req, res, next } = createMockReqResNext({
+        user: { organizationId: '  ABCDEF012345678901234567 ' },
+        params: { orgId: 'AbCdEf012345678901234567' },
+      });
+
+      middleware(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(req.params.orgId).toBe('abcdef012345678901234567');
+    });
+
+    it('rejects a whitespace-only :orgId rather than matching a blank caller org', () => {
+      mockIsSystemAdmin.mockReturnValue(false);
+      const { req, res, next } = createMockReqResNext({
+        user: { organizationId: '   ' },
+        params: { orgId: '   ' },
+      });
+
+      middleware(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'MISSING_REQUIRED_FIELD');
+    });
+
     it('should allow system admin cross-org access', () => {
       mockIsSystemAdmin.mockReturnValue(true);
       const { req, res, next } = createMockReqResNext({

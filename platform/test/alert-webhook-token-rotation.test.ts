@@ -12,6 +12,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { Request, Response } from 'express';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { AlertWebhookInstance } from '../src/config/index.js';
 
@@ -39,13 +40,7 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  isOrgAdmin: jest.fn(),
-  withController: (_label: string, fn: (rq: unknown, rs: unknown) => Promise<void>) =>
-    async (rq: unknown, rs: unknown) => fn(rq, rs),
-  requireOrgMembership: jest.fn(),
-  requireAuthContext: jest.fn(),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),

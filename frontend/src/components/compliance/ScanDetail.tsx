@@ -38,9 +38,13 @@ function violatedRules(entry: ComplianceAuditEntry): { ruleId: string; ruleName:
 interface ScanDetailProps {
   scanId: string;
   onBack: () => void;
+  /** No `compliance:write` — the viewer may read the scan but not stop it, so
+   *  the Cancel action is not rendered (the route refuses it). Mirrors
+   *  ScanManager's own `readOnly`, which hides the row-level cancel icon. */
+  readOnly?: boolean;
 }
 
-export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
+export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDetailProps) {
   const toast = useToast();
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
@@ -232,7 +236,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           <ArrowLeft className="h-5 w-5" />
         </IconButton>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Details</h2>
-        {scan.status === 'running' && (
+        {!readOnly && scan.status === 'running' && (
           <Button
             variant="danger"
             size="sm"

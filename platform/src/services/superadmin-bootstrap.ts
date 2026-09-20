@@ -28,9 +28,9 @@
  * the on-call rotation's group inbox.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { auditService } from './audit-service.js';
-import { grantPlatformAdmin } from './roles-service.js';
+import { grantPlatformAdmin } from './platform-admin-roles.js';
 import { User } from '../models/index.js';
 
 const logger = createLogger('superadmin-bootstrap');
@@ -57,15 +57,21 @@ export async function bootstrapSuperAdmins(): Promise<number> {
     .select('_id email isSuperAdmin')
     .lean() as Array<{ _id: { toString(): string }; email: string; isSuperAdmin?: boolean }>;
 
-  // Route the promotion through `grantPlatformAdmin` (roles-service) rather than a
+  // Route the promotion through `grantPlatformAdmin` (platform-admin-roles) rather than a
   // bare `isSuperAdmin=true` write. That path assigns the system-org Super Admin
   // Role AND bumps `tokenVersion` — so (1) a later `recomputeUserOrgRole` re-derives
   // the flag from the persisted assignment instead of silently clearing it, and
   // (2) an existing session gains superadmin on its next refresh instead of only at
-  // re-login. It is idempotent + self-healing: an already-granted user is a no-op
-  // (`changed:false`); a legacy flag-only user gets the missing Role assignment
-  // added with no session churn. We run it for EVERY found user (not just the
-  // not-yet-flagged ones) so those legacy flag-only rows get healed too.
+  // re-login.
+  //
+  // We run it for EVERY listed user, not just the not-yet-flagged ones, because
+  // the RoleAssignment — not `User.isSuperAdmin` — is what authority derives from,
+  // and this pre-read cannot see whether the assignment is present. The call is a
+  // plain upsert + recompute, so re-asserting it on an already-granted user is a
+  // no-op that returns `changed:false` and causes no session churn; only a genuine
+  // flip is counted and audited. That also makes the boot sweep the authoritative
+  // re-assert after the system-org Super Admin Role is (re-)seeded, which on a
+  // brand-new install happens AFTER the first bootstrap attempt (see the catch).
   const newlyPromoted: Array<{ _id: { toString(): string }; email: string }> = [];
   for (const u of targetedBefore) {
     try {
@@ -77,7 +83,7 @@ export async function bootstrapSuperAdmins(): Promise<number> {
       // retries once the system org exists.
       logger.warn('Super-admin grant failed for bootstrap email', {
         email: u.email,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }
@@ -104,7 +110,7 @@ export async function bootstrapSuperAdmins(): Promise<number> {
       }).catch((err) => {
         logger.warn('Audit log write failed for super-admin grant', {
           email: u.email,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       });
     }
@@ -143,7 +149,7 @@ export async function maybePromoteNewUser(userId: string, email: string): Promis
   );
   if (emails.size === 0 || !emails.has(email.trim().toLowerCase())) return false;
 
-  // Route through `grantPlatformAdmin` (roles-service) instead of a bare
+  // Route through `grantPlatformAdmin` (platform-admin-roles) instead of a bare
   // `isSuperAdmin=true` write: it assigns the system-org Super Admin Role AND
   // bumps `tokenVersion`, so the flag survives a later `recomputeUserOrgRole`
   // (no silent self-demotion) and takes effect on the next refresh. Idempotent —
@@ -166,7 +172,7 @@ export async function maybePromoteNewUser(userId: string, email: string): Promis
   }).catch((err) => {
     logger.warn('Audit log write failed for post-registration super-admin grant', {
       email,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   });
 

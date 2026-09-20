@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, resolveRedisConnection, summarizeRouteTable } from '@pipeline-builder/api-core';
+import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -43,17 +43,15 @@ async function superviseDependencies(
   aborted: () => boolean,
 ): Promise<void> {
   if (onBeforeStart) {
-    let delay = READY_RETRY_BASE_MS;
-    while (!aborted()) {
-      try {
-        await onBeforeStart();
-        break;
-      } catch (error) {
-        logger.warn(`${name}: dependency init failed, retrying in ${delay}ms`, { error: errorMessage(error) });
-        await sleep(delay);
-        delay = Math.min(delay * 2, READY_RETRY_MAX_MS);
-      }
-    }
+    await retryForever(onBeforeStart, {
+      baseMs: READY_RETRY_BASE_MS,
+      maxMs: READY_RETRY_MAX_MS,
+      onAttemptFailed: (error, delayMs) => logger.warn(
+        `${name}: dependency init failed, retrying in ${delayMs}ms`,
+        { error: errorMessage(error) },
+      ),
+      shouldContinue: () => !aborted(),
+    });
   }
 
   // No datastore to gate on → ready as soon as we are listening.
@@ -88,7 +86,7 @@ async function superviseDependencies(
       await sleep(READY_MONITOR_INTERVAL_MS);
     } else {
       await sleep(waitDelay);
-      waitDelay = Math.min(waitDelay * 2, READY_RETRY_MAX_MS);
+      waitDelay = nextBackoffMs(waitDelay, READY_RETRY_MAX_MS);
     }
   }
 }
@@ -321,7 +319,7 @@ export function runServer(app: Express, options: StartServerOptions = {}): void 
     // an Error in winston metadata serializes to `{}` (message/stack are
     // non-enumerable), which would otherwise hide the cause behind `{error:{}}`.
     logger.error('Failed to start server', {
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     process.exit(1);

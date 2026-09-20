@@ -43,18 +43,14 @@ export type InitMode = 'auto' | 'manual' | 'skip';
 const INIT_MODES: readonly InitMode[] = ['auto', 'manual', 'skip'];
 
 /**
- * Resolve the init mode from the new `--init <mode>` flag, falling back to the DEPRECATED
- * aliases (`--no-init` → skip, `--auto-init` → auto, `--no-auto-init` → manual), then the
- * default (`auto`). Returns `null` when `--init` was given an invalid value (caller errors).
+ * Resolve the init mode from `--init <mode>`, defaulting to `auto` when the flag is absent.
+ * Returns `null` when `--init` was given an invalid value (caller errors).
  */
-export function resolveInitMode(options: { init?: unknown; autoInit?: unknown }): InitMode | null {
+export function resolveInitMode(options: { init?: unknown }): InitMode | null {
   if (typeof options.init === 'string') { // --init <mode>
     const m = options.init.toLowerCase() as InitMode;
     return INIT_MODES.includes(m) ? m : null;
   }
-  if (options.init === false) return 'skip'; // deprecated --no-init
-  if (options.autoInit === true) return 'auto'; // deprecated --auto-init
-  if (options.autoInit === false) return 'manual'; // deprecated --no-auto-init
   return 'auto'; // default
 }
 
@@ -514,10 +510,6 @@ export function provision(program: Command): void {
     .option('--cluster-name <name>', 'EKS cluster name for the deploy AND teardown — defaults to pipeline-builder')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
     .option('--init <mode>', 'Post-deploy initialization: auto (DEFAULT — register admin + load plugins/compliance/samples; on ec2 the instance does it itself on first boot), manual (don\'t self-init — surface the step for you to run, e.g. to set real admin creds), or skip (do nothing). local/minikube/eks run init via provision unless skip.')
-    // Deprecated aliases — kept working for back-compat; --init is the documented form.
-    .option('--no-init', '[deprecated] alias for --init skip')
-    .option('--auto-init', '[deprecated] alias for --init auto')
-    .option('--no-auto-init', '[deprecated] alias for --init manual')
     // Bootstrap (sparse clone) — provision a fresh machine in one command.
     .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')

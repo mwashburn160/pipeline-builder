@@ -4,6 +4,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { printDebug } from './output-utils.js';
 
 /**
@@ -63,6 +64,6 @@ export function auditLog(command: string, details?: Record<string, unknown>): vo
   } catch (err) {
     // Audit logging is best-effort — never block the CLI — but surface the failure
     // in debug so a silently-unrecorded sensitive op is at least diagnosable.
-    printDebug('Audit log write failed', { command, error: err instanceof Error ? err.message : String(err) });
+    printDebug('Audit log write failed', { command, error: errorMessage(err) });
   }
 }

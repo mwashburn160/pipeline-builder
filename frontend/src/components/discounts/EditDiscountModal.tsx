@@ -70,11 +70,11 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
       }
     >
       <p className="text-sm text-fg-muted mb-4">
-        Editing <strong className="text-gray-700 dark:text-gray-300">{discount.alias || formatDiscount(discount)}</strong>.
+        Editing <strong className="text-fg-muted">{discount.alias || formatDiscount(discount)}</strong>.
         The discount amount and kind are fixed at mint time and can’t be changed here.
       </p>
       <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <label className="flex items-center gap-2 text-sm text-fg-muted">
           <Checkbox
             checked={editActive}
             onChange={(e) => setEditActive(e.target.checked)}
@@ -84,7 +84,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Max redemptions</label>
+            <label className="block text-xs font-medium text-fg-muted">Max redemptions</label>
             <Input
               type="number"
               min={1}
@@ -96,7 +96,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Redeem by</label>
+            <label className="block text-xs font-medium text-fg-muted">Redeem by</label>
             <Input
               type="date"
               value={editRedeemBy}
@@ -107,7 +107,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
           </div>
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Applies to tiers <span className="text-fg-subtle">(none = all tiers)</span></label>
+          <label className="block text-xs font-medium text-fg-muted">Applies to tiers <span className="text-fg-subtle">(none = all tiers)</span></label>
           <div className="flex flex-wrap gap-2">
             {TIER_OPTIONS.map((tier) => (
               <button

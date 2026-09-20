@@ -209,14 +209,14 @@ export function ResourceList<T>({
   const showCustomSkeleton = loading && hasCustomBody && bodyEmpty && !error;
 
   const rootClass = variant === 'card'
-    ? `flex flex-col border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg ${className}`
+    ? `flex flex-col border border-default bg-surface rounded-lg ${className}`
     : `flex flex-col ${className}`;
 
   return (
     <div className={rootClass}>
       {/* ── Header ── */}
       {(headerStart || showBuiltInFilter || filterSlot || headerEnd || !hideRefresh) && (
-        <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+        <div className="p-3 border-b border-default flex items-center gap-2">
           {headerStart}
           {filterSlot}
           {showBuiltInFilter && (
@@ -231,7 +231,7 @@ export function ResourceList<T>({
                 onChange={(e) => onFilterChange(e.target.value)}
                 placeholder={filterPlaceholder}
                 aria-label={filterPlaceholder}
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="flex-1 px-3 py-1.5 text-sm border border-default rounded-md bg-surface text-fg"
               />
             </>
           )}
@@ -253,7 +253,7 @@ export function ResourceList<T>({
       {/* ── Body ── */}
       <div className="flex-1 overflow-auto">
         {error && (
-          <div className="m-3 p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
+          <div className="m-3 p-3 text-sm border border-danger-border bg-danger-bg text-danger-strong rounded">
             <div className="font-medium mb-1">{errorTitle}</div>
             {errorMessage && <div className="text-xs mb-2">{errorMessage}</div>}
             <button onClick={onRefresh} className="text-xs underline">Retry</button>
@@ -296,7 +296,7 @@ export function ResourceList<T>({
           <button
             onClick={onLoadMore}
             disabled={loading}
-            className="w-full p-3 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
+            className="w-full p-3 text-xs text-info hover:bg-info-bg disabled:opacity-50"
           >
             {loading ? 'Loading…' : 'Load more'}
           </button>
@@ -304,7 +304,7 @@ export function ResourceList<T>({
 
         {/* Bounded-results hint (e.g. TagTable's ROW_CAP slice). */}
         {cappedHint && !error && (
-          <div className="p-3 text-xs text-fg-muted border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+          <div className="p-3 text-xs text-fg-muted border-t border-default bg-surface-muted">
             {cappedHint}
           </div>
         )}

@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /** Every SQL text the store sends, reconstructed from the tagged-template chunks. */
@@ -17,7 +18,7 @@ let selectRows: Array<{ last_occurred_at: string }> = [];
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: (strings: TemplateStringsArray, ..._values: unknown[]) => ({ text: strings.join('?') }),
 }));
 

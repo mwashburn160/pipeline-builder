@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, loadAndPurge, sendSuccess } from '@pipeline-builder/api-core';
+import { audited, loadAndPurge, sendSuccess, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPluginAudit } from '../services/audit.js';
@@ -37,7 +37,7 @@ export function createPurgePluginRoutes(): Router {
 
     emitPluginAudit({
       action: 'plugin.purge',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'plugin',

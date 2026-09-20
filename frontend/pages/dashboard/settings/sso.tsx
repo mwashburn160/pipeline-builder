@@ -43,6 +43,7 @@ import { SsoStatusSummary } from '@/components/sso/SsoStatusSummary';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
 import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function OrgSsoSettingsPage() {
@@ -89,7 +90,7 @@ export default function OrgSsoSettingsPage() {
             Could not determine your active organization. Try reloading the page.
           </Callout>
         ) : idp.error ? (
-          <RetryError message={idp.error.message || 'Failed to load the SSO configuration'} onRetry={idp.refetch} />
+          <RetryError message={formatError(idp.error, 'Failed to load the SSO configuration')} onRetry={idp.refetch} />
         ) : idp.loading ? (
           <LoadingPage />
         ) : (

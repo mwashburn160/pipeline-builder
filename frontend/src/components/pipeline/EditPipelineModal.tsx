@@ -222,11 +222,11 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       <div className="flex items-center space-x-6">
         <div className="flex items-center">
           <Checkbox id="editPipelineIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
-          <label htmlFor="editPipelineIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
+          <label htmlFor="editPipelineIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
         </div>
         <div className="flex items-center">
           <Checkbox id="editPipelineIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
-          <label htmlFor="editPipelineIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
+          <label htmlFor="editPipelineIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
         </div>
       </div>
     </div>
@@ -235,7 +235,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const jsonPreview = showPreview && previewJson !== null ? (
     <div className="border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit JSON <span className="font-normal text-fg-subtle">— edit the pipeline `props` directly, then Apply</span></span>
+        <span className="text-sm font-medium text-fg-muted">Edit JSON <span className="font-normal text-fg-subtle">— edit the pipeline `props` directly, then Apply</span></span>
         <div className="flex items-center gap-3">
           <button
             onClick={handleApplyJson}

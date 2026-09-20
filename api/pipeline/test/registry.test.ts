@@ -6,6 +6,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockInsert = jest.fn();
@@ -74,7 +75,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...args: unknown[]) => ({ _kind: 'and', args }),
   eq: (col: unknown, val: unknown) => ({ _kind: 'eq', col, val }),
   desc: (col: unknown) => ({ _kind: 'desc', col }),

@@ -10,6 +10,7 @@ import {
   audited,
   getParam,
   sendEntityNotFound,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -66,7 +67,7 @@ export function createRestoreMessageRoutes(): Router {
     // Audit — SAFE METADATA ONLY (never the body). Fire-and-forget.
     getAuditClient().record({
       action: 'message.restore',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: restored.orgId,
       targetType: 'message',

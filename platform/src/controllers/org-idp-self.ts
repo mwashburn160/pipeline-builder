@@ -34,7 +34,7 @@
  * preserve the stored client secret on an update).
  */
 
-import { assertSafeUrl, createLogger, getParam, isRefusedRedirect, sendSuccess, SSRF_FETCH_INIT } from '@pipeline-builder/api-core';
+import { createLogger, getParam, safeFetch, sendSuccess, type SafeFetchResponse, errorMessage } from '@pipeline-builder/api-core';
 import { ORG_IDP_ERROR_MAP, deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { audit } from '../helpers/audit.js';
 import { requireAuth, withController } from '../helpers/controller-helper.js';
@@ -127,51 +127,27 @@ const METADATA_ERROR_MAP = {
 } as const;
 
 /**
- * Fetch a metadata URL under the SAME SSRF guard the webhook and OIDC-discovery
- * fetches use (`assertSafeUrl`: https only, no private / loopback / link-local /
- * metadata addresses by literal or by DNS), refusing redirects (so a public URL
- * can't bounce to an internal one), with a hard timeout and a byte cap enforced
- * while streaming — a slow or endless body cannot hold the request open.
+ * Fetch a metadata URL through api-core's {@link safeFetch}: https only, the
+ * host resolved and the vetted IP PINNED into the socket (so a public hostname
+ * cannot re-resolve to an internal address between the check and the connect),
+ * redirects REFUSED (so a public URL can't bounce to an internal one), with a
+ * hard timeout and a byte cap enforced while reading — a slow or endless body
+ * cannot hold the request open.
  */
 async function fetchMetadata(url: string): Promise<string> {
+  let resp: SafeFetchResponse;
   try {
-    await assertSafeUrl(url);
-  } catch (err) {
-    logger.warn('Refused IdP metadata URL', { error: err instanceof Error ? err.message : String(err) });
-    throw new Error('SAML_METADATA_FETCH_FAILED');
-  }
-  let resp: Response;
-  try {
-    resp = await fetch(url, {
-      ...SSRF_FETCH_INIT,
+    resp = await safeFetch(url, {
       headers: { Accept: 'application/samlmetadata+xml, application/xml, text/xml' },
-      signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS),
+      timeoutMs: METADATA_FETCH_TIMEOUT_MS,
+      maxResponseBytes: METADATA_MAX_BYTES,
     });
-  } catch {
+  } catch (err) {
+    logger.warn('Refused or failed IdP metadata URL', { error: errorMessage(err) });
     throw new Error('SAML_METADATA_FETCH_FAILED');
   }
-  if (isRefusedRedirect(resp) || !resp.ok || !resp.body) throw new Error('SAML_METADATA_FETCH_FAILED');
-  const declared = Number(resp.headers.get('content-length') ?? '0');
-  if (declared > METADATA_MAX_BYTES) throw new Error('SAML_METADATA_FETCH_FAILED');
-
-  const reader = resp.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > METADATA_MAX_BYTES) {
-        await reader.cancel();
-        throw new Error('SAML_METADATA_FETCH_FAILED');
-      }
-      chunks.push(value);
-    }
-  } catch {
-    throw new Error('SAML_METADATA_FETCH_FAILED');
-  }
-  return Buffer.concat(chunks).toString('utf8');
+  if (resp.redirected || !resp.ok || resp.body.byteLength === 0) throw new Error('SAML_METADATA_FETCH_FAILED');
+  return resp.text();
 }
 
 /**

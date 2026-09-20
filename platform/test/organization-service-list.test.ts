@@ -349,14 +349,13 @@ describe('organizationService.setTier', () => {
     expect((org.quotas as { seats: number }).seats).toBe(3);
   });
 
-  it('handles transition from no-tier to a real tier', async () => {
-    // Pre-existing org with no tier field set yet (legacy data).
-    const org = makeOrgDoc({ _id: 'o1' });
+  it('reports the pre-change tier and reseeds every limit on an upgrade to enterprise', async () => {
+    const org = makeOrgDoc({ _id: 'o1', tier: 'developer', quotas: { plugins: 10 } });
     mockOrgFindById.mockResolvedValue(org);
 
     const result = await organizationService.setTier('o1', 'enterprise');
 
-    expect(result?.previousTier).toBeUndefined();
+    expect(result?.previousTier).toBe('developer');
     expect(result?.tier).toBe('enterprise');
     expect(org.tier).toBe('enterprise');
     // QUOTA_TIERS.enterprise (mock): every limit -1.

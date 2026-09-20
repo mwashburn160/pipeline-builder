@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID, VALID_TIERS, errorMessage } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -21,6 +21,7 @@ import {
   ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE,
   ORG_MOVE_SYSTEM, ORG_MOVE_DELETED, ORG_MOVE_SELF, ORG_MOVE_CYCLE, ORG_MOVE_HAS_TEAMS, ORG_MOVE_TARGET_NOT_FOUND,
   ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
+  ORG_MOVE_CONFLICT,
 } from '../services/org-errors.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema } from '../utils/validation.js';
 
@@ -156,9 +157,8 @@ export const getOrganizationParent = withController('Get organization parent', a
  */
 export const getOrganizationNames = withController('Get organization names', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  if (!isServicePrincipal(req)) {
-    return sendError(res, 403, 'Forbidden: service principal only');
-  }
+  // The service-principal gate is `requireServicePrincipal` on the route, so it
+  // shows up in the route table; nothing is re-checked here.
   const raw = (req.body as { orgIds?: unknown })?.orgIds;
   if (!Array.isArray(raw)) {
     return sendError(res, 400, 'orgIds must be an array of organization ids');
@@ -412,8 +412,10 @@ export const exportOrganization = withController('Export organization', async (r
     affectedOrgId: id,
     details: {
       postgresTables: Object.keys(dump.postgres).length,
-      invitations: dump.mongo.invitations.length,
-      auditEvents: dump.mongo.auditEvents.length,
+      // Row counts per Mongo collection — the artifact now carries every
+      // collection the teardown removes, so name them all rather than the two
+      // that used to be the whole export.
+      mongo: Object.fromEntries(Object.entries(dump.mongo).map(([name, rows]) => [name, rows.length])),
       ...(dump.failed ? { failedStores: dump.failed } : {}),
     },
   });
@@ -494,7 +496,7 @@ export const updateOrganizationSeatLimit = withController('Update organization s
       }
     } catch (err) {
       // Observability only — never fail the (already-committed) seat-limit write.
-      logger.warn('Pooled-seat over-cap check failed', { orgId: id, err: err instanceof Error ? err.message : String(err) });
+      logger.warn('Pooled-seat over-cap check failed', { orgId: id, err: errorMessage(err) });
     }
   }
 
@@ -677,6 +679,7 @@ export const moveOrganization = withController('Move organization', async (req, 
   [ORG_MOVE_BILLED]: { status: 409, message: 'This organization still has an active subscription — cancel it before making the organization a team (its plan would pool under the new parent)' },
   [ORG_MOVE_BILLING_UNVERIFIED]: { status: 503, message: 'Could not confirm with billing that this organization has no active subscription — try again shortly' },
   [ORG_SEAT_LIMIT]: { status: 409, message: 'This move would put the destination account over its seat limit' },
+  [ORG_MOVE_CONFLICT]: { status: 409, message: 'This organization was moved by someone else while this request was running — reload and try again' },
 });
 
 // Current User's Organization

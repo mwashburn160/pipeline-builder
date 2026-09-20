@@ -13,7 +13,6 @@
  *   3. Quick-links into the sysadmin surfaces (deeper drill-down)
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Building2, Users, KeyRound, ShieldCheck, Activity, AlertTriangle, History,
@@ -25,6 +24,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { CopyableId } from '@/components/ui/CopyableId';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
@@ -37,34 +37,35 @@ interface AdminSummary {
 }
 
 export function SysadminHome() {
-  const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [events, setEvents] = useState<AuditLogEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Two independent fetches in parallel. Each tolerates the other's
-  // failure — if the audit feed is down, the fleet stats still render.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.allSettled([
-      api.getAdminSummary(),
-      api.listAuditEvents({ limit: 5 }),
-    ]).then(([summaryRes, auditRes]) => {
-      if (cancelled) return;
+  // Two independent reads in parallel. Each tolerates the other's failure — if
+  // the audit feed is down, the fleet stats still render — so both are folded
+  // into ONE `useFetch` result rather than two sets of loading/error state.
+  const home = useFetch<{ summary: AdminSummary | null; events: AuditLogEvent[]; error: string | null }>(
+    async (signal) => {
+      const [summaryRes, auditRes] = await Promise.allSettled([
+        api.getAdminSummary({ signal }),
+        api.listAuditEvents({ limit: 5 }, { signal }),
+      ]);
+      let summary: AdminSummary | null = null;
+      let error: string | null = null;
       if (summaryRes.status === 'fulfilled' && summaryRes.value.success && summaryRes.value.data) {
-        setSummary(summaryRes.value.data);
+        summary = summaryRes.value.data;
       } else if (summaryRes.status === 'fulfilled') {
-        setError(summaryRes.value.message || 'Failed to load summary');
+        error = summaryRes.value.message || 'Failed to load summary';
       } else {
-        setError(formatError(summaryRes.reason, 'Failed to load summary'));
+        error = formatError(summaryRes.reason, 'Failed to load summary');
       }
-      if (auditRes.status === 'fulfilled' && auditRes.value.success && auditRes.value.data) {
-        setEvents(auditRes.value.data.events);
-      }
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+      const events = auditRes.status === 'fulfilled' && auditRes.value.success && auditRes.value.data
+        ? auditRes.value.data.events
+        : [];
+      return { summary, events, error };
+    },
+    [],
+  );
+  const summary = home.data?.summary ?? null;
+  const events = home.data?.events ?? [];
+  const error = home.data?.error ?? (home.error ? formatError(home.error, 'Failed to load summary') : null);
+  const loading = home.loading;
 
   return (
     <>
@@ -125,11 +126,11 @@ export function SysadminHome() {
             <Card className="lg:col-span-1">
               <div className="flex items-center gap-2 mb-3">
                 <Activity className="w-4 h-4 text-fg-muted" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Multi-tenant posture</h3>
+                <h3 className="text-sm font-semibold text-fg">Multi-tenant posture</h3>
               </div>
               <dl className="space-y-2 text-sm">
                 <div className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5">
-                  <dt className="text-gray-700 dark:text-gray-300">RLS context</dt>
+                  <dt className="text-fg-muted">RLS context</dt>
                   <dd>
                     {summary.rls.contextMode === 'strict'
                       ? <Badge color="green">strict</Badge>
@@ -139,7 +140,7 @@ export function SysadminHome() {
                   </dd>
                 </div>
                 <div className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5">
-                  <dt className="text-gray-700 dark:text-gray-300">Per-org KMS</dt>
+                  <dt className="text-fg-muted">Per-org KMS</dt>
                   <dd>
                     {summary.encryption.perOrgKmsEnabled
                       ? <Badge color="green">active</Badge>
@@ -165,7 +166,7 @@ export function SysadminHome() {
 
             <Card className="lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
+                <h3 className="text-sm font-semibold text-fg inline-flex items-center gap-1.5">
                   <History className="w-4 h-4 text-fg-subtle" />
                   Recent fleet activity
                 </h3>
@@ -202,7 +203,7 @@ export function SysadminHome() {
 
           {/* Quick-links */}
           <Card>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Platform surfaces</h3>
+            <h3 className="text-sm font-semibold text-fg mb-3">Platform surfaces</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
               <Link href="/dashboard/organizations" className="action-link">Organizations</Link>
               <Link href="/dashboard/users" className="action-link">All users</Link>

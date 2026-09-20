@@ -15,6 +15,7 @@ import {
   requireFeature,
   requirePermission,
   requireInternalService,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -247,7 +248,7 @@ export function createSubscriptionRoutes(): Router {
       // state changes the org's compliance posture at upload/validate time.
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: ruleId,
@@ -290,7 +291,7 @@ export function createSubscriptionRoutes(): Router {
       if (requiredFeature) {
         emitComplianceAudit({
           action: 'compliance.rule.toggle',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'rule',
           targetId: ruleId,
@@ -341,7 +342,7 @@ export function createSubscriptionRoutes(): Router {
     for (const ruleId of affectedIds) {
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: ruleId,
@@ -381,7 +382,7 @@ export function createSubscriptionRoutes(): Router {
       // curated rule the org copied.
       emitComplianceAudit({
         action: 'compliance.rule.create',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: rule.id,
@@ -517,7 +518,7 @@ export function createSubscriptionRoutes(): Router {
       // rule row, which can carry sensitive match config.
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: ruleId,
@@ -533,7 +534,7 @@ export function createSubscriptionRoutes(): Router {
 
   // DELETE /:ruleId/pin — unpin subscription (use latest rule version). Same
   // governance gate + trail as the pin above.
-  router.delete('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
 
@@ -543,7 +544,7 @@ export function createSubscriptionRoutes(): Router {
 
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: req.user?.sub ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: ruleId,
@@ -577,7 +578,7 @@ export function createSubscriptionRoutes(): Router {
       // posture action (with `subscribed: false` to distinguish the two).
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'rule',
         targetId: ruleId,

@@ -6,6 +6,14 @@
 # minikube and docker (each target's setup.sh) all source this.
 # SOURCE this file (it only defines a function — no side effects).
 #
+# SHELL OPTIONS: this file is SOURCED, never executed, so it deliberately sets
+# NO `set -euo pipefail`. `set` inside a sourced file mutates the CALLER's shell
+# — it would silently turn on errexit for whatever sourced us (including an
+# interactive shell, where a failed command would then close the terminal).
+# Every caller already runs under `set -euo pipefail`; these functions therefore
+# propagate failure the portable way, by RETURNING non-zero, so they behave the
+# same whether or not the caller has errexit on.
+#
 #   pb_gen_env_secrets <env_file> [ghcr_user]
 #
 # Fills the secret CHANGE_ME placeholders common to EVERY target's .env.example with fresh
@@ -68,7 +76,10 @@ pb_sync_env_keys() {
   # up with `CHANGE_ME` as a real credential. Substitution only rewrites
   # placeholder lines, so this is a no-op on an already-generated file, and the
   # guard inside pb_gen_env_secrets fails loudly if any required one survives.
-  if grep -qE '^[A-Z0-9_]+=CHANGE_ME' "$env_file"; then
+  # SLACK_*_WEBHOOK_URL is operator-supplied — no generator can invent it — so
+  # its placeholder must not trigger a pointless (and misleadingly-logged)
+  # generation pass here. pb_check_alert_delivery is the gate for those.
+  if grep -E '^[A-Z0-9_]+=CHANGE_ME' "$env_file" | grep -qv '^SLACK_'; then
     echo "  filling CHANGE_ME placeholders in ${env_file}"
     pb_gen_env_secrets "$env_file"
   fi
@@ -140,6 +151,103 @@ pb_finish_env_rotation() {
   echo "  cleared ${key}_PREVIOUS — re-create the target's secrets + restart to end the overlap window"
 }
 
+# pb_env_value <env_file> <KEY>
+#
+# The raw value of one KEY, read from the FILE rather than the environment (so
+# it works before the caller has sourced it, and is not shadowed by an inherited
+# export). Last assignment wins, one layer of surrounding quotes stripped —
+# matching what `source` would produce.
+pb_env_value() {
+  grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- \
+    | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
+# Internal: validate one Slack incoming-webhook URL. Not called directly.
+_pb_check_slack_url() {
+  case "$2" in
+    '')
+      echo "ERROR: $1 is empty while the other Slack webhook URL is set." >&2
+      echo "       Set BOTH to deliver, or clear BOTH to run without ops-team Slack." >&2
+      return 1 ;;
+    CHANGE_ME*|*T00000000*|*CHANGE_ME*)
+      echo "ERROR: $1 is still the shipped placeholder — alerts would 404 into nothing." >&2
+      return 1 ;;
+    https://hooks.slack.com/services/*)
+      return 0 ;;
+    *)
+      echo "ERROR: $1 is not a Slack incoming-webhook URL (expected https://hooks.slack.com/services/...)." >&2
+      return 1 ;;
+  esac
+}
+
+# pb_check_alert_delivery <env_file> [alertmanager_yml]
+#
+# Pre-flight for the ALERT DELIVERY path. Every target's setup calls this BEFORE
+# it creates the alertmanager Secret/ConfigMap, and treats a non-zero return as
+# fatal.
+#
+# Why it is a deploy-time gate and not a runtime warning: alerting that reaches
+# nobody is the worst kind of green. Prometheus fires, Alertmanager routes, Slack
+# answers 404 for the placeholder webhook id, and the only trace is one line in a
+# pod log nobody reads — the monitoring looks healthy precisely when it isn't.
+# So an unset/placeholder webhook fails the DEPLOY instead.
+#
+# This is the `CHANGE_ME` guard from pb_gen_env_secrets extended past .env to the
+# one CONFIG file that also used to ship a credential: alertmanager.yml must now
+# carry no webhook URL at all (the receivers read `api_url_file` out of the
+# alertmanager-slack Secret), so any `hooks.slack.com` / CHANGE_ME / T00000000
+# left in it means someone re-introduced a world-readable ConfigMap credential.
+#
+# Running WITHOUT ops-team Slack is a legitimate choice — set BOTH keys to an
+# EMPTY value and this prints a banner naming exactly what stops working, then
+# succeeds. What it will not do is let a placeholder through silently.
+pb_check_alert_delivery() {
+  local env_file="$1" am_yml="${2:-}" crit warn bad=0
+  crit=$(pb_env_value "$env_file" SLACK_CRITICAL_WEBHOOK_URL)
+  warn=$(pb_env_value "$env_file" SLACK_WARNING_WEBHOOK_URL)
+
+  if [ -n "$am_yml" ] && [ -f "$am_yml" ] && grep -qE 'CHANGE_ME|T00000000|api_url:' "$am_yml"; then
+    echo "ERROR: $am_yml carries an inline webhook URL or placeholder." >&2
+    echo "       Slack URLs belong in the alertmanager-slack Secret, read via" >&2
+    echo "       api_url_file — a ConfigMap is world-readable to anyone with" >&2
+    echo "       namespace read access." >&2
+    bad=1
+  fi
+
+  if [ -z "$crit" ] && [ -z "$warn" ]; then
+    echo ""
+    echo "  ##########################################################################"
+    echo "  #  ops-team Slack alerting is DISABLED — both SLACK_*_WEBHOOK_URL are"
+    echo "  #  empty in $env_file."
+    echo "  #"
+    echo "  #  Platform-wide critical/warning alerts will fire into Alertmanager and"
+    echo "  #  go NO FURTHER: no page, no channel, no mail. They are visible only at"
+    echo "  #  Alertmanager's own UI/API. PER-ORG destinations are unaffected (they"
+    echo "  #  go through the platform relay)."
+    echo "  #"
+    echo "  #  To deliver, set both keys to https://hooks.slack.com/services/... URLs."
+    echo "  ##########################################################################"
+    echo ""
+    [ "$bad" -eq 0 ] || return 1
+    return 0
+  fi
+
+  _pb_check_slack_url SLACK_CRITICAL_WEBHOOK_URL "$crit" || bad=1
+  _pb_check_slack_url SLACK_WARNING_WEBHOOK_URL  "$warn" || bad=1
+  if [ "$bad" -ne 0 ]; then
+    echo "" >&2
+    echo "  Fix in $env_file — create two Slack incoming webhooks" >&2
+    echo "  (https://api.slack.com/messaging/webhooks), then either:" >&2
+    echo "    SLACK_CRITICAL_WEBHOOK_URL=https://hooks.slack.com/services/T…/B…/…" >&2
+    echo "    SLACK_WARNING_WEBHOOK_URL=https://hooks.slack.com/services/T…/B…/…" >&2
+    echo "  or, to run deliberately without ops-team Slack, set BOTH to empty." >&2
+    echo "" >&2
+    return 1
+  fi
+  echo "  alert delivery: ops-team Slack configured (critical + warning)"
+  return 0
+}
+
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
   local pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
@@ -182,7 +290,6 @@ pb_gen_env_secrets() {
     -e "s|^ALERT_WEBHOOK_INSTANCE_TOKEN=CHANGE_ME$|ALERT_WEBHOOK_INSTANCE_TOKEN=${alerttoken}|" \
     -e "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${mongo}|" \
     -e "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${mongo}@|g" \
-    -e "s|ME_CONFIG_MONGODB_ADMINPASSWORD=CHANGE_ME|ME_CONFIG_MONGODB_ADMINPASSWORD=${mongo}|" \
     -e "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${me}|" \
     -e "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${pgadmin}|" \
     -e "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${registry}|" \
@@ -203,7 +310,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

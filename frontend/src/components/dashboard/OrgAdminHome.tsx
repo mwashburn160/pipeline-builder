@@ -19,7 +19,7 @@
  *      factor, SSO, IdP-enforced MFA (holders of `org:settings` only)
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import {
   BarChart3, Mail, Shield, CreditCard, AlertTriangle, Activity, ArrowRight, Building2,
@@ -31,6 +31,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useAuth } from '@/hooks/useAuth';
+import { useFetch } from '@/hooks/useFetch';
 import { OrgSecurityCard } from '@/components/security/OrgSecurityCard';
 import { hasPermission } from '@/lib/auth-helpers';
 import api from '@/lib/api';
@@ -39,6 +40,9 @@ import { runQuery } from '@/lib/query-cache';
 import { fmtNum } from '@/lib/format';
 import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
+
+/** Stable empty list, so `blockedEntries` doesn't re-memo on every render. */
+const EMPTY_COMPLIANCE: ComplianceAuditEntry[] = [];
 
 // The home quota-health row shows the curated 4-tile subset (grid-cols-4).
 const QUOTA_LABELS: Record<DisplayedQuotaType, string> = {
@@ -69,62 +73,54 @@ export function OrgAdminHome({ organizationId }: Props) {
   const { isChildOrg, hasChildOrgs, childOrgCount } = useOrgHierarchy();
   const { user } = useAuth();
   const canSeeOrgSecurity = !!organizationId && hasPermission(user, 'org:settings');
-  const [quotas, setQuotas] = useState<OrgQuotaResponse | null>(null);
-  const [pendingInvites, setPendingInvites] = useState<number>(0);
-  const [memberCount, setMemberCount] = useState<number | null>(null);
-  const [compliance, setCompliance] = useState<ComplianceAuditEntry[]>([]);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    // Each call is independent and best-effort — missing data degrades to
-    // an empty section rather than blocking the whole page. The
-    // memberCount fetch is conditional on having an org id; cross-org
-    // sysadmin sessions hit this path without one and we skip the call.
-    // The subscription fetch is gated on the `billing` feature flag served
-    // from /api/config — when billing is disabled we skip the call entirely
-    // so we don't pile up 503s from a deliberately-disabled service.
-    // Only the count is needed here — ask for a 1-row page and read the total
-    // from pagination (the roster is now server-paginated, so `members.length`
-    // would be just the page size).
+  // Every call here is independent and best-effort — a missing answer degrades
+  // to an empty section rather than blocking the page — so they settle together
+  // into ONE result instead of five separate pieces of loading state.
+  //
+  // `memberCount` is skipped without an org id (a cross-org sysadmin session
+  // hits this path without one), and the subscription is skipped when billing
+  // is disabled, so a deliberately-disabled service isn't asked for 503s.
+  // Only the member COUNT is needed, so it asks for a 1-row page and reads the
+  // total off the pagination block.
+  const home = useFetch(async (signal) => {
     const memberPromise = organizationId
-      ? runQuery(queries.orgMembers(organizationId, { limit: 1 })).catch(() => null)
+      ? runQuery(queries.orgMembers(organizationId, { limit: 1 }), { signal }).catch(() => null)
       : Promise.resolve(null);
     const subscriptionPromise = billingEnabled
-      ? runQuery(queries.subscription()).catch(() => null)
+      ? runQuery(queries.subscription(), { signal }).catch(() => null)
       : Promise.resolve(null);
 
-    Promise.allSettled([
-      api.getOwnQuotas(),
-      api.listInvitations({ status: 'pending', limit: 1 }),
-      api.getComplianceAuditLog({ limit: 5 }),
+    const [quotaRes, inviteRes, complianceRes, subRes, memberRes] = await Promise.allSettled([
+      api.getOwnQuotas({ signal }),
+      api.listInvitations({ status: 'pending', limit: 1 }, { signal }),
+      api.getComplianceAuditLog({ limit: 5 }, { signal }),
       subscriptionPromise,
       memberPromise,
-    ]).then(([quotaRes, inviteRes, complianceRes, subRes, memberRes]) => {
-      if (cancelled) return;
-      if (quotaRes.status === 'fulfilled' && quotaRes.value.success && quotaRes.value.data) {
-        // api.getOwnQuotas returns `{ quota: OrgQuotaResponse }`; use that
-        // canonical shape directly rather than the previous `q.quota ?? q`
-        // fallback that masked envelope-vs-bare shape drift.
-        setQuotas(quotaRes.value.data.quota);
-      }
-      if (inviteRes.status === 'fulfilled' && inviteRes.value.success && inviteRes.value.data) {
-        setPendingInvites(inviteRes.value.data.pagination?.total ?? inviteRes.value.data.invitations.length);
-      }
-      if (complianceRes.status === 'fulfilled' && complianceRes.value.success && complianceRes.value.data) {
-        setCompliance(complianceRes.value.data.entries);
-      }
-      if (subRes.status === 'fulfilled' && subRes.value && subRes.value.success && subRes.value.data) {
-        setSubscription(subRes.value.data.subscription);
-      }
-      if (memberRes.status === 'fulfilled' && memberRes.value && memberRes.value.success && memberRes.value.data) {
-        setMemberCount(memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length);
-      }
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    ]);
+
+    return {
+      // api.getOwnQuotas returns `{ quota: OrgQuotaResponse }`; use that
+      // canonical shape directly rather than a `q.quota ?? q` fallback that
+      // masks envelope-vs-bare shape drift.
+      quotas: quotaRes.status === 'fulfilled' && quotaRes.value.success && quotaRes.value.data
+        ? quotaRes.value.data.quota : null,
+      pendingInvites: inviteRes.status === 'fulfilled' && inviteRes.value.success && inviteRes.value.data
+        ? inviteRes.value.data.pagination?.total ?? inviteRes.value.data.invitations.length : 0,
+      compliance: complianceRes.status === 'fulfilled' && complianceRes.value.success && complianceRes.value.data
+        ? complianceRes.value.data.entries : ([] as ComplianceAuditEntry[]),
+      subscription: subRes.status === 'fulfilled' && subRes.value && subRes.value.success && subRes.value.data
+        ? subRes.value.data.subscription : null,
+      memberCount: memberRes.status === 'fulfilled' && memberRes.value && memberRes.value.success && memberRes.value.data
+        ? memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length : null,
+    };
   }, [organizationId, billingEnabled]);
+
+  const quotas = home.data?.quotas ?? null;
+  const pendingInvites = home.data?.pendingInvites ?? 0;
+  const memberCount = home.data?.memberCount ?? null;
+  const compliance = home.data?.compliance ?? EMPTY_COMPLIANCE;
+  const subscription = home.data?.subscription ?? null;
+  const loading = home.loading;
 
   const blockedEntries = useMemo(
     () => compliance.filter((e) => e.result === 'block').slice(0, 3),

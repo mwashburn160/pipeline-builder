@@ -118,9 +118,6 @@ export const complianceRule = pgTable('compliance_rules', {
   // Scope
   scope: varchar('scope', { length: 10 }).$type<RuleScope>().default('org').notNull(),
 
-  // Forking  tracks which published rule this org rule was copied from
-  forkedFromRuleId: uuid('forked_from_rule_id'),
-
   // Notification override
   suppressNotification: boolean('suppress_notification').default(false).notNull(),
 

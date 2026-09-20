@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHmac } from 'crypto';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -10,10 +9,6 @@ const mockEmailPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockGetPreference = jest.fn<(orgId: string) => Promise<unknown>>();
 const mockRecordLog = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockRecordPendingDigest = jest.fn<(...args: unknown[]) => Promise<void>>();
-
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  getServiceAuthHeader: () => 'Bearer test-service-token',
-}));
 
 jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
   messageClient: {
@@ -35,29 +30,52 @@ jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   recordPendingDigest: (...args: unknown[]) => mockRecordPendingDigest(...args),
 }));
 
-// The webhook SSRF guard resolves the host and rejects private/internal IPs;
-// resolve the reserved test domain to a public address so delivery proceeds.
-jest.unstable_mockModule('dns/promises', () => ({
-  lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
-}));
+// The webhook TRANSPORT is api-core's shared `createWebhookChannel`, and its
+// behaviour (pin the vetted IP, refuse redirects, HMAC, caps) is asserted
+// against the real code in packages/api-core/test/notification-channels.test.ts.
+// Here the factory is stubbed with a recording transport so this suite can
+// assert the NOTIFIER's job: that the org's preference (webhookUrl /
+// webhookSecret / targetUsers) is plumbed onto the channel target, and that the
+// transport's DeliveryResult is what lands in the notification log.
+const webhookCtl: { result: Record<string, unknown>; target?: Record<string, unknown>; msg?: Record<string, unknown>; calls: number } =
+  { result: { ok: true, code: 200 }, calls: 0 };
+const emailCtl: { target?: Record<string, unknown>; calls: number } = { calls: 0 };
 
-// The webhook channel sends via the https module with the vetted IP pinned into
-// the socket (undici isn't a dependency), so drive delivery through a synthetic
-// https.request that records the options + body and returns a configurable status.
-const httpsCtl: { status: number; options: Record<string, unknown> | null; body?: string; calls: number } =
-  { status: 200, options: null, calls: 0 };
-jest.unstable_mockModule('https', () => ({
-  request: (options: Record<string, unknown>, cb: (res: unknown) => void) => {
-    httpsCtl.calls += 1;
-    httpsCtl.options = options;
-    const res = {
-      statusCode: httpsCtl.status,
-      resume: () => {},
-      on: (evt: string, h: (...a: unknown[]) => void) => { if (evt === 'end') h(); return res; },
-    };
-    queueMicrotask(() => cb(res));
-    const req = { on: () => req, end: (body?: unknown) => { httpsCtl.body = body as string; } };
-    return req;
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  getServiceAuthHeader: () => 'Bearer test-service-token',
+  createWebhookChannel: () => ({
+    channel: 'webhook',
+    deliver: async (msg: Record<string, unknown>, target: Record<string, unknown>) => {
+      webhookCtl.calls += 1;
+      webhookCtl.msg = msg;
+      webhookCtl.target = target;
+      return webhookCtl.result;
+    },
+  }),
+  // Run the INJECTED sender for real so the email tests still assert that
+  // compliance asks platform to send (it has no SMTP/SES of its own).
+  createEmailChannel: (opts: { send: (r: Record<string, unknown>) => Promise<boolean> }) => ({
+    channel: 'email',
+    deliver: async (msg: Record<string, any>, target: Record<string, any>) => {
+      emailCtl.calls += 1;
+      emailCtl.target = target;
+      try {
+        const ok = await opts.send({
+          to: target.value,
+          orgId: msg.recipientOrgId,
+          targetUsers: target.targetUsers ?? null,
+          subject: msg.subject,
+          text: msg.body,
+        });
+        return ok ? { ok: true } : { ok: false, error: 'email-send-failed' };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+  createChannelRegistry: (channels: { channel: string }[]) => {
+    const byName = new Map(channels.map((c) => [c.channel, c]));
+    return (name: string) => byName.get(name) ?? null;
   },
 }));
 
@@ -199,36 +217,57 @@ describe('notifyComplianceBlock — webhook channel', () => {
     mockPost.mockReset(); mockPost.mockResolvedValue(undefined);
     mockGetPreference.mockReset();
     mockRecordLog.mockReset(); mockRecordLog.mockResolvedValue(undefined);
-    httpsCtl.status = 200; httpsCtl.options = null; httpsCtl.body = undefined; httpsCtl.calls = 0;
+    webhookCtl.result = { ok: true, code: 200 };
+    webhookCtl.target = undefined; webhookCtl.msg = undefined; webhookCtl.calls = 0;
+    emailCtl.target = undefined; emailCtl.calls = 0;
   });
 
-  it('POSTs the structured payload to the org webhook (pinned host/path) and logs it', async () => {
+  it('plumbs the org webhookUrl onto the channel target and sends the structured payload', async () => {
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: null });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
 
     expect(mockPost).toHaveBeenCalledTimes(1); // in-app still fires
-    expect(httpsCtl.calls).toBe(1);
-    expect(httpsCtl.options?.hostname).toBe('hook.example');
-    expect(httpsCtl.options?.path).toBe('/c');
-    const payload = JSON.parse(httpsCtl.body as string);
+    expect(webhookCtl.calls).toBe(1);
+    // The shared transport takes the URL as `target.value` (it was `target.url`
+    // in the local fork — the two services disagreed on the field name).
+    expect(webhookCtl.target).toMatchObject({ value: 'https://hook.example/c' });
+    const payload = webhookCtl.msg?.payload as Record<string, any>;
     expect(payload.event).toBe('compliance.block');
     expect(payload.violations[0].ruleName).toBe('rule-1');
-    expect(httpsCtl.options?.headers as Record<string, string>).not.toHaveProperty('X-PB-Signature');
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'webhook', status: 'sent', webhookResponseCode: 200 }));
   });
 
-  it('HMAC-signs the webhook body when a secret is configured', async () => {
+  it('passes the webhookSecret through so the transport can HMAC-sign', async () => {
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: 's3cr3t' });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
-    const expected = `sha256=${createHmac('sha256', 's3cr3t').update(httpsCtl.body as string).digest('hex')}`;
-    expect((httpsCtl.options?.headers as Record<string, string>)['X-PB-Signature']).toBe(expected);
+
+    expect(webhookCtl.target).toMatchObject({ value: 'https://hook.example/c', secret: 's3cr3t' });
+  });
+
+  it('omits the secret when the org has not configured one', async () => {
+    mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: null });
+    await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
+
+    expect(webhookCtl.target?.secret).toBeUndefined();
   });
 
   it('logs a failed webhook on non-2xx without affecting in-app', async () => {
-    httpsCtl.status = 503;
+    webhookCtl.result = { ok: false, code: 503 };
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: null });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
+
+    expect(mockPost).toHaveBeenCalledTimes(1); // in-app unaffected
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'webhook', status: 'failed', webhookResponseCode: 503 }));
+  });
+
+  it('records a refused redirect as a failed delivery in the notification log', async () => {
+    webhookCtl.result = { ok: false, code: 302, error: 'webhook url redirected (refused)' };
+    mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c' });
+    await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
+
+    expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'webhook', status: 'failed', webhookResponseCode: 302,
+    }));
   });
 });
 

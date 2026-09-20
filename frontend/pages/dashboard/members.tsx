@@ -13,6 +13,7 @@ import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
 import { useMemberRoles } from '@/hooks/useMemberRoles';
 import { useMemberTeams } from '@/hooks/useMemberTeams';
+import { useMemberTeamsPanel } from '@/hooks/internal/useMemberTeamsPanel';
 import { TeamMemberAccess } from '@/components/members/TeamMemberAccess';
 import { TeamsCard } from '@/components/teams/TeamsCard';
 import { useToast } from '@/components/ui/Toast';
@@ -41,6 +42,7 @@ import { MfaResetPanel } from '@/components/members/MfaResetPanel';
 import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
+import { tierAllowsTeams } from '@/lib/tiers';
 import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 
@@ -151,41 +153,19 @@ export default function MembersPage() {
   // billing), so only offer the "add a seat pack" link to a root-org admin (or a
   // custom group granted `billing:manage`). A plain member sees the text, not a link.
   const canManageBilling = (isAdmin || can('billing:manage')) && activeOrgIsRoot;
-  // Teams are a paid feature: the backend only lets a root on the team/enterprise
-  // tier parent a team (organizationService.checkParentEligible). Mirror that here
-  // so we don't offer a "Create Team" action that would 403 — the create modal's
-  // tier picker never mattered (a team always inherits the parent's tier).
-  const activeOrgCanHaveTeams = activeOrgIsRoot && (activeOrg?.tier === 'team' || activeOrg?.tier === 'enterprise');
-  // Descendant teams this org parents (org → team hierarchy) — drives the Teams
-  // list + the "Manage teams" gate. Fetched only when the org actually parents
-  // teams (`hasChildOrgs`), for admins who can act on them. Best-effort: a
-  // failure surfaces a brief note, never blanks the page. Creating a team calls
-  // `refreshUser()`, which flips `hasChildOrgs` and so re-runs this read.
-  const teamsQ = useFetch(async (signal) => {
-    if (!user?.organizationId || !canManageMembers || !hasChildOrgs) return [];
-    return (await api.getOrganizationTeams(user.organizationId, { signal })).data?.teams ?? [];
-  }, [user?.organizationId, canManageMembers, hasChildOrgs]);
-  const teams = teamsQ.data ?? [];
-  const teamsLoadWarning = !!teamsQ.error;
-  const childTeamCount = teams.length;
-  // Soft-deleted teams still inside their retention window. Read for any root
-  // whose admin may restore them — NOT only while `hasChildOrgs`: deleting the
-  // last team drops `childOrgCount` to 0, and its restore must stay reachable.
-  const deletedTeamsQ = useFetch(async (signal) => {
-    if (!user?.organizationId || !canOrgSettings || !activeOrgIsRoot) return [];
-    return (await api.listDeletedTeams(user.organizationId, { signal })).data?.teams ?? [];
-  }, [user?.organizationId, canOrgSettings, activeOrgIsRoot]);
-  const deletedTeams = deletedTeamsQ.data ?? [];
-
-  /** After a team is created, renamed, deleted or restored: re-read both lists
-   *  and the session's org list (`childOrgCount` + the switcher). */
-  const { refetch: refetchTeams } = teamsQ;
-  const { refetch: refetchDeletedTeams } = deletedTeamsQ;
-  const refreshTeams = useCallback(async () => {
-    await refreshUser();
-    refetchTeams();
-    refetchDeletedTeams();
-  }, [refreshUser, refetchTeams, refetchDeletedTeams]);
+  // Teams are a paid feature: the backend only lets a root on a team-capable
+  // tier parent a team (organizationService.checkParentEligible). `tierAllowsTeams`
+  // mirrors its tier list — including `unlimited`, the billing-off default, which
+  // the hardcoded team/enterprise test here used to exclude, hiding "Create team"
+  // on every billing-disabled deployment. (A team always inherits the parent's
+  // tier, so the create modal never needed a tier picker.)
+  const activeOrgCanHaveTeams = activeOrgIsRoot && tierAllowsTeams(activeOrg?.tier);
+  // The Teams panel — both team lists, their reload, switching into a team and
+  // adding someone straight to one.
+  const {
+    teams, teamsLoadWarning, childTeamCount, deletedTeams, refreshTeams, switchTeam,
+    addToTeam, setAddToTeam, teamMemberEmail, setTeamMemberEmail, teamAddForm, handleAddToTeam,
+  } = useMemberTeamsPanel({ orgId: orgId ?? '', canManageMembers, canOrgSettings, activeOrgIsRoot, hasChildOrgs });
 
   // Pooled seat usage for the whole account (distinct members + pending invites
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so
@@ -197,42 +177,6 @@ export default function MembersPage() {
   }, [user?.organizationId, canManageMembers, list.pagination.total]);
   const seatUsage = seatQ.data;
   const seatLoadWarning = !!seatQ.error;
-
-  // Switch the active org context to a team so its members can be managed
-  // directly (mirrors the org switcher). A parent admin may open any of its
-  // teams without a membership row there. A refusal is a toast naming the team,
-  // never a silent no-op.
-  const switchTeam = async (team: { orgId: string; orgName: string }) => {
-    try {
-      await switchOrganization(team.orgId);
-      toast.success(`Switched to ${team.orgName}`);
-      router.replace(router.asPath);
-    } catch (err) {
-      toast.error(`Couldn't open ${team.orgName}: ${formatError(err, 'the switch was refused')}`);
-    }
-  };
-
-  // Add a user (by email) straight to one team, without switching context.
-  const [addToTeam, setAddToTeam] = useState<{ orgId: string; orgName: string } | null>(null);
-  const [teamMemberEmail, setTeamMemberEmail] = useState('');
-  const teamAddForm = useFormState();
-
-  const handleAddToTeam = async () => {
-    if (!orgId || !addToTeam) return;
-    const email = teamMemberEmail.trim().toLowerCase();
-    if (!email) return;
-    const result = await teamAddForm.run(
-      () => api.bulkAddMemberToTeams(orgId, { email, orgIds: [addToTeam.orgId], role: 'member' }),
-    );
-    if (result !== null) {
-      const status = result.data?.results?.[0]?.status;
-      toast.success(status === 'already_member'
-        ? `${email} is already a member of ${addToTeam.orgName}`
-        : `Added ${email} to ${addToTeam.orgName}`);
-      setAddToTeam(null);
-      setTeamMemberEmail('');
-    }
-  };
 
   const createOrgForm = useFormState();
 
@@ -370,6 +314,8 @@ export default function MembersPage() {
     if (result !== null) {
       setNewOrgName('');
       setCreateOrgOpen(false);
+      // The new team belongs in the switcher and in every cached org list.
+      invalidate.organizations();
       // Pulls the new org into the switcher and bumps `childOrgCount`, which
       // reveals the Teams list + Manage-teams action (re-running the teams read).
       await refreshTeams();
@@ -394,7 +340,7 @@ export default function MembersPage() {
     onRemove: (m) => removeMember.open(m),
     ...(canResetMfa ? { onResetMfa: (m: OrganizationMember) => setResetMfaTarget(m) } : {}),
   }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the column builder closes over per-render handlers; the listed values are what change it
     [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
@@ -523,7 +469,9 @@ export default function MembersPage() {
           icon: Users,
           title: 'No team members found',
           description: list.hasActiveFilters ? 'Try adjusting your search or filter.' : 'Add members to your organization to get started.',
-          action: list.hasActiveFilters ? undefined : (
+          // Same gate as the header button: without `members:manage` the modal's
+          // submit 403s, so the empty state must not offer the action either.
+          action: list.hasActiveFilters || !canManageMembers ? undefined : (
             <Button onClick={openAddModal}>
               <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
             </Button>

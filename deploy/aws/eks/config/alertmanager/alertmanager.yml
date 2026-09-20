@@ -4,12 +4,21 @@
 #   - critical → critical-slack receiver (paging channel)
 #   - warning  → warning-slack receiver (non-paging channel)
 #
-# Alertmanager does NOT expand environment variables in its config, and the
-# deploy runs no envsubst over this file. The per-org platform relay is fully
-# wired (its token comes from a mounted secret file — see `platform-relay`).
-# The Slack receivers ship dev-safe placeholder URLs that Slack rejects with 404
-# (alertmanager logs the rejection and keeps running); edit them into this file
-# directly with real `https://hooks.slack.com/services/...` URLs to deliver.
+# NOTHING IN THIS FILE IS A SECRET, and nothing in it is templated. Alertmanager
+# does not expand environment variables in its config, and the deploy runs no
+# envsubst over it — every credential arrives as a MOUNTED FILE that Alertmanager
+# re-reads per notification:
+#   /etc/alertmanager-secrets/relay-token       the per-org platform relay bearer
+#                                               (.env ALERT_WEBHOOK_INSTANCE_TOKEN)
+#   /etc/alertmanager-slack/critical-url        .env SLACK_CRITICAL_WEBHOOK_URL
+#   /etc/alertmanager-slack/warning-url         .env SLACK_WARNING_WEBHOOK_URL
+# So the Slack webhook URLs stay in a Secret (k8s) / compose secret (docker) and
+# never land in a ConfigMap. Set them in the target's .env; every target's setup
+# REFUSES TO DEPLOY while they are still placeholders (deploy/bin/gen-env-secrets.sh
+# -> pb_check_alert_delivery), and prints a loud banner if they are deliberately
+# left empty. That same pre-flight also rejects THIS FILE if a webhook URL is
+# ever pasted back into it inline — a ConfigMap is readable by anyone with
+# namespace read access, so an inline `api_url` would be a leaked credential.
 #
 # Tunables:
 #   group_wait      — batch alerts that fire within this window into one
@@ -82,14 +91,14 @@ receivers:
         send_resolved: true
         max_alerts: 64
 
-  # Slack receivers below carry placeholder webhook URLs so alertmanager
-  # parses the config successfully. Slack rejects requests to these IDs
-  # with 404 — alertmanager logs the rejection and keeps running.
-  # Replace with real `https://hooks.slack.com/services/...` URLs (or wire
-  # envsubst into startup) to actually deliver to Slack.
+  # Slack receivers. `api_url_file` (not `api_url`) so the webhook URL — which
+  # is itself a bearer credential: anyone holding it can post to the channel —
+  # lives in a Secret mounted at /etc/alertmanager-slack, not in this ConfigMap.
+  # Alertmanager reads the file per notification, so rotating the URL is a
+  # Secret update + pod restart, with no config change.
   - name: 'critical-slack'
     slack_configs:
-      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/CHANGE_ME_CRITICAL'
+      - api_url_file: /etc/alertmanager-slack/critical-url
         channel: '#ops-pager'
         send_resolved: true
         title: '[CRITICAL] {{ .GroupLabels.alertname }}'
@@ -102,7 +111,7 @@ receivers:
 
   - name: 'warning-slack'
     slack_configs:
-      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/CHANGE_ME_WARNING'
+      - api_url_file: /etc/alertmanager-slack/warning-url
         channel: '#ops-warnings'
         send_resolved: true
         title: '[WARN] {{ .GroupLabels.alertname }}'

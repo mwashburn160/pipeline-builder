@@ -121,7 +121,7 @@ spec:
       initContainers:
         - name: pgbouncer-exporter
           restartPolicy: Always
-          image: quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.2
+          image: quay.io/prometheuscommunity/pgbouncer-exporter@sha256:5d62f2dc3ed33d091fe8dcf170c8533618c4d00cab61b6a743e0425d57b28924  # quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.2
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -155,7 +155,7 @@ spec:
               drop: ["ALL"]
       containers:
         - name: pgbouncer
-          image: edoburu/pgbouncer:v1.25.2-p0
+          image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340  # edoburu/pgbouncer:v1.25.2-p0
           ports:
             - containerPort: 6432
               name: pgbouncer

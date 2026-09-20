@@ -37,6 +37,7 @@ const {
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
+  buildReserveResult,
 } = await import('../src/helpers/quota-helpers.js');
 
 // Tests
@@ -253,5 +254,41 @@ describe('quota-helpers', () => {
       expect(result.quotas.pipelines.used).toBe(0);
       expect(result.quotas.apiCalls.used).toBe(0);
     });
+  });
+});
+
+describe('buildReserveResult', () => {
+  const resetAt = new Date('2026-01-04T00:00:00.000Z');
+
+  it("maps the named outcome onto `exceeded`, so a call site can't invert it silently", () => {
+    // The outcome used to be a bare trailing boolean, indistinguishable at the
+    // call site from the three numbers before it.
+    expect(buildReserveResult('plugins', 100, 40, resetAt, 'allowed').exceeded).toBe(false);
+    expect(buildReserveResult('plugins', 100, 100, resetAt, 'exceeded').exceeded).toBe(true);
+  });
+
+  it('computes remaining from limit and used', () => {
+    const result = buildReserveResult('plugins', 100, 40, resetAt, 'allowed');
+    expect(result.quota).toEqual({
+      type: 'plugins',
+      limit: 100,
+      used: 40,
+      remaining: 60,
+      resetAt: '2026-01-04T00:00:00.000Z',
+    });
+  });
+
+  it('floors remaining at 0 rather than reporting a negative allowance', () => {
+    expect(buildReserveResult('plugins', 10, 25, resetAt, 'exceeded').quota.remaining).toBe(0);
+  });
+
+  it('reports unlimited (-1) as -1 remaining, never limit - used', () => {
+    expect(buildReserveResult('apiCalls', -1, 9999, resetAt, 'allowed').quota.remaining).toBe(-1);
+  });
+
+  it('accepts an ISO string resetAt and omits it entirely when absent', () => {
+    expect(buildReserveResult('plugins', 5, 1, '2026-01-04T00:00:00.000Z', 'allowed').quota.resetAt)
+      .toBe('2026-01-04T00:00:00.000Z');
+    expect(buildReserveResult('plugins', 5, 1, undefined, 'allowed').quota.resetAt).toBeUndefined();
   });
 });

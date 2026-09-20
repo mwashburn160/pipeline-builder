@@ -7,14 +7,15 @@ import type { LucideIcon } from 'lucide-react';
 
 export type CalloutVariant = 'info' | 'warning' | 'success' | 'danger' | 'neutral';
 
-// Tinted surface + text + icon, per variant. Uses the Tailwind palette (with dark
-// variants) rather than the small `--pb-*` set so each intent reads distinctly;
-// mirrors the `.alert-*` intent colors. `neutral` uses the muted surface tokens.
+// Tinted surface + text + icon, per variant — the `--pb-*` status tokens, which
+// carry a matched border/background/foreground triple per intent and re-resolve
+// per theme, so no `dark:` sibling is needed. `neutral` uses the muted surface
+// tokens. Mirrors the `.alert-*` intent colors.
 const STYLES: Record<CalloutVariant, { box: string; icon: string; defaultIcon: LucideIcon }> = {
-  info:    { box: 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-200', icon: 'text-brand', defaultIcon: Info },
-  warning: { box: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200', icon: 'text-warning', defaultIcon: AlertTriangle },
-  success: { box: 'border-green-200 bg-green-50 text-green-900 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-200', icon: 'text-success', defaultIcon: CheckCircle2 },
-  danger:  { box: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200', icon: 'text-danger', defaultIcon: XCircle },
+  info:    { box: 'border-info-border bg-info-bg text-info-strong', icon: 'text-brand', defaultIcon: Info },
+  warning: { box: 'border-warning-border bg-warning-bg text-warning-strong', icon: 'text-warning', defaultIcon: AlertTriangle },
+  success: { box: 'border-success-border bg-success-bg text-success-strong', icon: 'text-success', defaultIcon: CheckCircle2 },
+  danger:  { box: 'border-danger-border bg-danger-bg text-danger-strong', icon: 'text-danger', defaultIcon: XCircle },
   neutral: { box: 'border-default bg-surface-muted text-fg', icon: 'text-fg-muted', defaultIcon: Info },
 };
 

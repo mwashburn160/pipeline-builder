@@ -8,6 +8,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -26,14 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/client-info.js', () => ({ clientInfoOf: () => ({ ip: '10.0.0.1' }) }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => {
-    try { await fn(req, res); } catch (err) {
-      const e = err as { statusCode?: number; code?: string; message: string };
-      res.status(e.statusCode ?? 500).json({ success: false, message: e.message, code: e.code });
-    }
-  },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/session-cookie.js', () => ({
   deliverSessionTokens: (_q: unknown, _s: unknown, t: { accessToken: string }) => ({ accessToken: t.accessToken }),
 }));
@@ -74,6 +68,18 @@ function makeRes() {
   res.json = jest.fn().mockReturnValue(res);
   return res;
 }
+/**
+ * A faithful stand-in for production's `PasswordPolicyServiceError`
+ * (src/helpers/password-policy.ts), which is what the real
+ * `assertNewPasswordAcceptable` throws. The `name` is load-bearing: with the
+ * real `withController` restored, the throw is answered by
+ * `handleControllerError`, and its ServiceError branch honours `statusCode` +
+ * `code` ONLY when `name` contains `ServiceError`. A plain `Error` carrying the
+ * same two fields falls through to the 500 fallback instead.
+ */
+const policyRefusal = (code: string, message: string) =>
+  Object.assign(new Error(message), { name: 'PasswordPolicyServiceError', statusCode: 400, code });
+
 const req = (b: Record<string, unknown>) => ({ body: b, headers: {}, ip: '10.0.0.1' }) as any;
 const open = (aal: 1 | 2 = 1) => createPasswordChangeChallenge({
   userId: 'u1', orgId: 'org-1', amr: aal === 2 ? ['pwd', 'mfa'] : ['pwd'], aal, minLength: 14,
@@ -107,7 +113,7 @@ describe('POST /auth/password/change-required', () => {
   });
 
   it('refuses a new password the policy rejects — and keeps the handle for another try', async () => {
-    mockAssertAcceptable.mockRejectedValueOnce(Object.assign(new Error('too short'), { statusCode: 400, code: 'PASSWORD_TOO_SHORT_FOR_ORG' }));
+    mockAssertAcceptable.mockRejectedValueOnce(policyRefusal('PASSWORD_TOO_SHORT_FOR_ORG', 'too short'));
     const { challengeId } = await open();
     const res = makeRes();
     await completeRequiredPasswordChange(req({ challengeId, newPassword: 'Short1abc' }), res);

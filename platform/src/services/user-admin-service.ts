@@ -3,8 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import type { RoleAssignmentActor } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
-import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole, type RoleAssignmentActor } from './roles-service.js';
+import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';

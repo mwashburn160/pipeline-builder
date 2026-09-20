@@ -6,11 +6,11 @@ import type { ReactNode } from 'react';
  * severity). Worst-signal-wins compute stays in each page; this is presentation
  * only. Canonical source — previously copied verbatim into executions/compliance.
  */
-export const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
-  red: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
-  yellow: 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300',
-  green: 'border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300',
-  gray: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300',
+const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
+  red: 'border-danger-border bg-danger-bg text-danger-strong',
+  yellow: 'border-warning-border bg-warning-bg text-warning-strong',
+  green: 'border-success-border bg-success-bg text-success-strong',
+  gray: 'border-default bg-surface-muted text-fg-muted',
 };
 
 export interface PostureHeadlineProps {

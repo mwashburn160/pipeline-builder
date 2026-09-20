@@ -3,6 +3,14 @@
 # Source this file: . "$(dirname "$0")/common.sh"
 # Note: Requires bash (uses arrays, ERRORS+=(), ${#ERRORS[@]}).
 #
+# SHELL OPTIONS: this file is SOURCED, never executed, so it deliberately sets
+# NO `set -euo pipefail`. `set` inside a sourced file mutates the CALLER's shell
+# — it would silently turn on errexit for whatever sourced us (including an
+# interactive shell, where a failed command would then close the terminal).
+# Every caller already runs under `set -euo pipefail`; these functions therefore
+# propagate failure the portable way, by RETURNING non-zero, so they behave the
+# same whether or not the caller has errexit on.
+#
 # ── BASH 3.2 / macOS PORTABILITY ─────────────────────────────────────────────
 # These scripts must run on the stock macOS bash (3.2). The recurring foot-guns,
 # documented here ONCE so they aren't re-learned (and re-broken) per script:

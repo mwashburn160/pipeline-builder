@@ -18,7 +18,7 @@
 export const DEFAULT_SITE_URL = 'https://localhost:8443';
 
 /** Resolve the public origin from the runtime env, with a local-docker default. */
-export function resolveSiteUrl(): string {
+function resolveSiteUrl(): string {
   return (process.env.APP_SITE_URL || DEFAULT_SITE_URL).replace(/\/+$/, '');
 }
 

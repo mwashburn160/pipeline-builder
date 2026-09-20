@@ -18,6 +18,10 @@ import { formatError } from '@/lib/constants';
  */
 type ThreadItem = Message & { _status?: 'sending' | 'failed'; _idem?: string };
 
+/** Why the reply composer is inert — shown on the controls a read-only viewer
+ *  can see but not use (the route needs `messages:write`). */
+const NO_WRITE_REASON = 'You need the messages:write permission to reply or attach files';
+
 /** Stable idempotency key for one optimistic reply attempt (reused on retry). */
 function newReplyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -42,6 +46,15 @@ interface ThreadViewProps {
   onThreadRead: (id: string) => void;
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
+  /**
+   * Whether the viewer holds `messages:write` — what PATCH /messages/:id,
+   * POST /messages/:id/reply and POST /messages/attachments all require. Without
+   * it the edit affordance is not rendered and the reply composer (text, attach
+   * and send) stays visible but inert with the reason on it: the viewer is
+   * already reading the thread, so silently dropping the composer would read as
+   * a broken page rather than as a permission they don't have.
+   */
+  canWrite?: boolean;
 }
 
 /** Colored badge indicating message priority; renders nothing for "normal" priority. */
@@ -61,7 +74,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canWrite = false }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
@@ -164,7 +177,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const handleSendReply = async () => {
     // Block send while an attachment is still uploading — we snapshot
     // replyAttachments here, so an in-flight upload would otherwise be dropped.
-    if (!replyContent.trim() || uploading) return;
+    // `canWrite` is re-checked here too: the composer is inert without it, but
+    // Enter-to-send would otherwise bypass the disabled button.
+    if (!canWrite || !replyContent.trim() || uploading) return;
 
     const content = replyContent.trim();
     const attachments = replyAttachments;
@@ -243,7 +258,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow re-selecting the same file
-    if (files.length === 0) return;
+    if (!canWrite || files.length === 0) return;
     setUploadError('');
     setUploading(true);
     try {
@@ -285,7 +300,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             ) : (
               <MessageCircle className="w-4 h-4 text-brand flex-shrink-0" />
             )}
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+            <h2 className="text-base font-semibold text-fg truncate">
               {rootMessage.messageType === 'announcement' ? 'Announcement' : counterpartyName}
             </h2>
             {rootMessage.recipientUserId && (
@@ -329,8 +344,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             const isFailed = msg._status === 'failed';
             const isEditing = editingId === msg.id;
             // Author-only edit affordance: a settled (non-optimistic) message the
-            // current user authored. Server re-checks authorship regardless.
-            const canEdit = isMine && !isSending && !isFailed && !!currentUserId && msg.createdBy === currentUserId;
+            // current user authored, AND `messages:write` (what PATCH /messages/:id
+            // asks for before it ever looks at authorship). Server re-checks both.
+            const canEdit = canWrite && isMine && !isSending && !isFailed && !!currentUserId && msg.createdBy === currentUserId;
             // #9 read receipt — a settled message I sent that the RECIPIENT org has
             // stamped read (readBy is keyed by org id). Broadcasts ('*') have no
             // single recipient, so they never show a receipt.
@@ -346,7 +362,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                   className={`max-w-[75%] rounded-xl px-4 py-2.5 ${
                     isMine
                       ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                      : 'bg-gray-100 dark:bg-gray-800 text-fg'
                   } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
                 >
                   <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-fg-muted'}`}>
@@ -368,7 +384,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         rows={3}
-                        className="w-full resize-none text-gray-900 dark:text-gray-100"
+                        className="w-full resize-none text-fg"
                         aria-label="Edit message content"
                       />
                       {editError && <p className="text-xs text-red-200">{editError}</p>}
@@ -425,7 +441,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             {replyAttachments.map((a) => (
               <li key={a.id} className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1">
                 <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
-                <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
+                <span className="truncate flex-1 text-fg-muted">{a.filename}</span>
                 <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
                 <button type="button" onClick={() => removeReplyAttachment(a.id)} className="text-fg-subtle hover:text-danger shrink-0" aria-label={`Remove ${a.filename}`}>
                   <X className="w-3.5 h-3.5" />
@@ -435,6 +451,12 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           </ul>
         )}
         {uploadError && <p className="mb-2 text-xs text-red-500 dark:text-red-400">{uploadError}</p>}
+        {!canWrite && (
+          <p className="mb-2 text-xs text-fg-muted">
+            You can read this conversation, but replying and attaching files need the
+            &ldquo;messages:write&rdquo; permission.
+          </p>
+        )}
         <div className="flex items-end gap-2">
           <input
             ref={fileInputRef}
@@ -446,9 +468,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={uploading || !canWrite}
             aria-label="Attach files"
-            title={uploading ? 'Uploading…' : 'Attach files'}
+            title={canWrite ? (uploading ? 'Uploading…' : 'Attach files') : NO_WRITE_REASON}
             className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
@@ -457,14 +479,18 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type your reply... (Enter to send, Shift+Enter for new line)"
+            placeholder={canWrite ? 'Type your reply... (Enter to send, Shift+Enter for new line)' : NO_WRITE_REASON}
+            aria-label="Reply to conversation"
+            title={canWrite ? undefined : NO_WRITE_REASON}
+            disabled={!canWrite}
             rows={2}
             className="flex-1 resize-none"
           />
           <button
             onClick={handleSendReply}
-            disabled={!replyContent.trim() || uploading}
+            disabled={!canWrite || !replyContent.trim() || uploading}
             aria-label="Send reply"
+            title={canWrite ? undefined : NO_WRITE_REASON}
             className="p-2.5 rounded-xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />

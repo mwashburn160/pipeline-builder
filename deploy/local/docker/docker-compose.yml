@@ -177,7 +177,7 @@ services:
   # of RAM to serve — on a smaller machine use OLLAMA_MODEL=qwen2.5-coder:1.5b
   # and match OPENAI_COMPATIBLE_MODELS to it, as the minikube target does.
   ask-model:
-    image: 'ollama/ollama:0.6.5'
+    image: 'ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0'  # ollama/ollama:0.6.5
     container_name: ask-model
     profiles: [ask-model]
     restart: always
@@ -234,7 +234,7 @@ services:
     # Unprivileged (UID 101) nginx, matching the k8s gateways. The njs module is
     # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
     # the non-root master can write its PID file.
-    image: 'nginxinc/nginx-unprivileged:1.31'
+    image: 'nginxinc/nginx-unprivileged@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb'  # nginxinc/nginx-unprivileged:1.31
     container_name: nginx
     restart: always
     stop_grace_period: 5s
@@ -286,7 +286,7 @@ services:
   # Databases
   # ---------------------------------------------------------------------------
   mongodb:
-    image: 'mongo:8.3.7'
+    image: 'mongo@sha256:2f02e2184c6d91c3208e5ab75a0707d1386a05377b20fdaf49a314815774d863'  # mongo:8.3.7
     container_name: mongodb
     restart: always
     stop_grace_period: 15s
@@ -328,7 +328,7 @@ services:
     deploy: *db-deploy
 
   postgres:
-    image: 'postgres:18'
+    image: 'postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae'  # postgres:18
     container_name: postgres
     restart: always
     stop_grace_period: 15s
@@ -360,7 +360,7 @@ services:
   # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
   # See `deploy/local/docker/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
-    image: 'edoburu/pgbouncer:v1.25.2-p0'
+    image: 'edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340'  # edoburu/pgbouncer:v1.25.2-p0
     container_name: pgbouncer
     restart: always
     environment:
@@ -391,7 +391,7 @@ services:
       start_period: 10s
 
   redis:
-    image: 'redis:8-alpine'
+    image: 'redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0'  # redis:8-alpine
     container_name: redis
     restart: always
     stop_grace_period: 10s
@@ -414,6 +414,88 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Datastore exporters
+  # ---------------------------------------------------------------------------
+  # The k8s targets run these as SIDECARS of the database pod; compose has no
+  # sidecars, so they are their own containers joined to the datastore's network
+  # alias. Same images, same versions, same metric names — the point is that
+  # PostgresUnreachable / MongoDBUnreachable / RedisUnreachable in
+  # config/prometheus/alert-rules.yml have real series to evaluate here too.
+  # Without them those rules were dead YAML on this target and a wedged database
+  # in a running container looked healthy.
+  postgres-exporter:
+    image: 'quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17'  # quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: postgres-exporter
+    restart: always
+    environment:
+      # Reuses the credentials the server is initialised with — no separate
+      # monitoring role to provision or rotate.
+      DATA_SOURCE_URI: 'postgres:5432/postgres?sslmode=disable'
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          cpus: '0.025'
+          memory: 48M
+
+  # --collect-all enables the replset/oplog collectors this deployment cares
+  # about; --compatible-mode keeps the legacy metric names the alert rules and
+  # community dashboards expect (mongodb_up among them).
+  mongodb-exporter:
+    image: 'percona/mongodb_exporter@sha256:d9c577166068197bf6908296d9742cc8267e7b7e1054199436d6d922e8921679'  # percona/mongodb_exporter:0.44.0
+    container_name: mongodb-exporter
+    restart: always
+    command:
+      - '--collect-all'
+      - '--compatible-mode'
+      - '--web.listen-address=:9216'
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+    networks:
+      - backend-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          cpus: '0.025'
+          memory: 48M
+
+  # Redis here requires no auth, so no credentials are wired.
+  redis-exporter:
+    image: 'oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05'  # oliver006/redis_exporter:v1.69.0
+    container_name: redis-exporter
+    restart: always
+    command:
+      - '--redis.addr=redis://redis:6379'
+    networks:
+      - backend-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 96M
+        reservations:
+          cpus: '0.02'
+          memory: 32M
 
   # ---------------------------------------------------------------------------
   # Application Services
@@ -471,14 +553,28 @@ services:
       # Security
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
       MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS:-5}
+      # Breached-password check (HIBP k-anonymity range API) — an OUTBOUND
+      # INTERNET CALL on the registration / password-change / admin-reset path.
+      # Fail-open, metered as platform_password_breach_checks_total.
+      # Air-gapped: PASSWORD_BREACH_CHECK=off (or point _URL at an internal
+      # mirror). See the block in .env.example.
+      PASSWORD_BREACH_CHECK: ${PASSWORD_BREACH_CHECK:-hibp}
+      PASSWORD_BREACH_CHECK_URL: ${PASSWORD_BREACH_CHECK_URL:-https://api.pwnedpasswords.com/range/}
+      PASSWORD_BREACH_CHECK_TIMEOUT_MS: ${PASSWORD_BREACH_CHECK_TIMEOUT_MS:-2000}
+      # FIDO Metadata Service — the second OUTBOUND INTERNET CALL, made only when
+      # an org sets an approved-authenticator (AAGUID) allowlist.
+      # Air-gapped: mount a downloaded blob, set FIDO_MDS_BLOB_PATH to it and
+      # FIDO_MDS_URL=off; or just FIDO_MDS_URL=off if no org uses allowlists.
+      FIDO_MDS_BLOB_PATH: ${FIDO_MDS_BLOB_PATH:-}
+      FIDO_MDS_URL: ${FIDO_MDS_URL:-https://mds.fidoalliance.org/}
+      FIDO_MDS_FETCH_TIMEOUT_MS: ${FIDO_MDS_FETCH_TIMEOUT_MS:-10000}
+      FIDO_MDS_REFRESH_MS: ${FIDO_MDS_REFRESH_MS:-86400000}
       # Platform-only multi-tenant knobs. RLS_CONTEXT_MODE is set via
       # x-postgres-env so every postgres-backed service inherits it.
       BOOTSTRAP_SUPERADMIN_EMAILS: ${BOOTSTRAP_SUPERADMIN_EMAILS:-}
       SECRET_ENCRYPTION_PER_ORG_KMS: ${SECRET_ENCRYPTION_PER_ORG_KMS:-false}
       # JWT
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
-      # Algorithm of the INTERNAL service tokens; user tokens are always ES256.
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       # ES256 user-token signing — platform is the only minter in the fleet.
       # The key file is bind-mounted read-only below.
       TOKEN_SIGNING_MODE: ${TOKEN_SIGNING_MODE:-local}
@@ -557,7 +653,6 @@ services:
       OAUTH_LINKEDIN_CLIENT_ID: ${OAUTH_LINKEDIN_CLIENT_ID:-}
       OAUTH_LINKEDIN_CLIENT_SECRET: ${OAUTH_LINKEDIN_CLIENT_SECRET:-}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
-      SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
       # Native observability: queries go to the Thanos querier (recent + archived
       # blocks), alerts to Alertmanager.
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}
@@ -681,7 +776,7 @@ services:
   buildkitd:
     # v0.32.1 (was v0.16.0): newer runc reaper avoids the hot
     # "container not running" retry loop on killed build containers.
-    image: 'moby/buildkit:v0.32.1-rootless'
+    image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
     container_name: buildkitd
     restart: always
     stop_grace_period: 5s
@@ -1121,7 +1216,7 @@ services:
   # Admin UIs
   # ---------------------------------------------------------------------------
   mongo-express:
-    image: 'mongo-express:1.0.2'
+    image: 'mongo-express@sha256:1b23d7976f0210dbec74045c209e52fbb26d29b2e873d6c6fa3d3f0ae32c2a64'  # mongo-express:1.0.2
     container_name: mongo-express
     restart: always
     ports:
@@ -1130,8 +1225,6 @@ services:
       ME_CONFIG_MONGODB_URL: ${ME_CONFIG_MONGODB_URL}
       ME_CONFIG_SITE_BASEURL: ${ME_CONFIG_SITE_BASEURL}
       ME_CONFIG_MONGODB_ENABLE_ADMIN: ${ME_CONFIG_MONGODB_ENABLE_ADMIN}
-      # ME_CONFIG_MONGODB_ADMINUSERNAME/ADMINPASSWORD are the legacy (non-URL)
-      # config path and are ignored when ME_CONFIG_MONGODB_URL is set, so dropped.
       ME_CONFIG_BASICAUTH_USERNAME: ${ME_CONFIG_BASICAUTH_USERNAME}
       ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD}
     networks:
@@ -1155,7 +1248,7 @@ services:
           memory: 192M
 
   pgadmin:
-    image: 'dpage/pgadmin4:9'
+    image: 'dpage/pgadmin4@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de'  # dpage/pgadmin4:9
     container_name: pgadmin
     restart: always
     ports:
@@ -1192,7 +1285,7 @@ services:
   # shared ./data folder like the other stateful services. Pin the image tag for
   # reproducible deploys (latest tracks upstream releases).
   minio:
-    image: 'quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z'
+    image: 'quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'  # quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: minio
     restart: always
     # Run as 1000:1000 — the same UID/GID the k8s targets set via
@@ -1226,7 +1319,7 @@ services:
   # bucket-scoped MinIO users (so no service uses the root credentials). Exits 0;
   # `depends_on: minio-init: service_completed_successfully` gates the consumers.
   minio-init:
-    image: 'quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z'
+    image: 'quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727'  # quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: minio-init
     depends_on:
       - minio
@@ -1296,7 +1389,7 @@ services:
   # Docker Registry
   # ---------------------------------------------------------------------------
   registry:
-    image: 'registry:3'
+    image: 'registry@sha256:fd374bae807c225661adfe2c0c1f9970a0b8fab1761fd7dfb91e0fd9a8748f9b'  # registry:3
     container_name: registry
     restart: always
     ports:
@@ -1382,7 +1475,7 @@ services:
   # tenant's metrics.
   # ---------------------------------------------------------------------------
   grafana:
-    image: 'grafana/grafana:12.3.0'
+    image: 'grafana/grafana@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8'  # grafana/grafana:12.3.0
     container_name: grafana
     restart: always
     user: "472"
@@ -1421,7 +1514,7 @@ services:
           memory: 192M
 
   prometheus:
-    image: 'prom/prometheus:v3.13.2'
+    image: 'prom/prometheus@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69'  # prom/prometheus:v3.13.2
     container_name: prometheus
     restart: always
     # 2h min/max block duration is required for the Thanos sidecar to upload
@@ -1458,7 +1551,7 @@ services:
   # long-term storage. Shares Prometheus's TSDB volume (read) + talks to it over
   # HTTP. (Querying archived blocks needs a store-gateway + querier — follow-up.)
   thanos-sidecar:
-    image: 'quay.io/thanos/thanos:v0.39.2'
+    image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-sidecar
     restart: always
     # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
@@ -1495,7 +1588,7 @@ services:
   # StoreAPI (gRPC 10901) so the querier can read long-term history. Its local
   # data-dir is a rebuildable index cache (container-local; no volume needed).
   thanos-store-gateway:
-    image: 'quay.io/thanos/thanos:v0.39.2'
+    image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-store-gateway
     restart: always
     # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
@@ -1524,11 +1617,61 @@ services:
           cpus: '0.10'
           memory: 128M
 
+  # Thanos compactor: the bucket's garbage collector, downsampler and block
+  # merger — the ONLY component that deletes from or rewrites the object store.
+  # Without it the `thanos` bucket accumulates 2h blocks forever, long-range
+  # queries get slower every week, and no retention is enforced by anything.
+  #
+  # SINGLETON: two compactors against one bucket corrupt it (they race on the
+  # same block deletions). Never scale this service, and do not run a second
+  # stack against the same MinIO bucket.
+  #
+  # Retention per resolution — raw 30d, 5m 180d, 1h 365d. Lowering a value
+  # DELETES data beyond it on the next pass and cannot be undone; `0d` means
+  # keep forever. Mirrors the k8s targets' thanos-compact Deployment.
+  thanos-compact:
+    image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
+    container_name: thanos-compact
+    restart: always
+    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
+    environment:
+      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
+      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
+    command:
+      - 'compact'
+      # Long-lived loop rather than one-shot-and-exit, so `restart: always`
+      # doesn't turn a normal completion into a restart loop.
+      - '--wait'
+      - '--wait-interval=5m'
+      - '--objstore.config-file=/etc/thanos/objstore.yml'
+      - '--data-dir=/var/thanos/compact'
+      - '--http-address=0.0.0.0:10902'
+      - '--retention.resolution-raw=30d'
+      - '--retention.resolution-5m=180d'
+      - '--retention.resolution-1h=365d'
+      - '--compact.concurrency=1'
+      - '--downsample.concurrency=1'
+    volumes:
+      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    networks:
+      - backend-network
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1024M
+        reservations:
+          cpus: '0.10'
+          memory: 256M
+
   # Thanos querier: Prometheus-compatible query API (9090) that fans out to the
   # sidecar (recent blocks) + store-gateway (archived blocks) and de-duplicates.
   # PROMETHEUS_URL points services here so PromQL spans recent + long-term.
   thanos-query:
-    image: 'quay.io/thanos/thanos:v0.39.2'
+    image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-query
     restart: always
     command:
@@ -1556,12 +1699,14 @@ services:
 
   # Alertmanager: routes Prometheus alerts to Slack and to the platform relay.
   # Alertmanager does NOT expand environment variables in its config file, so
-  # there is no `environment:` wiring. The per-org relay token reaches it as
-  # the `alert_webhook_token` secret file (credentials_file in
-  # config/alertmanager/alertmanager.yml); platform gets the same token via
-  # ALERT_WEBHOOK_INSTANCES. Slack URLs are placeholders to edit in that file.
+  # there is no `environment:` wiring — every credential arrives as a secret
+  # FILE that it re-reads per notification. The per-org relay token is
+  # `alert_webhook_token` (credentials_file), and the two ops-team Slack webhook
+  # URLs are `slack_critical_url` / `slack_warning_url` (api_url_file), all read
+  # from .env by the `secrets:` block at the bottom of this file. bin/setup.sh
+  # refuses to start the stack while a Slack URL is still a placeholder.
   alertmanager:
-    image: 'prom/alertmanager:v0.33.1'
+    image: 'prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d'  # prom/alertmanager:v0.33.1
     container_name: alertmanager
     restart: always
     command:
@@ -1573,6 +1718,12 @@ services:
     secrets:
       - source: alert_webhook_token
         target: /etc/alertmanager-secrets/relay-token
+        mode: 0444
+      - source: slack_critical_url
+        target: /etc/alertmanager-slack/critical-url
+        mode: 0444
+      - source: slack_warning_url
+        target: /etc/alertmanager-slack/warning-url
         mode: 0444
     networks:
       - backend-network
@@ -1592,7 +1743,7 @@ services:
           memory: 64M
 
   loki:
-    image: 'grafana/loki:3.6.11'
+    image: 'grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945'  # grafana/loki:3.6.11
     container_name: loki
     restart: always
     # -config.expand-env expands LOKI_S3_ACCESS_KEY/SECRET_KEY in loki-config.yml (chunks/index
@@ -1627,7 +1778,7 @@ services:
           memory: 256M
 
   promtail:
-    image: 'grafana/promtail:3.6.11'
+    image: 'grafana/promtail@sha256:a761cb834cfaeee29745440d4884d6748f0a08d8f68928db1d707018c1dcfbe9'  # grafana/promtail:3.6.11
     container_name: promtail
     restart: always
     # Wrap promtail to auto-clean corrupted positions file on startup.
@@ -1680,7 +1831,7 @@ services:
   # http://localhost:16686. In-memory storage means traces are lost on restart,
   # which is the right trade-off for a local stack.
   jaeger:
-    image: 'jaegertracing/all-in-one:1.76.0'
+    image: 'jaegertracing/all-in-one@sha256:ab6f1a1f0fb49ea08bcd19f6b84f6081d0d44b364b6de148e1798eb5816bacac'  # jaegertracing/all-in-one:1.76.0
     container_name: jaeger
     restart: always
     environment:
@@ -1714,11 +1865,18 @@ services:
 # previously named volumes for I/O perf — the trade-off is acceptable on
 # dev laptops where reproducibility matters more than raw throughput.
 
-# Per-org alert relay bearer, materialised as a file for alertmanager
-# (credentials_file). Sourced from .env (generated by gen-env-secrets).
+# Alertmanager's credentials, materialised as files (it reads none of them from
+# the environment): the per-org relay bearer for `credentials_file`, and the two
+# ops-team Slack incoming-webhook URLs for `api_url_file`. All three are sourced
+# from .env — the relay token is generated by gen-env-secrets, the Slack URLs are
+# operator-supplied and pre-flighted by bin/setup.sh.
 secrets:
   alert_webhook_token:
     environment: ALERT_WEBHOOK_INSTANCE_TOKEN
+  slack_critical_url:
+    environment: SLACK_CRITICAL_WEBHOOK_URL
+  slack_warning_url:
+    environment: SLACK_WARNING_WEBHOOK_URL
 
 networks:
   proxy-network:

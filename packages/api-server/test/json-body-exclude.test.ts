@@ -19,12 +19,13 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import express from 'express';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 process.env.NODE_ENV = 'test';
 
 // createLogger stub avoids Winston open handles; keep the rest of api-core real.
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ...actualApiCore,
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));

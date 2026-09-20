@@ -11,12 +11,13 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetRedisClient = jest.fn<() => Promise<unknown>>();
 const mockLoggerError = jest.fn();
 const mockWithLeaderLock = jest.fn<(...a: any[]) => Promise<boolean>>();
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: mockLoggerError, debug: jest.fn() }),
   withLeaderLock: (...a: any[]) => mockWithLeaderLock(...a),
 }));

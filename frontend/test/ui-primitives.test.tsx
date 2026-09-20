@@ -69,8 +69,10 @@ describe('Callout', () => {
   it('renders a title and applies the variant tint class', () => {
     const { container } = render(<Callout variant="success" title="Saved">done</Callout>);
     expect(screen.getByText('Saved')).toBeInTheDocument();
-    // success maps onto the green palette
-    expect(container.querySelector('.bg-green-50')).toBeTruthy();
+    // success maps onto the `--pb-success-*` token triple, not a raw palette pair
+    expect(container.querySelector('.bg-success-bg')).toBeTruthy();
+    expect(container.querySelector('.border-success-border')).toBeTruthy();
+    expect(container.querySelector('.bg-green-50')).toBeNull();
   });
 
   it('renders a dismiss button when onDismiss is provided', () => {

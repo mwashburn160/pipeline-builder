@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -205,7 +206,6 @@ function Hero() {
   identifierRef.current = identifier;
   // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
   // the endpoint 404s) renders no extra UI — password login is unchanged.
-  const [providers, setProviders] = useState<string[]>([]);
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   // Passkeys. WebAuthn support gates the explicit button; CONDITIONAL-UI support
   // is a separate, narrower question (Safari and Firefox had WebAuthn for years
@@ -214,13 +214,12 @@ function Hero() {
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const sessionExpired = router.query.expired === '1';
 
-  useEffect(() => {
-    let cancelled = false;
-    api.listOAuthProviders()
-      .then((res) => { if (!cancelled) setProviders(res.data?.providers ?? []); })
-      .catch(() => { if (!cancelled) setProviders([]); });
-    return () => { cancelled = true; };
-  }, []);
+  // Fail-soft: no answer means no social buttons, never a broken sign-in form.
+  const oauthProviders = useFetch<string[]>(
+    async (signal) => (await api.listOAuthProviders({ signal })).data?.providers ?? [],
+    [],
+  );
+  const providers = oauthProviders.data ?? [];
 
   /**
    * Ask whether this identifier's DOMAIN is federated, and remember the answer.

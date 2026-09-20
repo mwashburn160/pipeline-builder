@@ -11,6 +11,7 @@ import {
   audited,
   requireAllPermissions,
   validateBody,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
@@ -53,7 +54,7 @@ function parseRepoRef(s: string): { repo: string; ref: string } {
  */
 export function registerCopyRoutes(router: Router): void {
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
-  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, audited('registry.image.copy'), withRoute(async ({ req, res, ctx }) => {
+  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, audited('registry.image.copy'), withRoute(async ({ req, res, ctx, userId }) => {
     const validation = validateBody(req, CopyImageSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { source, target, overwrite, allowCrossTenant } = validation.value;
@@ -202,7 +203,7 @@ export function registerCopyRoutes(router: Router): void {
     const targetOwnerOrgId = repoOwnerOrgId(targetRepo);
     emitImageRegistryAudit({
       action: 'registry.image.copy',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       ...(req.user?.email && { actorEmail: req.user.email }),
       ...(req.user?.organizationId && { orgId: req.user.organizationId }),
       // The org whose namespace was WRITTEN (so its admins see the copy even when

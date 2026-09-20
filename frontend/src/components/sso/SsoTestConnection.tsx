@@ -46,16 +46,26 @@ export function SsoTestConnection({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<SsoTestReport | null>(null);
+  // Text for the always-mounted live region below. A region added to the DOM
+  // together with its text is NOT announced — only a change inside a region
+  // that was already there is — so the outcome has to arrive as a text update.
+  const [announcement, setAnnouncement] = useState('');
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
 
   const run = async () => {
     setError(null);
     setReport(null);
+    setAnnouncement('');
     // Opened on the click, or pop-up blockers win.
     const popup = window.open('', 'pb-sso-test', 'width=520,height=720');
-    if (!popup) { setError('Allow pop-ups for this site to run a test connection.'); return; }
+    if (!popup) {
+      setError('Allow pop-ups for this site to run a test connection.');
+      setAnnouncement('Allow pop-ups for this site to run a test connection.');
+      return;
+    }
     setRunning(true);
+    setAnnouncement('Running the test connection. Sign in at your identity provider in the pop-up.');
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -68,9 +78,12 @@ export function SsoTestConnection({
       const r = done.data?.report;
       if (!r) throw new Error('The test returned no report.');
       setReport(r);
+      setAnnouncement(describeReport(r));
       onReport?.(r);
     } catch (err) {
-      setError(formatError(err, 'The test connection failed to run.'));
+      const message = formatError(err, 'The test connection failed to run.');
+      setError(message);
+      setAnnouncement(message);
       try { popup.close(); } catch { /* already closed */ }
     } finally {
       setRunning(false);
@@ -91,26 +104,34 @@ export function SsoTestConnection({
           Sign in at your identity provider in the pop-up. Nothing is created — no session, account or membership.
         </span>
       </div>
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
       {report && <SsoTestReportView report={report} />}
     </div>
   );
 }
 
+/** One sentence naming the outcome, for the live region. Uses the same prose as
+ *  the report body — the raw reason enum means nothing read aloud. */
+function describeReport(report: SsoTestReport): string {
+  if (report.ok) return 'Test succeeded — a sign-in would work.';
+  const hint = report.reason ? REASON_HINTS[report.reason] : undefined;
+  return ['Test failed.', report.message, hint].filter(Boolean).join(' ');
+}
+
 /** The dry-run report. */
-export function SsoTestReportView({ report }: { report: SsoTestReport }) {
+function SsoTestReportView({ report }: { report: SsoTestReport }) {
   return (
     <div
       className={`rounded-lg border p-3 text-sm space-y-2 ${report.ok
         ? 'border-green-200 bg-green-50 dark:border-green-900/50 dark:bg-green-900/20'
         : 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20'}`}
-      role="status"
       data-testid="sso-test-report"
     >
       <p className="flex items-center gap-2 font-medium">
         {report.ok
           ? <><CheckCircle2 className="w-4 h-4 text-success" />Test succeeded — a sign-in would work.</>
-          : <><XCircle className="w-4 h-4 text-danger" />Test failed{report.reason ? ` (${report.reason})` : ''}.</>}
+          : <><XCircle className="w-4 h-4 text-danger" />Test failed.</>}
       </p>
       {!report.ok && (
         <p>{report.message}{report.reason && REASON_HINTS[report.reason] ? ` ${REASON_HINTS[report.reason]}` : ''}</p>

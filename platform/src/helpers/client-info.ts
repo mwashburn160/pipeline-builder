@@ -43,7 +43,7 @@ const PLATFORMS: ReadonlyArray<[RegExp, string]> = [
  * fingerprinting detail such as versions) is persisted. `undefined` when the
  * header is absent; "Unknown client" when nothing is recognised.
  */
-export function summarizeUserAgent(raw: unknown): string | undefined {
+function summarizeUserAgent(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || raw.trim().length === 0) return undefined;
   const client = CLIENTS.find(([re]) => re.test(raw))?.[1];
   const platform = PLATFORMS.find(([re]) => re.test(raw))?.[1];

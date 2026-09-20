@@ -30,6 +30,7 @@ import {
   getDefaultKeyProvider,
   sendError,
   sendSuccess,
+  errorMessage,
 } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
@@ -98,11 +99,11 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
     } catch (err) {
       logger.warn('KMS rotation aborted: pre-rotation capture failed', {
         orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       return sendError(
         res, 409,
-        `Cannot rotate KMS config: failed to decrypt existing secrets under the current provider. ${err instanceof Error ? err.message : String(err)}. Repair the failing row OR retry with ?reencrypt=false (existing secrets will become unreadable).`,
+        `Cannot rotate KMS config: failed to decrypt existing secrets under the current provider. ${errorMessage(err)}. Repair the failing row OR retry with ?reencrypt=false (existing secrets will become unreadable).`,
       );
     }
   }
@@ -122,11 +123,11 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
       // the error loud so on-call can finish the migration manually.
       logger.error('KMS rotation: re-encryption failed after config change', {
         orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       return sendError(
         res, 500,
-        `KMS config saved but re-encryption failed mid-flight: ${err instanceof Error ? err.message : String(err)}. Some secrets may now be unreadable. Re-enter them via their respective admin endpoints.`,
+        `KMS config saved but re-encryption failed mid-flight: ${errorMessage(err)}. Some secrets may now be unreadable. Re-enter them via their respective admin endpoints.`,
       );
     }
   }
@@ -210,7 +211,7 @@ export const testOrgKmsConfig = withController('Test org KMS config', async (req
       message: 'KMS Decrypt succeeded; derived a 32-byte per-org key.',
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     logger.warn('KMS config test failed', { orgId, keyId: parsed.keyId, error: message });
     return sendError(res, 400, `KMS test failed: ${message}`);
   }

@@ -31,7 +31,7 @@ import type { Request, Response } from 'express';
 import type { IssuedTokens } from '../utils/token.js';
 
 /** Cookie carrying the browser's refresh token. */
-export const REFRESH_COOKIE_NAME = 'pb_refresh';
+const REFRESH_COOKIE_NAME = 'pb_refresh';
 
 /**
  * Cookie policy, read straight from the environment rather than through
@@ -67,7 +67,7 @@ const COOKIE_POLICY = {
 export const CLIENT_TYPE_HEADER = 'x-pb-client';
 
 /** The one client type that gets the cookie transport. */
-export const BROWSER_CLIENT_TYPE = 'web';
+const BROWSER_CLIENT_TYPE = 'web';
 
 /** Just the headers/cookie surface these helpers read. */
 type RequestLike = Pick<Request, 'headers'>;
@@ -121,7 +121,7 @@ function cookieAttributes() {
 }
 
 /** Store (or rotate) the browser's refresh token. */
-export function setRefreshCookie(res: Response, token: string): void {
+function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     ...cookieAttributes(),
     maxAge: COOKIE_POLICY.maxAgeMs,

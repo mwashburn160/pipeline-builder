@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, audited, createLogger, errorMessage, validateBody, requirePermission } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, audited, createLogger, errorMessage, validateBody, requirePermission, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -60,7 +60,7 @@ export function createTemplateRoutes(): Router {
           scope: 'org',
           createdBy: userId,
           updatedBy: userId,
-        } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
+        }, userId);
         created.push(rule.id);
 
         // Best-effort attributed audit — one event per template ACTUALLY
@@ -68,7 +68,7 @@ export function createTemplateRoutes(): Router {
         // new rule; details names the source template only.
         emitComplianceAudit({
           action: 'compliance.template.apply',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'rule',
           targetId: rule.id,

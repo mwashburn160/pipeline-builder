@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Laptop, Server, LogOut, ShieldOff } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { RetryError } from '@/components/ui/RetryError';
@@ -12,7 +12,8 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useQuery } from '@/hooks/useQuery';
+import { invalidate, queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { SessionMeta } from '@/lib/api/domains/auth';
@@ -48,14 +49,15 @@ type Pending =
  */
 export function SessionsSection({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
-  // A load failure must NOT render as "no sessions" — on a security surface a
-  // false-empty reads as "nothing is signed in" when devices may well be.
-  const loadSessions = useCallback(async () => {
-    const res = await api.listSessions();
-    if (res.success && res.data) return { sessions: res.data.sessions, machineSessions: res.data.machineSessions };
-    throw new Error('Failed to load sessions');
-  }, []);
-  const { data, loading, error: loadError, reload } = useLoadable(loadSessions, EMPTY, 'Failed to load sessions');
+  // Through the shared read cache — the posture strip at the top of this page
+  // reads the same list. The query throws rather than resolving empty on a
+  // failed read: on a security surface a false-empty reads as "nothing is
+  // signed in" when devices may well be.
+  const read = useQuery(queries.sessions());
+  const data = read.data ?? EMPTY;
+  const loading = read.loading;
+  const loadError = read.error ? formatError(read.error, 'Failed to load sessions') : null;
+  const reload = () => { invalidate.sessions(); read.refetch(); };
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -115,7 +117,7 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
     {
       id: 'client',
       header: 'Device',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      cellClassName: 'font-medium text-fg',
       render: (s) => s.userAgent ?? 'Unknown client',
     },
     {
@@ -133,7 +135,7 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
     {
       id: 'scope',
       header: 'Scope',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      cellClassName: 'font-medium text-fg',
       render: (s) => (s.scope
         ? <span className="font-mono text-xs">{s.scope}</span>
         : s.permissions

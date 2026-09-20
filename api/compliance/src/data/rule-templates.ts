@@ -7,14 +7,23 @@
  * opt into during onboarding. Each template creates an org-scoped rule.
  */
 
+import type { RuleOperator, RuleSeverity, RuleTarget } from '@pipeline-builder/pipeline-data';
+
 export interface RuleTemplate {
   id: string;
   name: string;
   description: string;
-  target: 'plugin' | 'pipeline';
-  severity: 'warning' | 'error' | 'critical';
+  target: RuleTarget;
+  /**
+   * The stored rule's severity/operator types, NOT widened copies. A template
+   * is inserted verbatim as a rule, so anything the schema won't accept is a
+   * template that silently fails to apply at runtime — the widened `string`
+   * these used to be (plus an `as unknown as` at the apply site) hid exactly
+   * that, and would have hidden any later rename of an operator.
+   */
+  severity: RuleSeverity;
   field: string;
-  operator: string;
+  operator: RuleOperator;
   value?: unknown;
   priority: number;
   tags: string[];

@@ -26,6 +26,10 @@ export interface HttpRequest {
     sub?: string;
     organizationId?: string;
     role?: string;
+    /** `user` | `service_account` | `service` — decides whether the
+     *  client-settable `x-org-id` header may name the tenant (see
+     *  `utils/identity.ts`). */
+    principalType?: string;
     [key: string]: unknown;
   };
 }

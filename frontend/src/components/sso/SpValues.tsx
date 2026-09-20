@@ -34,7 +34,7 @@ export function SpValues({ orgId, protocol }: { orgId: string; protocol: IdpProt
 
   return (
     <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 p-3 space-y-3" data-testid="sp-values">
-      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Give these to your identity provider</p>
+      <p className="text-sm font-medium text-fg-muted">Give these to your identity provider</p>
       {protocol === 'oidc' ? (
         <CopyRow
           label="Redirect (callback) URI"

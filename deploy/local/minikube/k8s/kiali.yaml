@@ -159,7 +159,7 @@ spec:
       serviceAccountName: kiali
       containers:
         - name: kiali
-          image: quay.io/kiali/kiali:v2.16
+          image: quay.io/kiali/kiali@sha256:b614e37de1ed5a483ef2d2635f69efe0c374a17303faf56b7554bc472575a36e  # quay.io/kiali/kiali:v2.16
           command: ["/opt/kiali/kiali", "-config", "/kiali-configuration/config.yaml"]
           ports:
             - containerPort: 20001

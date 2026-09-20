@@ -2,6 +2,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { errorMessage } from '@pipeline-builder/api-core';
 import { PipelineBuilder, type BuilderProps } from '@pipeline-builder/pipeline-core/cdk';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
@@ -68,7 +69,7 @@ try {
 } catch (error) {
   console.error(
     bold(red('[BUILD FAILED]')),
-    error instanceof Error ? error.message : String(error),
+    errorMessage(error),
   );
 
   if (error instanceof Error && error.stack) {

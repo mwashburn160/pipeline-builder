@@ -61,7 +61,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: loki
-          image: grafana/loki:3.6.11
+          image: grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945  # grafana/loki:3.6.11
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

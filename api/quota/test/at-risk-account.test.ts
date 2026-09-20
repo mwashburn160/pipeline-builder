@@ -9,8 +9,9 @@
  * Unlike at-risk.test.ts (which stubs authorizeOrg), this suite runs the REAL
  * `authorizeOrg` middleware end-to-end so the tenancy guarantee (a non-sysadmin
  * can only read their own org — never another tenant's) is actually exercised.
- * Numbers come from `getQuotaStatus`, which is pooled-aware, so hierarchy orgs
- * report the root's shared cap.
+ * Numbers come from the SINGLE pooled-aware `findByOrgId` read (its `quotas`
+ * map already carries the root's shared cap for hierarchy orgs), so this
+ * dashboard-polled route resolves the pool ONCE instead of once per dimension.
  *
  * The route also sits behind `requirePermission('quotas:read')` (after the
  * tenancy guard), so the happy-path users below carry `quotas:read` — the
@@ -22,6 +23,8 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findByOrgId = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+// Kept as a spy so the suite can assert the route does NOT re-walk the
+// hierarchy once per dimension any more.
 const getQuotaStatus = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/services/quota-service.js', () => ({
@@ -96,16 +99,15 @@ const status = (limit: number, used: number, unlimited = false) => ({
   used,
   unlimited,
   remaining: limit === -1 ? -1 : Math.max(0, limit - used),
-  allowed: limit === -1 || used < limit,
   resetAt: new Date('2026-12-31T00:00:00Z'),
 });
 
-const summary = (orgId: string) => ({
+const summary = (orgId: string, quotas: Record<string, unknown> = {}) => ({
   orgId,
   name: 'Acme',
   slug: 'acme',
   tier: 'team',
-  quotas: {},
+  quotas,
 });
 
 describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
@@ -116,11 +118,11 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
   it('returns the caller\'s OWN org at-risk dims (same-org, no sysadmin)', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    getQuotaStatus.mockImplementation(async (_orgId: string, type: string) => {
-      if (type === 'plugins') return status(100, 95); // 95% — at-risk
-      if (type === 'pipelines') return status(10, 2); // 20% — fine
-      return status(-1, 999, true); // apiCalls unlimited — skipped
-    });
+    findByOrgId.mockResolvedValue(summary('org-1', {
+      plugins: status(100, 95), // 95% — at-risk
+      pipelines: status(10, 2), // 20% — fine
+      apiCalls: status(-1, 999, true), // unlimited — skipped
+    }));
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
@@ -133,8 +135,10 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
     expect(payload.count).toBe(1);
     expect(payload.atRisk).toHaveLength(1);
     expect(payload.atRisk[0]).toMatchObject({ orgId: 'org-1', type: 'plugins', percent: 95 });
-    // Every quota-status read was scoped to the caller's own org.
-    for (const call of getQuotaStatus.mock.calls) expect(call[0]).toBe('org-1');
+    // ONE pooled read for the whole response, scoped to the caller's own org —
+    // the per-dimension `getQuotaStatus` walk is gone.
+    expect(findByOrgId.mock.calls).toEqual([['org-1']]);
+    expect(getQuotaStatus).not.toHaveBeenCalled();
   });
 
   it('rejects a non-sysadmin reading ANOTHER org (403) and never queries it', async () => {
@@ -153,10 +157,11 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
   it('honors a custom threshold', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    getQuotaStatus.mockImplementation(async (_orgId: string, type: string) => {
-      if (type === 'plugins') return status(100, 55); // 55%
-      return status(100, 5); // 5%
-    });
+    findByOrgId.mockResolvedValue(summary('org-1', {
+      plugins: status(100, 55), // 55%
+      pipelines: status(100, 5), // 5%
+      apiCalls: status(100, 5),
+    }));
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
@@ -170,8 +175,9 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
   it('reports limit === 0 dims as 100% (permanently at-risk)', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    getQuotaStatus.mockImplementation(async (_orgId: string, type: string) =>
-      type === 'plugins' ? status(0, 0) : status(100, 1));
+    findByOrgId.mockResolvedValue(summary('org-1', {
+      plugins: status(0, 0), pipelines: status(100, 1), apiCalls: status(100, 1),
+    }));
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
@@ -184,8 +190,9 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
   it('still lets a sysadmin read a single org (cross-org allowed by the guard)', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    findByOrgId.mockResolvedValue(summary('org-2'));
-    getQuotaStatus.mockResolvedValue(status(100, 90));
+    findByOrgId.mockResolvedValue(summary('org-2', {
+      plugins: status(100, 90), pipelines: status(100, 90), apiCalls: status(100, 90),
+    }));
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
@@ -195,13 +202,15 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     const payload = res.json.mock.calls[0][0].data;
     expect(payload.orgId).toBe('org-2');
-    expect(payload.atRisk.every((r: { type: string }) => r.percent >= 80)).toBe(true);
-    for (const call of getQuotaStatus.mock.calls) expect(call[0]).toBe('org-2');
+    expect(payload.atRisk.every((r: { percent: number }) => r.percent >= 80)).toBe(true);
+    expect(findByOrgId.mock.calls).toEqual([['org-2']]);
   });
 
   it('returns an empty list when nothing is at-risk', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    getQuotaStatus.mockResolvedValue(status(100, 10));
+    findByOrgId.mockResolvedValue(summary('org-1', {
+      plugins: status(100, 10), pipelines: status(100, 10), apiCalls: status(100, 10),
+    }));
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {

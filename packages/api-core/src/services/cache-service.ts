@@ -28,6 +28,7 @@ import { randomUUID } from 'crypto';
 import { createEnvRedisClient } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('cache-service');
 
@@ -141,7 +142,7 @@ export function createRedisCacheInvalidationBus(publisher: RedisInvalidationClie
       .catch((err: unknown) => {
         emitCounter('cache_invalidation_subscribe_failed_total', {});
         logger.warn('Cache invalidation subscribe failed; will retry on next reconnect', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       });
   };
@@ -160,7 +161,7 @@ export function createRedisCacheInvalidationBus(publisher: RedisInvalidationClie
   });
   subscriber.on('ready', doSubscribe);
   subscriber.on('error', (e: unknown) =>
-    logger.warn('Cache invalidation subscriber error', { error: e instanceof Error ? e.message : String(e) }));
+    logger.warn('Cache invalidation subscriber error', { error: errorMessage(e) }));
   if (subscriber.status === 'ready') doSubscribe();
 
   return {
@@ -170,7 +171,7 @@ export function createRedisCacheInvalidationBus(publisher: RedisInvalidationClie
         .catch((err: unknown) => {
           emitCounter('cache_invalidation_publish_failed_total', { prefix: msg.prefix });
           logger.warn('Cache invalidation publish failed (other replicas keep the entry until TTL)', {
-            prefix: msg.prefix, op: msg.op, error: err instanceof Error ? err.message : String(err),
+            prefix: msg.prefix, op: msg.op, error: errorMessage(err),
           });
         });
     },

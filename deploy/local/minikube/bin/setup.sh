@@ -94,7 +94,7 @@ lean_filter() {
   if [ "$LEAN" != "1" ]; then cat; return; fi
   awk '
     function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali)(-.*)?$/)
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali)(-.*)?$/)
       d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
@@ -183,6 +183,11 @@ set +a
 # default 3072Mi — lower than the AWS tiers since this runs on a laptop.
 # envsubst has no `:-default`, so the fallback lives here.
 : "${BUILDKIT_MEMORY_LIMIT:=3072Mi}"; export BUILDKIT_MEMORY_LIMIT
+
+# ALERT DELIVERY PRE-FLIGHT. Fails the deploy while a Slack webhook URL is still
+# a placeholder — alerting that 404s into nothing is indistinguishable from
+# healthy alerting. Set both SLACK_*_WEBHOOK_URL empty in .env to run without it.
+pb_check_alert_delivery "$ENV_FILE" "$CONFIG_DIR/alertmanager/alertmanager.yml" || exit 1
 
 # Generate the MongoDB replica-set keyfile per-deploy if absent (idempotent —
 # skips if present). It's no longer committed, so a fresh checkout has none;
@@ -496,12 +501,14 @@ secret minio-secret \
   --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
   --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY"
 
-# Optional Slack secret — alertmanager.yaml references it with optional:true.
-# NOTE: the shipped alertmanager.yml hardcodes placeholder Slack URLs and does
-# not read these env vars, so Slack delivery no-ops until that config is edited.
+# Ops-team Slack webhook URLs for the platform-wide critical/warning receivers,
+# mounted as FILES into alertmanager (api_url_file in alertmanager.yml) — a
+# webhook URL is a bearer credential, so it stays out of the config ConfigMap.
+# Created unconditionally (not `optional:`) so a missing value is a loud
+# FailedMount; the values were pre-flighted by pb_check_alert_delivery above.
 secret alertmanager-slack \
-  --from-literal=SLACK_WEBHOOK_URL_CRITICAL="${SLACK_WEBHOOK_URL_CRITICAL:-}" \
-  --from-literal=SLACK_WEBHOOK_URL_WARNING="${SLACK_WEBHOOK_URL_WARNING:-}"
+  --from-literal=SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}" \
+  --from-literal=SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
 # Per-org alert relay bearer (REQUIRED). Mounted as a file into alertmanager
 # (credentials_file) and injected into platform's ALERT_WEBHOOK_INSTANCES.
 secret alertmanager-relay \

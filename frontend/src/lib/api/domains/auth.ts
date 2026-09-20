@@ -8,7 +8,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
-import type { ApiResponse, MfaChallenge, Passkey, PasswordChangeChallenge, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
+import type { ApiResponse, MfaChallenge, Passkey, PasswordChangeChallenge, QuotaTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
  * One of the caller's sessions: a signed-in device (`interactive`) or a stored
@@ -196,8 +196,8 @@ export function authApi(core: ApiCore) {
     },
 
     /** GET /auth/onboarding/domain-orgs — orgs the user could join by verified email domain. */
-    getDomainOrgs: async () => {
-      return core.request<ApiResponse<{ orgs: Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }> }>>('/api/auth/onboarding/domain-orgs');
+    getDomainOrgs: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ orgs: Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }> }>>('/api/auth/onboarding/domain-orgs', { signal: opts?.signal });
     },
 
     /** POST /auth/onboarding/join — auto-join or request to join a domain-discovered org. */
@@ -260,7 +260,7 @@ export function authApi(core: ApiCore) {
      * Pass `parentOrgId` to create it as a team nested under that org (the caller
      * must be an admin/owner of the parent).
      */
-    createOrganization: async (data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; parentOrgId?: string }) => {
+    createOrganization: async (data: { name: string; description?: string; tier?: QuotaTier; parentOrgId?: string }) => {
       return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string; parentOrgId?: string } }>>('/api/organization', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -335,9 +335,10 @@ export function authApi(core: ApiCore) {
       );
     },
 
-    /** GET /user/sessions — signed-in devices + stored machine credentials. */
-    listSessions: async () => {
-      return core.request<ApiResponse<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }>>('/api/user/sessions');
+    /** GET /user/sessions — signed-in devices + stored machine credentials.
+     *  `opts.signal` cancels the request on the wire (shared query cache). */
+    listSessions: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }>>('/api/user/sessions', { signal: opts?.signal });
     },
 
     /** DELETE /user/sessions/:id — sign one device out, or stop a machine
@@ -451,8 +452,8 @@ export function authApi(core: ApiCore) {
 
     /** GET /auth/oauth/providers — list enabled OAuth providers (public). Returns
      *  `{ providers: [] }` (or 404) when none are configured; callers render nothing. */
-    listOAuthProviders: async () => {
-      return core.request<ApiResponse<{ providers: string[] }>>('/api/auth/oauth/providers');
+    listOAuthProviders: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ providers: string[] }>>('/api/auth/oauth/providers', { signal: opts?.signal });
     },
 
     /** GET /auth/oauth/:provider/url — get the provider authorize URL to redirect the
@@ -687,9 +688,10 @@ export function authApi(core: ApiCore) {
     // ============================================
 
     /** GET /auth/totp/status — whether the caller has an authenticator app, and
-     *  how many recovery codes are left. Never the secret. */
-    getTotpStatus: async () => {
-      return core.request<ApiResponse<{ totp: TotpStatus }>>('/api/auth/totp/status');
+     *  how many recovery codes are left. Never the secret.
+     *  `opts.signal` cancels the request on the wire (shared query cache). */
+    getTotpStatus: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ totp: TotpStatus }>>('/api/auth/totp/status', { signal: opts?.signal });
     },
 
     /** POST /auth/totp/enrol — a fresh secret + `otpauth://` URI. Step-up gated;

@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -18,7 +19,6 @@ const mockSend = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAccept = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRevoke = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockResend = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockRequireOrgMembership = jest.fn();
 const mockValidateBody = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -34,10 +34,7 @@ jest.unstable_mockModule('../src/controllers/oauth.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireOrgMembership: (...a: unknown[]) => mockRequireOrgMembership(...a),
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (...a: unknown[]) => mockValidateBody(...a),
@@ -72,9 +69,18 @@ function makeRes() {
 
 const SECRET_TOKEN = 'super-secret-invite-token-abc123';
 
+/**
+ * Every write here starts with `requireOrgMembership`, which now runs FOR REAL
+ * (see helpers/controller-helper-mock.ts) and reads `req.user.organizationId` —
+ * it is also where the invitation's `affectedOrgId` comes from on send/resend.
+ * So the actor's org is carried by the FIXTURE rather than by the deleted
+ * `mockRequireOrgMembership` spy (which had stopped being wired to anything, so
+ * the handlers were 400'ing before they ever ran).
+ */
+const ACTOR = { sub: 'u1', organizationId: 'org-actor', role: 'owner' };
+
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRequireOrgMembership.mockReturnValue('org-actor');
 });
 
 describe('invitation controller — audit emissions', () => {
@@ -86,7 +92,7 @@ describe('invitation controller — audit emissions', () => {
     });
 
     const res = makeRes();
-    await (sendInvitation as any)({ user: { sub: 'u1', role: 'owner' }, body: {} }, res);
+    await (sendInvitation as any)({ user: ACTOR, body: {} }, res);
 
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'invitation.send', expect.objectContaining({
       targetType: 'invitation',
@@ -123,7 +129,7 @@ describe('invitation controller — audit emissions', () => {
     mockRevoke.mockResolvedValue({ invitationId: 'inv-2', organizationId: 'org-actor', email: 'gone@x.io', role: 'member' });
 
     const res = makeRes();
-    await (revokeInvitation as any)({ user: { sub: 'u1', role: 'admin' }, params: { invitationId: 'inv-2' } }, res);
+    await (revokeInvitation as any)({ user: { ...ACTOR, role: 'admin' }, params: { invitationId: 'inv-2' } }, res);
 
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'invitation.revoke', expect.objectContaining({
       targetType: 'invitation',
@@ -137,7 +143,7 @@ describe('invitation controller — audit emissions', () => {
     mockResend.mockResolvedValue({ expiresAt: new Date(), emailSent: true, email: 're@x.io', role: 'member' });
 
     const res = makeRes();
-    await (resendInvitation as any)({ user: { sub: 'u1', role: 'owner' }, params: { invitationId: 'inv-3' } }, res);
+    await (resendInvitation as any)({ user: ACTOR, params: { invitationId: 'inv-3' } }, res);
 
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'invitation.resend', expect.objectContaining({
       targetType: 'invitation',
@@ -145,5 +151,32 @@ describe('invitation controller — audit emissions', () => {
       affectedOrgId: 'org-actor',
       details: { email: 're@x.io', role: 'member' },
     }));
+  });
+});
+
+/**
+ * The membership gate itself: an invitation is a privilege grant into an org,
+ * so a caller with no active org must not reach the service — and nothing may
+ * be audited on a refusal.
+ */
+describe('invitation controller — the requireOrgMembership gate', () => {
+  it('401s an anonymous caller; no service call, no audit', async () => {
+    for (const handler of [sendInvitation, revokeInvitation, resendInvitation]) {
+      const res = makeRes();
+      await (handler as any)({ user: undefined, body: {}, params: { invitationId: 'inv-1' } }, res);
+      expect(res.status).toHaveBeenCalledWith(401);
+    }
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockRevoke).not.toHaveBeenCalled();
+    expect(mockResend).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('400s a signed-in caller with no active organization', async () => {
+    const res = makeRes();
+    await (sendInvitation as any)({ user: { sub: 'u1', role: 'owner' }, body: {} }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

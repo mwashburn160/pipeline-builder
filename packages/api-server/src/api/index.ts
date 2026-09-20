@@ -24,21 +24,26 @@ export * from './mongo-connect.js';
 // Quota helpers
 export * from './quota-helpers.js';
 
-// Idempotency
-export * from './idempotency-middleware.js';
+// Idempotency — only the store accessor is public; the middleware, the store
+// factories and the store setter are wired by `createApp`/`middleware-factory`
+// inside this package and have no external caller.
+export { getIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
 
-// Observability
-export * from './tracing.js';
-export * from './metrics.js';
+// Observability. `shutdownTracing` is called by this package's own `server.js`
+// shutdown path, and the metrics middleware/handler are mounted by `createApp`.
+export { withSpan, currentTraceId } from './tracing.js';
+export { registerSecretRotationGauge, incCounter, observe, setGauge } from './metrics.js';
 
 // Server utilities
 export * from './server.js';
 
-// Readiness state + guard middleware
-export * from './readiness.js';
+// Readiness state + guard middleware. `DEFAULT_READINESS_BYPASS` is the guard's
+// own default — callers pass their own list or take the default implicitly.
+export { isReady, setReady, readinessGuard } from './readiness.js';
 
 // Route wrapper
 export * from './route-wrapper.js';
 
-// Request/Response types
-export * from './request-types.js';
+// Request/Response types. `createRequestContext` is the factory
+// `attachRequestContext` calls; it is not part of the public surface.
+export type { RequestLogger, RequestContext } from './request-types.js';

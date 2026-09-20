@@ -41,8 +41,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   RoleAssignment: { updateOne: (...a: unknown[]) => mockGmUpdateOne(...a) },
   UserOrganization: { find: (...a: unknown[]) => mockUoFind(...a) },
-  // rbac-backfill pulls in roles-service (for permissionsForGrantsRole), which
-  // imports User too — expose it so ESM linking against the mock succeeds.
+  // This mock REPLACES the whole models barrel, so every name anything in the
+  // import graph reads from it has to be present or ESM linking fails. `User`
+  // is one of those.
   User: {},
 }));
 

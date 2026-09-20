@@ -285,7 +285,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
       <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Inputs (parameters)</span>
+          <span className="text-sm font-medium text-fg-muted">Inputs (parameters)</span>
           <Button type="button" variant="secondary" size="xs" onClick={addInput} disabled={loading}>
             <Plus className="w-3.5 h-3.5 mr-1 inline" /> Add input
           </Button>
@@ -329,7 +329,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   const jsonPreview = showPreview && previewJson !== null ? (
     <div className="border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit JSON <span className="font-normal text-fg-subtle">— edit the template `props` directly, then Apply</span></span>
+        <span className="text-sm font-medium text-fg-muted">Edit JSON <span className="font-normal text-fg-subtle">— edit the template `props` directly, then Apply</span></span>
         <div className="flex items-center gap-3">
           <button
             onClick={handleApplyJson}

@@ -10,7 +10,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import { downloadCsv } from '@/lib/csv-export';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
-import { StatCard } from './StatCard';
+import { StatCard } from '@/components/ui/StatCard';
 import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';
 
 // ─── Formatting ─────────────────────────────────────────

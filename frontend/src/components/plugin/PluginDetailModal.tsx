@@ -12,7 +12,7 @@ import { formatDateTime } from '@/lib/format';
  * a registry host like `registry.example.com/...`) into the repo path and
  * tag the registry browser uses. Strips a leading host segment if present.
  */
-export function parsePluginUri(uri: string | undefined): { repo: string; tag: string } | null {
+function parsePluginUri(uri: string | undefined): { repo: string; tag: string } | null {
   if (!uri) return null;
   const lastColon = uri.lastIndexOf(':');
   if (lastColon < 1) return null;
@@ -40,7 +40,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs font-medium text-fg-muted">{label}</p>
-      <p className="text-gray-900 dark:text-gray-100 font-mono text-xs mt-0.5">{value}</p>
+      <p className="text-fg font-mono text-xs mt-0.5">{value}</p>
     </div>
   );
 }
@@ -72,7 +72,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose }: {
         {plugin.description && (
           <div>
             <p className="text-xs font-medium text-fg-muted mb-1">Description</p>
-            <p className="text-gray-900 dark:text-gray-100">{plugin.description}</p>
+            <p className="text-fg">{plugin.description}</p>
           </div>
         )}
         {plugin.keywords && plugin.keywords.length > 0 && (

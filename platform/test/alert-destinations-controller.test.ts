@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockListAll = jest.fn();
 const mockIsSystemAdmin = jest.fn();
@@ -52,14 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  isOrgAdmin: jest.fn(),
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-  requireOrgMembership: (req: any) => req.user?.organizationId ?? null,
-  requireAuthContext: (req: any) =>
-    req.user?.sub && req.user?.organizationId ? { userId: req.user.sub, orgId: req.user.organizationId } : null,
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 class DestinationNotFoundError extends Error {
   constructor(id: string) { super(`Alert destination not found: ${id}`); this.name = 'DestinationNotFoundError'; }

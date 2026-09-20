@@ -10,15 +10,12 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -29,11 +26,11 @@ import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
+import { RegisterDeploymentModal, type PipelineConfig } from '@/components/deployments/RegisterDeploymentModal';
 
 /** The config columns drift + the register modal need — the whole set is
  *  drained (see `queries.allPipelines`), so it stays narrow. */
 const CONFIG_FIELDS = ['pipelineName', 'project', 'organization'] as const;
-type PipelineConfig = Pick<Pipeline, typeof CONFIG_FIELDS[number] | 'id'>;
 
 /** Registry page size for the drain, and its runaway guard. */
 const REGISTRY_PAGE = 200;
@@ -267,11 +264,11 @@ export default function DeploymentsPage() {
               where the link would 404, so show plain text and let the drift
               badge explain. */}
           {r.drift === 'orphaned' ? (
-            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{r.pipelineName}</div>
+            <div className="text-sm font-medium text-fg">{r.pipelineName}</div>
           ) : (
             <Link
               href={`/dashboard/pipelines/${encodeURIComponent(r.pipelineId)}`}
-              className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+              className="text-sm font-medium text-fg hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
             >
               {r.pipelineName}
             </Link>
@@ -455,7 +452,7 @@ export default function DeploymentsPage() {
       {confirmTarget && (
         <Modal title="Deregister deployment" onClose={() => removing ? undefined : setConfirmTarget(null)} maxWidth="max-w-md">
           <div className="space-y-3 text-sm">
-            <p className="text-gray-700 dark:text-gray-300">
+            <p className="text-fg-muted">
               Deregister <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployments registry?
             </p>
             <div className="p-3 rounded border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 text-xs">
@@ -485,123 +482,5 @@ export default function DeploymentsPage() {
         />
       )}
     </DashboardLayout>
-  );
-}
-
-/** Modal to register (upsert) a deployment for one of the org's pipelines. */
-function RegisterDeploymentModal({
-  configs, onClose, onRegistered,
-}: {
-  configs: PipelineConfig[];
-  onClose: () => void;
-  onRegistered: (row: PipelineDeployment) => void;
-}) {
-  const [pipelineId, setPipelineId] = useState('');
-  const [region, setRegion] = useState('');
-  const [stackName, setStackName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const selected = configs.find((c) => c.id === pipelineId);
-
-  const handleSubmit = async () => {
-    setErr(null);
-    if (!pipelineId) {
-      setErr('Select a pipeline to register.');
-      return;
-    }
-    if (!selected) {
-      setErr('Selected pipeline is no longer available. Refresh and try again.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await api.registerPipelineDeployment({
-        pipelineId,
-        pipelineName: selected.pipelineName || pipelineId,
-        ...(region.trim() ? { region: region.trim() } : {}),
-        ...(selected.project ? { project: selected.project } : {}),
-        ...(selected.organization ? { organization: selected.organization } : {}),
-        ...(stackName.trim() ? { stackName: stackName.trim() } : {}),
-      });
-      if (res.success && res.data) {
-        onRegistered(res.data.registry);
-      } else {
-        setErr(formatError(res, 'Failed to register deployment'));
-      }
-    } catch (e) {
-      setErr(formatError(e, 'Failed to register deployment'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal
-      title="Register deployment"
-      onClose={() => submitting ? undefined : onClose()}
-      maxWidth="max-w-lg"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={submitting || !pipelineId}>
-            {submitting ? 'Registering…' : 'Register'}
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4 text-sm">
-        <div>
-          <label className="label">Pipeline</label>
-          <Select
-            value={pipelineId}
-            onChange={(e) => { setPipelineId(e.target.value); setErr(null); }}
-            disabled={submitting}
-          >
-            <option value="">Select a pipeline…</option>
-            {configs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.pipelineName || c.id}{c.project ? ` — ${c.project}` : ''}
-              </option>
-            ))}
-          </Select>
-          {configs.length === 0 && (
-            <p className="text-xs text-fg-muted mt-1">
-              No pipeline configurations found. Create a pipeline first.
-            </p>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="label">Region <span className="text-fg-subtle">(optional)</span></label>
-            <Input
-              type="text"
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              placeholder="us-east-1"
-              className="text-sm"
-              disabled={submitting}
-            />
-          </div>
-          <div>
-            <label className="label">Stack name <span className="text-fg-subtle">(optional)</span></label>
-            <Input
-              type="text"
-              value={stackName}
-              onChange={(e) => setStackName(e.target.value)}
-              placeholder="my-pipeline-stack"
-              className="text-sm"
-              disabled={submitting}
-            />
-          </div>
-        </div>
-        <p className="text-xs text-fg-muted">
-          Registering maps this pipeline&apos;s stable id to its deployment so execution events report against it. Re-registering the same pipeline updates the existing record.
-        </p>
-        {err && (
-          <ErrorAlert message={err} />
-        )}
-      </div>
-    </Modal>
   );
 }

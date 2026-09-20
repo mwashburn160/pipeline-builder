@@ -17,8 +17,10 @@ import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useAuth } from '@/hooks/useAuth';
+import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
+import { invalidate, queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { TotpEnrolment, TotpStatus } from '@/types';
 
@@ -51,15 +53,26 @@ const OFF: TotpStatus = {
  */
 export function TotpSection({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
+  const { refreshUser } = useAuth();
 
-  const loadStatus = useCallback(async (): Promise<TotpStatus> => {
-    const res = await api.getTotpStatus();
-    // A load failure must NOT render as "two-factor is off" — on a security
-    // surface a false-negative reads as "nothing is protecting this account".
-    if (!res.success || !res.data) throw new Error('Failed to load two-factor status');
-    return res.data.totp;
-  }, []);
-  const { data: status, loading, error: loadError, reload } = useLoadable<TotpStatus>(loadStatus, OFF, 'Failed to load two-factor status');
+  // Through the shared read cache — the posture strip at the top of this page
+  // and the recovery-code row ask for the same status. The query THROWS rather
+  // than resolving to "off" on a failed read (see `queries.totpStatus`), so a
+  // false negative can't render as "nothing is protecting this account".
+  const { data, loading, error: loadQueryError, refetch } = useQuery(queries.totpStatus());
+  const status: TotpStatus = data ?? OFF;
+  const loadError = loadQueryError ? formatError(loadQueryError, 'Failed to load two-factor status') : null;
+
+  /** Re-read the status AND the profile: `user.authFactors` drives the posture
+   *  strip at the top of this page, which otherwise still said "Off" after an
+   *  enrolment (and so never showed the recovery-code item at all).
+   *  `invalidate` wakes the OTHER readers of this key; `refetch` covers this
+   *  one, which has nothing cached to drop when the last read failed. */
+  const reload = useCallback(async () => {
+    invalidate.totpStatus();
+    refetch();
+    await refreshUser({ force: true });
+  }, [refetch, refreshUser]);
 
   // The in-flight enrolment (secret + QR), held only until it is confirmed or
   // abandoned. Never written anywhere but component state.

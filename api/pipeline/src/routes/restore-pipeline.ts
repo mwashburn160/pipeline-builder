@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndRestore, sendSuccess, normalizeArrayFields, audited } from '@pipeline-builder/api-core';
+import { loadAndRestore, sendSuccess, normalizeArrayFields, audited, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -31,7 +31,7 @@ export function createRestorePipelineRoutes(): Router {
     // a no-org sysadmin restore is attributed to the org whose row changed.
     emitPipelineAudit({
       action: 'pipeline.restore',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'pipeline',

@@ -24,14 +24,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 process.env.PLATFORM_FRONTEND_URL ||= 'https://pb.test';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
-const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
-const suite = RUN ? describe : describe.skip;
+const suite = integrationSuite();
 
 suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
   let replSet: { getUri: () => string; stop: () => Promise<boolean> };
@@ -56,7 +56,10 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     const { setMetricsRegistry } = await import('../src/observability/metrics.js');
     setMetricsRegistry(new Registry());
     scim = await import('../src/services/scim-service.js');
-    roles = await import('../src/services/roles-service.js');
+    roles = {
+      ...(await import('../src/services/roles-service.js')),
+      ...(await import('../src/services/role-crud.js')),
+    };
     ({ idpGroupMappingService: mapping } = await import('../src/services/idp-group-mapping-service.js'));
   }, 180_000);
 

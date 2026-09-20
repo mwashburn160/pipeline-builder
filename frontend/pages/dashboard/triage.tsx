@@ -32,6 +32,16 @@ interface TriageGroup {
   samples: TriageSample[];
 }
 
+/**
+ * The nine failure categories, each with its own tint.
+ *
+ * This is a CATEGORICAL palette — nine values that have to stay distinguishable
+ * from one another — not a severity scale, so it stays on the raw Tailwind
+ * palette for the same reason chart series colours do (see globals.css). The
+ * token set is brand plus success/warning/danger/info: four hues cannot carry
+ * nine categories, and mapping only the four that happen to fit would leave the
+ * legend half-tokenised and visually inconsistent.
+ */
 const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: string }> = {
   'docker-build': { label: 'Docker Build', hint: 'Dockerfile or image build failed — check Dockerfile syntax / base-image pulls', color: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200' },
   'template': { label: 'Template Resolution', hint: 'Plugin templates reference missing metadata/vars — run `pipeline-manager template validate`', color: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200' },
@@ -191,7 +201,7 @@ export default function TriagePage() {
                     {g.pluginNames.length > 0 && (
                       <div className="mb-3 flex flex-wrap gap-1">
                         {g.pluginNames.map(n => (
-                          <span key={n} className="inline-block px-2 py-0.5 text-xs rounded bg-white/60 border border-current/20">
+                          <span key={n} className="inline-block px-2 py-0.5 text-xs rounded bg-surface/60 border border-current/20">
                             {n}
                           </span>
                         ))}
@@ -202,7 +212,7 @@ export default function TriagePage() {
                         const isReplaying = replaying.has(s.id);
                         const msg = replayMsgs.get(s.id) ?? null;
                         return (
-                          <div key={`${s.source}-${s.id}`} className="p-2 bg-white/50 dark:bg-gray-900/30 rounded border border-current/20 text-xs font-mono">
+                          <div key={`${s.source}-${s.id}`} className="p-2 bg-surface/50 rounded border border-current/20 text-xs font-mono">
                             <div className="flex items-center justify-between mb-1 text-2xs uppercase tracking-wider opacity-60">
                               <span>
                                 {s.pluginName ?? 'unknown plugin'} • {s.source}
@@ -214,7 +224,7 @@ export default function TriagePage() {
                                     type="button"
                                     onClick={() => void handleReplay(s.id)}
                                     disabled={isReplaying}
-                                    className="px-2 py-0.5 text-2xs uppercase tracking-wider rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-2 py-0.5 text-2xs uppercase tracking-wider rounded bg-brand text-white hover:bg-brand-strong disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Re-enqueue this DLQ job onto the main build queue"
                                   >
                                     {isReplaying ? 'Replaying…' : 'Replay'}

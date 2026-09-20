@@ -37,6 +37,38 @@ export function toOrgIdString(v: unknown): string | undefined {
   return s && s !== 'null' && s !== 'undefined' ? s : undefined;
 }
 
+/** True when `id` is a 24-character hex string — i.e. castable to an ObjectId. */
+function isObjectIdHex(id: string): boolean {
+  return id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id);
+}
+
+/**
+ * Build the org-id cast the Mongo-backed services use on every `_id` lookup.
+ *
+ * Platform writes ObjectId `_id`s into the shared `organizations` collection,
+ * while the well-known `'system'` org (and `parentOrgId`, still a String column)
+ * are plain strings — so a 24-hex id arriving from a route param / JWT claim /
+ * cross-service payload must be cast or `findById('<24hex>')` never matches.
+ *
+ * Platform and quota each had their OWN `toOrgId` with a different signature
+ * (`string | string[]` vs `string`), which is exactly the drift this removes:
+ * the logic and the signature live here once, and each service supplies only
+ * its mongoose `Types.ObjectId` constructor. api-core cannot import mongoose
+ * itself (it is not — and should not become — an api-core dependency), so the
+ * constructor is injected rather than imported.
+ *
+ * @example
+ * export const toOrgId = createOrgIdCaster(mongoose.Types.ObjectId);
+ */
+export function createOrgIdCaster<T>(
+  ObjectIdCtor: new (hex: string) => T,
+): (id: string | string[]) => string | T {
+  return (id) => {
+    const idStr = Array.isArray(id) ? id[0] : id;
+    return isObjectIdHex(idStr) ? new ObjectIdCtor(idStr) : idStr;
+  };
+}
+
 export interface OrgLineage {
   /** The org's direct parent id, or `undefined` when it's a root org. */
   parentOrgId?: string;

@@ -19,11 +19,22 @@
  * with it.
  */
 
-import { createSafeClient, DEFAULT_TIER, getServiceAuthHeader, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
+import {
+  createSafeClient,
+  DEFAULT_TIER,
+  expandOrgScopeWith,
+  getServiceAuthHeader,
+  isAncestorOrgWith,
+  QUOTA_TIERS,
+  SYSTEM_ORG_ID,
+  tierAllowsTeams,
+  toOrgIdString,
+} from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import {
   ORG_MOVE_BILLED,
   ORG_MOVE_BILLING_UNVERIFIED,
+  ORG_MOVE_CONFLICT,
   ORG_MOVE_CYCLE,
   ORG_MOVE_DELETED,
   ORG_MOVE_HAS_TEAMS,
@@ -39,7 +50,7 @@ import {
   ORG_SEAT_LIMIT,
 } from './org-errors.js';
 import { config } from '../config/index.js';
-import { expandOrgScope, hasAnyChildOrg, isAncestorOrg } from '../helpers/org-hierarchy.js';
+import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Invitation, Organization, User, UserOrganization } from '../models/index.js';
@@ -92,6 +103,44 @@ function rootQuotas(tier: QuotaTier): Record<string, number> {
   const quotas: Record<string, number> = { ...QUOTA_TIERS[tier].limits } as unknown as Record<string, number>;
   for (const dim of RETENTION_DIMS) delete quotas[dim];
   return quotas;
+}
+
+// ---------------------------------------------------------------------------
+// Session-scoped hierarchy walks
+// ---------------------------------------------------------------------------
+//
+// `helpers/org-hierarchy.ts` reads OUTSIDE any transaction, which is right for
+// the read paths but wrong for `move`: a check that ran before the transaction
+// (or on an unsessioned connection inside one) sees a snapshot another
+// concurrent move can invalidate before this one commits. These are the same
+// api-core walks (cycle-safe, depth-capped) bound to the move's own session, so
+// every structural assertion and the write itself observe ONE snapshot.
+
+/** `parentOrgId` of `orgId`, read inside `session`. */
+function sessionParentOrgId(session: ClientSession) {
+  return async (orgId: string): Promise<string | undefined> => {
+    const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').session(session).lean();
+    return toOrgIdString(org?.parentOrgId);
+  };
+}
+
+/** True when `ancestorOrgId` is an ancestor of `candidateOrgId`, inside `session`. */
+function isAncestorOrgInSession(ancestorOrgId: string, candidateOrgId: string, session: ClientSession): Promise<boolean> {
+  return isAncestorOrgWith(ancestorOrgId, candidateOrgId, sessionParentOrgId(session));
+}
+
+/** ANY org — live or soft-deleted — naming `orgId` as its parent, inside `session`. */
+async function hasAnyChildOrgInSession(orgId: string, session: ClientSession): Promise<boolean> {
+  return !!(await Organization.exists({ parentOrgId: String(orgId) }).session(session));
+}
+
+/** `[self, ...live descendants]`, inside `session`. */
+function expandOrgScopeInSession(orgId: string, session: ClientSession): Promise<string[]> {
+  return expandOrgScopeWith(orgId, async (frontier) => {
+    const children = await Organization.find({ parentOrgId: { $in: frontier }, deletedAt: null })
+      .select('_id').session(session).lean();
+    return children.map((c) => toOrgIdString(c._id)).filter((id): id is string => !!id);
+  });
 }
 
 /**
@@ -190,7 +239,7 @@ class OrgHierarchyService {
     const parent = await Organization.findById(toOrgId(parentOrgId))
       .select('parentOrgId tier featureEntitlements deletedAt quotas.seats').session(session).lean();
     if (!parent || parent.deletedAt) throw new Error(ORG_RESTORE_PARENT_GONE);
-    if (parent.parentOrgId || !tierAllowsTeams(parent.tier as QuotaTier | undefined)) {
+    if (parent.parentOrgId || !tierAllowsTeams(parent.tier)) {
       throw new Error(ORG_RESTORE_PARENT_INELIGIBLE);
     }
     const seatLimit = parent.quotas?.seats ?? -1;
@@ -229,6 +278,13 @@ class OrgHierarchyService {
    *   - every session scoped to the org is invalidated (tokens carry the old
    *     hierarchy and tier claims; a parent admin's inherited session would
    *     otherwise outlive the authority that granted it).
+   *
+   * CONCURRENCY: every structural check is re-asserted INSIDE the transaction
+   * (on the session), and the write is a compare-and-set on the `parentOrgId`
+   * this request read — so of two interleaved moves exactly one commits and the
+   * other raises `ORG_MOVE_CONFLICT` having written nothing. The pre-flight read
+   * below is only there to shape the request (no-op detection, and the one
+   * check that must stay outside a transaction: billing's HTTP call).
    */
   async move(orgId: string, parentOrgId: string | null): Promise<{
     orgId: string;
@@ -249,51 +305,83 @@ class OrgHierarchyService {
     const fromParentOrgId = org.parentOrgId ? String(org.parentOrgId) : null;
     if (fromParentOrgId === (parentOrgId === null ? null : String(parentOrgId))) throw new Error(ORG_MOVE_NOOP);
 
-    type Destination = { tier?: QuotaTier; featureEntitlements?: string[]; quotas?: { seats?: number } };
-    let target: Destination | null = null;
-    if (parentOrgId !== null) {
-      if (await isAncestorOrg(orgId, parentOrgId)) throw new Error(ORG_MOVE_CYCLE);
-      if (await hasAnyChildOrg(orgId)) throw new Error(ORG_MOVE_HAS_TEAMS);
-      // A root being nested: its own subscription must be gone first. (A team
-      // moving between roots never held one — billing lives at the root.)
-      if (!fromParentOrgId) await assertNoBillableSubscription(orgId);
-      const dest = await Organization.findById(toOrgId(parentOrgId))
-        .select('parentOrgId tier featureEntitlements deletedAt isSystem quotas.seats').lean();
-      if (!dest || dest.deletedAt) throw new Error(ORG_MOVE_TARGET_NOT_FOUND);
-      if ((dest as { isSystem?: boolean }).isSystem) throw new Error(ORG_MOVE_SYSTEM);
-      if (dest.parentOrgId) throw new Error(ORG_MOVE_TARGET_NOT_ROOT);
-      if (!tierAllowsTeams(dest.tier as QuotaTier | undefined)) throw new Error(ORG_MOVE_TARGET_TIER);
-      target = dest as Destination;
-    }
+    // `tier` is required: `Organization.tier` is an enum field with a default,
+    // so a destination row always carries one.
+    type Destination = { tier: QuotaTier; featureEntitlements?: string[]; quotas?: { seats?: number } };
 
-    const tier: QuotaTier = parentOrgId !== null ? (target!.tier as QuotaTier) : DEFAULT_TIER;
-    const set: Record<string, unknown> = parentOrgId !== null
-      ? {
-        parentOrgId: String(parentOrgId),
-        tier,
-        featureEntitlements: target!.featureEntitlements ?? [],
-        quotas: teamQuotas(tier),
-      }
-      : {
-        parentOrgId: null,
-        tier,
-        featureEntitlements: [],
-        quotas: rootQuotas(tier),
-      };
+    // The ONLY check that cannot move inside the transaction: it is a remote
+    // HTTP call, and holding a Mongo transaction open across a network timeout
+    // is worse than the (bounded) staleness. The conditional write below still
+    // makes it safe — the move only lands if the org is still the ROOT this
+    // check was made for, so a concurrent move can't smuggle a billed root in.
+    if (parentOrgId !== null && !fromParentOrgId) await assertNoBillableSubscription(orgId);
 
     let bumped: Types.ObjectId[] = [];
-    await withMongoTransaction(async (session) => {
+    const tier = await withMongoTransaction(async (session) => {
+      // Re-assert EVERY structural precondition inside the session. Read
+      // outside it, two concurrent sysadmin moves each saw a tree the other was
+      // about to change — enough to nest a root under its own descendant
+      // (a parent cycle), which silently corrupts pooled quota, seats and
+      // tier/entitlement propagation for both accounts.
+      const current = await Organization.findById(toOrgId(orgId))
+        .select('parentOrgId deletedAt isSystem').session(session).lean();
+      if (!current) throw new Error(ORG_NOT_FOUND);
+      if ((current as { isSystem?: boolean }).isSystem) throw new Error(ORG_MOVE_SYSTEM);
+      if (current.deletedAt) throw new Error(ORG_MOVE_DELETED);
+      const currentParent = current.parentOrgId ? String(current.parentOrgId) : null;
+      if (currentParent !== fromParentOrgId) throw new Error(ORG_MOVE_CONFLICT);
+
+      let target: Destination | null = null;
+      if (parentOrgId !== null) {
+        if (await isAncestorOrgInSession(orgId, parentOrgId, session)) throw new Error(ORG_MOVE_CYCLE);
+        if (await hasAnyChildOrgInSession(orgId, session)) throw new Error(ORG_MOVE_HAS_TEAMS);
+        const dest = await Organization.findById(toOrgId(parentOrgId))
+          .select('parentOrgId tier featureEntitlements deletedAt isSystem quotas.seats').session(session).lean();
+        if (!dest || dest.deletedAt) throw new Error(ORG_MOVE_TARGET_NOT_FOUND);
+        if ((dest as { isSystem?: boolean }).isSystem) throw new Error(ORG_MOVE_SYSTEM);
+        if (dest.parentOrgId) throw new Error(ORG_MOVE_TARGET_NOT_ROOT);
+        if (!tierAllowsTeams(dest.tier)) throw new Error(ORG_MOVE_TARGET_TIER);
+        target = dest as Destination;
+      }
+
+      const newTier: QuotaTier = parentOrgId !== null ? target!.tier : DEFAULT_TIER;
+      const set: Record<string, unknown> = parentOrgId !== null
+        ? {
+          parentOrgId: String(parentOrgId),
+          tier: newTier,
+          featureEntitlements: target!.featureEntitlements ?? [],
+          quotas: teamQuotas(newTier),
+        }
+        : {
+          parentOrgId: null,
+          tier: newTier,
+          featureEntitlements: [],
+          quotas: rootQuotas(newTier),
+        };
+
       // Seats pool at the destination root: its live subtree plus the arriving
       // org. For a new standalone root, just the org against its own preset.
       const seatLimit = parentOrgId !== null
         ? (target!.quotas?.seats ?? -1)
         : ((set.quotas as Record<string, number>).seats ?? -1);
       if (seatLimit !== -1) {
-        const scope = parentOrgId !== null ? await expandOrgScope(parentOrgId) : [];
+        const scope = parentOrgId !== null ? await expandOrgScopeInSession(parentOrgId, session) : [];
         if (await joiningExceedsCap(scope, orgId, seatLimit, session)) throw new Error(ORG_SEAT_LIMIT);
       }
-      await Organization.updateOne({ _id: toOrgId(orgId) }, { $set: set }, { session });
+
+      // COMPARE-AND-SET on the parent this request validated against. `null`
+      // matches an absent field too, so a root is matched by `parentOrgId: null`.
+      // A racing move that committed first leaves this matching nothing, and the
+      // loser aborts having written nothing at all.
+      const res = await Organization.updateOne(
+        { _id: toOrgId(orgId), parentOrgId: fromParentOrgId },
+        { $set: set },
+        { session },
+      );
+      if (res.matchedCount === 0) throw new Error(ORG_MOVE_CONFLICT);
+
       bumped = await bumpSessionsScopedTo(orgId, session);
+      return newTier;
     });
     await publishUsersRevocation(bumped);
 

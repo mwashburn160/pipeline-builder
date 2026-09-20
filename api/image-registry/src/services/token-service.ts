@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createPublicKey, randomUUID } from 'crypto';
-import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
 import type { RegistryScope } from './scope.js';
@@ -340,7 +340,7 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
   } catch (err) {
     // Unexpected failure in the gate itself → fail closed by default.
     logger.warn('Storage-budget check failed', {
-      orgId, failOpen: STORAGE_FAIL_OPEN, error: err instanceof Error ? err.message: String(err),
+      orgId, failOpen: STORAGE_FAIL_OPEN, error: errorMessage(err),
     });
     return !STORAGE_FAIL_OPEN;
   }

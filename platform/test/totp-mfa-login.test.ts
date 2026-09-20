@@ -16,6 +16,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -41,16 +42,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('../src/helpers/client-info.js', () => ({ clientInfoOf: () => ({ ip: '10.0.0.1' }) }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function, map?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { await fn(req, res); } catch (err) {
-        const mapped = map?.[(err as Error).message];
-        if (mapped) res.status(mapped.status).json({ success: false, message: mapped.message });
-        else res.status(500).json({ success: false, message: 'error' });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/session-cookie.js', () => ({
   deliverSessionTokens: (_req: unknown, _res: unknown, tokens: { accessToken: string; expiresIn: number }) =>
     ({ accessToken: tokens.accessToken, expiresIn: tokens.expiresIn }),

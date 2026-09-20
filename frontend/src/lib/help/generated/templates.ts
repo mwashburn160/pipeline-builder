@@ -114,7 +114,7 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Templatable fields in a pipeline config: projectName, metadata.* string values, vars.* string values. Identity fields (id, orgId, stages, plugins[]) are not templatable."
+          "content": "Templatable fields in a pipeline config: project, metadata.* string values, vars.* string values. Identity fields (id, orgId, stages, plugins[]) are not templatable."
         },
         {
           "type": "text",
@@ -212,7 +212,7 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "{\n  \"id\": \"bb234ff6-8b2e-41e3-9758-fb23b63916cd\",\n  \"projectName\": \"{{ vars.service }}-{{ metadata.env }}\",\n  \"orgId\": \"acmecorp\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-{{ metadata.env }}\",\n    \"namespace\": \"{{ vars.service }}-{{ metadata.env }}\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-{{ metadata.env }}\"\n  },\n  \"stages\": [\n    { \"name\": \"deploy\", \"plugins\": [\"kubectl-deploy\", \"slack-notify\"] }\n  ]\n}",
+          "content": "{\n  \"id\": \"bb234ff6-8b2e-41e3-9758-fb23b63916cd\",\n  \"project\": \"{{ vars.service }}-{{ metadata.env }}\",\n  \"orgId\": \"acmecorp\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-{{ metadata.env }}\",\n    \"namespace\": \"{{ vars.service }}-{{ metadata.env }}\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-{{ metadata.env }}\"\n  },\n  \"stages\": [\n    { \"name\": \"deploy\", \"plugins\": [\"kubectl-deploy\", \"slack-notify\"] }\n  ]\n}",
           "language": "json"
         },
         {
@@ -221,7 +221,7 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"projectName\": \"checkout-prod\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-prod\",\n    \"namespace\": \"checkout-prod\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-prod\"\n  }\n}",
+          "content": "{\n  \"project\": \"checkout-prod\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-prod\",\n    \"namespace\": \"checkout-prod\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-prod\"\n  }\n}",
           "language": "json"
         },
         {

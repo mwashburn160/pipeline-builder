@@ -57,7 +57,7 @@ export function AddMemberModal({
       />
       {teamRoster.length > 0 && (
         <div className="mt-4">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Also add to teams (optional)</p>
+          <p className="text-xs font-medium text-fg-muted mb-1.5">Also add to teams (optional)</p>
           <div className="space-y-0.5 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-1">
             {teamRoster.map((t) => (
               <label key={t.orgId} className="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
@@ -66,7 +66,7 @@ export function AddMemberModal({
                   onChange={() => onToggleTeam(t.orgId)}
                   disabled={form.loading}
                 />
-                <span className="truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
+                <span className="truncate text-fg">{t.orgName}</span>
               </label>
             ))}
           </div>

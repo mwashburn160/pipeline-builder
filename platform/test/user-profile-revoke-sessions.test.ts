@@ -46,6 +46,8 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 // auth-service deps (the real auth-service is imported below and must load).
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   seedDefaultRoles: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({
   assertNotLastPrivilegedMember: jest.fn(),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({

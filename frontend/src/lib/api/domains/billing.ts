@@ -405,11 +405,6 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** One-off: seed the ledger from the provider's historical invoices (idempotent). */
-    runBillingBackfill: async () => {
-      return core.request<ApiResponse<LedgerBackfillResult>>('/api/billing/admin/backfill', { method: 'POST' });
-    },
-
     /** Purge every subscription + billing event for an org (cascade hook; destructive). */
     deleteSubscriptionByOrg: async (orgId: string) => {
       return core.request<ApiResponse<{ deleted: number; events: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, { method: 'DELETE' });
@@ -421,8 +416,8 @@ export function billingApi(core: ApiCore) {
 
     /** Current AWS Marketplace entitlements for the active org. 400 when the active
      *  provider isn't aws-marketplace; 404 when the org has no marketplace sub. */
-    getMarketplaceEntitlements: async () => {
-      return core.request<ApiResponse<MarketplaceEntitlements>>('/api/billing/marketplace/entitlements');
+    getMarketplaceEntitlements: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<MarketplaceEntitlements>>('/api/billing/marketplace/entitlements', { signal: opts?.signal });
     },
   };
 }
@@ -440,13 +435,6 @@ export interface AdminBillingSummary {
   totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number };
   byOrg: Array<{ orgId: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
   invoiceCount: number;
-}
-
-/** Counts returned by POST /billing/admin/backfill. */
-export interface LedgerBackfillResult {
-  accounts: number;
-  ingested: number;
-  errors: number;
 }
 
 /** One AWS Marketplace entitlement dimension. `expirationDate` is an ISO string over the wire. */

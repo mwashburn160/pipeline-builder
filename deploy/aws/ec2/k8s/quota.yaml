@@ -68,7 +68,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-mongodb
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -175,9 +175,10 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: quota
-  # minReplicas: 1 on single-node minikube — see image-registry.yaml HPA
-  # for the boot-time image-pull saturation rationale. HPA scales up
-  # under real load (and the image is cached by then).
+  # 1 on this target: ec2 is a SINGLE-NODE minikube on one instance, so a
+  # second replica adds no availability and no drain can be blocked — see the
+  # image-registry.yaml HPA here for the boot-time image-pull rationale. The
+  # HPA still scales up under real load. eks starts at 2.
   minReplicas: 1
   maxReplicas: 6
   metrics:

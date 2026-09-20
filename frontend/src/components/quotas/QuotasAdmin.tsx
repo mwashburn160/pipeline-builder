@@ -121,7 +121,7 @@ export function QuotasAdmin({
         {tierPresets[editTier].label}
       </span>
       {orgData.pool && (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-fg-muted">
           {orgData.pool.isRoot ? `Pool root · ${orgData.pool.orgCount - 1} team${orgData.pool.orgCount - 1 !== 1 ? 's' : ''}` : 'Team'}
         </span>
       )}
@@ -318,7 +318,7 @@ export function QuotasAdmin({
                       >
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`w-2.5 h-2.5 rounded-full ${preset.color}`} />
-                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{preset.label}</span>
+                          <span className="text-sm font-semibold text-fg">{preset.label}</span>
                         </div>
                         <p className="text-xs text-fg-muted">{preset.description}</p>
                         <div className="mt-2 text-xs text-fg-subtle tabular-nums">
@@ -399,7 +399,7 @@ export function QuotasAdmin({
           <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
             <p>
               This zeroes every usage counter for{' '}
-              <span className="font-medium text-gray-900 dark:text-gray-100">{orgData.name}</span>{' '}
+              <span className="font-medium text-fg">{orgData.name}</span>{' '}
               (<span className="font-mono text-xs">{orgData.orgId}</span>) immediately,
               before the natural period reset. Quota <strong>limits</strong> and tier are
               left unchanged.

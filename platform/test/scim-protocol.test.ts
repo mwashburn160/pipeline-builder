@@ -34,10 +34,12 @@ jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ default:
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: empty, User: empty, UserOrganization: empty, Role: empty, RoleAssignment: empty, OrgDomain: empty, OrgIdpConfig: empty,
 }));
+jest.unstable_mockModule('../src/services/mapped-roles.js', () => ({
+  syncMappedRoles: async () => ({ added: [], removed: [] }),
+}));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: async () => undefined,
   recomputeUserOrgRole: async () => undefined,
-  syncMappedRoles: async () => ({ added: [], removed: [] }),
 }));
 jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => ({
   idpGroupMappingService: { resolveMappedRoles: async () => ({ roleIds: [], matchedGroups: [] }) },

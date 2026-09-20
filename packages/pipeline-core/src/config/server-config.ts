@@ -97,8 +97,6 @@ export function loadRateLimitConfig(): RateLimitConfig {
   return {
     max: parseInt(process.env.LIMITER_MAX || '100', 10),
     windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10),
-    legacyHeaders: false,
-    standardHeaders: true,
   };
 }
 

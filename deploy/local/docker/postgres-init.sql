@@ -65,15 +65,6 @@ END $$;
 SELECT set_config('pb.app_password', '', false) AS pb_app_password_cleared \gset
 
 -- ============================================================================
--- Drop existing tables (OPTIONAL - only if you want to recreate from scratch)
--- ============================================================================
--- WARNING: This will delete all data!
--- Uncomment only if you want to start fresh
-
--- DROP TABLE IF EXISTS plugins CASCADE;
--- DROP TABLE IF EXISTS pipelines CASCADE;
-
--- ============================================================================
 -- Create update trigger function
 -- ============================================================================
 
@@ -337,7 +328,7 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     commit_sha VARCHAR(255),
     commit_ref VARCHAR(255),
     environment VARCHAR(255),
-    -- DORA true-lead-time attribution (Phase 4): oldest unshipped commit time +
+    -- DORA true-lead-time attribution: oldest unshipped commit time +
     -- shipped-commit count. Nullable; unresolvable sources leave them NULL.
     commit_timestamp TIMESTAMPTZ,
     commit_count INTEGER,
@@ -346,84 +337,14 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
 );
 
 -- ============================================================================
--- Add missing columns to existing tables (if tables already exist)
+-- Developer-portal catalog indexes (plugins + pipelines)
 -- ============================================================================
-
--- Plugins table - add missing columns
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'unknown';
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile TEXT;
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS build_type VARCHAR(20) NOT NULL DEFAULT 'build_image';
-
--- Pipelines table - add missing columns
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
-
--- Developer-portal catalog metadata (ownership / lifecycle / classification).
--- Additive for existing installs; fresh installs already have them from CREATE.
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS owner_id TEXT;
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS owner_type VARCHAR(10);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(20) NOT NULL DEFAULT 'production';
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS criticality VARCHAR(10);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
-
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS owner_id TEXT;
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS owner_type VARCHAR(10);
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(20) NOT NULL DEFAULT 'production';
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS criticality VARCHAR(10);
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
-
--- Backfill owner from creator for pre-existing rows (skip system-seeded content,
--- which stays owner-less / catalog-shared).
-UPDATE plugins SET owner_id = created_by, owner_type = 'user'
-    WHERE owner_id IS NULL AND created_by <> '000000000000000000000001';
-UPDATE pipelines SET owner_id = created_by, owner_type = 'user'
-    WHERE owner_id IS NULL AND created_by <> '000000000000000000000001';
-
--- Catalog indexes: owner = "my services" view, lifecycle = catalog filter.
+-- owner = "my services" view, lifecycle = catalog filter. The catalog columns
+-- and their enum CHECKs are declared in the CREATE TABLE statements above.
 CREATE INDEX IF NOT EXISTS plugin_owner_idx ON plugins(org_id, owner_id);
 CREATE INDEX IF NOT EXISTS plugin_lifecycle_idx ON plugins(org_id, lifecycle);
 CREATE INDEX IF NOT EXISTS pipeline_owner_idx ON pipelines(org_id, owner_id);
 CREATE INDEX IF NOT EXISTS pipeline_lifecycle_idx ON pipelines(org_id, lifecycle);
-
--- Enum CHECK constraints for the additive catalog columns (fresh installs
--- get these from CREATE TABLE; upgraded installs need them added here).
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_owner_type_check') THEN
-    ALTER TABLE plugins ADD CONSTRAINT plugins_owner_type_check CHECK (owner_type IN ('user', 'team'));
-  END IF;
-END $$;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_lifecycle_check') THEN
-    ALTER TABLE plugins ADD CONSTRAINT plugins_lifecycle_check CHECK (lifecycle IN ('experimental', 'production', 'deprecated'));
-  END IF;
-END $$;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_criticality_check') THEN
-    ALTER TABLE plugins ADD CONSTRAINT plugins_criticality_check CHECK (criticality IN ('low', 'medium', 'high', 'critical'));
-  END IF;
-END $$;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_owner_type_check') THEN
-    ALTER TABLE pipelines ADD CONSTRAINT pipelines_owner_type_check CHECK (owner_type IN ('user', 'team'));
-  END IF;
-END $$;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_lifecycle_check') THEN
-    ALTER TABLE pipelines ADD CONSTRAINT pipelines_lifecycle_check CHECK (lifecycle IN ('experimental', 'production', 'deprecated'));
-  END IF;
-END $$;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_criticality_check') THEN
-    ALTER TABLE pipelines ADD CONSTRAINT pipelines_criticality_check CHECK (criticality IN ('low', 'medium', 'high', 'critical'));
-  END IF;
-END $$;
 
 -- ============================================================================
 -- DASHBOARDS + DASHBOARD PANELS (user-editable observability dashboards)
@@ -571,33 +492,6 @@ CREATE TRIGGER update_org_alert_destinations_modtime
     BEFORE UPDATE ON org_alert_destinations
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
--- Allow the 'email' alert channel on databases created before email support.
--- Idempotent: drop whatever channel CHECK exists and re-add the current set.
--- Fresh databases already get the right constraint from CREATE TABLE above.
-DO $$
-DECLARE cname text;
-BEGIN
-    SELECT conname INTO cname FROM pg_constraint
-        WHERE conrelid = 'org_alert_destinations'::regclass
-          AND contype = 'c'
-          AND pg_get_constraintdef(oid) LIKE '%channel%';
-    IF cname IS NOT NULL THEN
-        EXECUTE format('ALTER TABLE org_alert_destinations DROP CONSTRAINT %I', cname);
-    END IF;
-    ALTER TABLE org_alert_destinations ADD CONSTRAINT org_alert_destinations_channel_check
-        CHECK (channel IN ('slack', 'webhook', 'in-app', 'email'));
-END $$;
-
--- ============================================================================
--- ADMIN AUDIT LOG TABLE  DROPPED (audit data lives in MongoDB instead)
--- ============================================================================
--- The platform's audit log lives in the MongoDB `audit_events` collection
--- (see platform/src/models/audit-event.ts). This Postgres table had no
--- application writers �'s audit confirmed it was guarding an empty
--- table. Drop it so future deploys don't carry the dead schema. The DROP
--- IF EXISTS makes this safe to re-run against an existing database
--- where the table was already absent.
-DROP TABLE IF EXISTS admin_audit_log CASCADE;
 
 -- ============================================================================
 -- Triggers for automatic updated_at timestamp
@@ -717,31 +611,9 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_org_created
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
     ON pipelines(project, organization, org_id);
 
--- Schema drift cleanup: the ARN->pipeline_id refactor removed pipeline_arn /
--- account_id from the app (drizzle) schema, but older deploys still have them.
--- pipeline_registry.pipeline_arn was NOT NULL with no app-supplied value, so the
--- registry upsert failed on every register. Drop the obsolete columns (idempotent;
--- DROP COLUMN also removes pipeline_arn's UNIQUE constraint and the dependent
--- event_pipeline_arn_idx). pipeline_id is now the sole registry/event join key.
-ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS pipeline_arn;
-ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS account_id;
-ALTER TABLE pipeline_events   DROP COLUMN IF EXISTS pipeline_arn;
-
--- DORA deploy-attribution columns (idempotent add for existing deploys; fresh
--- installs already have them from CREATE TABLE above).
-ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(255);
-ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_ref VARCHAR(255);
-ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS environment VARCHAR(255);
--- DORA true-lead-time columns (Phase 4; idempotent add for existing deploys).
-ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_timestamp TIMESTAMPTZ;
-ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_count INTEGER;
-
 -- Pipeline Registry indexes
 -- pipeline_id is UNIQUE — the registry upsert uses ON CONFLICT (pipeline_id),
--- which requires a unique index to match against. Older deploys created this
--- index non-unique; DROP + recreate it as UNIQUE (idempotent; the upsert never
--- succeeded before this, so there are no duplicate pipeline_id rows to block it).
-DROP INDEX IF EXISTS registry_pipeline_id_idx;
+-- which requires a unique index to match against.
 CREATE UNIQUE INDEX IF NOT EXISTS registry_pipeline_id_idx
     ON pipeline_registry(pipeline_id);
 
@@ -791,7 +663,7 @@ CREATE INDEX IF NOT EXISTS event_env_type_started_idx
 CREATE INDEX IF NOT EXISTS event_pipeline_type_started_idx
     ON pipeline_events(pipeline_id, event_type, started_at);
 
--- DORA deploy-basis scan (Phase 1): deployment frequency / deploy-time CFR /
+-- DORA deploy-basis scan: deployment frequency / deploy-time CFR /
 -- lead time group deploy-stage events by environment over a completed_at window.
 CREATE INDEX IF NOT EXISTS event_org_env_completed_idx
     ON pipeline_events(org_id, environment, completed_at);
@@ -852,7 +724,7 @@ CREATE TABLE IF NOT EXISTS ingest_health (
 
 -- ============================================================================
 -- INCIDENTS (production incidents webhooked from PagerDuty/Datadog/Alertmanager
--- — automated post-deploy CFR + real MTTR — DORA Phase 5)
+-- — automated post-deploy CFR + real MTTR — DORA)
 -- ============================================================================
 -- Ingested via POST /api/reports/incidents (machine `reporting:ingest` scope).
 -- DORA correlates each incident to the most recent successful deploy to its
@@ -879,7 +751,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS incidents_org_incident_unique
     ON incidents(org_id, incident_id);
 
 -- ============================================================================
--- DORA SETTINGS (per-org overrides for DORA computation — Phase 5b)
+-- DORA SETTINGS (per-org overrides for DORA computation)
 -- ============================================================================
 -- One row per org. `incident_window_hours` overrides the global
 -- DORA_INCIDENT_WINDOW_HOURS used to correlate an ingested incident to the most
@@ -888,7 +760,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS incidents_org_incident_unique
 CREATE TABLE IF NOT EXISTS dora_settings (
     org_id VARCHAR(255) PRIMARY KEY,
     incident_window_hours INTEGER,
-    -- Phase 7 per-org retention overrides (days). NULL => use the global env
+    -- Per-org retention overrides (days). NULL => use the global env
     -- default (REPORTING_EVENT_RETENTION_DAYS / REPORTING_DORA_RETENTION_DAYS).
     -- event_retention_days governs standard events (pipeline_events WHERE
     -- environment IS NULL); dora_retention_days governs the DORA source (deploy
@@ -897,10 +769,6 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     dora_retention_days INTEGER,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
--- Idempotent upgrade for pre-existing dora_settings tables (Phase 7).
-ALTER TABLE dora_settings ADD COLUMN IF NOT EXISTS event_retention_days INTEGER;
-ALTER TABLE dora_settings ADD COLUMN IF NOT EXISTS dora_retention_days INTEGER;
 
 -- Messages indexes
 CREATE INDEX IF NOT EXISTS message_org_id_idx
@@ -1213,9 +1081,6 @@ CREATE TRIGGER update_compliance_policies_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 
--- Org -> team hierarchy column for existing databases.
-ALTER TABLE compliance_rules ADD COLUMN IF NOT EXISTS propagate_to_children BOOLEAN NOT NULL DEFAULT false;
-
 DROP TRIGGER IF EXISTS update_compliance_rules_modtime ON compliance_rules;
 CREATE TRIGGER update_compliance_rules_modtime
     BEFORE UPDATE ON compliance_rules
@@ -1292,10 +1157,6 @@ CREATE TABLE IF NOT EXISTS compliance_notification_preferences (    id UUID PRIM
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
--- Opt-in compliance email delivery (added after initial release).
-ALTER TABLE compliance_notification_preferences
-    ADD COLUMN IF NOT EXISTS email_enabled BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TRIGGER trigger_compliance_notification_preferences_updated
     BEFORE UPDATE ON compliance_notification_preferences
@@ -1450,7 +1311,8 @@ ORDER BY event_object_table, trigger_name;
 -- ============================================================================
 -- Stamped alongside deleted_at when a row is soft-deleted; the per-service
 -- retention sweep (createSoftDeletePurgeScheduler) hard-deletes tombstones once
--- purge_after has passed. Additive + idempotent for existing installs. Each
+-- purge_after has passed. Declared here (rather than inline in each CREATE
+-- TABLE) so the whole soft-delete retention surface reads as one block. Each
 -- partial index (WHERE deleted_at IS NOT NULL) covers only tombstones, so the
 -- sweep's `deleted_at IS NOT NULL AND purge_after < now` scan never touches
 -- live rows. Index names match the Drizzle schema (packages/pipeline-data).
@@ -1621,26 +1483,20 @@ CREATE POLICY rls_org_scope ON dashboard_panels
         )
     );
 
--- (admin_audit_log RLS policy removed  table was dropped above; audit
--- data lives in MongoDB now.)
-
--- Phase 3a  FORCE enforcement on the lowest-write tables first. These three
--- have a single tight write path (DashboardService + dashboard-seeder running
--- as sysadmin, plus org-alerting CRUD which already routes through
--- withTenantTx). Any code path that forgot to set tenant context hard-fails
--- here in CI / dev *before* the higher-traffic tables flip.
+-- Low-write tables. These have a single tight write path (DashboardService +
+-- dashboard-seeder running as sysadmin, plus org-alerting CRUD which already
+-- routes through withTenantTx). Any code path that forgot to set tenant context
+-- hard-fails here in CI / dev.
 ALTER TABLE dashboards FORCE ROW LEVEL SECURITY;
 ALTER TABLE dashboard_panels FORCE ROW LEVEL SECURITY;
 ALTER TABLE org_alert_destinations FORCE ROW LEVEL SECURITY;
 ALTER TABLE org_alert_rules FORCE ROW LEVEL SECURITY;
 
--- Phase 3b  mid-volume tables. messages + pipeline_registry +
--- compliance_*. All readers/writers route through service-layer
--- withTenantTx (CrudService base + message-service + pipeline-registry-service
--- + compliance-rule-service + scan-executor/scheduler). Background scanners
--- and the scheduler establish sysadmin scope before touching any of these.
--- Hot paths (plugins, pipelines, pipeline_events) deliberately remain
--- owner-bypass and flip in a later phase.
+-- Mid-volume tables: messages + pipeline_registry + compliance_*. All
+-- readers/writers route through service-layer withTenantTx (CrudService base +
+-- message-service + pipeline-registry-service + compliance-rule-service +
+-- scan-executor/scheduler). Background scanners and the scheduler establish
+-- sysadmin scope before touching any of these.
 ALTER TABLE messages FORCE ROW LEVEL SECURITY;
 ALTER TABLE message_attachments FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
@@ -1662,18 +1518,18 @@ BEGIN
     END LOOP;
 END $$;
 
--- Phase 3c  hot-path tables. Last of the org-scoped data tables to flip
--- because they sit on the request critical path (every plugin/pipeline read
--- + every CodePipeline event ingest).
--- Writers-- * `plugins` + `pipelines`: routed through CrudService (withTenantTx on
--- every method) and the few non-CRUD specialty paths (plugin-service
--- deployVersion + pipeline-service createAsDefault) also wrap in
--- withTenantTx. JWT-peek middleware populates the per-request org context.
--- * `pipeline_events`-- 1. EventBridge / Lambda → POST /reports/events → ingestEvents() runs
--- under runWithTenantContext({isSysAdmin:true}) because a batch can
--- span multiple orgs (resolved from pipeline_registry per event).
--- 2. Plugin build worker → recordBuildEvent() runs inside the worker
--- handler's runWithTenantContext({orgId}) scope.
+-- Hot-path tables: they sit on the request critical path (every plugin/pipeline
+-- read + every CodePipeline event ingest). Writers:
+--   * `plugins` + `pipelines`: routed through CrudService (withTenantTx on every
+--     method); the few non-CRUD specialty paths (plugin-service deployVersion +
+--     pipeline-service createAsDefault) also wrap in withTenantTx. JWT-peek
+--     middleware populates the per-request org context.
+--   * `pipeline_events`:
+--     1. EventBridge / Lambda → POST /reports/events → ingestEvents() runs
+--        under runWithTenantContext({isSysAdmin:true}) because a batch can
+--        span multiple orgs (resolved from pipeline_registry per event).
+--     2. Plugin build worker → recordBuildEvent() runs inside the worker
+--        handler's runWithTenantContext({orgId}) scope.
 ALTER TABLE plugins FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipelines FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_events FORCE ROW LEVEL SECURITY;
@@ -1682,7 +1538,7 @@ ALTER TABLE ingest_health FORCE ROW LEVEL SECURITY;
 ALTER TABLE incidents FORCE ROW LEVEL SECURITY;
 ALTER TABLE dora_settings FORCE ROW LEVEL SECURITY;
 
--- (Phase 3d  admin_audit_log was dropped; audit data lives in MongoDB.)
+-- Audit data lives in MongoDB (`audit_events`), not in Postgres.
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='

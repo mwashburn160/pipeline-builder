@@ -61,7 +61,7 @@ export default function RoleSection({
                 disabled={disabled}
                 className="h-4 w-4 text-brand focus:ring-blue-500"
               />
-              <label htmlFor="roleArnMutable" className="ml-2 text-sm text-gray-700 dark:text-gray-300">Mutable</label>
+              <label htmlFor="roleArnMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
             </div>
           </div>
         )}
@@ -85,7 +85,7 @@ export default function RoleSection({
                 disabled={disabled}
                 className="h-4 w-4 text-brand focus:ring-blue-500"
               />
-              <label htmlFor="roleNameMutable" className="ml-2 text-sm text-gray-700 dark:text-gray-300">Mutable</label>
+              <label htmlFor="roleNameMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
             </div>
           </div>
         )}

@@ -852,7 +852,7 @@ DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-b
   ```
   (Find the context name with `kubectl config get-contexts`; default is `pipeline-builder`.)
 - **After a fresh deploy** (which generates a new user-token signing key), re-run `infra store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
-- **Re-run it for ALL THREE credentials** — the platform one, `--scope registry:push` (what CodeBuild presents to the registry) and `--scope reporting:ingest` (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see [Authentication → Stored machine credentials (AWS)](authentication.md#stored-machine-credentials-aws). Credentials stored before this release stop working and must be reissued — they were JWTs, and the secret now holds an opaque `pb_sa_…` key in the same `password` field ([cutover runbook](runbooks/access-key-cutover.md)).
+- **Re-run it for ALL THREE credentials** — the platform one, `--scope registry:push` (what CodeBuild presents to the registry) and `--scope reporting:ingest` (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see [Authentication → Stored machine credentials (AWS)](authentication.md#stored-machine-credentials-aws). Each secret holds an opaque `pb_sa_…` key in its `password` field — the full procedure, including the ordering that matters, is in [Access Keys and Machine Credentials](runbooks/access-key-cutover.md).
 
 ### 2. Store Service Credentials
 

@@ -767,11 +767,11 @@ export const complianceTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "Plugin upload (POST /api/plugin/upload)",
+              "Plugin upload (POST /api/plugins/upload)",
               "Blocked (403) if error or critical violations"
             ],
             [
-              "Pipeline create (POST /api/pipeline)",
+              "Pipeline create (POST /api/pipelines)",
               "Blocked (403) if error or critical violations"
             ]
           ]

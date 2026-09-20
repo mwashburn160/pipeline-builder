@@ -114,7 +114,7 @@ export default function StagesSection({
               )}
 
               <div className="space-y-3">
-                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Steps ({stage.steps.length})</h5>
+                <h5 className="text-sm font-medium text-fg-muted">Steps ({stage.steps.length})</h5>
                 {stage.steps.map((step, stepIdx) => (
                   <div key={step.id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
                     <div className="flex items-center justify-between mb-3">

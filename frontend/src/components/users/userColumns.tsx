@@ -66,7 +66,7 @@ export function buildUserColumns({
       sortValue: (u) => u.username,
       render: (u) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{u.username}</div>
+          <div className="text-sm font-medium text-fg">{u.username}</div>
           <div className="text-sm text-fg-muted">{u.email}</div>
         </div>
       ),

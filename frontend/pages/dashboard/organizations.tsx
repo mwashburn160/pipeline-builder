@@ -29,12 +29,13 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { RowActionsMenu } from '@/components/organizations/RowActionsMenu';
 import { CreateOrganizationFlow } from '@/components/organizations/CreateOrganizationFlow';
-import { ChangeTierDialog, type OrgTier } from '@/components/organizations/ChangeTierDialog';
+import { ChangeTierDialog } from '@/components/organizations/ChangeTierDialog';
 import api from '@/lib/api';
 // Every refresh below follows a write, so the shared org list the audit page,
 // quota picker, IdP roster and org pickers read from must be dropped too.
 import { invalidate } from '@/lib/api-cache';
-import { Organization } from '@/types';
+import { ALL_TIER_KEYS, getTierMeta } from '@/lib/tiers';
+import { Organization, type QuotaTier } from '@/types';
 import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
 /**
@@ -94,7 +95,7 @@ export default function OrganizationsPage() {
       const tierParam = String(params.tier || 'all');
       const response = await api.listOrganizations({
         ...(params.search && { search: params.search }),
-        ...(tierParam !== 'all' && { tier: tierParam as 'developer' | 'pro' | 'team' | 'enterprise' }),
+        ...(tierParam !== 'all' && { tier: tierParam as QuotaTier }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       }, { signal });
@@ -166,7 +167,7 @@ export default function OrganizationsPage() {
   // small dialog, then re-verify via StepUpModal (the backend PATCH is step-up
   // gated because a tier change reseeds quota limits / affects billing).
   const [tierOrg, setTierOrg] = useState<Organization | null>(null);
-  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: OrgTier } | null>(null);
+  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: QuotaTier } | null>(null);
 
   // Create a new top-level organization or team (sysadmin).
   const toast = useToast();
@@ -193,7 +194,7 @@ export default function OrganizationsPage() {
       header: 'Organization',
       render: (org) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 flex flex-wrap items-center gap-1.5">
+          <div className="text-sm font-medium text-fg flex flex-wrap items-center gap-1.5">
             {org.name}
             {org.id === 'system' && <Badge color="purple">System</Badge>}
             {org.parentOrgId && (
@@ -201,7 +202,7 @@ export default function OrganizationsPage() {
                 {org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team'}
               </Badge>
             )}
-            {org.tier && <Badge color={org.tier === 'enterprise' ? 'red' : org.tier === 'team' ? 'green' : org.tier === 'pro' ? 'purple' : 'gray'}>{org.tier}</Badge>}
+            {org.tier && <Badge color={getTierMeta(org.tier).badgeColor}>{org.tier}</Badge>}
             {org.kmsConfigured && <Badge color="blue">KMS</Badge>}
             {org.idpConfigured && <Badge color="green">SSO</Badge>}
             {org.pendingDeletion && <Badge color="red">Pending deletion</Badge>}
@@ -336,10 +337,11 @@ export default function OrganizationsPage() {
           aria-label="Filter by tier"
         >
           <option value="all">All tiers</option>
-          <option value="developer">Developer</option>
-          <option value="pro">Pro</option>
-          <option value="team">Team</option>
-          <option value="enterprise">Enterprise</option>
+          {/* ALL tiers, not the purchasable ones: this is a filter, and on a
+              billing-disabled install every org is on `unlimited`. */}
+          {ALL_TIER_KEYS.map((tier) => (
+            <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
+          ))}
         </FilterSelect>
         <FilterSelect
           value={list.filters.kms}

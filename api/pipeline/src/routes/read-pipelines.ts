@@ -18,7 +18,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { resolvePipeline, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { resolvePipeline } from '../helpers/pipeline-template-validator.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 export function createReadPipelineRoutes(
@@ -123,7 +123,7 @@ export function createReadPipelineRoutes(
     const payload = normalizeArrayFields(result, ['keywords']);
     if (shouldResolve) {
       try {
-        resolvePipeline(payload as unknown as PipelineLike);
+        resolvePipeline(payload);
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }

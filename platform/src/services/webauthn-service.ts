@@ -353,7 +353,7 @@ export async function verifyRegistration(
  *   - a model not on the allowlist.
  * Returns true (the attestation was verified) when every check passes.
  */
-export async function assertAttestationAllowed(
+async function assertAttestationAllowed(
   allowed: readonly string[],
   aaguid: string,
   fmt: string,

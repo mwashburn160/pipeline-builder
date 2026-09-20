@@ -171,7 +171,7 @@ export default function PluginsPage() {
   useEffect(() => {
     const q = router.query.q;
     if (typeof q === 'string' && q) list.updateFilter('name', q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `list.updateFilter` is recreated per render; the deep-link seeds on `?q=` only
   }, [router.query.q]);
 
   // Server-side sort: translate a column click into sortBy/sortOrder query

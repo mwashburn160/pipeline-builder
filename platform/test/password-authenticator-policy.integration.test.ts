@@ -17,14 +17,14 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { Registry } from 'prom-client';
+import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 process.env.PASSWORD_BREACH_CHECK = 'off';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
-const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
-const suite = RUN ? describe : describe.skip;
+const suite = integrationSuite();
 
 const YUBIKEY = 'cb69481e-8ff7-4039-93ec-0a2729a154a8';
 const ICLOUD = 'fbfc3007-154e-4ecc-8c0b-6e020557d7bd';

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError, providerLabel } from '@/lib/constants';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { stepUpWithPasskey } from '@/lib/passkeys';
@@ -98,7 +99,6 @@ function optionLabel(option: ReauthProvider): string {
  * is the difference between typing a code and hunting for the field.
  */
 export function StepUpModal({ action, title, details, onConfirmed, requireStrongFactor = false, onClose }: Props) {
-  const [factors, setFactors] = useState<AuthFactors | null>(null);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
@@ -115,21 +115,13 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
   // Lets Cancel abort a provider round trip that's still waiting on the popup.
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await api.getProfile();
-        const loaded = res.data?.user?.authFactors;
-        if (!cancelled) setFactors(loaded ?? PASSWORD_ONLY);
-      } catch {
-        // Fail soft: show the password field rather than blocking the action.
-        if (!cancelled) setFactors(PASSWORD_ONLY);
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, []);
+  // Fail soft: a failed profile read shows the password field rather than
+  // blocking the action, so the error is folded into the same fallback.
+  const profile = useFetch<AuthFactors>(
+    async () => (await api.getProfile()).data?.user?.authFactors ?? PASSWORD_ONLY,
+    [],
+  );
+  const factors = profile.loading ? null : profile.data ?? PASSWORD_ONLY;
 
   // Abandoning the dialog must also stop a popup round trip that's in flight.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -240,7 +232,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
       initialFocusRef={focusRef}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
-        <p className="text-sm text-gray-700 dark:text-gray-300">
+        <p className="text-sm text-fg-muted">
           About to: <strong>{action}</strong>
         </p>
 

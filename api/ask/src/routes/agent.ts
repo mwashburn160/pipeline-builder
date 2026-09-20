@@ -14,6 +14,7 @@ import {
   reserveQuota,
   sendBadRequest,
   sendQuotaReserveDenied,
+  actorId,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, observe, withSpan } from '@pipeline-builder/api-server';
@@ -78,7 +79,7 @@ const AGENT_SYSTEM = [
 export function createAgentRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
@@ -120,7 +121,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     const auditTurn = (outcome: 'success' | 'failure') =>
       getAuditClient().record({
         action: 'ask.agent.turn',
-        actorId: req.user?.sub ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'ask',
         outcome,

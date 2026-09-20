@@ -34,6 +34,12 @@ interface AppConfig {
     resetDays: number;
     /** TTL (ms) for the at-risk org computation cache served by GET /quotas/at-risk. */
     atRiskCacheTtlMs: number;
+    /**
+     * How long (ms) a successfully resolved POOLED root cap stays usable as the
+     * fallback when a later resolution fails. `0` disables the fallback, which
+     * makes every pooled-resolution blip an outright denial for teams.
+     */
+    poolFallbackTtlMs: number;
   };
 }
 
@@ -72,5 +78,11 @@ export const config: AppConfig = {
     // made every getNextResetDate() an Invalid Date. Clamp to >= 1 day.
     resetDays: envInt('QUOTA_RESET_DAYS', 3, { min: 1 }),
     atRiskCacheTtlMs: envInt('QUOTA_AT_RISK_CACHE_TTL_MS', 60000, { min: 0 }),
+    // Grace window for the pooled root cap. A team's OWN limits are seeded -1
+    // on every dimension (only the root's pooled cap binds), so a failed pool
+    // resolution has nothing to fall back to and must DENY. Keeping the last
+    // successfully resolved cap for a minute turns a Mongo blip into slightly
+    // stale enforcement instead of a hard outage for every team.
+    poolFallbackTtlMs: envInt('QUOTA_POOL_FALLBACK_TTL_MS', 60000, { min: 0 }),
   },
 };

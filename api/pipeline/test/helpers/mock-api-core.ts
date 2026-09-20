@@ -2,187 +2,101 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared `@pipeline-builder/api-core` mock for ESM suites.
+ * Pipeline's `@pipeline-builder/api-core` mock.
  *
- * Collapses the factory that every suite passed to
- * `jest.unstable_mockModule('@pipeline-builder/api-core', () => ({ ... }))`.
- * Provides the winston-logger stub plus the api-core runtime VALUES that the
- * transitively loaded pipeline-core / pipeline-data graph imports — under
- * transpile-only/`verbatimModuleSyntax` those stay real imports, so the mock
- * must expose them or ESM linking against it throws "does not provide an
- * export named X". Pass `overrides` for the exports a given suite exercises
- * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
+ * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
+ * classes, pagination constants, audit/boot wiring) live in
+ * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * pipeline-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
+import {
+  MockAppError,
+  MockConflictError,
+  MockForbiddenError,
+  MockNotFoundError,
+  MockValidationError,
+  baseApiCoreMock,
+  loggerMock,
+  passThroughMiddleware,
+  serviceAuditDefaults,
+} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
 
-/** No-op guard: the mock covers route wiring, not the auth/permission gate. */
-const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
-
-/** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
-export const loggerMock = () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
-});
-
-/** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
-const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
-
-/** Mirrors api-core's AppError base (typed HTTP error: statusCode + code). */
-class AppError extends Error {
-  constructor(public readonly statusCode: number, public readonly code: string, message?: string) {
-    super(message);
-    this.name = 'AppError';
-  }
-}
-
-/** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
-class NotFoundError extends AppError {
-  constructor(message?: string) {
-    super(404, 'NOT_FOUND', message);
-    this.name = 'NotFoundError';
-  }
-}
-
-/** Mirrors api-core's ConflictError (statusCode 409 / code CONFLICT). */
-class ConflictError extends AppError {
-  constructor(message?: string) {
-    super(409, 'CONFLICT', message);
-    this.name = 'ConflictError';
-  }
-}
-
-/** Mirrors api-core's ForbiddenError (statusCode 403 / code INSUFFICIENT_PERMISSIONS). */
-class ForbiddenError extends AppError {
-  constructor(message?: string) {
-    super(403, 'INSUFFICIENT_PERMISSIONS', message);
-    this.name = 'ForbiddenError';
-  }
-}
-
-/** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
-class ValidationError extends AppError {
-  constructor(message?: string) {
-    super(400, 'VALIDATION_ERROR', message);
-    this.name = 'ValidationError';
-  }
-}
+export { loggerMock };
 
 /**
- * The REAL api-core exports, used as the base of every mock below. Suites stub
- * only what they exercise; everything else is the genuine export, so adding an
- * export to api-core can never again break a suite with "does not provide an
- * export named X". (`requireActual` bypasses the module mock.)
+ * The REAL api-core exports, resolved HERE (not inside the shared factory):
+ * `requireActual` on an ESM barrel only succeeds while nothing else is
+ * mid-`import()` of it, and this module — a static import of every suite that
+ * uses it, evaluated before the suite's `await import(SUT)` — is the one point
+ * where that reliably holds.
  */
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Pipeline-specific defaults layered over the shared base. */
+const pipelineDefaults = (): Record<string, unknown> => ({
+  ...serviceAuditDefaults(),
+  loadAndPurge: async () => null,
+  // The `openai-compatible` (local model) provider is deployment-defined; ai-core's
+  // provider-registry imports these from api-core, so the mock must expose them.
+  OPENAI_COMPATIBLE_PROVIDER_ID: 'openai-compatible',
+  getOpenAICompatibleProvider: () => null,
+  // S2S token minter — routes forward a service token (not the user bearer)
+  // to quota/compliance. Suites that assert on the forwarded auth override this.
+  getServiceAuthHeader: () => 'Bearer service-token',
+  // Compliance client — create AND update routes gate on it (fail-closed).
+  // Default is non-blocking; a suite testing a compliance block overrides it.
+  createComplianceClient: () => ({
+    validatePipeline: async () => ({ blocked: false, violations: [] }),
+    validatePlugin: async () => ({ blocked: false, violations: [] }),
+  }),
+  extractDbError: () => ({}),
+  // Real account-id scrub (mirrors api-core's aws-scrub): 12-digit runs → [REDACTED].
+  scrubAwsIdentifiersFromString: (input: string) =>
+    String(input).replace(/(?<!\d)\d{12}(?!\d)/g, '[REDACTED]'),
+  // `requirePermission(...perms)` is a factory that RETURNS middleware, so
+  // the stub is a function producing the pass-through guard.
+  requirePermission: () => passThroughMiddleware,
+  requireFeature: () => passThroughMiddleware,
+  AppError: MockAppError,
+  NotFoundError: MockNotFoundError,
+  ValidationError: MockValidationError,
+  ForbiddenError: MockForbiddenError,
+  ConflictError: MockConflictError,
+  // Template visibility gates — the pipeline-template routes link against
+  // these. Defaults allow the write and echo the requested rung.
+  requireVisibilityWriteAccess: () => true,
+  resolveVisibility: (_req: unknown, requested?: string) =>
+    (requested === 'public' || requested === 'org' ? requested : 'private'),
+  // Pipeline-template Zod schemas — the template routes import them as values.
+  PipelineTemplateFilterSchema: {},
+  PipelineTemplateCreateSchema: {},
+  PipelineTemplateUpdateSchema: {},
+  InstantiateTemplateSchema: {},
+  // Shared SSRF guard — git-analysis http.ts links against this.
+  assertSafeUrl: async () => {},
+  // Env Redis client factory — returns null (no Redis) so consumers like the
+  // execution-idempotency guard fail open in suites.
+  createEnvRedisClient: () => null,
+  // Caller-authority probes the create/upload overwrite gate snapshots.
+  isSystemAdmin: () => false,
+  userHasPermission: () => false,
+  // Mirrors api-core: 503 (+Retry-After) when the quota service couldn't
+  // confirm the reservation, 429 when the org is actually over its limit.
+  sendQuotaReserveDenied: (res: any, _type: string, reservation: { unavailable?: boolean; quota?: unknown }) =>
+    reservation.unavailable
+      ? res.status(503).json({ success: false, statusCode: 503, code: 'SERVICE_UNAVAILABLE' })
+      : res.status(429).json({ success: false, statusCode: 429, quota: reservation.quota }),
+});
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    ...actualApiCore,
-    createLogger: loggerMock,
-    MAX_PAGE_LIMIT: 1000,
-    DEFAULT_PAGE_LIMIT: 100,
-    closeLeaderLock: async () => undefined,
-    loadAndRestore: async () => null,
-    loadAndPurge: async () => null,
-    REPORT_INTERVALS: ['day', 'week', 'month'],
-    scrubAwsIdentifiers: <T>(v: T): T => v,
-    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
-    createEnvRedisLock: () => null,
-    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
-    SYSTEM_ORG_ID: '000000000000000000000001',
-    // The `openai-compatible` (local model) provider is deployment-defined; ai-core's
-    // provider-registry imports these from api-core, so the mock must expose them.
-    // Suites that exercise a local model override them.
-    OPENAI_COMPATIBLE_PROVIDER_ID: 'openai-compatible',
-    getOpenAICompatibleProvider: () => null,
-    // S2S token minter — routes forward a service token (not the user bearer)
-    // to quota/compliance. Suites that assert on the forwarded auth override this.
-    getServiceAuthHeader: () => 'Bearer service-token',
-    // Compliance client — create AND update routes gate on it (fail-closed).
-    // Default is non-blocking; a suite testing a compliance block overrides it.
-    createComplianceClient: () => ({
-      validatePipeline: async () => ({ blocked: false, violations: [] }),
-      validatePlugin: async () => ({ blocked: false, violations: [] }),
-    }),
-    // Remote audit client factory — the pipeline routes' audit wiring
-    // (src/services/audit.ts) links against this. Default returns a no-op
-    // recorder; suites asserting on emitted audit events mock the audit module
-    // (src/services/audit.js) directly instead.
-    createRemoteAuditClient: () => ({ record: jest.fn() }),
-    createEnvRedisAuditSpool: () => null,
-    // Service audit factory — src/services/audit.ts now links against this. Returns
-    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
-    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
-    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
-    // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
-    setAuthzDenialAuditor: () => {},
-    wireAuthzDenialAuditor: () => {},
-    wireServiceSecurity: () => {},
-    // Token-revocation reader hooks (session-invalidation) — stubbed for parity
-    // so suites that transitively load the boot module still link.
-    setTokenRevocationStore: () => {},
-    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-
-    ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
-    PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
-    ErrorCode,
-    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-    extractDbError: () => ({}),
-    // Real account-id scrub (mirrors api-core's aws-scrub): 12-digit runs → [REDACTED].
-    // Services that link this at the persistence/response boundary need the real
-    // behavior so suites can assert account ids never leak.
-    scrubAwsIdentifiersFromString: (input: string) =>
-      String(input).replace(/(?<!\d)\d{12}(?!\d)/g, '[REDACTED]'),
-    // `requirePermission(...perms)` is a factory that RETURNS middleware, so
-    // the stub is a function producing the pass-through guard.
-    requirePermission: () => passThroughMiddleware,
-    // `requireFeature(feature)` — same factory shape. Suites asserting the
-    // feature gate itself override this with a capability/feature-aware stub.
-    requireFeature: () => passThroughMiddleware,
-    AppError,
-    NotFoundError,
-    ValidationError,
-    ForbiddenError,
-    ConflictError,
-    // Template visibility gates — the pipeline-template routes link against
-    // these. Defaults allow the write and echo the requested rung (private when
-    // unspecified); suites exercising the ladder override them.
-    requireVisibilityWriteAccess: () => true,
-    resolveVisibility: (_req: unknown, requested?: string) =>
-      (requested === 'public' || requested === 'org' ? requested : 'private'),
-    // Pipeline-template Zod schemas — the template routes import them as values
-    // (passed to validateBody/validateQuery). Inert stubs suffice for ESM linking;
-    // suites that exercise validation override validateBody/validateQuery anyway.
-    PipelineTemplateFilterSchema: {},
-    PipelineTemplateCreateSchema: {},
-    PipelineTemplateUpdateSchema: {},
-    InstantiateTemplateSchema: {},
-    // Shared SSRF guard — git-analysis http.ts links against this. Default is a
-    // permissive async no-op; suites exercising the guard override it.
-    assertSafeUrl: async () => {},
-    createCacheService: () => ({
-      getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-      invalidatePattern: () => Promise.resolve(0),
-    }),
-    // Env Redis client factory — returns null (no Redis) so consumers like the
-    // execution-idempotency guard fail open in suites. Override for redis tests.
-    createEnvRedisClient: () => null,
-    // Caller-authority probes the create/upload overwrite gate snapshots.
-    // Default: an ordinary member (no admin, no publish); suites override.
-    isSystemAdmin: () => false,
-    userHasPermission: () => false,
-    // Mirrors api-core: 503 (+Retry-After) when the quota service couldn't
-    // confirm the reservation, 429 when the org is actually over its limit.
-    sendQuotaReserveDenied: (res: any, _type: string, reservation: { unavailable?: boolean; quota?: unknown }) =>
-      reservation.unavailable
-        ? res.status(503).json({ success: false, statusCode: 503, code: 'SERVICE_UNAVAILABLE' })
-        : res.status(429).json({ success: false, statusCode: 429, quota: reservation.quota }),
-    ...overrides,
-  };
+  return baseApiCoreMock(actualApiCore, { ...pipelineDefaults(), ...overrides });
 }

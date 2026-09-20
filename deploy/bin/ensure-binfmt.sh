@@ -14,6 +14,13 @@
 #     won't work until installed (or PUBLISH_PLATFORM is set to the host arch)
 #
 # Usage: ensure-binfmt.sh [TARGET_PLATFORM]   (default linux/amd64)
+#
+# SHELL OPTIONS — the missing `-e` is DELIBERATE, not an oversight. This script
+# is best-effort by contract (see "never fails the caller" above): a host with
+# no QEMU emulator available must leave the caller running, with cross-arch
+# builds simply unavailable, rather than aborting a provision over an optional
+# capability. `-u` and `pipefail` still apply — a typo'd variable or a broken
+# pipe is a bug either way.
 set -uo pipefail
 
 TARGET_PLATFORM="${1:-linux/amd64}"

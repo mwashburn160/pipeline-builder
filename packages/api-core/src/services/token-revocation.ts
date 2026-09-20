@@ -6,6 +6,7 @@ import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from
 import type { SessionRevocationState, TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('token-revocation');
 
@@ -66,7 +67,7 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
         // which is a deliberate opt-out, not a degradation.
         emitCounter('token_revocation_fail_open_total', { reason: 'read-error' });
         logger.debug('Token-revocation read failed (fail-open)', {
-          userId, error: err instanceof Error ? err.message : String(err),
+          userId, error: errorMessage(err),
         });
         return null;
       }
@@ -81,7 +82,7 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
         // support impersonation everywhere — is visible and alertable.
         emitCounter('session_revocation_unavailable_total', { reason: 'read-error' });
         logger.debug('Session-revocation read failed (rejecting impersonation token)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
         return 'unavailable';
       }
@@ -176,7 +177,7 @@ export async function publishTokenRevocation(
     await redis.set(tokenRevocationKey(userId), String(tokenVersion), 'EX', Math.max(1, Math.floor(ttlSeconds)));
   } catch (err) {
     logger.warn('Token-revocation publish failed (services fall back to token expiry)', {
-      userId, error: err instanceof Error ? err.message : String(err),
+      userId, error: errorMessage(err),
     });
   }
 }
@@ -205,7 +206,7 @@ export async function publishSessionRevocation(
     return true;
   } catch (err) {
     logger.warn('Session-revocation publish failed (other services will honour the token until it expires)', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     return false;
   }

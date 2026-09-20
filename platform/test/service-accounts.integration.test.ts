@@ -22,13 +22,13 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
-const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
-const suite = RUN ? describe : describe.skip;
+const suite = integrationSuite();
 
 suite('service accounts (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
@@ -52,7 +52,10 @@ suite('service accounts (real Mongo)', () => {
     ({ apiKeyService } = await import('../src/services/api-key-service.js'));
     token = await import('../src/utils/token.js');
     seats = await import('../src/helpers/seats.js');
-    roles = await import('../src/services/roles-service.js');
+    roles = {
+      ...(await import('../src/services/roles-service.js')),
+      ...(await import('../src/services/role-crud.js')),
+    };
     (await import('./helpers/signing.js')).installTestSigningKeys();
   }, 180_000);
 

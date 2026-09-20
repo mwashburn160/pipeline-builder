@@ -42,8 +42,9 @@ export type AutoPluginEvent =
 
 /**
  * Extract plugin names referenced in a generated pipeline config.
- * Walks `stages[].steps[].plugin.name` and `stages[].actions[].pluginName` to
- * match the shapes produced by `PipelineGenerationSchema` (see ai-generation-service).
+ * Walks `stages[].steps[].plugin.name` — the one shape `PipelineGenerationSchema`
+ * produces (see ai-generation-service), and the BuilderProps shape the pipeline
+ * service persists.
  *
  * @param props - Generated pipeline props (partial BuilderProps)
  * @returns Unique list of plugin names
@@ -55,25 +56,13 @@ export function extractPluginNames(props: Record<string, unknown>): string[] {
   // tool for the synth step) is provisioned out-of-band; including it here
   // would trigger creating-plugins on every generated pipeline and break the
   // "skip auto-creation when no stages" guarantee.
-  const stages = props.stages as Array<{
-    steps?: Array<{ plugin?: { name?: unknown } }>;
-    actions?: Array<{ pluginName?: unknown }>;
-  }> | undefined;
+  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: unknown } }> }> | undefined;
   if (!Array.isArray(stages)) return [];
   for (const stage of stages) {
-    // Two AI-output shapes are accepted: stages[].steps[].plugin.name
-    // (BuilderProps) and stages[].actions[].pluginName (legacy / alt schema).
-    if (Array.isArray(stage.steps)) {
-      for (const step of stage.steps) {
-        const name = step.plugin?.name;
-        if (typeof name === 'string' && name) names.add(name);
-      }
-    }
-    if (Array.isArray(stage.actions)) {
-      for (const action of stage.actions) {
-        const name = action.pluginName;
-        if (typeof name === 'string' && name) names.add(name);
-      }
+    if (!Array.isArray(stage.steps)) continue;
+    for (const step of stage.steps) {
+      const name = step.plugin?.name;
+      if (typeof name === 'string' && name) names.add(name);
     }
   }
   return [...names];

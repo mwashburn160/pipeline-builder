@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -134,10 +134,14 @@ router.get('/', requireAuth, getMyOrganization);
 router.post('/', requireAuth, requirePermission('org:settings'), audited('org.create'), createOrganization);
 
 /** POST /organization/names — internal batch id→name resolver (service principal
- *  only; gate enforced in the controller). Used by the message service to label
- *  conversation rows with the counterparty org's name. Literal path, so it's
- *  declared before the `/:id` routes and never shadowed by the id matcher. */
-router.post('/names', requireAuth, getOrganizationNames);
+ *  only). Used by the message service to label conversation rows with the
+ *  counterparty org's name. The gate rides the ROUTE so the generated route
+ *  table advertises `servicePrincipal` — the controller kept its own identical
+ *  check for years, which enforced correctly but left every reader of the table
+ *  (and the UI-parity guard) believing any authenticated caller could resolve
+ *  org names across tenants. Literal path, so it's declared before the `/:id`
+ *  routes and never shadowed by the id matcher. */
+router.post('/names', requireAuth, requireServicePrincipal, getOrganizationNames);
 
 /*
  * AI Provider Configuration (must be before /:id routes)

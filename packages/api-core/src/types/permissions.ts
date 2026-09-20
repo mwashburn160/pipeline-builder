@@ -108,6 +108,39 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
 ];
 
 /**
+ * The CLOSED set of functions that take a {@link Permission} and decide access.
+ *
+ * "Is permission X enforced anywhere?" has to be answerable statically, and it
+ * used to not be: four different call shapes consumed a permission id
+ * (`requirePermission('x')` at a route, `userHasPermission(req, 'x')` inside a
+ * controller, and `resolveVisibility(req, v, 'x')` /
+ * `requireVisibilityWriteAccess(…, 'x')` in the visibility helpers), so a naive
+ * grep for a route-level gate reported `templates:publish` as UNENFORCED when it
+ * is in fact enforced on every template publish.
+ *
+ * They all bottom out in `userHasPermission`, so the RUNTIME primitive was
+ * already one. This constant makes the STATIC surface one as well: it names
+ * every entry point, so `permission-coverage.test.ts` can enumerate the catalog
+ * and report each permission's enforcement sites without guessing. A new gate
+ * that takes a `Permission` must be listed here, or the coverage report starts
+ * lying about the permissions only that gate enforces.
+ */
+export const PERMISSION_GATES: readonly string[] = [
+  // Middleware gates (route level) — all any-of except requireAllPermissions.
+  'requirePermission',
+  'requireAllPermissions',
+  'requirePermissionOrService',
+  // The single runtime primitive every gate above delegates to; also called
+  // directly where a controller branches on a capability rather than rejecting.
+  'userHasPermission',
+  'hasPermission',
+  // Visibility helpers — they take the entity's PUBLISH permission.
+  'requireVisibilityWriteAccess',
+  'checkVisibilityWriteAccess',
+  'resolveVisibility',
+];
+
+/**
  * Display metadata for one permission: the label + description the
  * permission-picker UI shows, and the category it groups under.
  */

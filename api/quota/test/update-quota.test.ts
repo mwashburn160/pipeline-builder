@@ -144,6 +144,9 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   findOrgWithHierarchy: async () => ({ self: null, hasChildren: false }),
   resolveRootOrgId: async (id: string) => id,
   expandOrgScope: async (id: string) => [id],
+  // Only consulted on the pooled-resolution FAILURE path (quota-service
+  // decides deny-vs-per-org from it); these suites never reach it.
+  getParentOrgId: async () => undefined,
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({

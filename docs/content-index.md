@@ -70,6 +70,7 @@ the links below.
 - **Deploy plugins (cloud, k8s, serverless)** — [Deploy Plugins](plugins/deploy.md)
 - **Deployment modes (public vs private)** — [AWS Deployment: Deployment modes](aws-deployment.md#deployment-modes-public-vs-private)
 - **Deploy operations runbook** — [Deploy Operations](deploy-operations.md)
+- **Disaster recovery (RPO, what is NOT backed up)** — [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up), [Enabling the EKS backup CronJob](deploy-operations.md#eks--enabling-the-nightly-cronjob)
 - **Developer guide / getting started (dev)** — [Developer Guide](developer-guide.md), [Five ways to create a pipeline](developer-guide.md#five-ways-to-create-a-pipeline)
 - **Developer portal (catalog ownership, scorecards)** — [Developer Portal](developer-portal.md)
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
@@ -185,6 +186,7 @@ the links below.
 - **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5--store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
 - **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
+- **Slack alert delivery (ops-team channels)** — [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
 - **Self-references (pipeline.json cross-refs)** — [Templates: pipeline-level self-references](templates.md#example-pipeline-level-self-references)
 - **Service mesh (Istio ambient, mTLS, AuthZ)** — [Service Mesh](service-mesh.md), also [AWS](aws-deployment.md#service-mesh-istio-ambient) / [Ops](deploy-operations.md#service-mesh-istio-ambient)
@@ -233,7 +235,7 @@ the links below.
 | [content-index](content-index.md) | *This page — keyword/topic index* |
 | [deploy-operations](deploy-operations.md) | Ops runbook: preflight, secrets rotation, backups, teardown |
 | [runbooks/secret-rotation](runbooks/secret-rotation.md) | Per-secret rotation runbooks + the `secret_rotation_previous_set` metric and alert |
-| [runbooks/access-key-cutover](runbooks/access-key-cutover.md) | One-time reissue of every PAT as an opaque access key — no migration is possible |
+| [runbooks/access-key-cutover](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three machine credentials an AWS install needs |
 | [developer-guide](developer-guide.md) | Five ways to create a pipeline, plugin cut-and-paste patterns |
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |

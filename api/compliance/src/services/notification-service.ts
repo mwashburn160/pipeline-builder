@@ -9,9 +9,9 @@
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import type { NotificationMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray } from 'drizzle-orm';
-import type { ComplianceNotification } from '../helpers/notification-channels.js';
 
 const logger = createLogger('compliance-notification-service');
 
@@ -91,7 +91,7 @@ export async function recordNotificationLog(entry: NotificationLogEntry): Promis
 // digest scheduler later aggregates the pending rows into one delivery.
 
 /** Park a notification for later digest delivery. Best-effort (never throws). */
-export async function recordPendingDigest(orgId: string, notification: ComplianceNotification): Promise<void> {
+export async function recordPendingDigest(orgId: string, notification: NotificationMessage): Promise<void> {
   try {
     await withTenantTx(async (tx) => tx.insert(schema.complianceNotificationLog).values({
       orgId,
@@ -116,7 +116,7 @@ export async function getOrgsWithPendingDigests(): Promise<string[]> {
   return rows.map((r) => r.orgId);
 }
 
-export interface PendingDigestEntry { id: string; notification: ComplianceNotification }
+export interface PendingDigestEntry { id: string; notification: NotificationMessage }
 
 /** Pending digest entries for an org, oldest first. */
 export async function getPendingDigests(orgId: string): Promise<PendingDigestEntry[]> {
@@ -129,7 +129,7 @@ export async function getPendingDigests(orgId: string): Promise<PendingDigestEnt
       eq(schema.complianceNotificationLog.status, 'pending'),
     ))
     .orderBy(schema.complianceNotificationLog.createdAt));
-  return rows.map((r) => ({ id: r.id, notification: r.payload as unknown as ComplianceNotification }));
+  return rows.map((r) => ({ id: r.id, notification: r.payload as unknown as NotificationMessage }));
 }
 
 /** Mark digest entries delivered. */

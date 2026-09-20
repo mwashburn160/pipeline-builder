@@ -4,7 +4,7 @@ import { MetadataEntry } from '@/types/form-types';
 import { Button } from '@/components/ui/Button';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useTemplateValidation } from '@/hooks/useTemplateValidation';
-import { METADATA_KEY_GROUPS, type MetadataKeyOption } from '@/lib/metadata-keys';
+import { METADATA_KEY_GROUPS, type MetadataKeyOption } from '@pipeline-builder/api-core/metadata-keys';
 
 /** Props for {@link MetadataEditor}. */
 interface MetadataEditorProps {
@@ -49,7 +49,7 @@ function MetadataValueInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder="Value"
         disabled={disabled}
-        className={`w-full px-3 py-1.5 border ${border} rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors`}
+        className={`w-full px-3 py-1.5 border ${border} rounded-lg text-sm bg-white dark:bg-gray-800 text-fg placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors`}
       />
       {invalid && (
         <div className="mt-0.5 text-xs text-red-600 dark:text-red-400" role="alert">
@@ -118,7 +118,7 @@ function MetadataKeyCombobox({
         placeholder="Key (type or select)"
         disabled={disabled}
         autoComplete="off"
-        className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-fg placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
         {...inputAriaProps}
       />
       {open && !disabled && filteredGroups.length > 0 && (
@@ -144,7 +144,7 @@ function MetadataKeyCombobox({
                       onMouseDown={(e) => e.preventDefault()}
                       onMouseEnter={() => setActiveIndex(i)}
                       onClick={() => handleSelect(opt)}
-                      className={`w-full text-left px-3 py-1.5 cursor-pointer flex justify-between items-center text-gray-900 dark:text-gray-100 transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                      className={`w-full text-left px-3 py-1.5 cursor-pointer flex justify-between items-center text-fg transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                     >
                       <span className="truncate">{opt.label}</span>
                       <span className="ml-2 text-xs text-fg-subtle shrink-0">{opt.type}</span>
@@ -218,7 +218,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
               value={entry.type}
               onChange={(e) => handleChange(idx, 'type', e.target.value)}
               disabled={disabled}
-              className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-fg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             >
               <option value="string">String</option>
               <option value="number">Number</option>
@@ -229,7 +229,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
                 value={entry.value}
                 onChange={(e) => handleChange(idx, 'value', e.target.value)}
                 disabled={disabled}
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-fg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               >
                 <option value="true">true</option>
                 <option value="false">false</option>

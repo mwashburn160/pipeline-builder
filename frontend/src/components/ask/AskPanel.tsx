@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Sparkles, Send, BookOpen, AlertTriangle, GitBranch, Package, LayoutTemplate, Check, Loader2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SideDrawer } from '@/components/ui/SideDrawer';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
@@ -25,10 +26,10 @@ interface Proposal {
 }
 
 /** Per-kind card presentation + the dashboard the created resource lives on. */
-const PROPOSAL_META: Record<Proposal['kind'], { label: string; icon: LucideIcon; createLabel: string; href: string; createdText: string }> = {
-  pipeline: { label: 'Proposed pipeline', icon: GitBranch, createLabel: 'Create pipeline', href: '/dashboard/pipelines', createdText: 'Created — open pipelines' },
-  plugin: { label: 'Proposed plugin', icon: Package, createLabel: 'Create plugin', href: '/dashboard/plugins', createdText: 'Build queued — open plugins' },
-  template: { label: 'Proposed template', icon: LayoutTemplate, createLabel: 'Create template', href: '/dashboard/templates', createdText: 'Created — open templates' },
+const PROPOSAL_META: Record<Proposal['kind'], { label: string; icon: LucideIcon; createLabel: string; href: string; createdText: string; permission: string }> = {
+  pipeline: { label: 'Proposed pipeline', icon: GitBranch, createLabel: 'Create pipeline', href: '/dashboard/pipelines', createdText: 'Created — open pipelines', permission: 'pipelines:write' },
+  plugin: { label: 'Proposed plugin', icon: Package, createLabel: 'Create plugin', href: '/dashboard/plugins', createdText: 'Build queued — open plugins', permission: 'plugins:write' },
+  template: { label: 'Proposed template', icon: LayoutTemplate, createLabel: 'Create template', href: '/dashboard/templates', createdText: 'Created — open templates', permission: 'templates:write' },
 };
 
 /** Whether a draft carries the fields its create API requires (gates the button). */
@@ -118,6 +119,11 @@ const EXAMPLES = [
  * transcript is sent back as history each turn); nothing is persisted or mutated.
  */
 export function AskPanel({ onClose }: { onClose: () => void }) {
+  // Committing a proposal calls the SAME create route the dashboard's own button
+  // does (`plugins:write` for POST /plugins/deploy-generated, `pipelines:write`
+  // for POST /pipelines, `templates:write` for POST /pipeline-templates), so the
+  // entitlement that opens this panel is not enough to show its Create action.
+  const { can } = useAuthGuard();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -202,6 +208,9 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   const commitProposal = useCallback(async (index: number) => {
     const p = messages[index]?.proposal;
     if (!p) return;
+    // Re-checked here, not only on the button: the create call would 403 anyway,
+    // and a refused proposal should never look like a failed draft.
+    if (!can(PROPOSAL_META[p.kind]?.permission ?? '')) return;
     const patch = (u: Partial<ChatMessage>) => setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, ...u } : m)));
     patch({ proposalStatus: 'creating', proposalError: undefined });
     try {
@@ -236,7 +245,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } catch (e) {
       patch({ proposalStatus: 'error', proposalError: formatError(e, 'Failed to create.') });
     }
-  }, [messages]);
+  }, [messages, can]);
 
   return (
     <SideDrawer
@@ -311,6 +320,9 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   if (!meta) return null; // ignore an unrecognized proposal kind rather than crash
                   const Icon = meta.icon;
                   const ready = proposalReady(m.proposal);
+                  // The create route's own permission — without it the action stays
+                  // visible (the draft is still worth reading) but inert, saying why.
+                  const allowed = can(meta.permission);
                   return (
                     <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
                       <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
@@ -337,7 +349,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                         <div className="mt-2 flex items-center gap-2">
                           <button
                             onClick={() => commitProposal(i)}
-                            disabled={m.proposalStatus === 'creating' || !ready}
+                            disabled={m.proposalStatus === 'creating' || !ready || !allowed}
+                            title={allowed ? undefined : `Requires the ${meta.permission} permission`}
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs disabled:opacity-50"
                             style={{ background: 'var(--pb-brand)' }}
                           >
@@ -346,7 +359,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                               : meta.createLabel}
                           </button>
                           <span className="text-2xs text-fg-muted">
-                            {ready ? 'Review before creating' : 'Draft incomplete'}
+                            {!allowed ? `Requires the ${meta.permission} permission`
+                              : ready ? 'Review before creating' : 'Draft incomplete'}
                           </span>
                         </div>
                       )}

@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -50,27 +51,7 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuthUserId: (req: any) => req.user?.sub,
-  // Wrap as Express handler so callers can pass `next`. Optional error map
-  // applies the same status/message mapping the real `withController` does
-  // — without it, a thrown service error like 'PROFILE_OWNER_HAS_ORGS' would
-  // bubble up uncaught and the test couldn't assert on the response.
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any, _next: any) => {
-      try {
-        await fn(req, res);
-      } catch (err) {
-        const code = err instanceof Error ? err.message : String(err);
-        const mapped = errorMap?.[code];
-        if (mapped) {
-          res.status(mapped.status).json({ success: false, message: mapped.message });
-          return;
-        }
-        throw err;
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.

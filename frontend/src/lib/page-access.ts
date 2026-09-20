@@ -63,7 +63,7 @@ const NAV_GATES: Record<string, PageGate> = Object.fromEntries(
 /**
  * Pages the nav never links directly. Each needs an explicit gate because there
  * is no nav item to inherit from; the permission is the one the page's own reads
- * require (see `frontend/test/route-permissions.test.ts`, which checks these
+ * require (see `frontend/test/route-permissions.test.tsx`, which checks these
  * against the generated route tables).
  *
  * Matching is EXACT on the Next.js `router.pathname` (dynamic segments included),

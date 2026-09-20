@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail, recordBootstrapSession } from '../helpers/bootstrap-admin.js';
@@ -98,7 +98,7 @@ export const register = withController('Register', async (req, res) => {
       logger.warn('Super-admin promotion failed (non-fatal — startup bootstrap will retry)', {
         userId: result.sub,
         email: result.email,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }
@@ -529,7 +529,7 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
     outcome: 'success',
     ip: req.ip,
     details: { via: 'token' },
-  }).catch((err) => logger.warn('Failed to write user.email.verified audit event', { error: err instanceof Error ? err.message : String(err) }));
+  }).catch((err) => logger.warn('Failed to write user.email.verified audit event', { error: errorMessage(err) }));
 
   sendSuccess(res, 200, undefined, 'Email verified successfully');
 });

@@ -3,6 +3,7 @@
 
 // Mock external dependencies — must be set up before importing the service
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 
 const mockTransactionSet = jest.fn().mockReturnValue({ where: jest.fn() });
 const mockTransactionOnConflict = jest.fn().mockReturnValue({
@@ -108,7 +109,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   };
 });;
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   SQL: class {},
   sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
   or: jest.fn((...args: any[]) => args),

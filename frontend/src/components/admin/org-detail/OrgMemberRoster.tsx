@@ -43,7 +43,7 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
     <Card>
       <div className="flex items-center gap-2 mb-3">
         <Users className="w-5 h-5 text-fg-muted" />
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Members</h3>
+        <h3 className="text-base font-semibold text-fg">Members</h3>
         {data && <span className="text-sm text-fg-muted">({total})</span>}
       </div>
 
@@ -68,7 +68,7 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
                 {members.map((m) => (
                   <tr key={m._id}>
                     <td className="py-2 pr-4">
-                      <div className="font-medium text-gray-900 dark:text-gray-100">{m.username || '—'}</div>
+                      <div className="font-medium text-fg">{m.username || '—'}</div>
                       <div className="text-xs text-fg-muted">{m.email || ''}</div>
                     </td>
                     <td className="py-2 pr-4"><Badge color={ROLE_COLOR[m.role] ?? 'gray'}>{m.role}</Badge></td>

@@ -18,6 +18,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockIsSystemAdmin = jest.fn<(req: unknown) => boolean>();
@@ -80,13 +81,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  isOrgAdmin: jest.fn(),
-  getAdminContext: (req: unknown) => ({ isSuperAdmin: mockIsSystemAdmin(req), isOrgAdmin: false, adminType: 'org admin' }),
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-  requireOrgMembership: (req: any) => req.user?.organizationId ?? null,
-  requireAuthContext: (req: any) => ({ userId: req.user.sub, orgId: req.user.organizationId }),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(async () => ({ exceeded: false })),

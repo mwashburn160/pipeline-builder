@@ -40,7 +40,8 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { idpGroupMappingService } from './idp-group-mapping-service.js';
 import { JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
-import { ensureBaselineRole, recomputeUserOrgRole, syncMappedRoles } from './roles-service.js';
+import { syncMappedRoles } from './mapped-roles.js';
+import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';

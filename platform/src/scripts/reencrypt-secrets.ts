@@ -23,7 +23,7 @@
  * the previous key must NOT be dropped yet.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { bootstrapPerOrgKmsProvider } from '../services/per-org-kms-bootstrap.js';
@@ -46,6 +46,8 @@ async function main(): Promise<number> {
     orgsScanned: summary.orgsScanned,
     aiKeysReencrypted: summary.aiKeysReencrypted,
     idpSecretsReencrypted: summary.idpSecretsReencrypted,
+    totpSecretsReencrypted: summary.totpSecretsReencrypted,
+    samlSpKeysReencrypted: summary.samlSpKeysReencrypted,
     failures: summary.failures.length,
   });
   for (const failure of summary.failures) {
@@ -58,7 +60,7 @@ let exitCode = 1;
 try {
   exitCode = await main();
 } catch (err) {
-  logger.error('Re-encryption aborted', { error: err instanceof Error ? err.message : String(err) });
+  logger.error('Re-encryption aborted', { error: errorMessage(err) });
 } finally {
   await mongoose.disconnect().catch(() => undefined);
 }

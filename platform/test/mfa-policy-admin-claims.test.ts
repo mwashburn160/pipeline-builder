@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockRefreshClaims = jest.fn(async (..._a: unknown[]) => 4);
@@ -23,18 +24,21 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: async () => true,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateMfaPolicySchema: {},
   validateBody: (_schema: unknown, body: unknown) => body,
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async () => undefined }));
+// `canAdministerOrg` (real — see helpers/controller-helper-mock.ts) lazily
+// imports this module on the CROSS-org branch, so `isAncestorOrg` must exist
+// here too. Flat tree: nobody is anyone's ancestor, so only the same-org admin
+// in the fixture below is admitted.
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getOrgName: async () => undefined,
+  isAncestorOrg: async () => false,
+}));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({
@@ -67,8 +71,16 @@ function makeRes() {
   r.json = (b: unknown) => { r._body = b; return r; };
   return r;
 }
-const req = (body: Record<string, unknown>) =>
-  ({ user: { sub: 'admin-1', organizationId: 'org-1' }, params: { id: 'org-1' }, body }) as any;
+/**
+ * The route is `canAdministerOrg`-gated and that gate runs FOR REAL: `role` is
+ * what the real `isOrgAdmin` reads, and `organizationId` must match the `:id`
+ * being edited. `user` is overridable so the negative cases can send a caller
+ * the gate has to refuse.
+ */
+const ADMIN = { sub: 'admin-1', organizationId: 'org-1', role: 'admin' };
+
+const req = (body: Record<string, unknown>, user: unknown = ADMIN) =>
+  ({ user, params: { id: 'org-1' }, body }) as any;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -103,5 +115,22 @@ describe('updateMfaPolicy — admin-actions claim refresh', () => {
     mockFindById.mockResolvedValue({ adminActionsRequireMfa: true });
     await updateMfaPolicy(req({ adminActionsRequireMfa: true }), makeRes());
     expect(mockRefreshClaims).not.toHaveBeenCalled();
+  });
+
+  // Negative: the authority gate, not the claim-refresh logic. Nothing is
+  // written, nothing is audited, and no session is touched.
+  it.each([
+    ['an anonymous caller', null, 401],
+    ['a plain member of the same org', { sub: 'u2', organizationId: 'org-1' }, 403],
+    ['an admin of an unrelated org', { sub: 'u3', organizationId: 'org-2', role: 'admin' }, 403],
+  ] as const)('refuses %s and writes nothing', async (_label, user, status) => {
+    mockFindById.mockResolvedValue({ adminActionsRequireMfa: false });
+    const res = makeRes();
+    await updateMfaPolicy(req({ adminActionsRequireMfa: true }, user), res);
+
+    expect(res._status).toBe(status);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+    expect(mockRefreshClaims).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

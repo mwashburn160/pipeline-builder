@@ -4,6 +4,7 @@
 import { randomUUID } from 'crypto';
 import { createEnvRedisClient } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
+import { errorMessage } from '../utils/response.js';
 
 const lockLogger = createLogger('leader-lock');
 
@@ -75,7 +76,7 @@ export async function withLeaderLock(
     // pod can prove it's the leader, so nobody runs this window. Skipping is
     // the safe side — running here could duplicate destructive work across pods.
     lockLogger.warn('Leader lock unavailable; skipping this run', {
-      key, error: err instanceof Error ? err.message : String(err),
+      key, error: errorMessage(err),
     });
     return false;
   }

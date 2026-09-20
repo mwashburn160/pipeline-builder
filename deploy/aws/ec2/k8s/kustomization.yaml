@@ -3,6 +3,12 @@ kind: Kustomization
 
 # EC2 — standalone manifests for AWS EC2 deployment.
 
+# NetworkPolicy: networkpolicy.yaml (standard k8s NetworkPolicy) is the active set.
+# cilium-network-policies.yaml is intentionally NOT included: its FQDN/per-org egress
+# allow-listing needs Cilium as the CNI, and it is inert YAML under any other CNI.
+# See that file's header to opt in. The standard policies stay either way — the
+# Cilium set adds an FQDN layer on top of them, it does not replace them.
+
 namespace: pipeline-builder
 
 resources:
@@ -37,6 +43,7 @@ resources:
   - image-registry.yaml
   - prometheus.yaml
   - thanos-query.yaml
+  - thanos-compact.yaml
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml

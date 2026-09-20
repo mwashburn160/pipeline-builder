@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { formatError } from '@/lib/constants';
-import { CreditCard, Pencil, DatabaseZap, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CreditCard, Pencil, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -45,10 +45,10 @@ type ByOrgRow = AdminBillingSummary['byOrg'][number];
 
 const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
   { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-gray-800 dark:text-gray-200 break-all', render: (o) => o.orgId },
-  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-gray-700 dark:text-gray-300', render: (o) => formatCents(o.grossBilledCents) },
+  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.grossBilledCents) },
   { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.discountsCents) },
   { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.creditsCents) },
-  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-gray-900 dark:text-gray-100', render: (o) => formatCents(o.netBilledCents) },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-fg', render: (o) => formatCents(o.netBilledCents) },
   { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => o.invoiceCount },
 ];
 
@@ -66,7 +66,7 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
 /**
  * Billing Admin (system admin only). A fleet-wide view over every org's
  * subscription with per-row override + purge, a platform finance summary
- * (totals + per-org impact), and a one-off ledger backfill. All endpoints are
+ * (totals + per-org impact). All endpoints are
  * `requireSystemAdmin`; when the billing service is disabled they 404 and we
  * fall back to a "not enabled" empty state rather than an error banner.
  */
@@ -209,24 +209,7 @@ export default function BillingAdminPage() {
     }
   };
 
-  // ── Ledger backfill ─────────────────────────────────────
-  const [backfillOpen, setBackfillOpen] = useState(false);
-  const [backfillLoading, setBackfillLoading] = useState(false);
 
-  const handleBackfill = async () => {
-    setBackfillLoading(true);
-    try {
-      const res = await api.runBillingBackfill();
-      const r = res.data;
-      toast.success(`Backfill complete — ${r?.ingested ?? 0} invoices across ${r?.accounts ?? 0} accounts (${r?.errors ?? 0} errors)`);
-      setBackfillOpen(false);
-      loadSummary();
-    } catch (err) {
-      toast.error(formatError(err, 'Backfill failed'));
-    } finally {
-      setBackfillLoading(false);
-    }
-  };
 
   const columns: Column<Subscription>[] = useMemo(() => [
     {
@@ -235,7 +218,7 @@ export default function BillingAdminPage() {
       sortValue: (s) => s.orgId,
       render: (s) => (
         <div>
-          <div className="font-mono text-xs text-gray-900 dark:text-gray-100 break-all">{s.orgId}</div>
+          <div className="font-mono text-xs text-fg break-all">{s.orgId}</div>
           {s.cancelAtPeriodEnd && <Badge color="yellow">Cancels at period end</Badge>}
         </div>
       ),
@@ -285,7 +268,7 @@ export default function BillingAdminPage() {
         </div>
       ),
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- static column config; the row handlers it closes over are stable enough to build once
   ], []);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
@@ -296,13 +279,6 @@ export default function BillingAdminPage() {
       title="Billing Admin"
       subtitle="Fleet-wide subscriptions, platform finance, and ledger ops"
       titleExtra={<Badge color="red">System Admin</Badge>}
-      actions={
-        !notEnabled && (
-          <Button variant="secondary" onClick={() => setBackfillOpen(true)}>
-            <DatabaseZap className="w-4 h-4 mr-1.5" /> Backfill Ledger
-          </Button>
-        )
-      }
     >
       <BillingAdminTabs active="admin" />
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
@@ -312,7 +288,7 @@ export default function BillingAdminPage() {
           <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
             <ShieldAlert className="w-9 h-9 text-fg-subtle" />
           </div>
-          <h3 className="mt-4 text-base font-semibold text-gray-900 dark:text-gray-100">Billing is not enabled</h3>
+          <h3 className="mt-4 text-base font-semibold text-fg">Billing is not enabled</h3>
           <p className="mt-1.5 text-sm text-fg-muted max-w-sm">
             The billing service is disabled in this deployment, so there is nothing to administer here.
           </p>
@@ -322,7 +298,7 @@ export default function BillingAdminPage() {
           {/* ── Platform finance summary ──────────────────── */}
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Platform Finance</h3>
+              <h3 className="text-base font-semibold text-fg">Platform Finance</h3>
               <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1">
                   <label className="block text-2xs font-medium text-fg-muted">From</label>
@@ -424,13 +400,13 @@ export default function BillingAdminPage() {
           }
         >
           <p className="text-sm text-fg-muted mb-4">
-            Admin override for <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{editSub.orgId}</span>.
+            Admin override for <span className="font-mono text-xs text-fg-muted">{editSub.orgId}</span>.
             A plan or status change resyncs the org’s tier/entitlements. A status change into a terminal state does
             <strong> not</strong> stop provider billing — use the normal cancel flow for that.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Plan</label>
+              <label className="block text-xs font-medium text-fg-muted">Plan</label>
               <Select
                 value={editPlanId}
                 onChange={(e) => setEditPlanId(e.target.value)}
@@ -446,7 +422,7 @@ export default function BillingAdminPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Status</label>
+                <label className="block text-xs font-medium text-fg-muted">Status</label>
                 <Select
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value as SubscriptionStatus)}
@@ -460,7 +436,7 @@ export default function BillingAdminPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Interval</label>
+                <label className="block text-xs font-medium text-fg-muted">Interval</label>
                 <Select
                   value={editInterval}
                   onChange={(e) => setEditInterval(e.target.value as BillingInterval)}
@@ -471,7 +447,7 @@ export default function BillingAdminPage() {
                 </Select>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 pt-1">
+            <label className="flex items-center gap-2 text-sm text-fg-muted pt-1">
               <Checkbox
                 checked={editCancelAtPeriodEnd}
                 onChange={(e) => setEditCancelAtPeriodEnd(e.target.checked)}
@@ -495,26 +471,6 @@ export default function BillingAdminPage() {
         />
       )}
 
-      {/* Backfill confirm */}
-      {backfillOpen && (
-        <Modal
-          title="Backfill Ledger"
-          onClose={() => setBackfillOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setBackfillOpen(false)}
-              onConfirm={handleBackfill}
-              confirmLabel="Run Backfill"
-              loading={backfillLoading}
-            />
-          }
-        >
-          <p className="text-sm text-fg-muted">
-            Seed the billing ledger from the payment provider’s historical invoices. This is idempotent —
-            already-ingested invoices are skipped — and safe to re-run. It may take a moment for large fleets.
-          </p>
-        </Modal>
-      )}
     </DashboardLayout>
   );
 }
@@ -524,7 +480,7 @@ function SummaryStat({ label, value, accent }: { label: string; value: string; a
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 px-3 py-2.5">
       <div className="text-2xs font-medium text-fg-muted">{label}</div>
-      <div className={`mt-0.5 text-sm font-semibold ${accent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
+      <div className={`mt-0.5 text-sm font-semibold ${accent ? 'text-blue-600 dark:text-blue-400' : 'text-fg'}`}>{value}</div>
     </div>
   );
 }

@@ -19,12 +19,12 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetByIdWithOrgs = jest.fn<(...a: unknown[]) => unknown>();
 const mockUpdateFeatures = jest.fn<(...a: unknown[]) => unknown>();
 const mockHasMembershipInOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
-const mockRequireScope = jest.fn();
 const mockOrgFindById = jest.fn();
 
 // Faithful mini resolver: union tier-less start + account features, then apply
@@ -95,13 +95,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   adminCreateUserSchema: {},
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireMemberManagementScope: (req: any, res: any) => mockRequireScope(req, res),
-  canManageOrgScope: async () => true,
-  isOrgAdmin: () => false,
-  requireAuthUserId: jest.fn(),
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userAdminService: {
@@ -125,6 +119,15 @@ function mockRes() {
   return res;
 }
 
+// `requireMemberManagementScope` runs FOR REAL (helpers/controller-helper-mock.ts):
+// no `req.user` → 401; api-core's `isSystemAdmin` (the JWT `isSuperAdmin` claim)
+// → `{ isSuperAdmin: true }`; otherwise the caller's `organizationId` →
+// `{ isSuperAdmin: false, orgId }`. Authority lives in the FIXTURE below.
+/** A platform administrator — fleet-wide scope. */
+const SYSADMIN = { sub: 'admin', isSuperAdmin: true };
+/** An org admin holding `members:manage`, scoped to `orgA`. */
+const ORG_ADMIN = { sub: 'admin', organizationId: 'orgA', role: 'admin' };
+
 /** `Organization.findById(id).select('featureEntitlements').lean()` stub. */
 function orgLean(value: unknown) {
   return { select: () => ({ lean: () => value }) };
@@ -132,7 +135,6 @@ function orgLean(value: unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRequireScope.mockReturnValue({ isSuperAdmin: true });
 });
 
 describe('getUserById — purchased account features', () => {
@@ -147,7 +149,7 @@ describe('getUserById — purchased account features', () => {
 
     const res = mockRes();
     await (getUserById as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'user1' } },
+      { user: SYSADMIN, params: { id: 'user1' } },
       res,
     );
 
@@ -171,13 +173,55 @@ describe('getUserById — purchased account features', () => {
 
     const res = mockRes();
     await (getUserById as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'user1' } },
+      { user: SYSADMIN, params: { id: 'user1' } },
       res,
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
     const call = mockResolveUserFeatures.mock.calls[0];
     expect(call[1]?.accountFeatures).toBeUndefined();
+  });
+});
+
+describe('the member-management scope gate bites', () => {
+  it('401s an unauthenticated caller before any lookup', async () => {
+    const res = mockRes();
+    await (getUserById as unknown as (req: any, res: any) => Promise<void>)(
+      { params: { id: 'user1' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockGetByIdWithOrgs).not.toHaveBeenCalled();
+  });
+
+  it('403s a caller with `members:manage` but no active organization', async () => {
+    const res = mockRes();
+    await (updateUserFeatures as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'nomad' }, params: { id: 'user1' }, body: { overrides: { sso: true } } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdateFeatures).not.toHaveBeenCalled();
+  });
+
+  it('403s an org admin reaching at a user outside their organization', async () => {
+    mockGetByIdWithOrgs.mockResolvedValue({
+      user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgB' },
+      memberships: [{ organizationId: 'orgB', role: 'member' }],
+      orgMap: new Map(),
+    });
+    mockHasMembershipInOrg.mockResolvedValue(false);
+
+    const res = mockRes();
+    await (getUserById as unknown as (req: any, res: any) => Promise<void>)(
+      { user: ORG_ADMIN, params: { id: 'user1' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockHasMembershipInOrg).toHaveBeenCalledWith('user1', 'orgA');
   });
 });
 
@@ -193,7 +237,7 @@ describe('updateUserFeatures — purchased account features', () => {
 
     const res = mockRes();
     await (updateUserFeatures as unknown as (req: any, res: any) => Promise<void>)(
-      { user: { sub: 'admin' }, params: { id: 'user1' }, body: { overrides: {} } },
+      { user: SYSADMIN, params: { id: 'user1' }, body: { overrides: {} } },
       res,
     );
 
@@ -209,13 +253,12 @@ describe('updateUserFeatures — purchased account features', () => {
     // override-enable `sso` (a paid add-on) when the org's tier doesn't include it
     // and it hasn't been purchased — that bypasses billing AND (since
     // featureOverrides is a GLOBAL field) leaks into the target's other orgs.
-    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     // Admin's org: developer tier, no purchased entitlements → `sso` is gated.
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
 
     const res = mockRes();
-    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    const req: any = { user: ORG_ADMIN, params: { id: 'user1' }, body: { overrides: { sso: true } } };
     await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
@@ -224,7 +267,6 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS an org admin enabling a feature the org has purchased (in featureEntitlements)', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     // Admin's org purchased the `sso` add-on → the override is permitted.
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: ['sso'] }));
@@ -236,7 +278,7 @@ describe('updateUserFeatures — purchased account features', () => {
     });
 
     const res = mockRes();
-    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    const req: any = { user: ORG_ADMIN, params: { id: 'user1' }, body: { overrides: { sso: true } } };
     await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -244,7 +286,6 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS a system admin to enable a gated feature (gate is org-admin-only)', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
     mockUpdateFeatures.mockResolvedValue({
       user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgA' },
@@ -254,7 +295,7 @@ describe('updateUserFeatures — purchased account features', () => {
     });
 
     const res = mockRes();
-    const req: any = { user: { sub: 'admin' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { overrides: { sso: true } } };
     await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -262,7 +303,6 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS an org admin to DISABLE a gated feature (removing is never an escalation)', async () => {
-    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
     mockUpdateFeatures.mockResolvedValue({
@@ -273,7 +313,7 @@ describe('updateUserFeatures — purchased account features', () => {
     });
 
     const res = mockRes();
-    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: false } } };
+    const req: any = { user: ORG_ADMIN, params: { id: 'user1' }, body: { overrides: { sso: false } } };
     await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -289,7 +329,7 @@ describe('updateUserFeatures — purchased account features', () => {
     });
     mockOrgFindById.mockReturnValue(orgLean({ featureEntitlements: [] }));
 
-    const req: any = { user: { sub: 'admin' }, params: { id: 'user1' }, body: { overrides: { audit_log: true, sso: false } } };
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { overrides: { audit_log: true, sso: false } } };
     await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, mockRes());
 
     expect(mockAudit).toHaveBeenCalledWith(req, 'admin.user.features.update', expect.objectContaining({

@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { KeyRound, ShieldAlert, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { useFetch } from '@/hooks/useFetch';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { Button } from './Button';
 import { Modal } from './Modal';
@@ -43,21 +43,12 @@ const ENROL_HREF = PASSKEY_ENROLMENT_HREF;
 export function MfaRequiredDialog({ code, message, onClose }: Props) {
   const { logout } = useAuth();
   const router = useRouter();
-  const [factors, setFactors] = useState<AuthFactors | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await api.getProfile();
-        if (!cancelled) setFactors(res.data?.user?.authFactors ?? null);
-      } catch {
-        // Fail soft: with no answer, offer BOTH routes rather than guessing.
-        if (!cancelled) setFactors(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // Fail soft: with no answer, `factors` stays null and BOTH routes are
+  // offered rather than one guessed from nothing.
+  const { data: factors } = useFetch<AuthFactors | null>(
+    async () => (await api.getProfile()).data?.user?.authFactors ?? null,
+    [],
+  );
 
   const hasFactor = (factors?.passkeyCount ?? 0) > 0 || factors?.hasTotp === true;
   const stale = code === 'REAUTH_REQUIRED';
@@ -70,7 +61,7 @@ export function MfaRequiredDialog({ code, message, onClose }: Props) {
       onClose={onClose}
     >
       <div className="space-y-4">
-        <p className="text-sm text-gray-700 dark:text-gray-300">{message}</p>
+        <p className="text-sm text-fg-muted">{message}</p>
 
         {stale ? (
           <p className="text-xs text-fg-muted">

@@ -73,7 +73,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-registry
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -231,11 +231,11 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: image-registry
-  # minReplicas: 1 on single-node minikube — two replicas pulling the
-  # same ~250MB image in parallel saturates gp3 EBS baseline throughput
-  # and blocks every other pod's image pull for 10+ minutes at boot.
-  # HPA scales up to 5 under real load, by which point the image is
-  # already cached in the kubelet and the second pod boots in seconds.
+  # 1 on single-node minikube: a second replica adds no availability (one
+  # node) and two replicas pulling the same ~250MB image in parallel saturate
+  # the laptop's disk, stalling every other pod's image pull at boot. The HPA
+  # still scales to 5 under real load, by which point the image is cached in
+  # the kubelet. Only the multi-node eks target starts at 2.
   minReplicas: 1
   maxReplicas: 5
   metrics:

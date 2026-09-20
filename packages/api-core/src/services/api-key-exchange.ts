@@ -38,6 +38,7 @@ import { InternalHttpClient } from '../services/http-client.js';
 import { hashApiKey } from '../utils/api-key.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('api-key-exchange');
 
@@ -158,7 +159,7 @@ async function performExchange(key: string, hash: string): Promise<CacheEntry> {
     emitCounter('api_key_exchange_total', { result: 'unavailable' });
     emitCounter('api_key_exchange_failures_total', { reason: 'unavailable' });
     logger.warn('Access-key exchange failed to reach platform', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     throw new ApiKeyExchangeUnavailableError();
   }

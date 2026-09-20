@@ -23,7 +23,7 @@ export function FeatureDisabledCard({ icon: Icon, title, children }: FeatureDisa
           <Icon className="w-9 h-9 text-fg-subtle" />
         </div>
       )}
-      <h3 className={`${Icon ? 'mt-4 ' : ''}text-base font-semibold text-gray-900 dark:text-gray-100`}>{title}</h3>
+      <h3 className={`${Icon ? 'mt-4 ' : ''}text-base font-semibold text-fg`}>{title}</h3>
       <p className="mt-1.5 text-sm text-fg-muted max-w-sm">{children}</p>
     </Card>
   );

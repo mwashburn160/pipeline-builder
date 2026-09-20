@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams } from '@pipeline-builder/api-core';
+import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams, errorMessage } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { verifyAuditChain } from '../helpers/audit-chain.js';
 import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
@@ -26,7 +26,7 @@ const FAILURE_ACTION = /\.(failed|timeout)$/;
 
 /**
  * GET /audit - List audit events (admin only, org-scoped for org admins)
- * Query: action, actorId, targetType, targetId, groupId, impersonatorId,
+ * Query: action, actorId, targetType, targetId, roleId, impersonatorId,
  * requestId, outcome, from, to, offset, limit — plus orgId / affectedOrgId for
  * sysadmins (an org admin is always pinned to their own org).
  */
@@ -43,7 +43,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
   const affectedOrgId = parseQueryString(req.query.affectedOrgId);
   const actorId = parseQueryString(req.query.actorId);
   const orgIdQuery = parseQueryString(req.query.orgId);
-  const groupId = parseQueryString(req.query.groupId);
+  const roleId = parseQueryString(req.query.roleId);
   const impersonatorId = parseQueryString(req.query.impersonatorId);
   const requestId = parseQueryString(req.query.requestId);
   const outcomeQuery = parseQueryString(req.query.outcome);
@@ -76,7 +76,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
   if (action) filter.action = action;
   if (targetType) filter.targetType = targetType;
   if (targetId) filter.targetId = targetId;
-  if (groupId) filter.groupId = groupId;
+  if (roleId) filter.roleId = roleId;
   if (impersonatorId) filter.impersonatorId = impersonatorId;
   if (requestId) filter.requestId = requestId;
   if (outcomeQuery === 'success' || outcomeQuery === 'failure') filter.outcome = outcomeQuery;
@@ -221,7 +221,7 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
     });
     return sendSuccess(res, 200, {});
   } catch (error) {
-    logger.warn('[AUDIT] Ingest failed', { action: body.action, error: error instanceof Error ? error.message: String(error) });
+    logger.warn('[AUDIT] Ingest failed', { action: body.action, error: errorMessage(error) });
     return sendError(res, 500, 'Failed to record audit event');
   }
 }

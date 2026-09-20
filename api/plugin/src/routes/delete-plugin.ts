@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { audited, getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPluginAudit } from '../services/audit.js';
@@ -41,7 +41,7 @@ export function createDeletePluginRoutes(): Router {
     // Best-effort attributed audit — emitted only after the delete landed.
     emitPluginAudit({
       action: 'plugin.delete',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'plugin',
       targetId: id,

@@ -12,7 +12,7 @@
  *   - a single-factor refusal is left to the shell's MFA dialog, not repeated.
  */
 
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 
 const requestMfaReset = jest.fn();
 const listMfaResets = jest.fn();
@@ -131,6 +131,37 @@ describe('MfaResetPanel', () => {
     render(<MfaResetPanel orgId="org-1" currentUserId="me" readOnly={false} />);
     await screen.findByText(/this request is about you/i);
     expect(screen.queryByRole('button', { name: /approve|deny|withdraw/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the deny dialog up, in its in-flight state, until the call settles', async () => {
+    listMfaResets.mockResolvedValue({ success: true, data: { requests: [request()] } });
+    let release: (v: unknown) => void = () => undefined;
+    denyMfaReset.mockImplementation(() => new Promise((r) => { release = r; }));
+    render(<MfaResetPanel orgId="org-1" currentUserId="a2" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^deny$/i }));
+    // Two "Deny" buttons once the dialog is up: the row's and the dialog's.
+    const dialog = screen.getByRole('dialog');
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /^deny$/i })); });
+    // The dialog used to close on the click, so Deny looked like it did nothing
+    // while the request was still on the wire.
+    expect(screen.getByText('Working…')).toBeInTheDocument();
+    await act(async () => { release({ success: true, message: 'Request closed' }); });
+    await waitFor(() => expect(screen.queryByText('Working…')).not.toBeInTheDocument());
+  });
+
+  it('announces a decision through a live region that was already on the page', async () => {
+    listMfaResets.mockResolvedValue({ success: true, data: { requests: [request()] } });
+    approveMfaReset.mockResolvedValue({ success: true, message: 'Two-factor reset for mia@example.com', data: {} });
+    const { container } = render(<MfaResetPanel orgId="org-1" currentUserId="a2" readOnly={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^approve$/i }));
+    // Present and empty BEFORE the decision — a region added together with its
+    // text is not announced.
+    const live = container.querySelector('[role="status"]')!;
+    expect(live).toHaveTextContent('');
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await waitFor(() => expect(live).toHaveTextContent('Two-factor reset for mia@example.com'));
   });
 
   it('shows recent decisions', async () => {

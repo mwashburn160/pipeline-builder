@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, audited, getParam, isSystemAdmin, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
@@ -79,12 +79,14 @@ const QUEUE_MAX_PAGE_DEPTH = intFromEnv('PLUGIN_QUEUE_MAX_PAGE_DEPTH', 5000);
 /** Max rows per page on GET /failed and GET /dlq (parity with read routes). */
 const QUEUE_MAX_PAGE_LIMIT = 200;
 
-/** Parse + clamp `limit`/`offset` for the paged queue listings. */
-function parseQueuePage(query: Record<string, unknown>): { limit: number; offset: number } {
-  const limit = Math.min(Math.max(1, parseQueryInt(query.limit, 50)), QUEUE_MAX_PAGE_LIMIT);
-  const offset = Math.min(Math.max(0, parseQueryInt(query.offset, 0)), Math.max(0, QUEUE_MAX_PAGE_DEPTH - limit));
-  return { limit, offset };
-}
+/** Parse + clamp `limit`/`offset` for the paged queue listings via the shared
+ *  `parsePage` primitive. The offset ceiling is depth-aware: a page reads
+ *  `offset + limit` entries from every source queue. */
+const parseQueuePage = (query: Record<string, unknown>) => parsePage(query, {
+  def: 50,
+  max: QUEUE_MAX_PAGE_LIMIT,
+  maxOffset: (limit) => QUEUE_MAX_PAGE_DEPTH - limit,
+});
 
 /** Newest-first order over a merged multi-queue read (finished, else enqueued). */
 const newestFirst = (a: Job, b: Job): number =>
@@ -230,7 +232,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * Returns 404 if no failed job with that id exists. The retry carries fresh
    * retry counters; the original failed entry is removed on success.
    */
-  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -253,7 +255,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // job's owning org, which differs from `orgId` for a sysadmin retry.
     emitPluginAudit({
       action: 'plugin.build.retry',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       ...(jobOrgId(failedJob.data) ? { affectedOrgId: jobOrgId(failedJob.data) } : {}),
       targetType: 'plugin',
@@ -311,7 +313,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // Access: `requireSystemAdmin` (route middleware) — the purge discards every
   // org's dead-lettered builds, so it is operator-only. The gate replaces the
   // equivalent in-handler check so the route table can see the requirement.
-  router.delete('/dlq', requireSystemAdmin, audited('plugin.dlq.purge'), withRoute(async ({ req, res }) => {
+  router.delete('/dlq', requireSystemAdmin, audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
     const purgedCount = await purgeDlq(quotaService);
 
     // Best-effort attributed audit — the purge discards ALL dead-lettered build
@@ -319,7 +321,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // carries only the count (no per-job / cross-org identifiers).
     emitPluginAudit({
       action: 'plugin.dlq.purge',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       details: { purgedCount },
     });
 
@@ -336,7 +338,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
    * counters; the original DLQ entry is removed on success.
    */
-  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), audited('plugin.dlq.replay'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), audited('plugin.dlq.replay'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -359,7 +361,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // after the re-enqueue landed.
     emitPluginAudit({
       action: 'plugin.dlq.replay',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       ...(jobOrgId(dlqJob.data) ? { affectedOrgId: jobOrgId(dlqJob.data) } : {}),
       targetType: 'plugin',

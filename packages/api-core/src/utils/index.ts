@@ -10,7 +10,21 @@ export * from './response.js';
 export * from './params.js';
 export * from './headers.js';
 export * from './identity.js';
-export * from './jwk.js';
+// JWK primitives. Platform IS the token signer, so it legitimately needs
+// `publicJwkFrom` + `derToJoseSignature` from the package surface.
+// `jwkThumbprint` and `publicKeyFromJwk` are kid-derivation/verification
+// plumbing used only inside api-core — deep-import them from there instead of
+// leaking them to every service.
+export {
+  USER_TOKEN_ALGORITHM,
+  USER_TOKEN_CURVE,
+  JWKS_PATH,
+  decodeJwtHeader,
+  isJwksDocument,
+  publicJwkFrom,
+  derToJoseSignature,
+} from './jwk.js';
+export type { PublicJwk, JwksDocument, JwtHeader } from './jwk.js';
 export * from './object.js';
 export * from './alias-resolver.js';
 export * from './concurrency.js';

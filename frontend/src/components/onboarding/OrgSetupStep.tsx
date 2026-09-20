@@ -42,7 +42,9 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
   const [origin, setOrigin] = useState('https://your-platform.example.com');
   useEffect(() => { if (typeof window !== 'undefined') setOrigin(window.location.origin); }, []);
 
-  const doraIncluded = planTier === 'enterprise';
+  // `unlimited` is the billing-off tier: nothing is metered, so everything —
+  // DORA included — is available on it.
+  const doraIncluded = planTier === 'enterprise' || planTier === 'unlimited';
   const setupEventsCmd = `export PLATFORM_BASE_URL=${origin}\npipeline-manager infra setup-events --region us-east-1${withDora ? ' --with-dora' : ''}`;
 
   return (

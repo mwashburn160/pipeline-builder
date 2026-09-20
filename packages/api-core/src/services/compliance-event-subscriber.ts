@@ -8,6 +8,7 @@ import { getServiceAuthHeader } from '../middleware/auth.js';
 import { type ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('compliance-events');
 
@@ -67,7 +68,7 @@ export function registerComplianceEventSubscriber(
           target: event.target,
           eventType: event.eventType,
           entityId: event.entityId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },

@@ -14,6 +14,19 @@
 # recreate succeeds — but only after the rollback stack is cleared.)
 #
 # Requires $REGION to be set by the caller.
+#
+# SHELL OPTIONS: this file is SOURCED, never executed, so it deliberately sets
+# NO `set -euo pipefail`. `set` inside a sourced file mutates the CALLER's shell
+# — it would silently turn on errexit for whatever sourced us (including an
+# interactive shell, where a failed command would then close the terminal).
+# Every caller already runs under `set -euo pipefail`; these functions therefore
+# propagate failure the portable way, by RETURNING non-zero, so they behave the
+# same whether or not the caller has errexit on.
+#
+# Historically this function's last statement was `echo "  Done"`, so a failed
+# `aws cloudformation deploy` was reported as SUCCESS to any caller that did not
+# happen to have errexit on — the stack silently did not exist and the next step
+# failed somewhere far away. Every AWS call below is now checked explicitly.
 # =============================================================================
 
 cfn_deploy() {
@@ -31,8 +44,12 @@ cfn_deploy() {
     --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)
   if [ "$stack_status" = "ROLLBACK_COMPLETE" ] || [ "$stack_status" = "REVIEW_IN_PROGRESS" ]; then
     echo "  ${full_name} is in ${stack_status} (not updatable) — deleting it before recreate..."
-    aws cloudformation delete-stack --stack-name "$full_name" --region "$REGION"
-    aws cloudformation wait stack-delete-complete --stack-name "$full_name" --region "$REGION"
+    if ! aws cloudformation delete-stack --stack-name "$full_name" --region "$REGION" \
+       || ! aws cloudformation wait stack-delete-complete --stack-name "$full_name" --region "$REGION"; then
+      echo "ERROR: could not clear the un-updatable stack ${full_name}" >&2
+      echo "       Delete it by hand (or check for a retained resource blocking the delete) and re-run." >&2
+      return 1
+    fi
     echo "  Cleared ${full_name}."
   fi
 
@@ -47,7 +64,11 @@ cfn_deploy() {
   if [ ${#params[@]} -gt 0 ]; then
     cmd+=(--parameter-overrides "${params[@]}")
   fi
-  "${cmd[@]}"
+  if ! "${cmd[@]}"; then
+    echo "ERROR: CloudFormation deploy of ${full_name} failed" >&2
+    echo "       Events: aws cloudformation describe-stack-events --stack-name ${full_name} --region ${REGION} --max-items 20" >&2
+    return 1
+  fi
 
   echo "  Done"
 }

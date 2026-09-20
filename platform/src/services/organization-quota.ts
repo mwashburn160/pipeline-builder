@@ -124,10 +124,10 @@ async function bumpActiveMembersTokenVersion(
 
 /**
  * Whether moving from `prev` to `next` is a tier DOWNGRADE — a strictly lower
- * rank in the developer < pro < team < enterprise order (VALID_TIERS). A legacy
- * no-tier (`undefined`) previous, or any unknown tier on either side, is never a
- * downgrade: a stale token then under-grants, which is safe. Pure; shared by
- * setTier + setSeatLimit's billing tier-push so the rank comparison can't drift.
+ * rank in the developer < pro < team < enterprise order (VALID_TIERS). Pure;
+ * shared by setTier + setSeatLimit's billing tier-push so the rank comparison
+ * can't drift. Both arguments are `QuotaTier`: `Organization.tier` is a required,
+ * enum-constrained field with a default, so every org carries a valid tier.
  *
  * LOAD-BEARING INVARIANT: the rank is `VALID_TIERS.indexOf(...)`, and
  * `VALID_TIERS = Object.keys(QUOTA_TIERS)` — so downgrade semantics derive
@@ -136,10 +136,8 @@ async function bumpActiveMembersTokenVersion(
  * flips what counts as a downgrade (and thus which changes invalidate tokens).
  * Keep `QUOTA_TIERS` keys in ascending-tier order.
  */
-function isTierDowngrade(prev: QuotaTier | undefined, next: QuotaTier): boolean {
-  const prevRank = prev ? VALID_TIERS.indexOf(prev) : -1;
-  const nextRank = VALID_TIERS.indexOf(next);
-  return prevRank !== -1 && nextRank !== -1 && nextRank < prevRank;
+function isTierDowngrade(prev: QuotaTier, next: QuotaTier): boolean {
+  return VALID_TIERS.indexOf(next) < VALID_TIERS.indexOf(prev);
 }
 
 /**
@@ -406,11 +404,11 @@ export async function checkTierOvercap(
  * operations decoupled because partial failure of the remote quota
  * service shouldn't leave the org-doc tier unchanged.
  */
-export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
+export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
   const org = await Organization.findById(toOrgId(id));
   if (!org) return null;
 
-  const previousTier = org.tier as QuotaTier | undefined;
+  const previousTier = org.tier;
   if (previousTier === newTier) {
     return { id: org._id.toString(), previousTier, tier: newTier };
   }
@@ -419,8 +417,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   // VALID_TIERS is ordered developer < pro < team < enterprise, so a lower index
   // = a lesser tier. A downgrade drops the baked-in tier + `requireFeature`-gated
   // capabilities, so members' existing JWTs must be invalidated (below). An
-  // UPGRADE (or a legacy no-tier → tier transition) never bumps: a stale token
-  // then under-grants, which is safe.
+  // UPGRADE never bumps: a stale token then under-grants, which is safe.
   const isDowngrade = isTierDowngrade(previousTier, newTier);
 
   // On a downgrade, compute the tier-included features the org LOSES
@@ -430,7 +427,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   // (`featureEntitlements`) are unaffected by a tier change, so only the
   // tier-baseline delta is reported here. Undefined on an upgrade/no-op.
   let featuresRemoved: string[] | undefined;
-  if (isDowngrade && previousTier) {
+  if (isDowngrade) {
     featuresRemoved = computeFeatureDelta(TIER_FEATURES[previousTier] ?? [], TIER_FEATURES[newTier] ?? []).removed;
   }
 

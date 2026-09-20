@@ -86,8 +86,8 @@ export type EnforcedRule = ComplianceRule & {
 /**
  * Build a `ComplianceRuleInsert` copying the evaluable body of a source rule
  * (priority/target/severity/tags/scope/field/operator/value/conditions/…), with
- * `overrides` for the per-clone bits (orgId, name, policyId, forkedFromRuleId,
- * createdBy/updatedBy). Used by `cloneRule` (copy a published rule into an org).
+ * `overrides` for the per-clone bits (orgId, name, policyId, createdBy/updatedBy).
+ * Used by `cloneRule` (copy a published rule into an org).
  */
 function ruleInsertFromSource(source: ComplianceRule, overrides: Partial<ComplianceRuleInsert>): ComplianceRuleInsert {
   return {
@@ -315,10 +315,13 @@ export class ComplianceRuleService extends CrudService<
   /**
    * Clone a published rule into the org's own rules.
    *
-   * Creates a copy with scope='org' and tracks the source via forkedFromRuleId
-   * (column name kept for schema-compat). One-shot copy — no upstream sync,
-   * no notification when the source rule changes. If the org wants future
-   * upstream changes, they should subscribe instead of clone.
+   * Creates a copy with scope='org'. One-shot copy — no upstream sync, no
+   * notification when the source rule changes. If the org wants future upstream
+   * changes, they should subscribe instead of clone.
+   *
+   * No lineage column is stored: nothing reads one, and the `/clone` route's
+   * `compliance.rule.create` audit event already records `sourceRuleId` +
+   * `newRuleId` in the tamper-evident central trail.
    *
    * Previously named `forkRule`; "fork" carried git connotations (track upstream
    * for merge) we never delivered. Renamed outright — there is no back-compat alias.
@@ -344,7 +347,6 @@ export class ComplianceRuleService extends CrudService<
       orgId,
       name: `${sourceRule.name}-custom`,
       policyId: undefined,
-      forkedFromRuleId: ruleId,
       createdBy: userId,
       updatedBy: userId,
     }), userId);

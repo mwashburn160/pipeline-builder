@@ -31,7 +31,7 @@ import { sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { User } from '../models/index.js';
-import { grantPlatformAdmin, revokePlatformAdmin } from '../services/roles-service.js';
+import { grantPlatformAdmin, revokePlatformAdmin } from '../services/platform-admin-roles.js';
 
 /** All grant names this endpoint understands. */
 type GrantName = 'platform-admin';

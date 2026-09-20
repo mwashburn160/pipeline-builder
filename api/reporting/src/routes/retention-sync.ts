@@ -4,6 +4,7 @@
 import {
   sendSuccess, sendBadRequest, ErrorCode,
   getParam, requireInternalService, audited,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
@@ -47,7 +48,7 @@ function normalizeRetentionDays(v: unknown): number | null {
 export function createRetentionSyncRoutes(): Router {
   const router = Router();
 
-  router.put('/:orgId', requireInternalService({ callers: ['billing'] }), audited('reporting.retention.sync'), withRoute(async ({ req, res, ctx }) => {
+  router.put('/:orgId', requireInternalService({ callers: ['billing'] }), audited('reporting.retention.sync'), withRoute(async ({ req, res, ctx, userId }) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
@@ -71,7 +72,7 @@ export function createRetentionSyncRoutes(): Router {
     // ROOT org; the actor is the billing service principal (or a sysadmin).
     emitReportingAudit({
       action: 'reporting.retention.sync',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       affectedOrgId: orgId,
       targetType: 'reporting-settings',
       targetId: orgId,

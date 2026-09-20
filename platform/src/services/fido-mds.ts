@@ -29,7 +29,7 @@
  */
 
 import { readFile } from 'fs/promises';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { MetadataService, type MetadataStatement } from '@simplewebauthn/server';
 import { verifyMDSBlob } from '@simplewebauthn/server/helpers';
 import { config } from '../config/index.js';
@@ -119,7 +119,7 @@ async function load(): Promise<MdsSnapshot | null> {
     lastFailureAt = Date.now();
     incCounter('platform_fido_mds_loads_total', { outcome: 'failure', source: config.auth.webauthn.mds.blobPath ? 'file' : 'url' });
     logger.warn('FIDO metadata load failed; keeping the previous snapshot if any', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
       hasPrevious: snapshot !== null,
     });
   }

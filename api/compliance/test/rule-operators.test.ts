@@ -185,6 +185,45 @@ describe('evaluateOperator', () => {
     });
   });
 
+  // A rule pattern is org-authored and PROPAGATES from a parent org, then runs
+  // on the entity-create hot path — so an unbounded backtracking match pins the
+  // compliance pod's event loop for every tenant. The bound must hold for a
+  // KNOWN catastrophic pattern, not just for the ones the author-time heuristic
+  // happens to recognise.
+  describe('regex ReDoS bound', () => {
+    // 40 a's then a b: `(a+)+$` needs ~2^40 backtracking steps to reject it.
+    const evilPattern = '(a+)+$';
+    const evilInput = 'a'.repeat(40) + 'b';
+
+    it('aborts a catastrophic pattern at the deadline instead of hanging', () => {
+      const started = Date.now();
+      const result = evaluateOperator('regex', evilInput, evilPattern);
+      const elapsed = Date.now() - started;
+
+      // Fail-closed: an aborted match is a VIOLATION, never a silent pass.
+      expect(result).toBe(false);
+      // Unbounded, this match takes minutes. Generous ceiling so the assertion
+      // is about "bounded", not about the exact deadline.
+      expect(elapsed).toBeLessThan(5000);
+    });
+
+    it('stays usable for ordinary patterns after an aborted match', () => {
+      evaluateOperator('regex', evilInput, evilPattern);
+      expect(evaluateOperator('regex', 'hello-world', '^hello')).toBe(true);
+      expect(evaluateOperator('regex', 'goodbye', '^hello')).toBe(false);
+    });
+
+    it('bounds a second catastrophic family the author-time heuristic also sees', () => {
+      const started = Date.now();
+      expect(evaluateOperator('regex', 'x'.repeat(36) + 'y', '(x|x)*$')).toBe(false);
+      expect(Date.now() - started).toBeLessThan(5000);
+    });
+
+    it('rejects an over-long pattern without evaluating it', () => {
+      expect(evaluateOperator('regex', 'anything', 'a'.repeat(5000))).toBe(false);
+    });
+  });
+
   describe('numeric comparisons', () => {
     it('gt: 10 > 5', () => expect(evaluateOperator('gt', 10, 5)).toBe(true));
     it('gt: 5 > 10', () => expect(evaluateOperator('gt', 5, 10)).toBe(false));

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess, audited } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, audited, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -35,7 +35,7 @@ export function createPurgePipelineRoutes(): Router {
     // a no-org sysadmin purge is attributed to the org whose row was removed.
     emitPipelineAudit({
       action: 'pipeline.purge',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'pipeline',

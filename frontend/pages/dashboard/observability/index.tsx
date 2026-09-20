@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { formatError } from '@/lib/constants';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -88,14 +89,14 @@ export default function ObservabilityIndexPage() {
         canCreateDashboard ? (
           <Link
             href="/dashboard/observability/new"
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-default rounded hover:bg-surface-muted"
           >
             <Plus className="w-3.5 h-3.5" /> New dashboard
           </Link>
         ) : undefined
       }
     >
-      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
+      {error && <RetryError message={formatError(error, 'Failed to load dashboards')} onRetry={refetch} className="mb-4" />}
 
       {/* Client-side filters over the dashboard tiles below (the fixed
           Alerts/Rules/Logs links are always shown). */}
@@ -118,8 +119,8 @@ export default function ObservabilityIndexPage() {
                 aria-pressed={active}
                 className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
                   active
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                    ? 'border-info-border bg-info-bg text-info'
+                    : 'border-default bg-surface text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 {c.label}
@@ -133,11 +134,11 @@ export default function ObservabilityIndexPage() {
         {/* Alerts page — not a Prom dashboard but lives in the same section. */}
         <Link
           href="/dashboard/observability/alerts"
-          className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+          className="block rounded-lg border border-default bg-surface p-4 hover:border-brand hover:shadow-sm transition-colors"
         >
           <div className="flex items-center gap-3 mb-2">
-            <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts</h2>
+            <Bell className="w-5 h-5 text-info" />
+            <h2 className="text-sm font-semibold text-fg">Alerts</h2>
           </div>
           <p className="text-xs text-fg-muted">
             Firing + suppressed alerts from Alertmanager, with per-org silence controls.
@@ -147,11 +148,11 @@ export default function ObservabilityIndexPage() {
         {/* Per-org alert rules — the PromQL conditions that fire alerts. */}
         <Link
           href="/dashboard/observability/alert-rules"
-          className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+          className="block rounded-lg border border-default bg-surface p-4 hover:border-brand hover:shadow-sm transition-colors"
         >
           <div className="flex items-center gap-3 mb-2">
-            <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alert rules</h2>
+            <Activity className="w-5 h-5 text-info" />
+            <h2 className="text-sm font-semibold text-fg">Alert rules</h2>
           </div>
           <p className="text-xs text-fg-muted">
             Author PromQL conditions that fire alerts — auto-scoped to your org&apos;s metrics.
@@ -161,11 +162,11 @@ export default function ObservabilityIndexPage() {
         {/* Per-org notification destinations — where this org's alerts go. */}
         <Link
           href="/dashboard/observability/alert-destinations"
-          className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+          className="block rounded-lg border border-default bg-surface p-4 hover:border-brand hover:shadow-sm transition-colors"
         >
           <div className="flex items-center gap-3 mb-2">
-            <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alert destinations</h2>
+            <Bell className="w-5 h-5 text-info" />
+            <h2 className="text-sm font-semibold text-fg">Alert destinations</h2>
           </div>
           <p className="text-xs text-fg-muted">
             Slack, webhook, in-app — where this org's alerts get delivered.
@@ -174,7 +175,7 @@ export default function ObservabilityIndexPage() {
 
         {/* Loading placeholder — skeleton cards mirroring the dashboard tiles below. */}
         {loading && Array.from({ length: 4 }).map((_, i) => (
-          <div key={`sk-${i}`} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+          <div key={`sk-${i}`} className="rounded-lg border border-default bg-surface p-4">
             <div className="h-4 skeleton w-1/2 mb-2" />
             <div className="h-3 skeleton w-3/4" />
           </div>
@@ -188,11 +189,11 @@ export default function ObservabilityIndexPage() {
             <Link
               key={d.id}
               href={`/dashboard/observability/${d.id}`}
-              className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+              className="block rounded-lg border border-default bg-surface p-4 hover:border-brand hover:shadow-sm transition-colors"
             >
               <div className="flex items-center gap-3 mb-2">
-                <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">{d.name}</h2>
+                <Icon className="w-5 h-5 text-info" />
+                <h2 className="text-sm font-semibold text-fg flex-1">{d.name}</h2>
                 <VisIcon className="w-3.5 h-3.5 text-fg-subtle" aria-label={`visibility: ${d.visibility}`} />
               </div>
               <p className="text-xs text-fg-muted">

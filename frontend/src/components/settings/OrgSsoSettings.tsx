@@ -173,7 +173,7 @@ export function OrgSsoSettings({
 
         {config && !wizard && (
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
-            <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current config</div>
+            <div className="font-medium text-fg-muted mb-1">Current config</div>
             <div className="text-fg-muted">
               Protocol: <code className="text-xs">{config.protocol}</code> ·
               {config.provider && <>{' '}Provider: <code className="text-xs">{config.provider}</code> ·</>}

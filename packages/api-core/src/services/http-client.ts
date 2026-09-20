@@ -15,6 +15,7 @@ import { HttpStatus } from '../constants/http-status.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('http-client');
 
@@ -215,7 +216,7 @@ export class InternalHttpClient {
       maxRateLimitRetries: options?.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES,
       retryDelayMs: options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
     };
-    const totalMaxAttempts = Math.max(retryConfig.maxRetries, retryConfig.maxRateLimitRetries);
+    const totalMaxAttempts = Math.max(retryConfig.maxRetries, retryConfig.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES);
 
     // Whether it's safe to auto-retry this request on a 5xx/connection/timeout.
     // A timed-out POST may have already been processed server-side, so retrying
@@ -357,7 +358,7 @@ export class InternalHttpClient {
             logger.warn('Failed to parse response body', {
               host: this.config.host,
               path,
-              error: parseError instanceof Error ? parseError.message : String(parseError),
+              error: errorMessage(parseError),
             });
             resolve({
               statusCode: res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR,
@@ -421,7 +422,7 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
       try {
         return await client.get<T>(path, options);
       } catch (err) {
-        logger.debug('Safe GET failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Safe GET failed, returning null', { path, error: errorMessage(err) });
         return null;
       }
     },
@@ -437,7 +438,7 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
       try {
         return await client.post<T>(path, body, options);
       } catch (err) {
-        logger.debug('Safe POST failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Safe POST failed, returning null', { path, error: errorMessage(err) });
         return null;
       }
     },
@@ -453,7 +454,7 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
       try {
         return await client.put<T>(path, body, options);
       } catch (err) {
-        logger.debug('Safe PUT failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Safe PUT failed, returning null', { path, error: errorMessage(err) });
         return null;
       }
     },
@@ -469,7 +470,7 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
       try {
         return await client.delete<T>(path, options);
       } catch (err) {
-        logger.debug('Safe DELETE failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Safe DELETE failed, returning null', { path, error: errorMessage(err) });
         return null;
       }
     },

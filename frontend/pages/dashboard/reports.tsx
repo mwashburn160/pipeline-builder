@@ -165,7 +165,7 @@ export default function ReportsPage() {
 
   // Effective max for the active tab: retention estimate, floored by any tighter
   // cap the backend reported.
-  const baseMax = topTab === 'dora' ? retention.doraMax : retention.eventMax;
+  const baseMax = topTab === 'dora' ? retention.doraMaxRangeDays : retention.eventMaxRangeDays;
   const effectiveMax = serverCap[topTab] != null ? Math.min(baseMax, serverCap[topTab] as number) : baseMax;
 
   // Clamp the requested range to the tab cap so no over-range request is issued.
@@ -186,7 +186,7 @@ export default function ReportsPage() {
 
   // Is the active cap the org's retention (buyable) rather than the fixed
   // ceiling or a tighter server cap? Only then is "Extend retention" useful.
-  const horizonDays = topTab === 'dora' ? retention.doraDays : retention.eventDays;
+  const horizonDays = topTab === 'dora' ? retention.doraRetentionDays : retention.eventRetentionDays;
   const capIsRetention = horizonDays !== -1 && horizonDays < MAX_REPORT_RANGE_DAYS && effectiveMax === baseMax;
   const extendHref = capIsRetention
     ? (topTab === 'dora' ? EXTEND_DORA_RETENTION_HREF : EXTEND_EVENT_RETENTION_HREF)

@@ -59,7 +59,8 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types, type ClientSession } from 'mongoose';
 import { idpGroupMappingService, MAX_MAPPINGS_PER_ORG } from './idp-group-mapping-service.js';
-import { ensureBaselineRole, recomputeUserOrgRole, syncMappedRoles } from './roles-service.js';
+import { syncMappedRoles } from './mapped-roles.js';
+import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import {
   scimInvalidFilter,
   scimInvalidSyntax,
@@ -243,10 +244,12 @@ async function scimBaseUrl(): Promise<string> {
   return `${config.app.frontendUrl.replace(/\/+$/, '')}/api/scim/v2`;
 }
 
+/** Enough of a membership row to render. `joinedAt` carries a schema default and
+ *  `updatedAt` comes from `timestamps: true`, so both are always present — they
+ *  are required here rather than defaulted at the read site. */
 type MembershipLike = Pick<UserOrganizationDocument, 'isActive' | 'role' | 'joinedAt' | 'scim'> & {
   userId: Types.ObjectId | string;
-  createdAt?: Date;
-  updatedAt?: Date;
+  updatedAt: Date;
 };
 
 type UserLike = { _id: unknown; email: string; username: string; createdAt?: Date };
@@ -279,20 +282,26 @@ function userResource(
       .map((g) => ({ value: g.id, display: g.display, type: 'direct' as const })),
     meta: {
       resourceType: 'User',
-      created: new Date(membership.joinedAt ?? membership.createdAt ?? Date.now()).toISOString(),
-      lastModified: new Date(membership.updatedAt ?? membership.joinedAt ?? Date.now()).toISOString(),
+      // `joinedAt` (schema default Date.now) and the `timestamps: true` pair are
+      // written on every membership, so both reads are unconditional.
+      created: new Date(membership.joinedAt).toISOString(),
+      lastModified: new Date(membership.updatedAt).toISOString(),
       location: `${baseUrl}/Users/${id}`,
     },
   };
 }
 
-/** Enough of a mapping row to render — satisfied by both a document and a lean object. */
+/** Enough of a mapping row to render — satisfied by both a document and a lean
+ *  object. The timestamps are REQUIRED: `IdpGroupMapping` declares
+ *  `timestamps: true` and both queries that feed {@link groupResource}
+ *  (`listGroups`' `find(...).lean()` and `requireGroup`'s `findOne`) apply no
+ *  projection, so every rendered row carries them. */
 type GroupLike = {
   _id: unknown;
   group: string;
   scimExternalId?: string | null;
-  createdAt?: Date;
-  updatedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 function groupResource(
@@ -309,8 +318,8 @@ function groupResource(
     members: members.map((m) => ({ ...m, type: 'User' as const })),
     meta: {
       resourceType: 'Group',
-      created: new Date(doc.createdAt ?? Date.now()).toISOString(),
-      lastModified: new Date(doc.updatedAt ?? Date.now()).toISOString(),
+      created: new Date(doc.createdAt).toISOString(),
+      lastModified: new Date(doc.updatedAt).toISOString(),
       location: `${baseUrl}/Groups/${id}`,
     },
   };

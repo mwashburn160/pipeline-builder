@@ -12,6 +12,7 @@ import {
   getParam,
   sendEntityNotFound,
   errorMessage,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -83,7 +84,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
     getAuditClient().record({
       action: 'message.delete',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: deleted.id,
       details: {

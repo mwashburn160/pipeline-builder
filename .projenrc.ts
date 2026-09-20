@@ -34,10 +34,10 @@ const tsNativeDep = '@typescript/native@npm:typescript@^7.0.2';
 const cdkVersion = '2.263.0';
 const expressVersion = '5.2.1';
 
-// jest version. Every package is ESM and imports test globals from
-// `@jest/globals` (self-typed), so none depend on `@types/jest` — the historical
-// ceiling (projen pins `@types/jest` to jestVersion, and `@types/jest` has no
-// 30.4.x) no longer applies. See `configureEsmJest` in projenrc/shared-config.ts.
+// jest version, applied to every project. There is no `@types/jest` ceiling to
+// work around here: every package is ESM and imports its test globals from
+// `@jest/globals`, which is self-typed, so nothing depends on `@types/jest` and
+// projen never has to pin it. See `configureEsmJest` in projenrc/shared-config.ts.
 const jestVersion = '30.4.2';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
@@ -139,10 +139,59 @@ const pkgDefaults = {
   npmAccess: NpmAccess.RESTRICTED,
 };
 
-const rules: Record<string, string> = {
+/**
+ * Selector for `jest.unstable_mockModule('<pkg>', () => ({ … }))` — an INLINE
+ * object literal as the module factory. That form is what let the hand-written
+ * `drizzle-orm` / `@pipeline-builder/api-core` mocks drift: `unstable_mockModule`
+ * replaces the WHOLE namespace, so any export the literal forgot linked as
+ * `undefined` (or failed outright with "does not provide an export named X")
+ * the moment production code reached for it. The shared factories in
+ * `@pipeline-builder/api-core/lib/testing/` spread the REAL module first, so
+ * they can't go stale — this selector fails the build if a suite goes back.
+ *
+ * Deliberately narrow: it matches ONLY the literal-object factory, so
+ * `() => drizzleMock({ … })` / `() => apiCoreMock({ … })` (and any other
+ * factory-call form) pass.
+ */
+const inlineModuleMockSelector = (specifier: string) =>
+  `CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='${specifier}'] > ArrowFunctionExpression[body.type='ObjectExpression']`;
+
+/** `<specifier>` → the restricted-syntax entry banning an inline literal mock of it. */
+const noInlineModuleMock = (specifier: string, useInstead: string) => ({
+  selector: inlineModuleMockSelector(specifier),
+  message: `Don't hand-roll the '${specifier}' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. ${useInstead} (see docs/testing.md).`,
+});
+
+/**
+ * The four package specifiers whose inline literal mocks have actually broken the
+ * build. `drizzle-orm` and `@pipeline-builder/api-core` are the originals;
+ * `api-server` and `pipeline-data` were found the same way — billing suites mock
+ * api-server with a literal containing only `withRoute`, so the day
+ * `billing-helpers.ts` started importing `incCounter` from it, four suites failed
+ * to load with "does not provide an export named 'incCounter'".
+ */
+const restrictedModuleMocks = [
+  noInlineModuleMock('drizzle-orm', "Use drizzleMock({ … }) from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js'"),
+  noInlineModuleMock('@pipeline-builder/api-core', "Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts"),
+];
+
+/*
+ * NOT restricted: `@pipeline-builder/api-server` and `@pipeline-builder/pipeline-data`.
+ * They carry the SAME hazard — billing's suites mock api-server with a literal
+ * holding only `withRoute`, so the day `billing-helpers.ts` started importing
+ * `incCounter` from it, four suites failed to load. But they are the DB/framework
+ * boundary that a unit test legitimately replaces WHOLESALE: spreading the real
+ * module drags in Postgres/Express wiring the suite exists to avoid, and making
+ * this an error would demand ~154 migrations, many of them wrong. The hazard is
+ * documented in docs/testing.md instead, with the billing incident as the worked
+ * example. Revisit if a cheap way to spread those modules ever appears.
+ */
+
+const rules: Record<string, unknown> = {
   '@stylistic/max-len': 'off',
   'import/no-extraneous-dependencies': 'off',
   '@typescript-eslint/member-ordering': 'off',
+  'no-restricted-syntax': ['error', ...restrictedModuleMocks],
 };
 
 // Shared npm keywords applied to every @pipeline-builder/* package. Ordered by
@@ -355,20 +404,28 @@ const apiCore = new PackageProject({
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-// Two entry points. The root pulls in the server graph (express, jwt, ioredis);
-// `./permissions` is the dependency-free permission catalog (types + labels +
-// picker grouping) the BROWSER imports — the frontend consumes it directly
-// instead of keeping a hand-maintained mirror. `./lib/*` stays open because
-// tests deep-import concrete modules (e.g. `lib/testing/tier-mock.js`).
+// Three entry points. The root pulls in the server graph (express, jwt, ioredis);
+// `./permissions` (permission catalog + labels + picker grouping) and
+// `./metadata-keys` (the pipeline metadata-key catalog that also backs
+// pipeline-core's `MetadataKeys`) are dependency-free and imported by the
+// BROWSER — the frontend consumes them directly instead of keeping
+// hand-maintained mirrors. `./lib/*` stays open because tests deep-import
+// concrete modules (e.g. `lib/testing/tier-mock.js`).
 apiCore.package.addField('exports', {
   '.': { types: './lib/index.d.ts', default: './lib/index.js' },
   './permissions': { types: './lib/types/permissions.d.ts', default: './lib/types/permissions.js' },
+  './metadata-keys': { types: './lib/types/metadata-keys.d.ts', default: './lib/types/metadata-keys.js' },
   './lib/*': './lib/*',
   './package.json': './package.json',
 });
 // The frontend's jest tsconfig resolves modules with node10, which ignores
 // `exports` — typesVersions is what points it at the subpath's declarations.
-apiCore.package.addField('typesVersions', { '*': { permissions: ['lib/types/permissions.d.ts'] } });
+apiCore.package.addField('typesVersions', {
+  '*': {
+    permissions: ['lib/types/permissions.d.ts'],
+    'metadata-keys': ['lib/types/metadata-keys.d.ts'],
+  },
+});
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 
 // -- Pipeline Data --
@@ -563,7 +620,12 @@ manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
-manager.addTask('audit', { exec: 'pnpm audit --audit-level=high', description: 'Check for known vulnerabilities in dependencies' });
+// The local equivalent of the scheduled `security-audit` workflow. Flags are kept
+// IDENTICAL to `.github/workflows/security-audit.yml` so a clean local run means a
+// clean CI run: `--prod` scopes to runtime dependencies (dev-only Low/Moderate noise
+// is tolerated) and `--audit-level high` is what fails. pnpm audits the whole
+// workspace lockfile regardless of which package the task is invoked from.
+manager.addTask('audit', { exec: 'pnpm audit --prod --audit-level high', description: 'Check runtime dependencies for known High/Critical vulnerabilities (same command as the security-audit workflow)' });
 
 // =============================================================================
 // Platform Service
@@ -715,6 +777,9 @@ if (frontend.jest) {
     // point jest at the TypeScript source and let ts-jest transpile it — the
     // frontend build itself resolves the subpath normally.
     '^@pipeline-builder/api-core/permissions$': '<rootDir>/../packages/api-core/src/types/permissions.ts',
+    // Same treatment for the shared metadata-key catalog the pipeline form
+    // builder's picker renders.
+    '^@pipeline-builder/api-core/metadata-keys$': '<rootDir>/../packages/api-core/src/types/metadata-keys.ts',
   };
   // Next.js's standalone build copies frontend/package.json into
   // .next/standalone/, which collides with the root in jest's haste map.
@@ -722,6 +787,12 @@ if (frontend.jest) {
   // haste index stable across `next build` runs.
   frontend.jest.config.modulePathIgnorePatterns = ['<rootDir>/.next/'];
   frontend.jest.config.testPathIgnorePatterns = ['/node_modules/', '<rootDir>/.next/'];
+  // Frontend doesn't go through `configureEsmJest` (it's a Next/CJS project), so
+  // the two hygiene settings that file applies are wired here as well:
+  // `restoreMocks` (undo a `jest.spyOn` implementation after each test) and the
+  // per-file `process.env` snapshot/restore. See jest-env-guard.js.
+  frontend.jest.config.restoreMocks = true;
+  frontend.jest.config.setupFilesAfterEnv = ['<rootDir>/test/jest.setup.ts', '<rootDir>/../jest-env-guard.js'];
 }
 frontend.addScripts(dockerScripts('frontend'));
 // Override the shared `start`: the api-services variant preloads
@@ -857,6 +928,151 @@ for (const svc of services) {
 // =============================================================================
 // Workspace Configuration
 // =============================================================================
+
+// =============================================================================
+// Coverage Thresholds
+// =============================================================================
+
+/**
+ * Per-project coverage floors, pinned at the value MEASURED on the current tree
+ * and rounded DOWN to a whole percent. This is a RATCHET, not a target: it exists
+ * so coverage cannot quietly slide, and the whole-percent rounding is the
+ * headroom that keeps unrelated work from tripping it.
+ *
+ * Raise a number when you raise coverage. NEVER lower one to make a red build
+ * green — a drop means something stopped being covered, and that is the thing to
+ * look at. (`coverageThreshold` was `null` in all 18 projects before this: every
+ * run computed coverage and threw it away.)
+ *
+ * `paths` holds the per-file floors for the security-critical modules. Several
+ * are far below the ~90% these files deserve — see docs/testing.md and the
+ * per-entry notes. They are pinned at today's value so they can only go UP.
+ *
+ * IMPORTANT, and not obvious: when `coverageThreshold` carries PATH-specific
+ * keys, jest REMOVES those files from the `global` pool and checks them
+ * separately. So a project's `global` figures below are measured over its
+ * source MINUS its `paths` entries — which is why image-registry's branch floor
+ * (77) is LOWER than its whole-project number (78.72): pulling the
+ * well-covered `routes/token.ts` out of the pool drags the remainder down. Do
+ * not copy a number out of a plain `jest --coverage` summary into `global`
+ * here; re-measure with the path files excluded, or the build fails with two
+ * figures that look irreconcilable.
+ *
+ * Every number is additionally CAPPED AT 95. A measured 100 becomes a floor that
+ * one new uncovered branch fails, which is the "unrelated work trips it" failure
+ * this ratchet is supposed to avoid — and on a file like scim-service.ts, whose
+ * 100% BRANCH figure sits next to 42% statements, the 100 is an artifact of how
+ * few branches the covered region happens to contain, not a real guarantee.
+ */
+const COVERAGE_THRESHOLDS: Record<string, {
+  global: Record<string, number>;
+  paths?: Record<string, Record<string, number>>;
+}> = {
+  '@pipeline-builder/api-core': {
+    global: { statements: 95, branches: 88, functions: 88, lines: 95 },
+    paths: {
+      // emitAudit — fully covered by test/emit-audit.test.ts.
+      'src/utils/audit.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+    },
+  },
+  '@pipeline-builder/api-server': {
+    global: { statements: 94, branches: 87, functions: 89, lines: 94 },
+  },
+  '@pipeline-builder/pipeline-core': {
+    global: { statements: 94, branches: 84, functions: 90, lines: 94 },
+  },
+  '@pipeline-builder/pipeline-data': {
+    global: { statements: 89, branches: 89, functions: 79, lines: 89 },
+  },
+  'billing': {
+    global: { statements: 92, branches: 79, functions: 88, lines: 92 },
+    paths: {
+      // Stripe invoice money path — covered by test/stripe-invoice-handlers.test.ts.
+      'src/helpers/stripe-invoice-handlers.ts': { statements: 95, branches: 90, functions: 95, lines: 95 },
+      // GAP: branches at 56%. The ledger reversal//ingest branches are thin.
+      'src/helpers/billing-ledger.ts': { statements: 92, branches: 56, functions: 90, lines: 92 },
+      // Webhook front door — test/stripe-webhook-route.test.ts drives the route
+      // itself (signature refusals, the two-phase idempotency claim, the whole
+      // dispatch table); measures 100/100/100/100.
+      'src/routes/stripe-webhook.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+    },
+  },
+  'compliance': {
+    global: { statements: 87, branches: 83, functions: 77, lines: 87 },
+  },
+  'image-registry': {
+    global: { statements: 84, branches: 77, functions: 82, lines: 84 },
+    paths: {
+      // Docker registry token issuer — covered by test/token-route.test.ts.
+      'src/routes/token.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+    },
+  },
+  'message': {
+    global: { statements: 91, branches: 80, functions: 68, lines: 91 },
+  },
+  'pipeline': {
+    global: { statements: 83, branches: 77, functions: 71, lines: 83 },
+  },
+  'plugin': {
+    global: { statements: 91, branches: 78, functions: 79, lines: 91 },
+  },
+  'quota': {
+    global: { statements: 95, branches: 91, functions: 95, lines: 95 },
+  },
+  'reporting': {
+    global: { statements: 95, branches: 81, functions: 77, lines: 95 },
+  },
+  'platform': {
+    global: { statements: 86, branches: 82, functions: 73, lines: 86 },
+    paths: {
+      // SCIM provisioning — test/scim-provisioning.test.ts covers the policy
+      // (verified domains, owner/platform-admin protection, seats, the
+      // removal-only downgrade, group membership) against an in-memory model
+      // double; with the protocol + controller suites it measures 100 statements
+      // / 97.7 branches / 100 functions.
+      'src/services/scim-service.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Two-person MFA reset — test/mfa-recovery-service.test.ts; 100/100/100/100.
+      'src/services/mfa-recovery.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Opaque key → JWT exchange, plus self-rotation and sibling revoke —
+      // test/token-exchange-controller.test.ts; 100/100/100/100.
+      'src/controllers/token-exchange.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // The key model behind all three: mint/list/revoke in
+      // test/api-key-lifecycle.test.ts, resolution in
+      // test/api-key-exchange-service.test.ts. Both used to run only under
+      // RUN_MONGO_INTEGRATION; they now measure 100/100/100/100 on the default run.
+      'src/services/api-key-service.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+    },
+  },
+  'ask': {
+    global: { statements: 92, branches: 74, functions: 78, lines: 92 },
+  },
+  '@pipeline-builder/ai-core': {
+    global: { statements: 95, branches: 92, functions: 95, lines: 95 },
+  },
+  '@pipeline-builder/pipeline-events': {
+    global: { statements: 94, branches: 77, functions: 95, lines: 94 },
+  },
+  '@pipeline-builder/pipeline-manager': {
+    global: { statements: 78, branches: 82, functions: 68, lines: 78 },
+  },
+  'frontend': {
+    global: { statements: 84, branches: 74, functions: 50, lines: 84 },
+  },
+};
+
+/**
+ * Apply the floors. jest keys a per-path threshold by a glob relative to the
+ * project root, so each entry is emitted as `**\/<relative path>`.
+ */
+for (const project of root.subprojects) {
+  const t = COVERAGE_THRESHOLDS[project.name];
+  const jest = (project as { jest?: { config: Record<string, unknown> } }).jest;
+  if (!t || !jest) continue;
+  jest.config.coverageThreshold = {
+    global: t.global,
+    ...Object.fromEntries(Object.entries(t.paths ?? {}).map(([p, v]) => [`**/${p}`, v])),
+  };
+}
 
 new Nx(root);
 // Fills pnpmWorkspaceYamlOptions.packages — subprojects must already exist.

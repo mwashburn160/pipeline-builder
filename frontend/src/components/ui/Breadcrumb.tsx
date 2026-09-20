@@ -23,7 +23,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
             {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-fg-subtle shrink-0" />}
             {isLast || !item.href ? (
               <span
-                className={`truncate ${isLast ? 'font-medium text-gray-900 dark:text-gray-100' : 'text-fg-muted'}`}
+                className={`truncate ${isLast ? 'font-medium text-fg' : 'text-fg-muted'}`}
                 aria-current={isLast ? 'page' : undefined}
               >
                 {item.label}

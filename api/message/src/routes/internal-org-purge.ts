@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam, errorMessage } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { attachmentService } from '../services/attachment-service.js';
@@ -36,7 +36,7 @@ export function createInternalOrgPurgeRoutes(): Router {
     } catch (err) {
       // A partial/failed purge must read as a FAILURE (non-2xx) so the cascade
       // records blob cleanup as incomplete rather than silently leaving orphans.
-      logger.warn('Org attachment blob purge failed', { orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Org attachment blob purge failed', { orgId, error: errorMessage(err) });
       return sendError(res, 500, 'Attachment blob purge failed', ErrorCode.INTERNAL_ERROR);
     }
   });

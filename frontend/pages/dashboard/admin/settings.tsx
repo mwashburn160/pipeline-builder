@@ -152,28 +152,28 @@ export default function PlatformSettingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Orgs</div>
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.total}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs.total}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Users</div>
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.users.total}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.users.total}</div>
               <div className="text-xs text-fg-muted">{summary.users.sysadmins} sysadmin{summary.users.sysadmins === 1 ? '' : 's'}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Per-org KMS</div>
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.perOrgKms}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs.perOrgKms}</div>
               <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">SSO enabled</div>
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.ssoEnabled}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs.ssoEnabled}</div>
               <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
             </Card>
           </div>
 
           {/* Settings table — env var, value, and a short hint each. */}
           <Card className="overflow-hidden">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Configuration</h2>
+            <h2 className="text-base font-semibold text-fg mb-3">Configuration</h2>
             <ul className="divide-y divide-gray-200 dark:divide-gray-700">
               {rows.map((row) => {
                 const Icon = row.icon;
@@ -184,7 +184,7 @@ export default function PlatformSettingsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{row.label}</div>
+                        <div className="text-sm font-medium text-fg">{row.label}</div>
                         <div className="text-sm flex items-center gap-1.5">
                           {row.staticDefault && <Badge color="gray">default</Badge>}
                           {row.currentValue}

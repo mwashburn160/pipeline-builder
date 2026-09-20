@@ -50,6 +50,14 @@ scrape_configs:
     static_configs:
       - targets: ['compliance:3000']
 
+  # `ask` exposes the same api-server /metrics on :3000 as the other services.
+  # It was the one application service with no job here, so every ask-specific
+  # rule (and every rule that matches on service= across the fleet) simply had
+  # no series for it on this target.
+  - job_name: 'ask'
+    static_configs:
+      - targets: ['ask:3000']
+
   # image-registry exposes the same api-server /metrics on :3000 as the other
   # services. Without this job, alert-rules.yml's RegistryErrorBurst (which
   # matches http_requests_total{service="image-registry"}) has no series to
@@ -57,6 +65,23 @@ scrape_configs:
   - job_name: 'image-registry'
     static_configs:
       - targets: ['image-registry:3000']
+
+  # Datastore exporters. On the k8s targets these are sidecars of the database
+  # pod, discovered by the pod-annotation job; compose has no sidecars, so they
+  # are standalone containers scraped explicitly. They are what gives
+  # PostgresUnreachable / MongoDBUnreachable / RedisUnreachable (pg_up,
+  # mongodb_up, redis_up) something to evaluate on this target.
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'mongodb-exporter'
+    static_configs:
+      - targets: ['mongodb-exporter:9216']
+
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
 
   - job_name: 'nginx'
     scheme: https

@@ -558,14 +558,23 @@ export interface OAuthAuthorizeRequest {
 }
 
 /**
+ * Why an authorization-code flow is being started. `'re-auth'` adds the
+ * provider's "make the user prove themselves again" params (`prompt=login`,
+ * `max_age=0`, …); `'sign-in'` leaves them off so an already-signed-in user
+ * isn't re-challenged on every login. Named rather than a bare boolean
+ * because the two flows differ only in that one argument at the call site.
+ */
+type AuthorizeIntent = 'sign-in' | 're-auth';
+
+/**
  * Start an authorization-code flow: mint the PKCE verifier (where the provider
  * takes one) and build the redirect URL carrying only its S256 challenge.
  * Shared by sign-in and step-up re-auth so neither can drift out of PKCE.
  */
-function beginAuthorize(provider: OAuthProvider, state: string, reauth: boolean): OAuthAuthorizeRequest {
+function beginAuthorize(provider: OAuthProvider, state: string, intent: AuthorizeIntent): OAuthAuthorizeRequest {
   const codeVerifier = provider.supportsPkce ? createCodeVerifier() : undefined;
   return {
-    url: provider.buildAuthorizeUrl(state, { reauth, ...(codeVerifier && { codeVerifier }) }),
+    url: provider.buildAuthorizeUrl(state, { reauth: intent === 're-auth', ...(codeVerifier && { codeVerifier }) }),
     ...(codeVerifier && { codeVerifier }),
   };
 }
@@ -577,7 +586,7 @@ export function buildOAuthReauthUrl(providerName: string, state: string): OAuthA
   const provider = getProvider(providerName);
   if (!provider) throw new Error(OAUTH_UNSUPPORTED_PROVIDER);
   if (!provider.enabled) throw new Error(OAUTH_PROVIDER_DISABLED);
-  return beginAuthorize(provider, state, true);
+  return beginAuthorize(provider, state, 're-auth');
 }
 
 /**
@@ -631,7 +640,7 @@ export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
   if (!provider.enabled) return sendError(res, 400, `${providerName} OAuth is not configured`);
 
   const state = crypto.randomBytes(32).toString('hex');
-  const { url, codeVerifier } = beginAuthorize(provider, state, false);
+  const { url, codeVerifier } = beginAuthorize(provider, state, 'sign-in');
   await pendingOAuthStates.put(state, { provider: providerName, ...(codeVerifier && { codeVerifier }) });
 
   sendSuccess(res, 200, { url, state });

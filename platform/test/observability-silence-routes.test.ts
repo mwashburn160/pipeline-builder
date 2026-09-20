@@ -14,6 +14,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // requireAuth stub — tagged so we can tell it apart from requirePermission.
 const requireAuthStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
@@ -26,7 +27,7 @@ requireAuthStub.__mw = 'requireAuth';
 // controller, which uses `createLogger` and friends. An explicit allow-list
 // breaks this suite every time the route module reaches for another export.
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ...actualApiCore,
   // The restore routes import it; the silence-route assertions don't inspect it.
   requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),

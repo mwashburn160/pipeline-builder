@@ -19,6 +19,7 @@ import {
   sendBadRequest,
   sendQuotaReserveDenied,
   sendSuccess,
+  actorId,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, observe } from '@pipeline-builder/api-server';
@@ -39,13 +40,13 @@ const logger = createLogger('ask');
  * source count, streamed flag, outcome), never the raw query text.
  */
 function auditAskQuery(
-  req: { user?: { sub?: string } },
+  userId: string,
   orgId: string,
   details: { queryLength: number; sources?: number; streamed: boolean; outcome: 'success' | 'failure' },
 ): void {
   getAuditClient().record({
     action: 'ask.query',
-    actorId: req.user?.sub ?? 'system',
+    actorId: actorId({ userId }),
     orgId,
     targetType: 'ask',
     outcome: details.outcome,
@@ -88,7 +89,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /ask  grounded how-to answer (non-streaming) ---------------------
-  router.post('/', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
@@ -114,13 +115,13 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       providerContacted = true;
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', provider, 'success', startedAt);
-      auditAskQuery(req, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
+      auditAskQuery(userId, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
       return sendSuccess(res, 200, result);
     } catch (error) {
       const message = errorMessage(error);
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
       recordAi('howto', provider, 'error', startedAt);
-      auditAskQuery(req, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
+      auditAskQuery(userId, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
       if (!providerContacted) {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }
@@ -129,7 +130,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
-  router.post('/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
@@ -174,21 +175,21 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         res.write('data: [DONE]\n\n');
         // Completed stream keeps the reserved slot (provider round-trip incurred).
         recordAi('howto-stream', provider, 'success', startedAt);
-        auditAskQuery(req, orgId, { queryLength: query.length, sources: sources.length, streamed: true, outcome: 'success' });
+        auditAskQuery(userId, orgId, { queryLength: query.length, sources: sources.length, streamed: true, outcome: 'success' });
       } else {
         if (!providerContacted) {
           decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
         recordAi('howto-stream', provider, 'aborted', startedAt);
-        auditAskQuery(req, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
+        auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
       }
       res.end();
     } catch (error) {
       const message = errorMessage(error);
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
       recordAi('howto-stream', provider, 'error', startedAt);
-      auditAskQuery(req, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
+      auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
       if (reserved && !providerContacted) {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }

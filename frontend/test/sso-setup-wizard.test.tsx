@@ -131,6 +131,48 @@ describe('the wizard', () => {
   });
 });
 
+describe('the wizard — keyboard and screen-reader', () => {
+  it('names itself as a region', () => {
+    render(<Harness initial={SAML} />);
+    expect(screen.getByRole('region', { name: /single sign-on setup/i })).toBeInTheDocument();
+  });
+
+  it('announces each step from a live region that was already on the page', () => {
+    render(<Harness initial={SAML} />);
+    const live = screen.getByRole('status');
+    expect(live).toHaveTextContent('Step 1 of 6: Protocol & provider');
+    fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
+    expect(live).toHaveTextContent('Step 4 of 6: Domains');
+  });
+
+  it('moves focus to the new step\'s heading — steps 3 and 4 render no Next button', () => {
+    render(<Harness initial={SAML} />);
+    // Opening the wizard must not steal focus.
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole('button', { name: /3\s*Identity-provider details/ }));
+    expect(document.activeElement).toHaveTextContent('Step 3 of 6: Identity-provider details');
+    fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
+    expect(document.activeElement).toHaveTextContent('Step 4 of 6: Domains');
+  });
+
+  it('the domains step cannot be submitted twice while the save is in flight', async () => {
+    let release: (v: unknown) => void = () => undefined;
+    api.patchOwnOrgIdpConfig.mockImplementation(() => new Promise((r) => { release = r; }));
+    render(<Harness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    // The step-up dialog closes the moment it hands the token over; the button
+    // must stay busy until the PATCH settles, or a second click sends it twice.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save and continue/ })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
+    expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ success: true, data: { config: SAML } }); });
+  });
+});
+
 describe('test connection', () => {
   const popup = { location: { href: '' }, close: jest.fn() };
   beforeEach(() => {
@@ -163,14 +205,15 @@ describe('test connection', () => {
 
     await post({ type: 'pb-sso-test', state: 'ssotest.n.sig' });
     await waitFor(() => expect(api.completeSsoTest).toHaveBeenCalledWith('org-1', { state: 'ssotest.n.sig' }));
-    expect(await screen.findByText(/Test succeeded/)).toBeInTheDocument();
+    // Scoped to the report: the same sentence is also in the live region.
+    expect(await screen.findByTestId('sso-test-report')).toHaveTextContent(/Test succeeded/);
     expect(screen.getByText(/Engineers \(from Eng\)/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /6\s*Enable/ }));
     expect(screen.getByRole('switch', { name: /Require single sign-on/ })).not.toBeDisabled();
   });
 
-  it('explains a failed test with the reason and what to check', async () => {
+  it('explains a failed test in prose, never the raw reason code', async () => {
     api.completeSsoTest.mockResolvedValue({
       success: true,
       data: { report: { ok: false, protocol: 'saml', testedAt: '2026-09-19T10:00:00Z', reason: 'domain_not_verified', message: 'Not verified', recorded: true } },
@@ -179,8 +222,25 @@ describe('test connection', () => {
     fireEvent.click(screen.getByRole('button', { name: /5\s*Test connection/ }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Test connection$/ })); });
     await post({ type: 'pb-sso-test', state: 'ssotest.n.sig' });
-    expect(await screen.findByText(/Test failed \(domain_not_verified\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Verify the domain/)).toBeInTheDocument();
+    expect(await screen.findByTestId('sso-test-report')).toHaveTextContent(/Test failed\./);
+    expect(screen.getByTestId('sso-test-report')).not.toHaveTextContent('domain_not_verified');
+    expect(screen.getByTestId('sso-test-report')).toHaveTextContent(/Verify the domain/);
+  });
+
+  it('announces the outcome through a live region that was already on the page', async () => {
+    api.completeSsoTest.mockResolvedValue({
+      success: true,
+      data: { report: { ok: true, protocol: 'saml', testedAt: '2026-09-19T10:00:00Z', recorded: true, identity: { email: 'a@b.test', subject: 's', groups: [] } } },
+    });
+    render(<Harness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /5\s*Test connection/ }));
+    // The region exists — and is empty — before anything happens, which is what
+    // makes the later text an announcement rather than a silent DOM insert.
+    const live = screen.getByTestId('sso-test-connection').querySelector('[role="status"]')!;
+    expect(live).toHaveTextContent('');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Test connection$/ })); });
+    await post({ type: 'pb-sso-test', state: 'ssotest.n.sig' });
+    await waitFor(() => expect(live).toHaveTextContent(/Test succeeded/));
   });
 
   it('says so when pop-ups are blocked, starting nothing', async () => {
@@ -188,7 +248,8 @@ describe('test connection', () => {
     render(<Harness initial={SAML} />);
     fireEvent.click(screen.getByRole('button', { name: /5\s*Test connection/ }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Test connection$/ })); });
-    expect(screen.getByText(/Allow pop-ups/)).toBeInTheDocument();
+    // Once in the alert, once in the live region that announces it.
+    expect(screen.getAllByText(/Allow pop-ups/)).toHaveLength(2);
     expect(api.startSsoTest).not.toHaveBeenCalled();
   });
 });

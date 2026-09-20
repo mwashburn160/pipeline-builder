@@ -3,13 +3,13 @@
 
 import {
   pct,
-  fmtNum,
   daysUntil,
   statusInfo,
   overallHealthColor,
   statusStyles,
   barStyles,
 } from '../src/lib/quota-helpers';
+import { fmtNum } from '../src/lib/format';
 
 // ---------------------------------------------------------------------------
 // Tests

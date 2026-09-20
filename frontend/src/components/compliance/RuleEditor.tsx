@@ -341,13 +341,13 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <Input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} />
           </div>
           <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
               <Checkbox checked={form.suppressNotification} onChange={e => set('suppressNotification', e.target.checked)} />
               Suppress Notification
             </label>
           </div>
           <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Also enforce this rule on team organizations nested under this org">
+            <label className="flex items-center gap-2 text-sm text-fg-muted" title="Also enforce this rule on team organizations nested under this org">
               <Checkbox checked={form.propagateToChildren} onChange={e => set('propagateToChildren', e.target.checked)} />
               Apply to child teams
             </label>
@@ -357,7 +357,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Rule mode toggle */}
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-4 mb-3">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Rule Mode:</label>
+            <label className="text-sm font-medium text-fg-muted">Rule Mode:</label>
             <label className="flex items-center gap-1.5 text-sm">
               <input type="radio" checked={!form.useConditions} onChange={() => set('useConditions', false)} className="text-brand" />
               Single Field
@@ -441,7 +441,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-2 mb-2">
             <FlaskConical className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Dry-Run Validation</span>
+            <span className="text-sm font-medium text-fg-muted">Dry-Run Validation</span>
           </div>
           <div className="flex gap-2">
             <Textarea
@@ -494,7 +494,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Impact Preview</span>
+                <span className="text-sm font-medium text-fg-muted">Impact Preview</span>
               </div>
               <Button variant="indigo" size="sm" onClick={handlePreviewImpact} disabled={impactLoading} className="gap-1.5">
                 {impactLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}

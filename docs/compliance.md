@@ -266,8 +266,8 @@ These add-ons gate only the **curated libraries**. Authoring your own rules (`co
 
 | Trigger | Behavior |
 |---------|----------|
-| Plugin upload (`POST /api/plugin/upload`) | Blocked (403) if `error` or `critical` violations |
-| Pipeline create (`POST /api/pipeline`) | Blocked (403) if `error` or `critical` violations |
+| Plugin upload (`POST /api/plugins/upload`) | Blocked (403) if `error` or `critical` violations |
+| Pipeline create (`POST /api/pipelines`) | Blocked (403) if `error` or `critical` violations |
 
 Warnings are logged and returned but do not block. Blocked responses include violation details:
 

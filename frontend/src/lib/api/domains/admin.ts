@@ -18,7 +18,8 @@ export function adminApi(core: ApiCore) {
       action?: string;
       targetType?: string;
       targetId?: string;
-      groupId?: string;
+      /** Permission role the event concerns (`org.role.*` actions). */
+      roleId?: string;
       impersonatorId?: string;
       requestId?: string;
       outcome?: 'success' | 'failure';
@@ -333,8 +334,8 @@ export function adminApi(core: ApiCore) {
     // ============================================
 
     /** Get quotas for the requesting user's org (from JWT). */
-    getOwnQuotas: async () => {
-      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>('/api/quota');
+    getOwnQuotas: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>('/api/quota', { signal: opts?.signal });
     },
 
     /** Get all orgs with quotas (system admin only). */

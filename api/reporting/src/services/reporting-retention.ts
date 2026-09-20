@@ -29,19 +29,16 @@
 import {
   createLogger,
   createScheduler,
+  envInt,
   createEnvRedisLock,
   closeLeaderLock,
   isBillingEnabled,
   type Scheduler,
+  errorMessage,
 } from '@pipeline-builder/api-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('reporting-retention');
-
-function intEnv(name: string, fallback: number, min = 1): number {
-  const raw = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(raw) && raw >= min ? raw : fallback;
-}
 
 /** Kill-switch: `REPORTING_RETENTION_ENABLED=false` disables the sweep (rows
  *  accumulate; nothing is purged). */
@@ -69,11 +66,11 @@ export function createReportingRetentionScheduler(): Scheduler | null {
     return null;
   }
 
-  const intervalMs = intEnv('REPORTING_RETENTION_INTERVAL_HOURS', 12) * 60 * 60 * 1000;
-  const startupDelayMs = intEnv('REPORTING_RETENTION_STARTUP_DELAY_MS', 120_000, 0);
-  const lockTtlMs = intEnv('REPORTING_RETENTION_LOCK_TTL_MS', 1_800_000, 1000);
-  const batchSize = intEnv('REPORTING_RETENTION_BATCH_SIZE', 1000);
-  const maxBatchesPerTable = intEnv('REPORTING_RETENTION_MAX_BATCHES', 50);
+  const intervalMs = envInt('REPORTING_RETENTION_INTERVAL_HOURS', 12, { min: 1 }) * 60 * 60 * 1000;
+  const startupDelayMs = envInt('REPORTING_RETENTION_STARTUP_DELAY_MS', 120_000, { min: 0 });
+  const lockTtlMs = envInt('REPORTING_RETENTION_LOCK_TTL_MS', 1_800_000, { min: 1000 });
+  const batchSize = envInt('REPORTING_RETENTION_BATCH_SIZE', 1000, { min: 1 });
+  const maxBatchesPerTable = envInt('REPORTING_RETENTION_MAX_BATCHES', 50, { min: 1 });
   const lock = createEnvRedisLock();
 
   logger.info('Reporting retention scheduler starting', {
@@ -90,7 +87,7 @@ export function createReportingRetentionScheduler(): Scheduler | null {
         await reportingService.purgeExpiredReportingData({ batchSize, maxBatchesPerTable });
       } catch (err) {
         logger.error('Reporting retention sweep failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },

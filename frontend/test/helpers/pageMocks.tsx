@@ -102,7 +102,10 @@ export function authGuardModule() {
 // useOrgHierarchy — the active org's place in the org → team hierarchy.
 
 export interface PageOrgHierarchy {
-  activeOrg: undefined;
+  /** The org the viewer is acting in. Surfaces that only exist for a REAL org
+   *  (the Members page's team controls) read it, so it defaults to undefined —
+   *  pass `activeOrg` to `mockOrgHierarchy` to make it present. */
+  activeOrg: { id: string; name: string; tier: string } | undefined;
   isChildOrg: boolean;
   hasChildOrgs: boolean;
   childOrgCount: number;
@@ -118,10 +121,12 @@ let currentHierarchy: PageOrgHierarchy = {
  * parent, no teams) — hierarchy surfaces hidden. `{ childOrgCount: n }` makes
  * it a parent; `{ parentOrgId }` makes it a team.
  */
-export function mockOrgHierarchy(overrides: { childOrgCount?: number; parentOrgId?: string } = {}): PageOrgHierarchy {
+export function mockOrgHierarchy(
+  overrides: { childOrgCount?: number; parentOrgId?: string; activeOrg?: { id: string; name: string; tier: string } } = {},
+): PageOrgHierarchy {
   const childOrgCount = overrides.childOrgCount ?? 0;
   currentHierarchy = {
-    activeOrg: undefined,
+    activeOrg: overrides.activeOrg,
     isChildOrg: !!overrides.parentOrgId,
     hasChildOrgs: childOrgCount > 0,
     childOrgCount,

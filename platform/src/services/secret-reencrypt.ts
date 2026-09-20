@@ -34,15 +34,19 @@
  * that api-core's `decryptSecret` applies during the overlap window.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { toOrgId } from '../helpers/org-id.js';
-import { Organization } from '../models/index.js';
+import { Organization, UserTotp } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
+import SamlSpKey from '../models/saml-sp-key.js';
 import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('secret-reencrypt');
 
 const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
+
+/** Encryption context the SAML SP keys are wrapped under (services/saml-sp-keys.ts). */
+const SAML_SP_SECRET_CONTEXT = 'saml-sp-keys';
 
 interface CapturedSecrets {
   /** Provider name → plaintext API key. */
@@ -67,7 +71,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
       try {
         captured.aiKeys[provider] = await unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
       } catch (err) {
-        throw new Error(`Failed to decrypt aiProviderKeys.${provider} for org ${orgId} (cannot proceed with rotation without first repairing this row): ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`Failed to decrypt aiProviderKeys.${provider} for org ${orgId} (cannot proceed with rotation without first repairing this row): ${errorMessage(err)}`);
       }
     }
   }
@@ -77,7 +81,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
     try {
       captured.idpClientSecret = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
     } catch (err) {
-      throw new Error(`Failed to decrypt IdP clientSecret for org ${orgId}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to decrypt IdP clientSecret for org ${orgId}: ${errorMessage(err)}`);
     }
   }
 
@@ -122,8 +126,14 @@ export interface ReencryptAllSummary {
   orgsScanned: number;
   aiKeysReencrypted: number;
   idpSecretsReencrypted: number;
+  /** Authenticator-app secrets (`UserTotp.secret`), keyed by user, not org. */
+  totpSecretsReencrypted: number;
+  /** SAML service-provider private keys (`SamlSpKey.privateKeyEncrypted`). */
+  samlSpKeysReencrypted: number;
   /** Rows that could not be decrypted (neither current nor previous key) — each
-   *  needs the operator to re-enter the secret. Non-fatal for the rest of the run. */
+   *  needs the operator to re-enter the secret. Non-fatal for the rest of the run.
+   *  `orgId` carries the owning scope: an org id, `user:<id>` for a TOTP row, or
+   *  `saml-sp-keys` for the SP identity. */
   failures: Array<{ orgId: string; field: string; error: string }>;
 }
 
@@ -140,12 +150,26 @@ export interface ReencryptAllSummary {
  * unreadable secret must not stop the other orgs from being migrated — and the
  * caller (the script) exits non-zero so the failure is never a silent green.
  *
- * Covers both encrypted-at-rest columns in the platform store:
- * `Organization.aiProviderKeys.*` and `OrgIdpConfig.clientSecretEncrypted`.
+ * Covers EVERY blob the platform wraps with the master key:
+ * `Organization.aiProviderKeys.*`, `OrgIdpConfig.clientSecretEncrypted`,
+ * `UserTotp.secret` (salt `user:<userId>`) and `SamlSpKey.privateKeyEncrypted`
+ * (salt `saml-sp-keys`). Missing any of these was a live foot-gun: the sweep
+ * reported success, the operator dropped `SECRET_ENCRYPTION_KEY_PREVIOUS`, and
+ * every authenticator enrolment and the SAML SP identity became unreadable.
+ * A per-org KMS `kmsConfig.ciphertextBase64` is deliberately NOT here — that
+ * blob is wrapped by the org's CMK, not by this key, and is migrated by the
+ * per-org rotation path above.
  * Soft-deleted orgs are included deliberately: they can still be restored.
  */
 export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> {
-  const summary: ReencryptAllSummary = { orgsScanned: 0, aiKeysReencrypted: 0, idpSecretsReencrypted: 0, failures: [] };
+  const summary: ReencryptAllSummary = {
+    orgsScanned: 0,
+    aiKeysReencrypted: 0,
+    idpSecretsReencrypted: 0,
+    totpSecretsReencrypted: 0,
+    samlSpKeysReencrypted: 0,
+    failures: [],
+  };
 
   for await (const org of Organization.find({}).select('aiProviderKeys').cursor()) {
     summary.orgsScanned++;
@@ -162,7 +186,7 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
         modified = true;
         summary.aiKeysReencrypted++;
       } catch (err) {
-        summary.failures.push({ orgId, field: `aiProviderKeys.${provider}`, error: err instanceof Error ? err.message : String(err) });
+        summary.failures.push({ orgId, field: `aiProviderKeys.${provider}`, error: errorMessage(err) });
       }
     }
     if (modified) {
@@ -178,7 +202,43 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
       await OrgIdpConfig.updateOne({ _id: idp._id }, { $set: { clientSecretEncrypted: await wrapEncrypted(plaintext, idp.orgId) } });
       summary.idpSecretsReencrypted++;
     } catch (err) {
-      summary.failures.push({ orgId: idp.orgId, field: 'idpClientSecret', error: err instanceof Error ? err.message : String(err) });
+      summary.failures.push({ orgId: idp.orgId, field: 'idpClientSecret', error: errorMessage(err) });
+    }
+  }
+
+  // Authenticator secrets are salted `user:<userId>`, NOT by org — a TOTP row
+  // has no org at all, so it can only be found by sweeping the collection.
+  // `select('+secret')` is required: the field is `select: false` by default.
+  for await (const totp of UserTotp.find({}).select('+secret userId').cursor()) {
+    const scope = `user:${String(totp.userId)}`;
+    if (!totp.secret) continue;
+    try {
+      const plaintext = await unwrapEncrypted(totp.secret, scope, 'totp.secret');
+      await UserTotp.updateOne({ _id: totp._id }, { $set: { secret: await wrapEncrypted(plaintext, scope) } });
+      summary.totpSecretsReencrypted++;
+    } catch (err) {
+      summary.failures.push({ orgId: scope, field: 'totp.secret', error: errorMessage(err) });
+    }
+  }
+
+  // The SAML SP signing/encryption keys are deployment-wide (salt `saml-sp-keys`),
+  // so they belong to no org either. Losing these unreadable would break every
+  // org's SAML connection at once, with no way to re-enter the value by hand.
+  for await (const key of SamlSpKey.find({}).cursor()) {
+    if (!key.privateKeyEncrypted) continue;
+    try {
+      const plaintext = await unwrapEncrypted(key.privateKeyEncrypted, SAML_SP_SECRET_CONTEXT, `saml-sp.${String(key._id)}`);
+      await SamlSpKey.updateOne(
+        { _id: key._id },
+        { $set: { privateKeyEncrypted: await wrapEncrypted(plaintext, SAML_SP_SECRET_CONTEXT) } },
+      );
+      summary.samlSpKeysReencrypted++;
+    } catch (err) {
+      summary.failures.push({
+        orgId: SAML_SP_SECRET_CONTEXT,
+        field: `saml-sp.${String(key._id)}`,
+        error: errorMessage(err),
+      });
     }
   }
 

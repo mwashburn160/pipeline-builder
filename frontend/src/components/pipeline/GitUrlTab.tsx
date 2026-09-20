@@ -1,5 +1,5 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
-import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { GitBranch, ChevronDown, Plug, Loader } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -7,13 +7,10 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
-import { useAIProviders } from '@/hooks/useAIProviders';
-import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
-import { clearPluginCache } from '@/hooks/usePlugins';
+import { useRepoAnalysis } from '@/hooks/internal/useRepoAnalysis';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
-import api from '@/lib/api';
-import { isAskAgentProvider } from '@/lib/ai-constants';
-import { streamAgentDraft } from '@/lib/ask-agent-draft';
+import { PrivateRepoFields } from '@/components/pipeline/PrivateRepoFields';
+import { AnalysisResultPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
 import { formatJSON } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
@@ -36,28 +33,6 @@ interface GitUrlTabProps {
   autoGenerate?: boolean;
 }
 
-/** Analysis data returned by the backend analyzing event. */
-interface RepoAnalysisData {
-  owner: string;
-  repo: string;
-  provider: string;
-  defaultBranch: string;
-  projectType: string;
-  languages: Record<string, number>;
-  frameworks: string[];
-  packageManager: string;
-  hasDockerfile: boolean;
-  hasCdkJson: boolean;
-  description: string;
-}
-
-/** Plugin creation status returned by the backend creating-plugins event. */
-interface PluginCreationStatus {
-  creating: string[];
-  existing: string[];
-  builds: Array<{ name: string; requestId?: string; error?: string }>;
-}
-
 /** Props for the inline plugin review section. */
 interface PluginReviewSectionProps {
   props: BuilderProps;
@@ -72,12 +47,12 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
   const stages = asGeneratedStages(props.stages);
 
   return (
-    <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+    <div className="rounded-xl bg-surface-muted border border-default">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-surface-muted rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
           <Plug className="w-4 h-4 text-fg-muted" />
@@ -86,7 +61,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
         <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
-        <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+        <div className="px-4 pb-4 border-t border-default space-y-4">
           {/* Synth plugin */}
           <div className="pt-3">
             <PluginNameCombobox
@@ -126,30 +101,19 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
 
 const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
   ({ disabled, initialUrl, autoGenerate }, ref) => {
-    const [gitUrl, setGitUrl] = useState(initialUrl || '');
-    const [repoToken, setRepoToken] = useState('');
-    const [showPrivate, setShowPrivate] = useState(false);
-    const [analyzing, setAnalyzing] = useState(false);
-    const [analysis, setAnalysis] = useState<RepoAnalysisData | null>(null);
-    const [generatedProps, setGeneratedProps] = useState<BuilderProps | null>(null);
-    const [stageCount, setStageCount] = useState(0);
-    const [generatedDescription, setGeneratedDescription] = useState('');
-    const [generatedKeywords, setGeneratedKeywords] = useState('');
-    const [checkingPlugins, setCheckingPlugins] = useState(false);
-    const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
-    const [projectOverride, setProjectOverride] = useState('');
-    const [organizationOverride, setOrganizationOverride] = useState('');
-
-    const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
-    const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
-    const autoGenAttemptedRef = useRef<boolean>(false);
-
-    // Set on unmount (e.g. the create modal closes or the user switches tab
-    // mid-generation) so the async SSE loop stops consuming events + stops
-    // calling setState on a dead component, and the generator's abort/`finally`
-    // fires (server-side git clone is torn down).
-    const cancelledRef = useRef(false);
-    useEffect(() => () => { cancelledRef.current = true; }, []);
+    const {
+      gitUrl, setGitUrl,
+      repoToken, setRepoToken,
+      analyzing, analysis,
+      generatedProps, setGeneratedProps,
+      stageCount, generatedDescription, generatedKeywords,
+      checkingPlugins, pluginStatus,
+      projectOverride, setProjectOverride,
+      organizationOverride, setOrganizationOverride,
+      ai, generating, error, setError,
+      previewJson, setPreviewJson,
+      generate: handleGenerate,
+    } = useRepoAnalysis({ initialUrl, autoGenerate });
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
     const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
@@ -188,7 +152,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
       setGeneratedProps(updated);
       setPreviewJson(formatJSON(updated));
-    }, [generatedProps]);
+    }, [generatedProps, setGeneratedProps, setPreviewJson]);
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
@@ -205,96 +169,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       getDescription: () => generatedDescription,
       getKeywords: () => generatedKeywords,
     }));
-
-    const handleGenerate = async () => {
-      if (!gitUrl.trim()) {
-        setError('Please enter a Git repository URL.');
-        return;
-      }
-      if (!ai.selectedProvider || !ai.selectedModel) {
-        setError('Please select a provider and model.');
-        return;
-      }
-
-      setAnalyzing(true);
-      setAnalysis(null);
-      setGeneratedProps(null);
-      setStageCount(0);
-      setGeneratedDescription('');
-      setGeneratedKeywords('');
-      setCheckingPlugins(false);
-      setPluginStatus(null);
-      setProjectOverride('');
-      setOrganizationOverride('');
-
-      const keyToUse = ai.customApiKey.trim() || undefined;
-      const tokenToUse = repoToken.trim() || undefined;
-
-      await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
-        // Via the Ask agent the repo is analyzed by its propose_pipeline_from_repo
-        // tool (the adapter re-emits the analysis as `analyzed`); it drafts only, so
-        // unlike the direct path it never auto-creates missing plugins.
-        stream: isAskAgentProvider(ai.selectedProvider)
-          ? streamAgentDraft('pipeline-from-repo', gitUrl.trim(), ai.selectedModel, { repoToken: tokenToUse })
-          : api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
-        cancelledRef,
-        onPartial: (data) => {
-          const d = data as Record<string, unknown>;
-          if (Array.isArray(d.stages)) setStageCount(d.stages.length);
-        },
-        onDone: (data) => {
-          setGeneratedProps(data.props);
-          setPreviewJson(formatJSON(data.props));
-          setGeneratedDescription(data.description || '');
-          setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
-          setProjectOverride(data.props.project || '');
-          setOrganizationOverride(data.props.organization || '');
-        },
-        onEvent: (event) => {
-          switch (event.type) {
-            case 'analyzing':
-              setAnalyzing(true);
-              break;
-            case 'analyzed':
-              setAnalyzing(false);
-              if (event.data) {
-                setAnalysis(event.data as RepoAnalysisData);
-              }
-              break;
-            case 'checking-plugins':
-              setCheckingPlugins(true);
-              break;
-            case 'creating-plugins':
-              setCheckingPlugins(false);
-              if (event.data) {
-                setPluginStatus(event.data as PluginCreationStatus);
-                clearPluginCache();
-              }
-              break;
-          }
-        },
-        onSettled: () => setAnalyzing(false),
-      });
-    };
-
-    // Auto-generate when initialUrl + autoGenerate are set. Fire exactly once
-    // when both provider and model become non-empty AND providers finish loading;
-    // the ref guard prevents repeat triggers on later renders (e.g. user
-    // toggling the provider dropdown).
-    useEffect(() => {
-      if (
-        autoGenerate &&
-        initialUrl &&
-        ai.selectedProvider &&
-        ai.selectedModel &&
-        !ai.loading &&
-        !autoGenAttemptedRef.current
-      ) {
-        autoGenAttemptedRef.current = true;
-        handleGenerate();
-      }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate/handleGenerate to prevent infinite loops on prop changes
-    }, [ai.loading, ai.selectedProvider, ai.selectedModel]);
 
     if (ai.loading) {
       return (
@@ -313,7 +187,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           <Input
             type="text"
             value={gitUrl}
-            onChange={(e) => { setGitUrl(e.target.value); setError(null); setAnalysis(null); }}
+            onChange={(e) => setGitUrl(e.target.value)}
             placeholder="https://github.com/owner/repo"
             className="text-sm"
             disabled={disabled || generating}
@@ -323,31 +197,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           </p>
         </div>
 
-        {/* Private repo token (collapsible) */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowPrivate(!showPrivate)}
-            aria-expanded={showPrivate}
-            className="flex items-center text-xs text-fg-muted hover:text-fg"
-          >
-            {showPrivate ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-            Private repository?
-          </button>
-          {showPrivate && (
-            <div className="mt-2">
-              <Input
-                type="password"
-                autoComplete="off"
-                value={repoToken}
-                onChange={(e) => setRepoToken(e.target.value)}
-                placeholder="Personal access token for private repos"
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-            </div>
-          )}
-        </div>
+        <PrivateRepoFields
+          value={repoToken}
+          onChange={setRepoToken}
+          disabled={disabled || generating}
+        />
 
         <AiProviderModelPicker ai={ai} disabled={disabled || generating} />
 
@@ -375,13 +229,13 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {generating && !previewJson && (
           // role="status" — repo analysis + generation can run for a minute, and
           // was entirely silent to a screen reader.
-          <div role="status" className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
+          <div role="status" className="rounded-xl bg-info-bg border border-info-border p-4 flex items-center gap-3">
             <LoadingSpinner size="sm" label={null} />
             <div>
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+              <p className="text-sm font-medium text-info-strong">
                 {analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
               </p>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+              <p className="text-xs text-info mt-1">
                 {analyzing
                   ? 'Scanning files, languages, and frameworks'
                   : stageCount > 0
@@ -395,57 +249,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {/* Error */}
         <ErrorAlert message={error || ai.error} />
 
-        {/* Analysis Badges */}
-        {analysis && (
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Globe className="w-4 h-4 text-fg-muted" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {analysis.owner}/{analysis.repo}
-              </span>
-              <span className="text-xs text-fg-subtle">
-                ({analysis.provider}) · {analysis.defaultBranch}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {analysis.projectType !== 'unknown' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">
-                  <Code className="w-3 h-3" />
-                  {analysis.projectType}
-                </span>
-              )}
-              {analysis.packageManager !== 'unknown' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
-                  <Package className="w-3 h-3" />
-                  {analysis.packageManager}
-                </span>
-              )}
-              {analysis.frameworks.map((fw) => (
-                <span key={fw} className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300">
-                  {fw}
-                </span>
-              ))}
-              {Object.entries(analysis.languages).slice(0, 3).map(([lang, pct]) => (
-                <span key={lang} className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                  {lang} {pct}%
-                </span>
-              ))}
-              {analysis.hasDockerfile && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300">
-                  Docker
-                </span>
-              )}
-              {analysis.hasCdkJson && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300">
-                  AWS CDK
-                </span>
-              )}
-            </div>
-            {analysis.description && (
-              <p className="text-xs text-fg-muted mt-2">{analysis.description}</p>
-            )}
-          </div>
-        )}
+        {analysis && <AnalysisResultPanel analysis={analysis} />}
 
         {/* Project & Organization Override */}
         {generatedProps && (
@@ -484,60 +288,14 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {/* Plugin Status */}
         {checkingPlugins && (
-          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
+          <div className="rounded-xl bg-info-bg border border-info-border p-4">
             <div className="flex items-center gap-2">
               <Loader className="w-4 h-4 text-brand animate-spin" />
-              <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">Checking referenced plugins...</span>
+              <span className="text-sm text-info-strong font-medium">Checking referenced plugins...</span>
             </div>
           </div>
         )}
-        {pluginStatus && (
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-4 space-y-2">
-            <div className="flex items-center gap-2 mb-1">
-              <Plug className="w-4 h-4 text-fg-muted" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plugin Status</span>
-            </div>
-            {pluginStatus.existing.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {pluginStatus.existing.map((name) => (
-                  <span key={name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
-                    <CheckCircle className="w-3 h-3" />
-                    {name}
-                  </span>
-                ))}
-              </div>
-            )}
-            {pluginStatus.creating.length > 0 && (
-              <div>
-                <p className="text-xs text-fg-muted mb-1">Auto-creating missing plugins:</p>
-                <div className="flex flex-wrap gap-2">
-                  {pluginStatus.builds.map((b) => (
-                    <span
-                      key={b.name}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        b.error
-                          ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
-                          : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300'
-                      }`}
-                    >
-                      {b.error ? <AlertCircle className="w-3 h-3" /> : <Loader className="w-3 h-3 animate-spin" />}
-                      {b.name}
-                      {b.error && <span className="text-2xs opacity-75 ml-1">({b.error})</span>}
-                    </span>
-                  ))}
-                </div>
-                {pluginStatus.builds.some((b) => !b.error) && (
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                    Plugin builds started — they&apos;ll be ready shortly. You can create the pipeline now.
-                  </p>
-                )}
-              </div>
-            )}
-            {pluginStatus.creating.length === 0 && pluginStatus.existing.length > 0 && (
-              <p className="text-xs text-green-600 dark:text-green-400">All referenced plugins already exist.</p>
-            )}
-          </div>
-        )}
+        {pluginStatus && <PluginStatusPanel status={pluginStatus} />}
 
         {/* Generated Output */}
         {previewJson && (
@@ -545,11 +303,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             <div className="flex items-center justify-between mb-2">
               <label className="label">Generated Configuration</label>
               {generating ? (
-                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                <span className="text-xs text-info font-medium flex items-center gap-1">
                   <LoadingSpinner size="sm" /> Streaming...
                 </span>
               ) : (
-                <span role="status" className="text-xs text-green-600 dark:text-green-400 font-medium">
+                <span role="status" className="text-xs text-success font-medium">
                   Ready to submit
                 </span>
               )}

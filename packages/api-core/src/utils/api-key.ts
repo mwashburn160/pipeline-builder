@@ -30,7 +30,7 @@ export const API_KEY_PREFIXES = ['pb_pat', 'pb_sa'] as const;
 export type ApiKeyPrefix = (typeof API_KEY_PREFIXES)[number];
 
 /** Random bytes behind each key — 256 bits, base64url-encoded to 43 chars. */
-export const API_KEY_SECRET_BYTES = 32;
+const API_KEY_SECRET_BYTES = 32;
 
 /**
  * Lifetime of the JWT an exchange returns. Short by design: it is the window in
@@ -74,15 +74,3 @@ export function generateApiKey(prefix: ApiKeyPrefix): string {
   return `${prefix}_${randomBytes(API_KEY_SECRET_BYTES).toString('base64url')}`;
 }
 
-/** The last four characters of a key — displayed with the prefix to name it. */
-export function apiKeyLast4(key: string): string {
-  return key.slice(-4);
-}
-
-/**
- * How a key is shown once it can no longer be read: `pb_pat_…a1b2`. Built from
- * the stored prefix + last4, never from the secret.
- */
-export function formatApiKeyDisplay(prefix: string, last4: string): string {
-  return `${prefix}_…${last4}`;
-}

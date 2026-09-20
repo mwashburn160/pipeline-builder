@@ -255,7 +255,7 @@ export function DataTable<T>({
                       key={col.id}
                       role="menuitemcheckbox"
                       aria-checked={!hiddenColumns.has(col.id)}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                     >
                       <input
                         type="checkbox"

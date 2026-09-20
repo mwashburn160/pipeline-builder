@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -40,7 +40,7 @@ export function createCreatePolicyRoutes(): Router {
       orgId,
       createdBy: userId,
       updatedBy: userId,
-    } as unknown as Parameters<typeof compliancePolicyService.createWithRules>[0], ruleNames, userId);
+    }, ruleNames, userId);
 
     ctx.log('COMPLETED', 'Created compliance policy', { id: policy.id, name: policy.name });
 
@@ -48,7 +48,7 @@ export function createCreatePolicyRoutes(): Router {
     // metadata only (name/version/template flag), never linked rule bodies.
     emitComplianceAudit({
       action: 'compliance.policy.create',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'policy',
       targetId: policy.id,

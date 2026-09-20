@@ -60,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.9",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -117,6 +117,18 @@
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 87,
+        "branches": 83,
+        "functions": 77,
+        "lines": 87
+      }
     }
   },
   "type": "module",

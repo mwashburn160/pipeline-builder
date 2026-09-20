@@ -66,7 +66,7 @@ function HeldCard({ set }: { set: ContentSet }) {
           <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-300">
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
           </span>
-          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h4>
+          <h4 className="text-base font-semibold text-fg">{meta.label}</h4>
         </div>
         <span className="text-xs font-medium rounded-full bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 whitespace-nowrap">
           Included
@@ -104,7 +104,7 @@ function LockedCard({ set, standardHeld }: { set: ContentSet; standardHeld: bool
           <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
             <Lock className="w-4 h-4" aria-hidden="true" />
           </span>
-          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h4>
+          <h4 className="text-base font-semibold text-fg">{meta.label}</h4>
         </div>
         <span className="text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-fg-muted px-2 py-0.5 whitespace-nowrap">
           Add-on

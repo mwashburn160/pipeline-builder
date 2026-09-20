@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn();
 const mockIssueImpersonation = jest.fn();
@@ -28,7 +29,6 @@ const mockResolvePolicy = jest.fn();
 const mockCreateBreakglass = jest.fn();
 const mockExpandOrgScope = jest.fn();
 const mockListForCaller = jest.fn();
-const mockIsOrgAdmin = jest.fn();
 const mockPublishSessionRevocation = jest.fn();
 const mockDecideInitialApproval = jest.fn();
 const mockResolveChallengeRoute = jest.fn();
@@ -58,12 +58,7 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-  canAdministerOrg: (...a: unknown[]) => mockCanAdministerOrg(...a),
-  isOrgAdmin: (...a: unknown[]) => mockIsOrgAdmin(...a),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 // Authority now depends on BOTH parties (is the caller an ancestor admin of the
 // target's pinned org?), so it is resolved in the controller rather than by a
 // route middleware. Stub it at that boundary; the rule itself is covered in
@@ -157,7 +152,6 @@ beforeEach(() => {
   mockCreateBreakglass.mockReset();
   mockExpandOrgScope.mockReset().mockResolvedValue([]);
   mockListForCaller.mockReset().mockResolvedValue({ requests: [], total: 0, limit: 20, offset: 0 });
-  mockIsOrgAdmin.mockReset().mockReturnValue(false);
   mockPublishSessionRevocation.mockReset().mockResolvedValue(true);
   // Default: an `open` org, so pre-existing happy-path tests still start a session.
   mockDecideInitialApproval.mockReset().mockReturnValue({ kind: 'approved', reason: 'policy_open' });
@@ -619,10 +613,12 @@ describe('listImpersonationRequests', () => {
   });
 
   it('scopes a tenant admin to their active org subtree', async () => {
-    mockIsOrgAdmin.mockReturnValue(true);
     mockExpandOrgScope.mockResolvedValue(['org-a', 'team-1']);
 
-    await list({ sub: 'admin', organizationId: 'org-a' }, 'to-decide');
+    // `isOrgAdmin` runs for real (see helpers/controller-helper-mock.ts) and
+    // reads `req.user.role`, so tenant-admin authority is expressed by the
+    // FIXTURE rather than by stubbing the predicate.
+    await list({ sub: 'admin', organizationId: 'org-a', role: 'admin' }, 'to-decide');
 
     expect(mockExpandOrgScope).toHaveBeenCalledWith('org-a');
     expect(mockListForCaller).toHaveBeenCalledWith(

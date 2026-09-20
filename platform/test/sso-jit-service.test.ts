@@ -57,10 +57,12 @@ jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => (
   MAX_MAPPINGS_PER_ORG: 100,
 }));
 
+jest.unstable_mockModule('../src/services/mapped-roles.js', () => ({
+  syncMappedRoles: (...a: unknown[]) => mockSyncMappedRoles(...a),
+}));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecompute(...a),
-  syncMappedRoles: (...a: unknown[]) => mockSyncMappedRoles(...a),
 }));
 
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({

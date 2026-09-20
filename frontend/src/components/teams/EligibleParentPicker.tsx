@@ -29,7 +29,7 @@ const PAGE = 20;
  * and soft-deleted orgs are dropped here; `excludeOrgId` removes the org being
  * moved (an org can't parent itself).
  */
-export async function searchEligibleParents(
+async function searchEligibleParents(
   search: string,
   opts: { excludeOrgId?: string; signal?: AbortSignal } = {},
 ): Promise<ParentOrgOption[]> {
@@ -90,7 +90,7 @@ export function EligibleParentPicker({
   if (value) {
     return (
       <div className="space-y-1">
-        <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
+        <span className="block text-xs font-medium text-fg-muted">{label}</span>
         <div className="flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm">
           <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
           <span className="truncate flex-1">{value.name}</span>
@@ -111,7 +111,7 @@ export function EligibleParentPicker({
 
   return (
     <div ref={box.wrapperRef} className="relative space-y-1">
-      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">{label}</label>
+      <label className="block text-xs font-medium text-fg-muted">{label}</label>
       <Input
         ref={box.inputRef}
         type="text"
@@ -146,7 +146,7 @@ export function EligibleParentPicker({
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => box.setActiveIndex(i)}
               onClick={() => select(o)}
-              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-gray-900 dark:text-gray-100 ${i === box.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-fg ${i === box.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
             >
               <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
               <span className="truncate flex-1">{o.name}</span>

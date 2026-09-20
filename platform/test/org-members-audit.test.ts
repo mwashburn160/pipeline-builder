@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn();
 const mockAddMember = jest.fn();
@@ -29,19 +30,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  getAdminContext: (req: unknown) => mockGetAdminContext(req),
-  // These tests stub the auth layer and assert audit emission; grant access so
-  // the handlers proceed to the audit call.
-  canAdministerOrg: async () => true,
-  requireOrgScope: async () => true,
-  canAccessOrg: async () => true,
-  withController: (_label: string, fn: Function, _errMap?: unknown) =>
-    async (req: any, res: any) => {
-      try { await fn(req, res); } catch { /* swallowed for test - real withController maps to status */ }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   orgMembersService: {

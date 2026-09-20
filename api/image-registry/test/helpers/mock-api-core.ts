@@ -2,143 +2,59 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared `@pipeline-builder/api-core` mock for ESM suites.
+ * image-registry's `@pipeline-builder/api-core` mock.
  *
- * Collapses the factory that every suite passed to
- * `jest.unstable_mockModule('@pipeline-builder/api-core', () => ({ ... }))`.
- * Provides the winston-logger stub plus the api-core runtime VALUES that the
- * transitively loaded pipeline-core / pipeline-data graph imports — under
- * transpile-only/`verbatimModuleSyntax` those stay real imports, so the mock
- * must expose them or ESM linking against it throws "does not provide an
- * export named X". Pass `overrides` for the exports a given suite exercises
- * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
+ * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
+ * classes, pagination constants, audit/boot wiring, the permission gate) live in
+ * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * image-registry-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
+import {
+  baseApiCoreMock,
+  loggerMock,
+  mockPermissionGate,
+  serviceAuditDefaults,
+} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
 
-/** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
-export const loggerMock = () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
-});
-
-/** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
-const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
-
-/** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
-class NotFoundError extends Error {
-  statusCode = 404;
-  code = 'NOT_FOUND';
-  constructor(message?: string) {
-    super(message);
-    this.name = 'NotFoundError';
-  }
-}
-
-/** Minimal shapes the permission-gate mocks touch on the request/response. */
-type MockUser = { isSuperAdmin?: boolean; permissions?: string[] };
-type GateReq = { user?: MockUser };
-type GateRes = { status: (n: number) => { json: (b: unknown) => void } };
+export { loggerMock };
 
 /**
- * Capability-aware stand-in for api-core's `requirePermission` /
- * `requireAllPermissions`. Mirrors the real gate's decision (minus the
- * denial-audit side effect):
- *   - no `req.user` at all → PASS (suites without an auth layer keep working,
- *     exactly as the old `requireSystemAdmin` passthrough did);
- *   - `req.user.isSuperAdmin` → PASS (implicit-all, as in production);
- *   - otherwise gate on `req.user.permissions` (`some` for any-of,
- *     `every` for all-of), 403 with the same message shape on a miss.
- * `joiner` is `' or '` for any-of and `' and '` for all-of, matching the real
- * error strings the routes' callers may assert on.
- */
-function permissionGate(mode: 'some' | 'every', joiner: string) {
-  return (...perms: string[]) => (req: GateReq, res: GateRes, next: () => void): void => {
-    const user = req.user;
-    if (!user) return next();
-    if (user.isSuperAdmin) return next();
-    const held = user.permissions ?? [];
-    const ok = mode === 'some' ? perms.some((p) => held.includes(p)) : perms.every((p) => held.includes(p));
-    if (ok) return next();
-    res.status(403).json({ success: false, message: `Missing required permission: ${perms.join(joiner)}` });
-  };
-}
-
-/**
- * The REAL api-core exports, used as the base of every mock below. Suites stub
- * only what they exercise; everything else is the genuine export, so adding an
- * export to api-core can never again break a suite with "does not provide an
- * export named X". (`requireActual` bypasses the module mock.)
+ * The REAL api-core exports, resolved HERE (not inside the shared factory):
+ * `requireActual` on an ESM barrel only succeeds while nothing else is
+ * mid-`import()` of it, and this module — a static import of every suite that
+ * uses it, evaluated before the suite's `await import(SUT)` — is the one point
+ * where that reliably holds.
  */
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/** image-registry-specific defaults layered over the shared base. */
+const imageRegistryDefaults = (): Record<string, unknown> => ({
+  ...serviceAuditDefaults(),
+  getServiceAuthHeader: (o: { serviceName: string }) => `Bearer service-token-for-${o.serviceName}`,
+  // Permission gates the /api/images + /api/admin routes attach per-route.
+  // Capability-aware: no req.user ⇒ pass (suites with no auth layer keep
+  // working); superadmin ⇒ pass; else check req.user.permissions.
+  requirePermission: mockPermissionGate({ mode: 'some' }),
+  requireAllPermissions: mockPermissionGate({ mode: 'every' }),
+  // Zod body validation used by the copy + GC routes. Mirrors api-core's
+  // `validate`: `{ ok, value }` or `{ ok: false, error }` naming the FIRST issue.
+  validateBody: (req: { body?: unknown }, schema: { safeParse: (d: unknown) => { success: boolean; data?: unknown; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } } }) => {
+    const r = schema.safeParse(req.body);
+    if (r.success) return { ok: true, value: r.data };
+    const first = r.error?.issues[0];
+    return { ok: false, error: first ? `${first.path.join('.')}: ${first.message}` : 'Validation failed' };
+  },
+  // Revocation check used by the /token mint path (auth-resolver). Default:
+  // not revoked, so existing resolveIdentity suites are unaffected; a suite
+  // exercising revocation overrides this via apiCoreMock({ isAccessTokenRevoked }).
+  isAccessTokenRevoked: async () => false,
+});
 
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    ...actualApiCore,
-    createLogger: loggerMock,
-    MAX_PAGE_LIMIT: 1000,
-    DEFAULT_PAGE_LIMIT: 100,
-    closeLeaderLock: async () => undefined,
-    loadAndRestore: async () => null,
-    REPORT_INTERVALS: ['day', 'week', 'month'],
-    scrubAwsIdentifiersFromString: (s: string) => s,
-    scrubAwsIdentifiers: <T>(v: T): T => v,
-    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
-    createEnvRedisLock: () => null,
-    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
-    SYSTEM_ORG_ID: '000000000000000000000001',
-    getServiceAuthHeader: (o: { serviceName: string }) => `Bearer service-token-for-${o.serviceName}`,
-
-    ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
-    PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
-    ErrorCode,
-    // Permission gates the /api/images + /api/admin routes attach per-route.
-    // Capability-aware: superadmin ⇒ pass; else check req.user.permissions.
-    requirePermission: permissionGate('some', ' or '),
-    requireAllPermissions: permissionGate('every', ' and '),
-    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-    // Zod body validation used by the copy + GC routes. Mirrors api-core's
-    // `validate`: `{ ok, value }` or `{ ok: false, error }` naming the FIRST issue.
-    validateBody: (req: { body?: unknown }, schema: { safeParse: (d: unknown) => { success: boolean; data?: unknown; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } } }) => {
-      const r = schema.safeParse(req.body);
-      if (r.success) return { ok: true, value: r.data };
-      const first = r.error?.issues[0];
-      return { ok: false, error: first ? `${first.path.join('.')}: ${first.message}` : 'Validation failed' };
-    },
-    // Remote audit client factory — the registry's audit wiring
-    // (src/services/audit.ts) links against this. Default returns a no-op
-    // recorder; suites asserting on emitted audit events mock the audit module
-    // (src/services/audit.js) directly instead.
-    createRemoteAuditClient: () => ({ record: jest.fn() }),
-    createEnvRedisAuditSpool: () => null,
-    // Service audit factory — src/services/audit.ts now links against this. Returns
-    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
-    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
-    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
-    // Denied-authz auditor sink registered at service boot (src/index.ts).
-    // No-op in tests — nothing asserts on the registration.
-    setAuthzDenialAuditor: () => {},
-    wireAuthzDenialAuditor: () => {},
-    wireServiceSecurity: () => {},
-    // Token-revocation reader hooks (session-invalidation option b) — stubbed
-    // for parity so suites that transitively load the boot module still link.
-    setTokenRevocationStore: () => {},
-    createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-    // Revocation check used by the /token mint path (auth-resolver). Default:
-    // not revoked, so existing resolveIdentity suites are unaffected; a suite
-    // exercising revocation overrides this via apiCoreMock({ isAccessTokenRevoked }).
-    isAccessTokenRevoked: async () => false,
-    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-    NotFoundError,
-    createCacheService: () => ({
-      getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-      invalidatePattern: () => Promise.resolve(0),
-    }),
-    ...overrides,
-  };
+  return baseApiCoreMock(actualApiCore, { ...imageRegistryDefaults(), ...overrides });
 }

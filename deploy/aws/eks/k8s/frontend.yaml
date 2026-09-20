@@ -27,7 +27,9 @@ metadata:
     app: frontend
     app.kubernetes.io/component: frontend
 spec:
-  replicas: 1
+  # Start at 2 so the first rollout already satisfies the PDB; the HPA
+  # below owns the count from then on.
+  replicas: 2
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -146,7 +148,14 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: frontend
-  minReplicas: 1
+  # 2 on this target: EKS is MULTI-NODE, so a second replica is a real
+  # availability gain (different node, different AZ) and — with the
+  # `minAvailable: 1` PodDisruptionBudget below — it is what lets a node drain
+  # finish at all. At one replica that PDB is a deadlock: Auto Mode recycles
+  # nodes routinely, and evicting the only pod would break the budget, so the
+  # drain blocks until it is force-terminated. The HPA still scales further on
+  # load. (ec2/minikube stay at 1 — single-node clusters, nothing to drain.)
+  minReplicas: 2
   maxReplicas: 4
   metrics:
     - type: Resource

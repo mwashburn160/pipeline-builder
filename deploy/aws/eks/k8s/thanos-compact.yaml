@@ -1,0 +1,144 @@
+---
+# =============================================================================
+# Thanos compactor — the bucket's MAINTENANCE path.
+#
+# Split out of thanos-query.yaml (which owns the READ path: store-gateway +
+# querier) because a reader looking for the compactor looks for a file named
+# after it. Same object store, different job: the sidecar in prometheus.yaml
+# UPLOADS blocks, thanos-query.yaml READS them back, and this is the only
+# component that DELETES, downsamples and merges them.
+# =============================================================================
+# `thanos compact --wait` is the bucket's garbage collector, downsampler and
+# block merger. It is the ONLY component that mutates the object store, and
+# the one piece of the Thanos stack that had no workload here at all: the
+# sidecar uploaded, the store-gateway read, and nothing ever compacted, so the
+# `thanos` bucket grew forever at 2h-block granularity and no retention was
+# enforced by anything.
+#
+# SINGLETON, NOT SCALABLE. Two compactors against one bucket corrupt it —
+# they race on the same block deletions. Hence replicas: 1 AND `Recreate`
+# (a rolling update would briefly run two), and no HPA. This is the one
+# observability workload that must NOT be raised to 2 replicas.
+#
+# Retention (raw → 5m → 1h resolutions, downsampled in that order):
+#   raw  30d  — full-resolution; covers the reporting service's 30-day
+#               per-org window and any recent incident review.
+#   5m  180d  — covers the 180-day extended DORA history window.
+#   1h  365d  — a year of trend data at an hour's granularity, cheap to keep.
+# Changing a value DELETES data beyond it on the next run and cannot be undone.
+# `0d` on any of the three means "keep forever" for that resolution.
+#
+# Compaction is CPU- and disk-bursty rather than steady: --data-dir is scratch
+# for the blocks currently being merged, so it is an emptyDir (rebuilt on
+# restart — nothing durable lives there) and concurrency is pinned to 1 to
+# bound the burst on these single-node-ish targets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-compact
+  labels:
+    app: thanos-compact
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # Never two at once against the same bucket — see above.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: thanos-compact
+  template:
+    metadata:
+      annotations:
+        # Scraped by the `kubernetes-pods` job. The observability stack has to
+        # monitor ITSELF — without this, a Loki/Thanos/Alertmanager failure is
+        # invisible, and LokiRateCapBreach could never fire because the metric
+        # it alerts on (loki_discarded_samples_total) is emitted by Loki.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10902"
+        prometheus.io/path: /metrics
+      labels:
+        app: thanos-compact
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: thanos-compact
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      containers:
+        - name: thanos-compact
+          image: quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80  # quay.io/thanos/thanos:v0.39.2
+          args:
+            - "compact"
+            # Run as a long-lived loop instead of one-shot-and-exit, so the
+            # Deployment is a real workload rather than a CrashLoop of exits.
+            - "--wait"
+            - "--wait-interval=5m"
+            - "--objstore.config-file=/etc/thanos/objstore.yml"
+            - "--data-dir=/var/thanos/compact"         # scratch space (ephemeral)
+            - "--http-address=0.0.0.0:10902"
+            - "--retention.resolution-raw=30d"
+            - "--retention.resolution-5m=180d"
+            - "--retention.resolution-1h=365d"
+            # Bound the burst: one block compacted and one downsampled at a time.
+            - "--compact.concurrency=1"
+            - "--downsample.concurrency=1"
+          # objstore.yml reads its S3 creds as $(THANOS_S3_*) — Thanos expands env
+          # refs in --objstore.config-file and fails fast on an unset one. The key
+          # is random per provision (minio-secret), so it can't live in the file.
+          env:
+            - name: THANOS_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
+            - name: THANOS_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
+          ports:
+            - containerPort: 10902
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Writes only to the mounted data-dir emptyDir; rootfs stays read-only.
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 1Gi
+            requests:
+              cpu: "50m"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 10902
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 10902
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            # A compaction pass over a large bucket can block the loop for
+            # minutes; a low threshold would restart it mid-merge and leave
+            # partial blocks behind for the next run to clean up.
+            failureThreshold: 10
+          volumeMounts:
+            - name: thanos-objstore
+              mountPath: /etc/thanos
+              readOnly: true
+            - name: compact-data
+              mountPath: /var/thanos/compact
+      volumes:
+        - name: thanos-objstore
+          configMap:
+            name: thanos-objstore
+        # Scratch for the blocks being merged — rebuilt from the bucket on
+        # restart, so nothing durable is lost when the pod moves.
+        - name: compact-data
+          emptyDir: {}

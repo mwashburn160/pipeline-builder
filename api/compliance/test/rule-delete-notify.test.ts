@@ -129,7 +129,9 @@ describe('published-rule delete → subscriber notification', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(deliveries.length).toBeGreaterThan(0);
-    const { subject, content } = deliveries[0] as { subject: string; content: string };
+    // The shared `NotificationMessage` carries `body` (the in-app transport maps
+    // it onto the message service's `content` field at the boundary).
+    const { subject, body: content } = deliveries[0] as { subject: string; body: string };
     expect(subject).toContain('removed');
     expect(content).toContain('no longer enforced');
     // The old, false claim is gone.

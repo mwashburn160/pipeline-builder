@@ -3,6 +3,7 @@
 
 import type { Request } from 'express';
 import { getHeaderString } from './headers.js';
+import { MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
 
 /**
  * Shape convention for the inline parse-guard helpers below.
@@ -149,6 +150,50 @@ export function parseQueryIntClamped(
 ): number {
   const raw = parseQueryInt(value, defaultValue);
   return Math.max(1, Math.min(raw, max));
+}
+
+/** Options for {@link parsePage}. */
+export interface PageOptions {
+  /** Page size when the caller names none. REQUIRED — pick it deliberately. */
+  def: number;
+  /** Hard ceiling on one page. REQUIRED — an unbounded `?limit=` costs money. */
+  max: number;
+  /**
+   * Deepest `offset` a caller may reach. A number, or a function of the
+   * resolved limit for sources that page a fixed-depth window (the plugin queue
+   * reads `offset + limit` entries from every source, so its depth cap is
+   * `DEPTH - limit`). Defaults to `MAX_PAGE_OFFSET`.
+   */
+  maxOffset?: number | ((limit: number) => number);
+}
+
+/** A parsed, clamped `?limit=&offset=` window. */
+export interface Page {
+  limit: number;
+  offset: number;
+}
+
+/**
+ * THE pagination primitive. Parse and clamp `limit`/`offset` from a query (or
+ * from a service-layer options object — numeric values work too).
+ *
+ * `limit` clamps to `[1, max]` and falls back to `def`; `offset` clamps to
+ * `[0, maxOffset]`. Three different conventions with six disagreeing defaults
+ * (10/20/25/50, caps of 1000/200/100) used to answer the same `?limit=`,
+ * each hand-rolling `Math.min(Math.max(...))` at the call site. Route defaults
+ * are still per-route — a queue listing and a member roster want different page
+ * sizes — but they are now DECLARED here rather than re-derived, and no caller
+ * can forget the cap.
+ *
+ * @example
+ * const { limit, offset } = parsePage(req.query, { def: 50, max: 200 });
+ */
+export function parsePage(query: Record<string, unknown>, opts: PageOptions): Page {
+  const limit = Math.max(1, Math.min(parseQueryInt(query.limit, opts.def), opts.max));
+  const rawMaxOffset = typeof opts.maxOffset === 'function' ? opts.maxOffset(limit) : opts.maxOffset;
+  const maxOffset = Math.max(0, rawMaxOffset ?? MAX_PAGE_OFFSET);
+  const offset = Math.max(0, Math.min(parseQueryInt(query.offset, 0), maxOffset));
+  return { limit, offset };
 }
 
 /**

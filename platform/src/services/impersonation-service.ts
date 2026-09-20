@@ -16,7 +16,7 @@
  * (redeeming, deciding, revoking, expiry) is the same for every request.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, parsePage } from '@pipeline-builder/api-core';
 import { IMP_NOT_APPROVED, IMP_EXPIRED, IMP_NOT_FOUND, IMP_ALREADY_DECIDED, IMP_NOT_LIVE } from './impersonation-errors.js';
 import { IMPERSONATION_REQUEST_TTL_MS, IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import {
@@ -394,8 +394,10 @@ class ImpersonationService {
       };
     }
 
-    const limit = Math.min(Math.max(Math.trunc(page.limit ?? LIST_DEFAULT_LIMIT), 1), LIST_MAX_LIMIT);
-    const offset = Math.max(Math.trunc(page.offset ?? 0), 0);
+    const { limit, offset } = parsePage(page as Record<string, unknown>, {
+      def: LIST_DEFAULT_LIMIT,
+      max: LIST_MAX_LIMIT,
+    });
     const [docs, total] = await Promise.all([
       ImpersonationRequest.find(filter)
         .sort({ createdAt: -1 })

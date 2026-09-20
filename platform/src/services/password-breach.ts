@@ -25,7 +25,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { incCounter } from '../observability/metrics.js';
 
@@ -50,7 +50,7 @@ export function breachHashParts(password: string): { prefix: string; suffix: str
  * Find `suffix` in a range-API body (`SUFFIX:COUNT` per line). Returns the
  * count, or 0 when absent — including a padded entry, whose count is 0.
  */
-export function breachCountInRange(body: string, suffix: string): number {
+function breachCountInRange(body: string, suffix: string): number {
   for (const line of body.split(/\r?\n/)) {
     const [candidate, rawCount] = line.trim().split(':');
     if (candidate?.toUpperCase() !== suffix) continue;
@@ -79,7 +79,7 @@ export async function checkPasswordBreach(password: string): Promise<BreachCheck
     // Never log the prefix: on its own it is harmless, but it is the one piece
     // of the password this module ever handles outside the hash.
     logger.warn('Breached-password check unavailable; allowing the password (fail-open)', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     result = { outcome: 'unavailable' };
   }

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import * as path from 'path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import * as yaml from 'yaml';
 import { isSessionUsable, loadSession } from './credential-store.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
@@ -53,7 +54,7 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
   } catch (error) {
     printWarning('Failed to load config file, using defaults', {
       path: filePath,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     return config;
   }

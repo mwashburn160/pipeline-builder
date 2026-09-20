@@ -110,12 +110,12 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     getPipelineById: async (id: string) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);
+      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`);
     },
 
     /** Per-pipeline maturity scorecard (compliance posture + DORA bands). Requires `advanced_reporting`. */
-    getPipelineScorecard: async (id: string) => {
-      return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`);
+    getPipelineScorecard: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`, { signal: opts?.signal });
     },
 
     /** Org-wide scorecard roll-up: a ranked software-health leaderboard + aggregate stats. Requires `advanced_reporting`. */
@@ -124,7 +124,7 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     createPipeline: async (data: CreatePipelineData) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipeline', {
+      return core.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipelines', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -139,14 +139,14 @@ export function pipelinesApi(core: ApiCore) {
       isDefault?: boolean;
       isActive?: boolean;
     }) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`, {
+      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
     },
 
     deletePipeline: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/pipeline/${id}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/pipelines/${id}`, {
         method: 'DELETE',
       });
     },
@@ -269,7 +269,7 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     getAIProviders: async () => {
-      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/pipeline/providers');
+      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/pipelines/providers');
     },
 
     /**
@@ -277,7 +277,7 @@ export function pipelinesApi(core: ApiCore) {
      * Yields analyzing → analyzed → partial → done events.
      */
     streamPipelineFromUrl: async function*(gitUrl: string, provider: string, model: string, apiKey?: string, repoToken?: string) {
-      yield* core.streamRequest('/api/pipeline/generate/from-url/stream', {
+      yield* core.streamRequest('/api/pipelines/generate/from-url/stream', {
         gitUrl, provider, model,
         ...(apiKey ? { apiKey } : {}),
         ...(repoToken ? { repoToken } : {}),
@@ -290,7 +290,7 @@ export function pipelinesApi(core: ApiCore) {
      * those are exclusive to the from-URL flow).
      */
     streamPipelineFromPrompt: async function*(prompt: string, provider: string, model: string, apiKey?: string) {
-      yield* core.streamRequest('/api/pipeline/generate/stream', {
+      yield* core.streamRequest('/api/pipelines/generate/stream', {
         prompt, provider, model,
         ...(apiKey ? { apiKey } : {}),
       });

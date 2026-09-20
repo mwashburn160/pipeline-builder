@@ -29,10 +29,10 @@ so every stored event is hash-chained and scrubbed the same way.
 Query the trail via `GET /audit` (admin-only; org admins are forced to their own
 org, sysadmins may filter any org) or the dashboard **Audit** page at
 `/dashboard/audit`. Filters: `action`, `actorId`, `impersonatorId`, `targetType`,
-`targetId`, `groupId`, `requestId`, `outcome`, `from`/`to`, and — sysadmin only —
+`targetId`, `roleId`, `requestId`, `outcome`, `from`/`to`, and — sysadmin only —
 `orgId` and `affectedOrgId`. Every one is also a URL parameter of the Audit page,
 and the ids on each row narrow the list to that actor, impersonator, target or
-group. Records auto-expire via a MongoDB TTL index after
+Role (`roleId` is the permission Role an `org.role.*` action touched). Records auto-expire via a MongoDB TTL index after
 `config.audit.retentionDays` days (default 90, overridable via
 `AUDIT_RETENTION_DAYS`).
 
@@ -235,7 +235,7 @@ is recorded even though it changes nothing. See [Logs](observability-logs.md).
 | Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete/restore/purge`, `compliance.policy.create/update/delete/restore/purge`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.create`, `compliance.scan.cancel`, `compliance.notification-preference.update` (changed field names + webhook host only — never the destination secret) |
 | Image registry | `registry.gc`, `registry.image.delete`, `registry.image.copy` (all carry `affectedOrgId` = the org owning the repository — `org-<id>/…`, or the system org for `system/…` — so that org's admins see changes an operator made to their images) |
 | Message | `message.announcement.create`, `message.delete`, `message.restore`, `message.purge` (admin broadcasts + the destructive lifecycle only — 1:1 messages, replies, edits and attachment uploads are deliberately NOT audited, and no message body reaches `details`) |
-| Billing | `billing.subscription.create`, `billing.subscription.update`, `billing.subscription.reactivate`, `billing.subscription.cancel`, `billing.subscription.delete`, `billing.ledger.backfill`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
+| Billing | `billing.subscription.create`, `billing.subscription.update`, `billing.subscription.reactivate`, `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
 | Reporting | `reporting.settings.update` (the incident→deploy correlation window, which moves reported CFR/MTTR), `reporting.deployment.outcome` (a deploy-outcome marker, same), `reporting.retention.sync` (an inbound billing→reporting retention entitlement — a cut destroys history at the next sweep; carries `affectedOrgId`) |
 | Ask (assistant) | `ask.query` (read-only how-to turn), `ask.agent.turn` (tool-calling turn) — one per turn on `POST /ask`, `/ask/stream`, `/ask/agent/stream` respectively; both carry an `outcome` (success/failure, incl. client-abort) and `details` with SAFE METADATA ONLY (tools used, proposal kinds, source count, query *length*) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as `pipeline.create` / `pipeline_template.create` / `plugin.deploy` |
 | (all services) | `authz.denied` |

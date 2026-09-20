@@ -90,7 +90,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.0.6",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -152,6 +152,18 @@
       "^(\\.{1,2}/.*)\\.js$": "$1",
       "^@aws-sdk/client-sqs$": "<rootDir>/test/aws-sdk-stub.js",
       "^@aws-sdk/client-codecommit$": "<rootDir>/test/aws-sdk-stub.js"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 94,
+        "branches": 77,
+        "functions": 95,
+        "lines": 94
+      }
     }
   },
   "types": "lib/index.d.ts",

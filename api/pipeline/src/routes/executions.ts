@@ -11,6 +11,7 @@ import {
   getParam,
   validateBody,
   audited,
+  actorId,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx, incCounter } from '@pipeline-builder/api-server';
@@ -96,7 +97,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
         emitPipelineAudit({
           action: 'pipeline.execution.start',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'pipeline',
           targetId: pipelineId,
@@ -150,7 +151,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
       emitPipelineAudit({
         action: 'pipeline.execution.cancel',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
         targetId: pipelineId,

@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { UserPlus, CheckCircle, Check, ArrowLeft, Sparkles, Package, Cloud, Shield, BarChart3, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -83,7 +84,6 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   const [success, setSuccess] = useState(false);
   // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
   // the endpoint 404s) renders no extra UI — password sign-up is unchanged.
-  const [providers, setProviders] = useState<string[]>([]);
   // If the visitor arrived from an AWS Marketplace purchase (a resolved ref is
   // stashed), show the plan they already bought — it's linked automatically after
   // sign-up, so they don't re-pick it here.
@@ -99,13 +99,12 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     setFieldErrors(prev => ({ ...prev, [field]: err }));
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    api.listOAuthProviders()
-      .then((res) => { if (!cancelled) setProviders(res.data?.providers ?? []); })
-      .catch(() => { if (!cancelled) setProviders([]); });
-    return () => { cancelled = true; };
-  }, []);
+  // Fail-soft: no answer means no social buttons, never a broken form.
+  const oauthProviders = useFetch<string[]>(
+    async (signal) => (await api.listOAuthProviders({ signal })).data?.providers ?? [],
+    [],
+  );
+  const providers = oauthProviders.data ?? [];
 
   // Detect an in-flight AWS Marketplace registration (client-only; the ref is in
   // sessionStorage/cookie set by the fulfillment page).

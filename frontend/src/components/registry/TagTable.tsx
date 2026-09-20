@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SkeletonTableRow } from '@/components/ui/Skeleton';
 import { ResourceList } from '@/components/ui/ResourceList';
+import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionBar';
 import type { TagMetadata } from '@/hooks/useTagsWithMetadata';
 import { formatBytes } from '@/lib/format';
 
@@ -60,11 +61,11 @@ export function TagTable({
   onSelect, onCopy, onDelete, onBulkDelete, onRefresh, metadata,
 }: TagTableProps) {
   const [filter, setFilter] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { selectedIds: selected, toggle: toggleSelect, toggleAll, clear: clearSelection } = useRowSelection();
 
   // Clear bulk selection on repo change — multi-select doesn't make sense
   // to carry across repos.
-  useEffect(() => { setSelected(new Set()); }, [repo]);
+  useEffect(() => { clearSelection(); }, [repo, clearSelection]);
 
   const filtered = useMemo(() => {
     return (tags ?? [])
@@ -77,35 +78,10 @@ export function TagTable({
 
   /** Tags currently visible AND currently selected. */
   const selectedInView = visible.filter((t) => selected.has(t));
-  const allInViewSelected = visible.length > 0 && selectedInView.length === visible.length;
+  const allInViewSelected = allSelected(selected, visible);
   const someInViewSelected = selectedInView.length > 0 && !allInViewSelected;
 
-  const toggleSelect = (tag: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag);
-      else next.add(tag);
-      return next;
-    });
-  };
-
-  const toggleSelectAllInView = () => {
-    if (allInViewSelected) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const t of visible) next.delete(t);
-        return next;
-      });
-    } else {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const t of visible) next.add(t);
-        return next;
-      });
-    }
-  };
-
-  const clearSelection = () => setSelected(new Set());
+  const toggleSelectAllInView = () => toggleAll(visible);
 
   // Empty-state copy depends on whether the repo has zero tags vs. the
   // filter excludes everything — the shared shell handles the swap via
@@ -143,7 +119,7 @@ export function TagTable({
       // the column headers stay visible (a nicer loading shape for tables).
       isEmpty={!loading && filtered.length === 0}
       headerStart={
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" title={repo}>
+        <div className="text-sm font-medium text-fg truncate" title={repo}>
           {repo}
         </div>
       }
@@ -181,18 +157,18 @@ export function TagTable({
                   />
                 </Tooltip>
               </th>
-              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Tag</th>
-              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
+              <th scope="col" className="text-left px-3 py-2 font-medium text-fg-muted">Tag</th>
+              <th scope="col" className="text-left px-3 py-2 font-medium text-fg-muted">
                 <Tooltip content="Manifest digest — uniquely identifies this image. Multiple tags may share one digest.">
                   <span className="cursor-help underline decoration-dotted">Digest</span>
                 </Tooltip>
               </th>
-              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
+              <th scope="col" className="text-left px-3 py-2 font-medium text-fg-muted">
                 <Tooltip content="Total image size. For multi-arch indexes, this is the sum of per-platform manifest sizes (best-effort).">
                   <span className="cursor-help underline decoration-dotted">Size</span>
                 </Tooltip>
               </th>
-              <th scope="col" className="text-right px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Actions</th>
+              <th scope="col" className="text-right px-3 py-2 font-medium text-fg-muted">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -244,7 +220,7 @@ export function TagTable({
                       onClick={() => onCopy(tag)}
                       title="Copy or promote this tag to another repo"
                       aria-label={`Copy ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       <span>Copy</span>
@@ -253,7 +229,7 @@ export function TagTable({
                       onClick={() => onDelete(tag)}
                       title="Delete this tag (manifest deletion is by digest)"
                       aria-label={`Delete ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-gray-700 dark:text-gray-300 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-fg-muted hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete</span>

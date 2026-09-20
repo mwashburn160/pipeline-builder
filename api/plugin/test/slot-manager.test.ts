@@ -16,6 +16,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- In-memory Redis that RUNS the slot manager's real Lua scripts -------------
 //
@@ -84,7 +85,7 @@ function registerMocks() {
     getDeadLetterQueue: mockGetDeadLetterQueue,
   }));
 
-  jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+  jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   }));

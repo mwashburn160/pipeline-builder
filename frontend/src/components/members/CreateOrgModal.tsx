@@ -49,7 +49,7 @@ export function CreateOrgModal({
       </p>
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+          <label className="block text-xs font-medium text-fg-muted">
             Team name
           </label>
           <Input

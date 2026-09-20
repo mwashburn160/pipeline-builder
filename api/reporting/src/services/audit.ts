@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createRemoteAuditAccessor } from '@pipeline-builder/api-core';
-import type { RemoteAuditEvent } from '@pipeline-builder/api-core';
 
 /**
  * Remote-audit wiring for the reporting service.
@@ -14,18 +13,12 @@ import type { RemoteAuditEvent } from '@pipeline-builder/api-core';
  * write, a post-deploy outcome marker (it moves DORA CFR/MTTR), and the inbound
  * billing→reporting retention-entitlement sync. Emission is fire-and-forget
  * (`record` never throws / is not awaited). See `createRemoteAuditAccessor`.
+ *
+ * Both shapes come from the ONE api-core factory: `getAuditClient` (the
+ * spool-backed client `wireServiceBoot` registers the `authz.denied` sink on)
+ * and `emitReportingAudit` (the terse emitter route handlers call, with the
+ * `'reporting'` service principal already baked in). Best-effort — never blocks or
+ * throws; emit only AFTER the mutation succeeds, and keep `details` free of
+ * secrets/tokens and AWS account ids.
  */
-const accessor = createRemoteAuditAccessor('reporting');
-
-/** The spool-backed remote client — passed to `wireServiceSecurity`. */
-export const getAuditClient = accessor.getAuditClient;
-
-/**
- * Emit an attributed reporting audit event. Thin wrapper baking in the
- * `'reporting'` service principal so call sites stay terse. Best-effort — never
- * blocks or throws; emit only AFTER the mutation succeeds. Keep `details` free
- * of secrets/tokens and AWS account ids.
- */
-export function emitReportingAudit(event: RemoteAuditEvent): void {
-  accessor.emit(event);
-}
+export const { getAuditClient, emit: emitReportingAudit } = createRemoteAuditAccessor('reporting');

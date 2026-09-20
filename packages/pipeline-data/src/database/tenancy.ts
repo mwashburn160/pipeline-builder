@@ -127,23 +127,6 @@ export function getTenantContext(): TenantContext | undefined {
 }
 
 /**
- * Assert that the current code is running inside a tenant scope. Callers
- * that legitimately need to refuse to operate without one (e.g. handlers
- * that touch FORCE'd RLS tables) can use this instead of relying on the
- * downstream "permission denied" error to surface the bug.
- */
-export function requireTenantContext(): TenantContext {
-  const ctx = tenantContext.getStore();
-  if (!ctx) {
-    throw new Error(
-      'requireTenantContext: no tenant scope active. Wrap your handler/worker in '
-      + 'runWithTenantContext({ orgId, isSuperAdmin }, ...) before any DB call.',
-    );
-  }
-  return ctx;
-}
-
-/**
  * Open a transaction with RLS GUCs SET LOCAL from the current
  * AsyncLocalStorage tenant context, then invoke `fn(tx)`.
  *

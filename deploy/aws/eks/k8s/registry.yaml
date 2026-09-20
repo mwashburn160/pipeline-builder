@@ -50,7 +50,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: registry
-          image: registry:3
+          image: registry@sha256:fd374bae807c225661adfe2c0c1f9970a0b8fab1761fd7dfb91e0fd9a8748f9b  # registry:3
           ports:
             - containerPort: 5000
               name: registry

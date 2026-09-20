@@ -9,11 +9,12 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { __mw: name });
 const requireStepUp = tagged('requireStepUp');
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Both call shapes: the bare middleware, and the factor-restricted form
   // (`requireStepUp({ methods })`) the most dangerous routes use (#8).
   requireStepUp: Object.assign((...args: unknown[]) => (

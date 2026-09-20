@@ -17,15 +17,21 @@ export { orgMembersService } from './org-members-service.js';
 export { orgHierarchyService } from './org-hierarchy-service.js';
 export type { DeletedTeam } from './org-hierarchy-service.js';
 export type { MemberTeam, BulkAddResult, TeamSummary } from './org-members-service.js';
+// RBAC: the built-in Role lifecycle (roles-service) plus the surfaces split out
+// of it — see that file's header for the map.
+export { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole } from './roles-service.js';
+export type { RoleWithMembers } from './roles-service.js';
+export { permissionsForGrantsRole } from './role-authority.js';
+export type { ActorPermissionCeiling, RoleAssignmentActor } from './role-authority.js';
 export {
-  seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions,
-  permissionsForGrantsRole,
-  listRolesWithMembers, addUserToRole, removeUserFromRole,
+  getUserRolePermissions, listRolesWithMembers, addUserToRole, removeUserFromRole,
   createRole, updateRole, deleteRole,
+} from './role-crud.js';
+export {
   serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles, clearServiceAccountRoles,
-  assertMappableRoleSet, syncMappedRoles,
-} from './roles-service.js';
-export type { RoleWithMembers, ActorPermissionCeiling, RoleAssignmentActor, MappableRole } from './roles-service.js';
+} from './service-account-roles.js';
+export { assertMappableRoleSet, syncMappedRoles } from './mapped-roles.js';
+export type { MappableRole } from './mapped-roles.js';
 export { idpGroupMappingService, MAX_MAPPINGS_PER_ORG } from './idp-group-mapping-service.js';
 export type { IdpGroupMappingDto } from './idp-group-mapping-service.js';
 export { assertJitSeatAvailable, provisionJitMembership } from './sso-jit-service.js';

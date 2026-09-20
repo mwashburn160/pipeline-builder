@@ -127,7 +127,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   return (
     <form onSubmit={handleSubmit} className="card space-y-5 max-w-2xl">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Compliance notifications</h3>
+        <h3 className="text-sm font-semibold text-fg">Compliance notifications</h3>
         <p className="text-xs text-fg-muted mt-1">
           How this org is notified when a compliance check blocks an operation or raises warnings.
           Notifications always appear in the in-app inbox; email and webhook are opt-in below.
@@ -169,7 +169,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
                     onChange={() => toggleUser(m.id)}
                     disabled={readOnly || !emailEnabled}
                   />
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{m.username}</span>
+                  <span className="font-medium text-fg">{m.username}</span>
                   <span className="text-fg-muted">{m.email}</span>
                   {(m.role === 'admin' || m.role === 'owner') && <Badge color="blue">{m.role}</Badge>}
                 </label>

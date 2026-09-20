@@ -154,7 +154,7 @@ async function pushEntitlementLeg(opts: {
     return false;
   } catch (error) {
     logger.error(`Error syncing ${logLabel}`, { orgId, ...logFields, error });
-    await createBillingEvent(orgId, 'subscription_updated', { reason: failReason, ...logFields, error: error instanceof Error ? error.message : String(error) }, subscriptionId);
+    await createBillingEvent(orgId, 'subscription_updated', { reason: failReason, ...logFields, error: errorMessage(error) }, subscriptionId);
     return false;
   }
 }
@@ -712,6 +712,40 @@ export async function syncEntitlements(
   return ok;
 }
 
+/** A subscription's applied recurring discount, as the billing UI reads it. */
+export interface SubscriptionResponseDiscount {
+  discountId: string;
+  unit: string;
+  value: number;
+}
+
+/**
+ * The subscription object every billing route returns.
+ *
+ * Named rather than `Record<string, unknown>`: the builder below fully
+ * specifies its output, so an anonymous bag bought nothing and cost the
+ * frontend + every caller any check that a field it reads still exists.
+ * `planName` / `tier` are optional because they are only present when the
+ * caller resolved the plan document.
+ */
+export interface SubscriptionResponse {
+  id: string;
+  orgId: string;
+  planId: string;
+  planName?: string;
+  tier?: string;
+  status: string;
+  interval: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  addons: Array<{ bundleId: string; quantity: number }>;
+  recurringDiscount: SubscriptionResponseDiscount | null;
+  creditRemainingCents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * Build a full subscription response object (used in GET, POST, PUT routes).
  */
@@ -733,7 +767,7 @@ export function buildSubscriptionResponse(
   },
   planName?: string,
   tier?: string,
-): Record<string, unknown> {
+): SubscriptionResponse {
   return {
     id: subscription._id.toString(),
     orgId: subscription.orgId,

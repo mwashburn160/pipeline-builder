@@ -12,13 +12,13 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSoftDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRestore = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();
-const mockCanAdminister = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockAudit = jest.fn();
 const mockGetTeamParent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockListDeletedTeams = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -37,27 +37,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireSystemAdmin: (_req: any, _res: any) => true,
-  requireAuth: (_req: any, _res: any) => true,
-  canAccessOrg: async () => true,
-  canAdministerOrg: (...a: unknown[]) => mockCanAdminister(...a),
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try {
-        await fn(req, res);
-      } catch (err: any) {
-        // Mirror withController's errorMap behaviour so throw-based typed errors
-        // (ORG_SNAPSHOT_FAILED, ...) map to the right status in these tests.
-        const mapped = errorMap?.[err?.message];
-        if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
-        return res.status(500).json({ success: false, message: 'error' });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
+// `canAdministerOrg` runs FOR REAL and lazily imports this module on the
+// CROSS-ORG branch, so `isAncestorOrg` must be present (default: flat tree).
+const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
+  isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
 
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
@@ -99,12 +86,27 @@ function mockRes() {
   return res;
 }
 
-const req = () => ({ user: { sub: 'admin-1', organizationId: 'sysorg' }, params: { id: 'org-acme' }, body: {} });
+/**
+ * `controller-helper` runs FOR REAL (see helpers/controller-helper-mock.ts), so
+ * every gate below is satisfied by the REQUEST FIXTURE, never by a stub:
+ *   - `requireSystemAdmin` (DELETE /:id, POST /:id/move) → `isSuperAdmin: true`
+ *   - `canAdministerOrg`   (restore, deleteTeam, listDeletedTeams) → admin/owner
+ *     of the org named in `params.id`
+ *   - `canAccessOrg`       (GET /:id) → any member of that same org
+ */
+/** Platform administrator; `organizationId` is their own org, not the target. */
+const SYSADMIN = { sub: 'admin-1', organizationId: 'sysorg', isSuperAdmin: true };
+/** Admin/owner of `org-acme` — the org these routes target. */
+const ACME_ADMIN = { sub: 'admin-1', organizationId: 'org-acme', role: 'admin' };
+/** Signed-in member of `org-acme`, no admin authority anywhere. */
+const ACME_MEMBER = { sub: 'u9', organizationId: 'org-acme' };
+
+const req = (user: unknown = SYSADMIN) => ({ user, params: { id: 'org-acme' }, body: {} });
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockExpandOrgScope.mockResolvedValue(['org-acme']); // flat org, no teams
-  mockCanAdminister.mockResolvedValue(true);
+  mockIsAncestorOrg.mockResolvedValue(false); // flat tree unless a test says otherwise
 });
 
 describe('deleteOrganization — soft-delete', () => {
@@ -133,6 +135,19 @@ describe('deleteOrganization — soft-delete', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     // The message names the routes that actually exist: delete the team, or move it.
     expect((res.json.mock.calls[0] as any)[0].message).toMatch(/delete each team, or move it/);
+  });
+
+  it('401s an anonymous caller and 403s a non-sysadmin org admin, without soft-deleting', async () => {
+    const anon = mockRes();
+    await (deleteOrganization as unknown as (req: any, res: any) => Promise<void>)(req(null), anon);
+    expect(anon.status).toHaveBeenCalledWith(401);
+
+    const orgAdmin = mockRes();
+    await (deleteOrganization as unknown as (req: any, res: any) => Promise<void>)(req(ACME_ADMIN), orgAdmin);
+    expect(orgAdmin.status).toHaveBeenCalledWith(403);
+
+    expect(mockSoftDelete).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it('maps a snapshot failure to 502 and does NOT audit a delete that did not happen', async () => {
@@ -171,13 +186,27 @@ describe('restoreOrganization', () => {
   });
 
   it('403s a caller who does not administer the org', async () => {
-    mockCanAdminister.mockResolvedValue(false);
+    // A member of the target org: authenticated, but not an admin of it.
     const res = mockRes();
 
-    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(), res);
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(ACME_MEMBER), res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockRestore).not.toHaveBeenCalled();
+  });
+
+  it('401s an anonymous caller', async () => {
+    const res = mockRes();
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(null), res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockRestore).not.toHaveBeenCalled();
+  });
+
+  it('lets an org admin (not just a sysadmin) restore their OWN org', async () => {
+    mockRestore.mockResolvedValue({ id: 'org-acme', name: 'Acme', membersInvalidated: 0 });
+    const res = mockRes();
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(ACME_ADMIN), res);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
 
@@ -198,7 +227,9 @@ describe('restoreOrganization — team restore refusals', () => {
 });
 
 describe('deleteTeam — parent admin soft-deletes its own team', () => {
-  const teamReq = () => ({ user: { sub: 'admin-1', organizationId: 'root-1' }, params: { id: 'root-1', teamId: 'team-1' }, body: {} });
+  /** Admin/owner of the PARENT org (`:id`) — the gate's target on this route. */
+  const ROOT_ADMIN = { sub: 'admin-1', organizationId: 'root-1', role: 'admin' };
+  const teamReq = (user: unknown = ROOT_ADMIN) => ({ user, params: { id: 'root-1', teamId: 'team-1' }, body: {} });
 
   it('soft-deletes via the shared path (202 + org.team.delete audit naming the parent)', async () => {
     mockGetTeamParent.mockResolvedValue({ parentOrgId: 'root-1' });
@@ -208,7 +239,9 @@ describe('deleteTeam — parent admin soft-deletes its own team', () => {
 
     await (deleteTeam as any)(teamReq(), res);
 
-    expect(mockCanAdminister).toHaveBeenCalledWith(expect.anything(), 'root-1');
+    // The caller administers root-1 and nothing else, so reaching 202 is itself
+    // the proof the gate is evaluated against the PARENT (`:id`) — see the
+    // 'gates on the PARENT org' case below for the converse.
     expect(mockSoftDelete).toHaveBeenCalledWith('team-1', 'root-1', 'admin-1');
     expect(res.status).toHaveBeenCalledWith(202);
     expect((res.json.mock.calls[0] as any)[0].data).toEqual(expect.objectContaining({ purgeAfter, snapshotId: 'snap-9' }));
@@ -222,7 +255,6 @@ describe('deleteTeam — parent admin soft-deletes its own team', () => {
   it('404s when the team is not a direct team of :id (or does not exist)', async () => {
     for (const parent of [{ parentOrgId: 'other-root' }, { parentOrgId: null }, null]) {
       jest.clearAllMocks();
-      mockCanAdminister.mockResolvedValue(true);
       mockGetTeamParent.mockResolvedValue(parent);
       const res = mockRes();
       await (deleteTeam as any)(teamReq(), res);
@@ -233,10 +265,25 @@ describe('deleteTeam — parent admin soft-deletes its own team', () => {
   });
 
   it('403s a caller who does not administer the parent', async () => {
-    mockCanAdminister.mockResolvedValue(false);
+    // A plain member of the parent org: authenticated, no admin authority.
     const res = mockRes();
-    await (deleteTeam as any)(teamReq(), res);
+    await (deleteTeam as any)(teamReq({ sub: 'u9', organizationId: 'root-1' }), res);
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockGetTeamParent).not.toHaveBeenCalled();
+  });
+
+  it('gates on the PARENT org, not the team — an admin of team-1 alone is refused', async () => {
+    const res = mockRes();
+    await (deleteTeam as any)(teamReq({ sub: 'team-admin', organizationId: 'team-1', role: 'admin' }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockGetTeamParent).not.toHaveBeenCalled();
+    expect(mockSoftDelete).not.toHaveBeenCalled();
+  });
+
+  it('401s an anonymous caller', async () => {
+    const res = mockRes();
+    await (deleteTeam as any)(teamReq(null), res);
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(mockGetTeamParent).not.toHaveBeenCalled();
   });
 
@@ -254,24 +301,41 @@ describe('listDeletedTeams', () => {
     const teams = [{ orgId: 'team-1', orgName: 'Blue', deletedAt: new Date(), purgeAfter: new Date() }];
     mockListDeletedTeams.mockResolvedValue({ teams });
     const res = mockRes();
-    await (listDeletedTeams as any)({ user: { sub: 'a' }, params: { id: 'root-1' } }, res);
+    await (listDeletedTeams as any)({ user: { sub: 'a', organizationId: 'root-1', role: 'admin' }, params: { id: 'root-1' } }, res);
     expect(mockListDeletedTeams).toHaveBeenCalledWith('root-1');
     expect(res.status).toHaveBeenCalledWith(200);
     expect((res.json.mock.calls[0] as any)[0].data).toEqual({ teams });
   });
 
   it('403s a caller who does not administer :id', async () => {
-    mockCanAdminister.mockResolvedValue(false);
-    const res = mockRes();
-    await (listDeletedTeams as any)({ user: { sub: 'a' }, params: { id: 'root-1' } }, res);
-    expect(res.status).toHaveBeenCalledWith(403);
+    // A member of root-1, and an admin of a DIFFERENT org, are both refused.
+    for (const user of [{ sub: 'a', organizationId: 'root-1' }, { sub: 'b', organizationId: 'other', role: 'admin' }]) {
+      const res = mockRes();
+      await (listDeletedTeams as any)({ user, params: { id: 'root-1' } }, res);
+      expect(res.status).toHaveBeenCalledWith(403);
+    }
     expect(mockListDeletedTeams).not.toHaveBeenCalled();
   });
 });
 
 describe('moveOrganization — sysadmin reparent', () => {
   const ROOT = 'aaaaaaaaaaaaaaaaaaaaaaaa';
-  const moveReq = (parentOrgId: unknown) => ({ user: { sub: 'sys-1' }, params: { id: 'team-1' }, body: { parentOrgId } });
+  // `requireSystemAdmin` — platform-admin authority is a JWT claim.
+  const moveReq = (parentOrgId: unknown, user: unknown = { sub: 'sys-1', isSuperAdmin: true }) =>
+    ({ user, params: { id: 'team-1' }, body: { parentOrgId } });
+
+  it('403s an org admin and 401s an anonymous caller, without moving anything', async () => {
+    const orgAdmin = mockRes();
+    await (moveOrganization as any)(moveReq(ROOT, { sub: 'a', organizationId: 'team-1', role: 'admin' }), orgAdmin);
+    expect(orgAdmin.status).toHaveBeenCalledWith(403);
+
+    const anon = mockRes();
+    await (moveOrganization as any)(moveReq(ROOT, null), anon);
+    expect(anon.status).toHaveBeenCalledWith(401);
+
+    expect(mockMove).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
 
   it('moves, audits admin.org.move, and returns the updated org DTO', async () => {
     mockMove.mockResolvedValue({ orgId: 'team-1', fromParentOrgId: 'old-root', toParentOrgId: ROOT, tier: 'team', membersInvalidated: 4 });
@@ -331,13 +395,27 @@ describe('moveOrganization — sysadmin reparent', () => {
 describe('getOrganizationById — hierarchy for sysadmins', () => {
   it('asks for the parent name + live teams only when the caller is a sysadmin', async () => {
     mockGetById.mockResolvedValue({ id: 'org-acme' });
+    // The non-sysadmin case still has to PASS `canAccessOrg`, so that caller is
+    // a member of the org being read.
     const get = (isSuperAdmin: boolean) => (getOrganizationById as any)(
-      { user: { sub: 'u', isSuperAdmin }, params: { id: 'org-acme' }, query: {} }, mockRes(),
+      { user: { sub: 'u', isSuperAdmin, organizationId: 'org-acme' }, params: { id: 'org-acme' }, query: {} }, mockRes(),
     );
 
     await get(true);
     expect(mockGetById).toHaveBeenLastCalledWith('org-acme', expect.objectContaining({ includeHierarchy: true }));
     await get(false);
     expect(mockGetById).toHaveBeenLastCalledWith('org-acme', expect.objectContaining({ includeHierarchy: false }));
+  });
+
+  it('403s a member of another org and 401s an anonymous caller', async () => {
+    const outsider = mockRes();
+    await (getOrganizationById as any)({ user: { sub: 'u', organizationId: 'org-other' }, params: { id: 'org-acme' }, query: {} }, outsider);
+    expect(outsider.status).toHaveBeenCalledWith(403);
+
+    const anon = mockRes();
+    await (getOrganizationById as any)({ user: null, params: { id: 'org-acme' }, query: {} }, anon);
+    expect(anon.status).toHaveBeenCalledWith(401);
+
+    expect(mockGetById).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn();
 const mockUpdateProfile = jest.fn();
@@ -48,11 +49,7 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuthUserId: (req: any) => req.user?.sub,
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: {
@@ -148,9 +145,29 @@ describe('changePassword audit', () => {
   it('does NOT emit an audit event if changePassword threw (service failure path)', async () => {
     mockChangePassword.mockRejectedValue(new Error('PROFILE_INVALID_CREDENTIALS'));
     const req: any = { user: { sub: 'u1' }, body: { currentPassword: 'x', newPassword: 'y' } };
-    await expect(
-      (changePassword as unknown as (req: any, res: any) => Promise<void>)(req, mockRes()),
-    ).rejects.toThrow();
+    const res = mockRes();
+    // `withController` runs FOR REAL now (see helpers/controller-helper-mock.ts),
+    // so the throw does not escape the handler: it is answered through the
+    // controller's own error map, which turns PROFILE_INVALID_CREDENTIALS into a
+    // 401. Asserting the MAPPED response is the production behaviour; the point
+    // of the test — nothing is audited on the failure path — is unchanged.
+    await (changePassword as unknown as (req: any, res: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  // Negative: the handler's own gate. `requireAuthUserId` refuses a request with
+  // no authenticated subject before the service is called or anything audited.
+  it('401s a caller with no authenticated user, without touching the service', async () => {
+    const res = mockRes();
+    await (changePassword as unknown as (req: any, res: any) => Promise<void>)(
+      { user: undefined, body: { currentPassword: 'x', newPassword: 'y' } } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockChangePassword).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
   });
 });

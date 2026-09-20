@@ -22,12 +22,12 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
       {breakdown.items.map((item, i) => (
         <div key={i} className="flex items-center justify-between gap-3 text-xs">
           <dt className="text-fg-muted">{item.label}</dt>
-          <dd className="font-mono text-gray-700 dark:text-gray-300 text-right tabular-nums">{formatCents(item.cents)}</dd>
+          <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents)}</dd>
         </div>
       ))}
       <div className="flex items-center justify-between gap-3 text-xs border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 font-medium">
         <dt className="text-gray-600 dark:text-gray-300">Total ({breakdown.interval})</dt>
-        <dd className="font-mono text-gray-900 dark:text-gray-100 text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
+        <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
       </div>
       {breakdown.creditRemainingCents > 0 && (
         <div className="flex items-center justify-between gap-3 text-xs text-fg-muted">
@@ -112,11 +112,11 @@ export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }:
       }
     >
       <p className="text-sm text-fg-muted mb-4">
-        Grant <strong className="text-gray-700 dark:text-gray-300">{formatDiscount(discount)}</strong> directly to an
+        Grant <strong className="text-fg-muted">{formatDiscount(discount)}</strong> directly to an
         organization. Preview the effect first — applying counts as a redemption.
       </p>
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Target organization</label>
+        <label className="block text-xs font-medium text-fg-muted">Target organization</label>
         <Select
           value={applyOrgId}
           onChange={(e) => { setApplyOrgId(e.target.value); setApplyPreview(null); }}
@@ -139,7 +139,7 @@ export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }:
       {applyPreview && (
         <div className="mt-4 rounded-md border border-blue-200/70 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 p-3">
           <div className="text-xs font-semibold text-blue-800 dark:text-blue-300">Preview (not applied)</div>
-          <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">{applyPreview.applied}</div>
+          <div className="mt-1 text-sm text-fg-muted">{applyPreview.applied}</div>
           <PriceBreakdown breakdown={applyPreview.priceBreakdown} />
         </div>
       )}

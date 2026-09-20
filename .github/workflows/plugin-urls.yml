@@ -1,0 +1,43 @@
+name: plugin-urls
+
+# Verifies that every download URL and `COPY --from` image reference in the plugin
+# Dockerfiles is still reachable (deploy/bin/verify-plugin-urls.sh). Stale versions,
+# moved repos and renamed release assets are the single most common way a plugin
+# build starts failing without anything in this repo having changed — and the failure
+# surfaces in a user's pipeline, not in CI, unless something checks.
+#
+# NOTE: hand-authored (not projen-managed), same as security-audit.yml. Deliberately
+# NOT part of the release gate: the verdict depends on third-party uptime, so a
+# GitHub/Gradle/Google hiccup must not be able to block a release. It runs on the PRs
+# that change a plugin Dockerfile (where a bad URL is being introduced, and the author
+# can fix it), on a weekly schedule (where a URL that rotted on its own is caught), and
+# on demand. The script exits non-zero when any URL fails, so the job is a real gate on
+# the runs where it does apply.
+on:
+  pull_request:
+    paths:
+      - 'deploy/plugins/**/Dockerfile'
+      - 'deploy/bin/verify-plugin-urls.sh'
+      - 'deploy/bin/common.sh'
+      - '.github/workflows/plugin-urls.yml'
+  schedule:
+    # Weekly, Monday 07:30 UTC — after security-audit, same day.
+    - cron: '30 7 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify-urls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # The script HEAD-checks every https:// URL on a curl/wget line and probes each
+      # `COPY --from=` image, skipping the hosts where a HEAD is not meaningful (apt
+      # repos, package registries, install-script entry points). It prints a
+      # passed/failed/skipped summary and exits 1 listing every failure.
+      - name: Verify plugin download URLs and base images
+        run: bash deploy/bin/verify-plugin-urls.sh

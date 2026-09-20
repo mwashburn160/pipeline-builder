@@ -424,7 +424,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/quotas/all",
-              "All orgs' quotas (system admin only)"
+              "All orgs' quotas (system admin only). ?limit= 1–1000 (default 100) and ?offset= 1-based, capped at 100 000 — deep paging past that is refused-by-clamp rather than turned into an unbounded collection scan"
             ],
             [
               "GET",
@@ -434,7 +434,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/quotas/:orgId",
-              "Specific org quotas (orgId in URL — auth scoped)"
+              "Specific org quotas (orgId in URL — auth scoped; the id is matched case-insensitively and canonicalized to lowercase for the lookup)"
             ],
             [
               "GET",
@@ -465,11 +465,15 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Pooled (account) limits and the 503 refusal. For an org → team hierarchy the binding cap is the ROOT's, counted against the whole subtree; a team's own limits are seeded -1 precisely because only the root's pooled cap is meant to apply. So when the pooled cap cannot be resolved (a hierarchy read fails), the quota service does NOT fall back to the team's own row — that would be unlimited, not degraded. It serves the last-known root cap for up to QUOTA_POOL_FALLBACK_TTL_MS (default 60s) and otherwise answers 503 SERVICE_UNAVAILABLE (\"Quota is temporarily unenforceable for organization …\"), which reads and increments alike surface. A root or flat org is unaffected: its own row carries real limits, so enforcement continues there. Every such event increments quota_pool_resolution_failed_total{quotaType,outcome} with outcome = cached | denied | own_limits — alert on denied."
+        },
+        {
+          "type": "text",
           "content": "Message Service"
         },
         {
           "type": "text",
-          "content": "Base path /api/messages. Reads require messages:read; writes require messages:write. Announcements (broadcast, recipientOrgId: \"*\") are system-admin only."
+          "content": "Base path /api/messages. Reads require messages:read; writes require messages:write — except contacting support, which every member may do with messages:read (see below). Announcements (broadcast, recipientOrgId: \"*\") are system-admin only."
         },
         {
           "type": "table",
@@ -514,6 +518,12 @@ export const apiReferenceTopic: HelpTopic = {
             ],
             [
               "POST",
+              "/messages/support",
+              "Contact support: a conversation to the support desk. Body is subject, content, optional priority / attachmentIds — no recipient: the server forces recipientOrgId to the system support org and channel to support, and ignores any recipientOrgId / recipientUserId / messageType / channel in the body",
+              "messages:read"
+            ],
+            [
+              "POST",
               "/messages/:id/reply",
               "Reply to a thread",
               "messages:write"
@@ -544,6 +554,10 @@ export const apiReferenceTopic: HelpTopic = {
               "messages:write"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Contacting support: reaching support is self-service, so POST /messages/support is gated on messages:read — the same authority the inbox needs — rather than messages:write. A read-only member can therefore file a request although they cannot send ordinary messages. The route is safe at that floor because the recipient is not a caller input: it is always the system support org, on the reserved support channel. Everything else (validation, attachment linking, the SSE ping, the send rate limit) matches POST /messages; announcements, broadcasts and per-user targeting do not apply. Attachments must still be uploaded through POST /messages/attachments, which remains messages:write."
         },
         {
           "type": "text",
@@ -597,7 +611,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/organization/:id",
-              "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. Refused (400) while it has live teams",
+              "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. The window is max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS) — the org must outlive the rows its cascade tombstones. Refused (400) while it has live teams",
               "system admin"
             ],
             [
@@ -610,7 +624,7 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/organization/:id/move",
               "Reparent (+ step-up). Body `{ parentOrgId: string \\",
-              "null }: a team to another eligible root (team/enterprise tier), a team out as a standalone root (null), or a root with no teams (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (400/404), a move over the destination's seat cap (409), and nesting a root that still has a billable subscription (409, cancel it first; 503 if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with -1 quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → { organization }` (the detail DTO with hierarchy)",
+              "null }: a team to another eligible root (team/enterprise tier), a team out as a standalone root (null), or a root with no teams (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (400/404), a move over the destination's seat cap (409), a competing move that landed first (409 ORG_MOVE_CONFLICT — every structural check is re-asserted inside the transaction and the write is conditional on the parent this request read, so of two interleaved moves exactly one commits), and nesting a root that still has a billable subscription (409, cancel it first; 503 if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with -1 quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → { organization }` (the detail DTO with hierarchy)",
               "system admin"
             ],
             [
@@ -622,7 +636,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id/export",
-              "GDPR data export",
+              "GDPR data export — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; failed names any store that could not be read and truncated any that hit its cap",
               "org:settings"
             ],
             [
@@ -952,7 +966,7 @@ export const apiReferenceTopic: HelpTopic = {
               "GET \\",
               "POST",
               "/auth/sso/:orgId/saml/slo",
-              "SAML single logout endpoint (HTTP-Redirect / HTTP-POST). A signed IdP LogoutRequest revokes that NameID's sessions in the org and is answered with a signed LogoutResponse; a signed LogoutResponse to ours lands the browser on sign-in. Unsigned, forged, replayed or foreign-issuer messages are refused",
+              "SAML single logout endpoint (HTTP-Redirect / HTTP-POST). A signed IdP LogoutRequest revokes that NameID's sessions in the org (in bounded batches, at most 1000 per request — the rest lapse with their refresh window and the cap is recorded on the audit event) and is answered with a signed LogoutResponse; a signed LogoutResponse to ours lands the browser on sign-in. Unsigned, forged, replayed or foreign-issuer messages are refused",
               "the IdP's signature"
             ],
             [

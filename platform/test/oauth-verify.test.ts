@@ -14,6 +14,7 @@
 
 import nodeCrypto from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -136,16 +137,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 }));
 
 // withController that faithfully applies the error map (typed throw → status).
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { return await fn(req, res); } catch (e: any) {
-        const mapped = errorMap?.[e?.message];
-        if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
-        return res.status(500).json({ success: false, message: e?.message });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 const { verifyOAuthCode, handleCallback, getAuthUrl, OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } =
   await import('../src/controllers/oauth.js');

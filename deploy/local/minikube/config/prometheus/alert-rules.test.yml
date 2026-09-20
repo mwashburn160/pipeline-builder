@@ -1,14 +1,18 @@
-# promtool unit tests for the Istio mesh alert rules.
+# promtool unit tests for the alert rules.
 #
 #   docker run --rm -v "$PWD:/t:ro" --entrypoint promtool prom/prometheus:v3.13.2 \
 #     test rules /t/alert-rules.test.yml
 #
-# These exist because MeshMTLSDegraded's risk is not syntax — promtool check
-# rules would pass a rule that pages every five minutes. The risk is SCOPING:
-# plenty of traffic is legitimately not mTLS (ingress from the ALB, kubelet
-# probes, and Prometheus scraping istio-system, which is not mesh-enrolled).
-# Cases 2-4 below are the negative controls that keep the alert quiet; case 1 is
-# the real failure it exists to catch — a pod created while istio-cni was down,
+# These exist because the risk in most of these rules is not syntax — promtool
+# check rules would happily pass a rule that pages every five minutes. The risk
+# is SCOPING and THRESHOLDS, so almost every case here comes in a pair: the
+# failure the alert exists to catch, and the healthy traffic that must keep it
+# quiet.
+#
+# MeshMTLSDegraded is the clearest example: plenty of traffic is legitimately
+# not mTLS (ingress from the ALB, kubelet probes, and Prometheus scraping
+# istio-system, which is not mesh-enrolled). Cases 2-4 are those negative
+# controls; case 1 is the real failure — a pod created while istio-cni was down,
 # which ambient never retroactively enrolls.
 #
 # The rules are byte-identical across the three k8s targets; the Jest guard in
@@ -218,4 +222,167 @@ tests:
     alert_rule_test:
       - eval_time: 25h
         alertname: SecretRotationPreviousLingering
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Quota fail-CLOSED. The threshold is what is under test: a blip must not
+  # page, a stuck quota service must. Fail-closed is user-visible breakage
+  # (healthy orgs refused work), which is why it is critical rather than warning.
+  #
+  # NOTE on the expected text below: `{{ $value | humanize }}` renders a rate of
+  # 0.2/s as "200m" and 0.1/s as "100m" (SI milli), not as a decimal. That is
+  # what the rendered annotation actually says, so it is what these expectations
+  # pin — every rule in alert-rules.yml uses humanize, so the convention is
+  # repo-wide rather than specific to these.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'quota_fail_closed_total{operation="reserve",reason="unreachable",quotaType="pipelines",service="platform",pod="platform-aaa"}'
+        values: '0+12x30'
+    alert_rule_test:
+      # 5 minutes in, the `for: 10m` has not elapsed.
+      - eval_time: 5m
+        alertname: QuotaFailClosedSustained
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: QuotaFailClosedSustained
+        exp_alerts:
+          - exp_labels: { severity: critical, component: quota, tenancy: platform, reason: unreachable }
+            exp_annotations:
+              summary: "Quota reservations failing closed (unreachable)"
+              description: "200m denied-by-default reservations/sec over 5m sustained for 10m, reason=unreachable. The quota service is not confirming reservations and the fail-mode policy is DENY, so orgs are being refused work they are entitled to. Restore the quota service; QUOTA_RESERVE_FAIL_OPEN=true is the deliberate (and riskier) alternative."
+
+  # A trickle below the threshold (0.05/s) is the normal transient blip — quiet.
+  - interval: 1m
+    input_series:
+      - series: 'quota_fail_closed_total{operation="reserve",reason="transient-429",quotaType="pipelines",service="platform",pod="platform-aaa"}'
+        values: '0+3x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: QuotaFailClosedSustained
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # PasswordBreachCheckUnavailable. The check is FAIL-OPEN, so the only evidence
+  # the control has vanished is this counter. The negative control matters as
+  # much as the positive: `breached` and `ok` outcomes are the check WORKING and
+  # must never alert.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'platform_password_breach_checks_total{outcome="unavailable",service="platform",pod="platform-aaa"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PasswordBreachCheckUnavailable
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: PasswordBreachCheckUnavailable
+        exp_alerts:
+          - exp_labels: { severity: warning, component: auth, tenancy: platform }
+            exp_annotations:
+              summary: "Breached-password checks are failing open"
+              description: "100m unavailable breach checks/sec over 10m, sustained 15m. Every password set or changed in that window was accepted WITHOUT being checked against known-breached credentials — the check fails open on purpose. Either restore egress to PASSWORD_BREACH_CHECK_URL, or set PASSWORD_BREACH_CHECK=off if this install is deliberately air-gapped (which stops the alert and makes the choice explicit)."
+
+  - interval: 1m
+    input_series:
+      - series: 'platform_password_breach_checks_total{outcome="ok",service="platform",pod="platform-aaa"}'
+        values: '0+60x40'
+      - series: 'platform_password_breach_checks_total{outcome="breached",service="platform",pod="platform-aaa"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PasswordBreachCheckUnavailable
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # SsoJitRefusalBurst — people authenticating successfully at their IdP and
+  # still not getting in. Pins the per-`reason` aggregation.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'platform_sso_jit_refused_total{reason="not_entitled",service="platform",pod="platform-aaa"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SsoJitRefusalBurst
+        exp_alerts:
+          - exp_labels: { severity: warning, component: auth, tenancy: platform, reason: not_entitled }
+            exp_annotations:
+              summary: "SSO just-in-time provisioning being refused (not_entitled)"
+              description: "100m JIT refusals/sec of reason=not_entitled over 10m, sustained 15m — people are authenticating at their identity provider and still cannot get in. `not_entitled` means the org's plan does not include this; `platform_admin` is refused by design and never auto-provisioned. Filter the audit log on `sso.jit.refused` for the affected org."
+
+  # ---------------------------------------------------------------------------
+  # SamlSingleLogoutFailing — only `refused` and `capped` are faults. A healthy
+  # SLO round trip (`request` then `complete`) must stay silent, which is the
+  # whole point of the result= matcher.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'platform_saml_slo_total{direction="idp",result="capped",service="platform",pod="platform-aaa"}'
+        values: '0+6x40'
+      - series: 'platform_saml_slo_total{direction="sp",result="request",service="platform",pod="platform-aaa"}'
+        values: '0+60x40'
+      - series: 'platform_saml_slo_total{direction="sp",result="complete",service="platform",pod="platform-aaa"}'
+        values: '0+60x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SamlSingleLogoutFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, component: auth, tenancy: platform, direction: idp, result: capped }
+            exp_annotations:
+              summary: "SAML single logout not completing (idp/capped)"
+              description: "100m SLO events/sec of result=capped over 10m, sustained 15m. `refused` means the logout message was rejected — usually the IdP's signing certificate rotated (runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org) or the issuer does not match the configured connection. `capped` means an IdP-initiated logout hit the per-request session cap and some sessions stayed signed in; revoke them explicitly from the org's session list."
+
+  # ---------------------------------------------------------------------------
+  # ScimErrorBurst — a stuck directory sync is a deprovisioning gap. Successful
+  # SCIM traffic (platform_scim_requests_total) must not contribute.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'platform_scim_errors_total{resource="Users",operation="patch",reason="internal",service="platform",pod="platform-aaa"}'
+        values: '0+6x40'
+      - series: 'platform_scim_requests_total{resource="Users",operation="patch",result="success",service="platform",pod="platform-aaa"}'
+        values: '0+60x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ScimErrorBurst
+        exp_alerts:
+          - exp_labels: { severity: warning, component: auth, tenancy: platform, resource: Users, operation: patch, reason: internal }
+            exp_annotations:
+              summary: "SCIM directory sync failing (Users/patch, internal)"
+              description: "100m SCIM errors/sec over 10m, sustained 15m, on patch Users (reason=internal). While this persists the directory and this platform disagree about who has access — a deprovisioned user may still be able to sign in. `internal` is a platform fault; anything else means the connection needs fixing at the IdP. Filter the audit log on `org.scim.refused`."
+
+  # ---------------------------------------------------------------------------
+  # BillingEventWriteFailing — the money audit trail. Pins the per-`type` split,
+  # which is what tells an operator which write path is broken.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'billing_event_write_failed_total{type="subscription.updated",service="billing",pod="billing-aaa"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BillingEventWriteFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: BillingEventWriteFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, component: billing, tenancy: platform, type: subscription.updated }
+            exp_annotations:
+              summary: "Billing event writes failing (type=subscription.updated)"
+              description: "100m failed billing-event writes/sec over 5m sustained for 15m. The billing event log is the audit trail for money movement, so a sustained gap means charges and plan changes are happening with no durable record. Usually the Mongo write path — check the billing service logs and MongoDB health."
+
+  # ---------------------------------------------------------------------------
+  # FidoMdsLoadFailing — `outcome="success"` loads must never fire it. Uses
+  # increase() over an hour, so the healthy series is the real test: a blob that
+  # loads every 24h emits successes and nothing else.
+  # ---------------------------------------------------------------------------
+  - interval: 5m
+    input_series:
+      - series: 'platform_fido_mds_loads_total{outcome="success",source="url",service="platform",pod="platform-aaa"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: FidoMdsLoadFailing
         exp_alerts: []

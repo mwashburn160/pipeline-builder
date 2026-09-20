@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { currentTraceId } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
 import { appendAuditEvent } from './audit-chain.js';
@@ -38,7 +38,7 @@ function sanitizeUserAgent(raw: unknown): string | undefined {
  *              correlation context)
  * @param action - Audit action identifier
  * @param options - Optional target, details, `affectedOrgId` for cross-tenant
- *                  operations, `groupId`, and `outcome`
+ *                  operations, `roleId`, and `outcome`
  *
  * Tracing + identity context (`requestId`, `traceId`, `actorRole`,
  * `impersonatorId`, `userAgent`) is captured centrally here so the ~45 call
@@ -60,9 +60,8 @@ export function audit(
      *  (sysadmin acting on another org). Defaults to the actor's own org. */
     affectedOrgId?: string;
     /** Permission role involved (org.role.* actions). Stored as a
-     *  first-class, indexed field rather than buried in `details`. Field name
-     *  kept as `groupId` for audit-log backward compatibility. */
-    groupId?: string;
+     *  first-class, indexed field rather than buried in `details`. */
+    roleId?: string;
     /** Did the action succeed? Defaults to 'success'; pass 'failure' on
      *  failure paths (e.g. login.failed) so reviewers can filter outcomes. */
     outcome?: 'success' | 'failure';
@@ -74,7 +73,7 @@ export function audit(
   // correlation key (the field is never empty).
   const rawRequestId = req.headers['x-request-id'];
   const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId) || randomUUID();
-  const { targetType, targetId, details, affectedOrgId, groupId, outcome } = options;
+  const { targetType, targetId, details, affectedOrgId, roleId, outcome } = options;
 
   const event = {
     action,
@@ -85,7 +84,7 @@ export function audit(
     affectedOrgId: affectedOrgId ?? actorOrgId,
     targetType,
     targetId,
-    groupId,
+    roleId,
     impersonatorId: req.user?.impersonatorId,
     outcome: outcome ?? 'success',
     details,
@@ -99,6 +98,6 @@ export function audit(
   // tamper-evidence chained. Still fire-and-forget: a chain/hash error never
   // drops the event (append is best-effort) and a write error is swallowed here.
   appendAuditEvent(event).catch((err) => {
-    logger.warn('Failed to write audit event', { action, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('Failed to write audit event', { action, error: errorMessage(err) });
   });
 }

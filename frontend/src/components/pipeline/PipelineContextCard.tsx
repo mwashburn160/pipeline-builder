@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Puzzle, ShieldCheck } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { asGeneratedStages, asGeneratedSynth } from '@/types';
 import type { BuilderProps, Pipeline } from '@/types';
@@ -34,28 +35,19 @@ function pluginsFromProps(props: BuilderProps | undefined | null): string[] {
 export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
   const plugins = useMemo(() => pluginsFromProps(pipeline.props), [pipeline.props]);
 
-  const [compliance, setCompliance] = useState<ComplianceCheckResult | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [checkFailed, setCheckFailed] = useState(false);
-
-  useEffect(() => {
-    if (!pipeline.props) { setChecking(false); return; }
-    let cancelled = false;
-    setChecking(true);
-    setCheckFailed(false);
-    api.dryRunPipelineCompliance(pipeline.props)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setCompliance(res.data);
-        else setCheckFailed(true);
-      })
-      .catch(() => { if (!cancelled) setCheckFailed(true); })
-      .finally(() => { if (!cancelled) setChecking(false); });
-    return () => { cancelled = true; };
-    // Keyed on id, not the `props` object identity, so a parent re-render that
-    // rebuilds `pipeline` doesn't re-fire the compliance dry-run network call.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Keyed on the id, not the `props` object identity, so a parent re-render
+  // that rebuilds `pipeline` doesn't re-fire the dry-run network call. The
+  // fetcher is stored in a ref by `useFetch`, so it always reads the latest
+  // props without being a dependency.
+  const check = useFetch<ComplianceCheckResult | null>(async (signal) => {
+    if (!pipeline.props) return null;
+    const res = await api.dryRunPipelineCompliance(pipeline.props, { signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Compliance dry-run failed');
+    return res.data;
   }, [pipeline.id]);
+  const compliance = check.data;
+  const checking = !!pipeline.props && check.loading;
+  const checkFailed = !!check.error;
 
   const posture = (() => {
     if (checking) return <span className="text-xs text-fg-subtle">Checking…</span>;
@@ -70,7 +62,7 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Puzzle className="w-5 h-5 text-fg-muted" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Plugins &amp; compliance</h3>
+          <h3 className="text-base font-semibold text-fg">Plugins &amp; compliance</h3>
         </div>
         <Link href="/dashboard/plugins" className="action-link text-xs">View plugins →</Link>
       </div>

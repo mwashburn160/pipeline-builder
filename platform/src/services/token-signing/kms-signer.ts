@@ -19,7 +19,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, derToJoseSignature, publicJwkFrom, USER_TOKEN_CURVE } from '@pipeline-builder/api-core';
+import { createLogger, derToJoseSignature, publicJwkFrom, USER_TOKEN_CURVE, errorMessage } from '@pipeline-builder/api-core';
 import type { SigningKey } from './signer.js';
 
 const logger = createLogger('token-signing-kms');
@@ -81,7 +81,7 @@ export async function loadKmsSigningKey(keyId: string, opts: { canSign: boolean 
   try {
     response = await client.send(new commands.GetPublicKeyCommand({ KeyId: keyId }));
   } catch (error) {
-    throw new Error(`KMS GetPublicKey failed for the token signing key: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`KMS GetPublicKey failed for the token signing key: ${errorMessage(error)}`);
   }
   if (!response.PublicKey) throw new Error('KMS GetPublicKey returned no public key for the token signing key');
   if (response.KeySpec && response.KeySpec !== 'ECC_NIST_P256') {

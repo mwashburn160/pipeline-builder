@@ -31,6 +31,7 @@ const mockFindPaginated = jest.fn<(...args: unknown[]) => unknown>();
 const mockFindAnnouncements = jest.fn<(...args: unknown[]) => unknown>();
 const mockFindConversations = jest.fn<(...args: unknown[]) => unknown>();
 const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
+const mockCreate = jest.fn<(...args: unknown[]) => unknown>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -45,7 +46,14 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     findAnnouncements: mockFindAnnouncements,
     findConversations: mockFindConversations,
     findThreadMessages: mockFindThreadMessages,
+    create: mockCreate,
   },
+}));
+
+// create-message emits its (announcement-only) audit through this client; the
+// support route emits none. Stubbed so the real client never loads here.
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: jest.fn() }),
 }));
 
 // Stub attachmentService (imported by create-message/read-messages) so the real
@@ -87,6 +95,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: () => undefined,
+  // The send limiter is a route-chain middleware; it is not what this suite
+  // isolates, so it passes straight through.
+  rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.__userId });
   },
@@ -110,6 +121,7 @@ jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   isTargetUserReachable: jest.fn(async () => true),
 }));
 
+const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
 const { createDeleteMessageRoutes } = await import('../src/routes/delete-message.js');
 const { createUpdateMessageRoutes } = await import('../src/routes/update-message.js');
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
@@ -125,6 +137,7 @@ const quotaService = {
   getUsage: jest.fn(),
 } as any;
 
+const createRouter = createCreateMessageRoutes(sseManager);
 const deleteRouter = createDeleteMessageRoutes(sseManager);
 const updateRouter = createUpdateMessageRoutes(sseManager);
 const readRouter = createReadMessageRoutes(quotaService);
@@ -318,5 +331,76 @@ describe('GET /messages/recipients/orgs — requires messages:write (the send au
 
     expect(status).toHaveBeenCalledWith(200);
     expect(mockListReachableOrgs).toHaveBeenCalledWith('org-1');
+  });
+});
+
+/**
+ * Contact support is SELF-SERVICE: the floor is `messages:read` — the same
+ * authority the messages page (and its inbox reads) require — so a member with
+ * no `messages:write` can still file a request. POST /messages stays strict;
+ * this is the only send a read-only member may make, and the gate rides the
+ * ROUTE middleware so the generated route table advertises it truthfully.
+ */
+describe('POST /messages/support — requires messages:read (not messages:write)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreate.mockResolvedValue({ id: 'msg-support' });
+  });
+
+  it('403s a caller holding NEITHER messaging permission (nothing is created)', async () => {
+    const { res, status, json } = makeRes();
+    await runRoute(createRouter, 'post', '/support', makeReq({
+      body: { subject: 'Help', content: 'Something is broken' },
+      user: { permissions: [] },
+    }), res);
+
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('lets a read-only member (messages:read, no messages:write) contact support (201)', async () => {
+    const { res, status } = makeRes();
+    await runRoute(createRouter, 'post', '/support', makeReq({
+      body: { subject: 'Help', content: 'Something is broken' },
+      user: { permissions: ['messages:read'] },
+    }), res);
+
+    expect(status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: '000000000000000000000001', channel: 'support' }),
+      'user-1',
+    );
+  });
+
+  it('still refuses a forged recipient from a permitted caller — support is the only target', async () => {
+    const { res, status } = makeRes();
+    await runRoute(createRouter, 'post', '/support', makeReq({
+      body: { recipientOrgId: 'victim-org', recipientUserId: 'victim-user', subject: 'Help', content: 'hi' },
+      user: { permissions: ['messages:read', 'messages:write'] },
+    }), res);
+
+    expect(status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: '000000000000000000000001', recipientUserId: null }),
+      'user-1',
+    );
+  });
+});
+
+/** POST /messages stays strict: a read-only member is refused there. */
+describe('POST /messages — still requires messages:write', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('403s a member holding only messages:read', async () => {
+    const { res, status, json } = makeRes();
+    await runRoute(createRouter, 'post', '/', makeReq({
+      body: { recipientOrgId: 'org-2', subject: 'Hi', content: 'there' },
+      user: { permissions: ['messages:read'] },
+    }), res);
+
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

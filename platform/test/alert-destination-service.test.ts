@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrderBy = jest.fn().mockReturnValue(Promise.resolve([]));
 const mockWhere = jest.fn(() => ({ orderBy: mockOrderBy }));
@@ -36,7 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
@@ -47,7 +48,13 @@ jest.unstable_mockModule('drizzle-orm', () => ({
 
 // The service now imports notification-channels (for sendTestNotification);
 // stub it so this suite doesn't drag in the real config/email/schema graph.
+// Spread the REAL module, then stub only the channel lookup. An inline literal
+// here listed `getNotificationChannel` alone, so when alert-destination-service
+// started importing `plainTextBody` from the same module the suite failed to load
+// with "does not provide an export named 'plainTextBody'" — the same
+// whole-namespace-replacement trap the shared mock factories exist to close.
 jest.unstable_mockModule('../src/services/notification-channels.js', () => ({
+  ...jest.requireActual<Record<string, unknown>>('../src/services/notification-channels.js'),
   getNotificationChannel: () => null,
 }));
 

@@ -122,8 +122,12 @@ describe('EmptyState', () => {
   it('has a compact variant for panels inside cards, with icon and description optional', () => {
     const { container } = render(<EmptyState compact title="No data in range" className="extra" />);
     expect(screen.getByRole('heading', { name: 'No data in range' })).toBeInTheDocument();
-    expect(container.firstElementChild).toHaveClass('py-8', 'extra');
+    // The contract is: caller classes are FORWARDED, and the compact variant
+    // drops the illustration + description. The internal spacing token it
+    // happens to use is not a contract, so it isn't asserted.
+    expect(container.firstElementChild).toHaveClass('extra');
     expect(container.querySelector('svg')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });
 

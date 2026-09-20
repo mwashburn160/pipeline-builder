@@ -63,18 +63,18 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
       .filter((g) => g.repos.length > 0);
   }, [groups, filter]);
 
-  // Flat list of currently-visible repos — used to step the selection
-  // by keyboard. Recomputed whenever filter or collapsed-state changes.
-  // isOpen is a local function defined inline; its inputs (filter, collapsed)
-  // are listed individually below. Adding isOpen would force a new identity
-  // each render and recompute this memo every time.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const visibleRepoNames = useMemo(() => {
-    return filteredGroups.flatMap((g) => isOpen(g.namespace) ? g.repos.map((r) => r.name) : []);
-  }, [filteredGroups, filter, collapsed]);
-
   // Filter forces matching groups open by overriding `collapsed`.
   function isOpen(ns: string) { return !!filter || !collapsed.has(ns); }
+
+  // Flat list of currently-visible repos — used to step the selection by
+  // keyboard. The open-test is inlined rather than calling `isOpen`: a function
+  // declared in the component body gets a new identity every render, so
+  // depending on it would recompute this memo every time — and NOT depending on
+  // it is what needed a suppression here.
+  const visibleRepoNames = useMemo(
+    () => filteredGroups.flatMap((g) => (!!filter || !collapsed.has(g.namespace) ? g.repos.map((r) => r.name) : [])),
+    [filteredGroups, filter, collapsed],
+  );
 
   const toggleGroup = (ns: string) => {
     setCollapsed((prev) => {
@@ -168,7 +168,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                       className={`flex-1 min-w-0 text-left px-3 py-1.5 pl-8 pr-8 text-sm truncate ${
                         selectedRepo === r.name
                           ? 'text-blue-700 dark:text-blue-300 font-medium'
-                          : 'text-gray-700 dark:text-gray-300'
+                          : 'text-fg-muted'
                       }`}
                       title={r.name}
                     >

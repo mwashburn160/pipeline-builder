@@ -15,8 +15,8 @@
  * config module: the module was always correct — the env that feeds it was not.
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { basename, extname, join } from 'path';
 
 // Jest runs with cwd = `platform/`; these files live at the repo root.
 const REPO_ROOT = join(process.cwd(), '..');
@@ -117,6 +117,100 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     // The generator matches on this exact placeholder; renaming it in the
     // .env.example silently ships a literal CHANGE_ME credential.
     expect(env.SECRET_ENCRYPTION_KEY).toBe('CHANGE_ME_generate_with_openssl_rand_base64_32');
+  });
+});
+
+/**
+ * Table A: every uncommented var in a `.env.example` must have a CONSUMER.
+ *
+ * A var that nothing reads is worse than clutter: an operator treats it as live
+ * configuration, tunes it, and nothing happens — and if it names a credential,
+ * it reads as a secret that must be rotated. Three of these (`SERVICE_TIMEOUT`,
+ * `ME_CONFIG_MONGODB_ADMINUSERNAME`, `ME_CONFIG_MONGODB_ADMINPASSWORD`) shipped
+ * in all four targets before 2026-09-20; the first was shadowed by the real,
+ * PREFIXED knobs (`QUOTA_SERVICE_TIMEOUT` and friends), which is why a naive
+ * substring search never noticed it.
+ *
+ * A "consumer" is any non-doc, non-test file under the roots below: service
+ * source, docker-compose, a k8s manifest, a config template, a shell script or
+ * a plugin spec. Markdown is deliberately NOT a consumer — documenting a var
+ * does not make anything read it — and neither are the `.env*` files themselves.
+ */
+const CONSUMER_ROOTS = [
+  'deploy', 'platform/src', 'frontend/src', 'packages', 'api',
+  'projenrc', '.github', 'scripts', 'bin', '.projenrc.ts',
+];
+
+/** Directories that hold no consumers (build output, deps, tests, generated docs). */
+const NON_CONSUMER_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'lib', 'build', 'coverage', '.nx',
+  'test-reports', 'test', 'tests', '__tests__', 'generated',
+]);
+
+/** File kinds that can actually consume an env var. */
+const CONSUMER_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.mjs', '.cjs', '.yml', '.yaml', '.json', '.sh',
+  '.conf', '.sql', '.tf', '.template', '.properties', '.hcl', '.py', '.toml', '.ini',
+]);
+
+/**
+ * Vars that a THIRD-PARTY image reads out of a bulk-injected env (`env_file:`,
+ * `envFrom: secretRef`), so no file in this repo ever names them. Each entry
+ * must say which image reads it — an unannotated entry is how a genuinely dead
+ * var gets parked here instead of deleted.
+ *
+ * Empty as of 2026-09-20: every var in every target is named by a consumer.
+ */
+const THIRD_PARTY_CONSUMED: Record<string, string> = {
+  // 'EXAMPLE_VAR': 'read by the <image> container via env_file',
+};
+
+function collectConsumerText(): string {
+  const chunks: string[] = [];
+  const visit = (p: string) => {
+    let st;
+    try {
+      st = statSync(p);
+    } catch {
+      return; // an optional root that this checkout does not have
+    }
+    if (st.isDirectory()) {
+      if (NON_CONSUMER_DIRS.has(basename(p))) return;
+      for (const entry of readdirSync(p)) visit(join(p, entry));
+      return;
+    }
+    const name = basename(p);
+    if (name.startsWith('.env')) return; // the declarations, not a consumer
+    if (!CONSUMER_EXTS.has(extname(name)) && !name.startsWith('Dockerfile')) return;
+    try {
+      chunks.push(readFileSync(p, 'utf-8'));
+    } catch {
+      /* unreadable file is not a consumer */
+    }
+  };
+  for (const root of CONSUMER_ROOTS) visit(join(REPO_ROOT, root));
+  return chunks.join('\n');
+}
+
+describe('deploy env contract — no dead vars', () => {
+  const consumerText = collectConsumerText();
+
+  it('reads at least one consumer file per root (guards against an empty corpus)', () => {
+    // If the walk silently found nothing, the assertion below passes vacuously.
+    expect(consumerText.length).toBeGreaterThan(1_000_000);
+    expect(consumerText).toContain('QUOTA_SERVICE_TIMEOUT');
+  });
+
+  it.each(TARGETS)('%s declares no var that nothing reads', (target) => {
+    const declared = Object.keys(parseEnv(target));
+    expect(declared.length).toBeGreaterThan(50);
+    const dead = declared.filter((key) => {
+      if (key in THIRD_PARTY_CONSUMED) return false;
+      // Whole-word: `SERVICE_TIMEOUT` must not be satisfied by
+      // `QUOTA_SERVICE_TIMEOUT`, which is the real knob and a different var.
+      return !new RegExp(`(?<![A-Z0-9_])${key}(?![A-Z0-9_])`).test(consumerText);
+    });
+    expect(dead).toEqual([]);
   });
 });
 

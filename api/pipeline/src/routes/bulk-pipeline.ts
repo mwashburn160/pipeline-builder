@@ -22,13 +22,14 @@ import {
   userHasPermission,
   createComplianceClient,
   audited,
+  actorId,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
@@ -99,7 +100,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
       // Per-item template validation.
       try {
-        validatePipelineTemplates(body as unknown as PipelineLike);
+        validatePipelineTemplates(body);
       } catch (err) {
         results.failed++;
         results.errors.push({ index: i, error: errorMessage(err) });
@@ -189,7 +190,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         // after the row landed. `inserted` distinguishes create vs. upsert.
         emitPipelineAudit({
           action: inserted ? 'pipeline.create' : 'pipeline.update',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'pipeline',
           targetId: pipeline.id,
@@ -258,7 +259,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     for (const d of deleted) {
       emitPipelineAudit({
         action: 'pipeline.delete',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
         targetId: d.id,
@@ -287,9 +288,9 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     }
     const validData = parsed.data;
 
-    // Templates in shared payload (metadata.*, vars.*, projectName).
+    // Templates in shared payload (metadata.*, vars.*, project).
     try {
-      validatePipelineTemplates(validData as unknown as PipelineLike);
+      validatePipelineTemplates(validData);
     } catch (err) {
       return sendBadRequest(res, errorMessage(err), ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
@@ -394,7 +395,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     for (const u of updatedRows) {
       emitPipelineAudit({
         action: 'pipeline.update',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
         targetId: u.id,

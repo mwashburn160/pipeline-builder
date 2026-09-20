@@ -50,8 +50,7 @@ const TILE = 'rounded-2xl border border-default bg-surface px-4 py-4';
 /**
  * Shared presentational metric tile. Token-driven (`--pb-*`, dark-mode correct).
  * `centered` — report summary rows; `detailed` — DORA / retention cards; `nav` —
- * icon-leading stat tiles (optionally links). The canonical home is here in `ui/`;
- * `reports/StatCard` re-exports it.
+ * icon-leading stat tiles (optionally links).
  */
 export function StatCard(props: StatCardProps) {
   const { label, value, className = '', wrapperProps } = props;

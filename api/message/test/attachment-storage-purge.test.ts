@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSend = jest.fn<(cmd: unknown) => Promise<unknown>>();
 const mockEmitCounter = jest.fn<(...args: unknown[]) => void>();
@@ -28,7 +29,7 @@ jest.unstable_mockModule('@aws-sdk/client-s3', () => ({
   CreateBucketCommand: FakeCommand,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   emitCounter: (...args: unknown[]) => mockEmitCounter(...args),
   envStr: (_k: string, d: string) => d,

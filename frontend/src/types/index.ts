@@ -290,16 +290,11 @@ export interface UserOrgMembership {
    *  (inherited authority). It isn't on the team's roster and uses no seat. */
   viaAncestor?: boolean;
   /** Org's quota tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
-  tier?: 'developer' | 'pro' | 'team' | 'enterprise';
+  tier?: QuotaTier;
   /** Live teams nested under this org (0 for a flat org or a team). Read through
    *  `useOrgHierarchy` — it decides whether hierarchy surfaces render at all. */
   childOrgCount: number;
 }
-
-// The runtime user guards now live in `@/lib/auth-helpers` (a `.ts` file can't
-// hold both the type contracts and their runtime helpers cleanly). Re-exported
-// here for back-compat so existing `from '@/types'` importers keep working.
-export { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 
 /**
  * Organization member
@@ -422,9 +417,9 @@ export interface Organization {
   description?: string;
   ownerId: string;
   memberCount: number;
-  /** Quota tier ('developer' | 'pro' | 'team' | 'enterprise'). Optional because some
-   *  list endpoints elide it to keep payloads small. */
-  tier?: string;
+  /** Quota tier. Optional because some list endpoints elide it to keep
+   *  payloads small. */
+  tier?: QuotaTier;
   /** Sysadmin-facing facet flags set by the orgs list endpoint. Absent on
    *  rows returned by other endpoints (e.g. org-detail). */
   kmsConfigured?: boolean;
@@ -671,7 +666,9 @@ export interface Plugin {
   // Developer-portal catalog metadata (ownership / lifecycle / classification)
   ownerId?: string | null;
   ownerType?: OwnerType | null;
-  lifecycle?: Lifecycle;
+  /** Catalog lifecycle stage. `notNull` + DEFAULT 'production' in the schema and
+   *  never projected away, so every row carries one. */
+  lifecycle: Lifecycle;
   criticality?: Criticality | null;
   labels?: Record<string, string>;
   links?: EntityLink[];
@@ -796,7 +793,9 @@ export interface Pipeline {
   // Developer-portal catalog metadata (ownership / lifecycle / classification)
   ownerId?: string | null;
   ownerType?: OwnerType | null;
-  lifecycle?: Lifecycle;
+  /** Catalog lifecycle stage. `notNull` + DEFAULT 'production' in the schema and
+   *  never projected away, so every row carries one. */
+  lifecycle: Lifecycle;
   criticality?: Criticality | null;
   labels?: Record<string, string>;
   links?: EntityLink[];
@@ -894,7 +893,9 @@ export interface PipelineTemplate {
   inputs: TemplateInput[];
   ownerId?: string | null;
   ownerType?: OwnerType | null;
-  lifecycle?: Lifecycle;
+  /** Catalog lifecycle stage. `notNull` + DEFAULT 'production' in the schema and
+   *  never projected away, so every row carries one. */
+  lifecycle: Lifecycle;
   criticality?: Criticality | null;
   labels?: Record<string, string>;
   links?: EntityLink[];
@@ -1099,7 +1100,7 @@ export interface UsageRollup {
   subscription: {
     planId: string;
     planName: string;
-    tier: 'developer' | 'pro' | 'team' | 'enterprise';
+    tier: QuotaTier;
     interval: 'monthly' | 'annual';
     priceCents: number;
   } | null;

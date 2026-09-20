@@ -9,11 +9,11 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgCount = jest.fn();
 const mockUserCount = jest.fn();
 const mockIdpCount = jest.fn();
-const mockRequireSystemAdmin = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -30,11 +30,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-  requireSystemAdmin: (req: any, res: any) => mockRequireSystemAdmin(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
@@ -59,29 +55,45 @@ function mockRes() {
   return res;
 }
 
+// `requireSystemAdmin` runs FOR REAL (see helpers/controller-helper-mock.ts):
+// it reads `req.user` for the 401 and api-core's `isSystemAdmin` — i.e. the
+// JWT's `isSuperAdmin` claim — for the 403. Authority therefore lives in the
+// REQUEST FIXTURE, not in a stubbed return value.
+/** A platform administrator — the only caller this endpoint serves. */
+const sysadminReq = (): any => ({ user: { sub: 'root', isSuperAdmin: true } });
+/** A signed-in org admin: authenticated, but no fleet-wide authority. */
+const orgAdminReq = (): any => ({ user: { sub: 'u1', organizationId: 'org-1', role: 'admin' } });
+
 beforeEach(() => {
   mockOrgCount.mockReset();
   mockUserCount.mockReset();
   mockIdpCount.mockReset();
-  mockRequireSystemAdmin.mockReset();
   delete process.env.SECRET_ENCRYPTION_PER_ORG_KMS;
   delete process.env.RLS_CONTEXT_MODE;
 });
 
 describe('getAdminSummary', () => {
-  it('returns 403 path when not a sysadmin (delegates to requireSystemAdmin)', async () => {
-    mockRequireSystemAdmin.mockImplementation((_req: any, res: any) => {
-      res.status(403).json({ success: false, message: 'Forbidden' });
-      return false;
-    });
+  it('403s an org admin (fleet stats are sysadmin-only) and counts nothing', async () => {
     const res = mockRes();
-    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(orgAdminReq(), res);
+    expect(res.status).toHaveBeenCalledWith(403);
     expect(mockOrgCount).not.toHaveBeenCalled();
     expect(mockUserCount).not.toHaveBeenCalled();
+    expect(mockIdpCount).not.toHaveBeenCalled();
+  });
+
+  it('401s an unauthenticated caller and counts nothing', async () => {
+    const res = mockRes();
+    // No `req.user` at all — the real `requireAuth` inside `requireSystemAdmin`
+    // short-circuits before any Mongo count runs.
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockOrgCount).not.toHaveBeenCalled();
+    expect(mockUserCount).not.toHaveBeenCalled();
+    expect(mockIdpCount).not.toHaveBeenCalled();
   });
 
   it('returns aggregated counts when sysadmin', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     // Counts in argument order they're awaited in Promise.all:
     //   org total, sysadmin count, perOrgKms count, idp enabled count, total users
     mockOrgCount
@@ -93,7 +105,7 @@ describe('getAdminSummary', () => {
     mockIdpCount.mockResolvedValueOnce(5);
 
     const res = mockRes();
-    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(sysadminReq(), res);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       data: {
@@ -106,12 +118,11 @@ describe('getAdminSummary', () => {
   });
 
   it('queries Mongo with the indexed filters', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgCount.mockResolvedValue(0);
     mockUserCount.mockResolvedValue(0);
     mockIdpCount.mockResolvedValue(0);
 
-    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, mockRes());
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(sysadminReq(), mockRes());
 
     expect(mockOrgCount).toHaveBeenNthCalledWith(1, {});
     expect(mockOrgCount).toHaveBeenNthCalledWith(2, { 'kmsConfig.keyId': { $exists: true, $ne: null } });
@@ -121,28 +132,26 @@ describe('getAdminSummary', () => {
   });
 
   it('reflects SECRET_ENCRYPTION_PER_ORG_KMS=true', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgCount.mockResolvedValue(0);
     mockUserCount.mockResolvedValue(0);
     mockIdpCount.mockResolvedValue(0);
     process.env.SECRET_ENCRYPTION_PER_ORG_KMS = 'TRUE';
 
     const res = mockRes();
-    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(sysadminReq(), res);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ encryption: { perOrgKmsEnabled: true } }),
     }));
   });
 
   it('reflects RLS_CONTEXT_MODE=strict (case-insensitive)', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgCount.mockResolvedValue(0);
     mockUserCount.mockResolvedValue(0);
     mockIdpCount.mockResolvedValue(0);
     process.env.RLS_CONTEXT_MODE = 'STRICT';
 
     const res = mockRes();
-    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
+    await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(sysadminReq(), res);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ rls: { contextMode: 'strict' } }),
     }));

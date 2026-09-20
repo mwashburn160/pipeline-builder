@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, getParam, ErrorCode, isSystemAdmin, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, userHasPermission, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { audited, getParam, ErrorCode, isSystemAdmin, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, userHasPermission, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
@@ -113,7 +113,7 @@ export function createUpdatePluginRoutes(): Router {
     // peer services' update routes, which all audit).
     emitPluginAudit({
       action: 'plugin.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'plugin',
       targetId: id,

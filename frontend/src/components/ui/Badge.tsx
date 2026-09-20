@@ -10,13 +10,17 @@ interface BadgeProps {
   className?: string;
 }
 
+// The four status colours ride the `--pb-*` tokens, so a badge re-resolves with
+// the theme instead of carrying a light/dark class pair. `purple` / `indigo`
+// have no semantic token (the set is brand + success/warning/danger/info) and
+// stay on the raw palette; `gray` is the neutral surface pair.
 const colorStyles = {
-  green: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  red: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-  gray: 'bg-gray-100 text-gray-800 dark:bg-gray-700/50 dark:text-gray-300',
-  blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  green: 'bg-success-bg text-success-strong',
+  red: 'bg-danger-bg text-danger-strong',
+  gray: 'bg-surface-muted text-fg-muted',
+  blue: 'bg-info-bg text-info-strong',
   purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-  yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
+  yellow: 'bg-warning-bg text-warning-strong',
   indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
 };
 

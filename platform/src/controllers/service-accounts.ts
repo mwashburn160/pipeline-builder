@@ -12,7 +12,7 @@
  * produce the step-up token another key would need, because api-core's
  * `requireStepUp` refuses the principal outright).
  *
- * The Role ceiling is enforced in `roles-service.setServiceAccountRoles` from
+ * The Role ceiling is enforced in `service-account-roles.setServiceAccountRoles` from
  * the actor context assembled here, so "a service account can never exceed its
  * creator's permissions" is checked by the same code that checks it for people.
  */

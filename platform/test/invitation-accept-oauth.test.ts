@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const ACCEPT_RESULT = { invitationId: 'inv-1', organizationId: 'org-inv', email: 'invitee@x.com', role: 'member', userId: 'user-42' };
@@ -39,17 +40,7 @@ jest.unstable_mockModule('../src/controllers/oauth.js', () => ({
 }));
 
 // withController applies the error map to thrown Error(message) — mirror the real one.
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireOrgMembership: jest.fn(),
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { return await fn(req, res); } catch (e: any) {
-        const mapped = errorMap?.[e?.message];
-        if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
-        return res.status(500).json({ success: false, message: e?.message });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 const INV = [
   'INV_ORG_NOT_FOUND', 'INV_UNAUTHORIZED', 'INV_ALREADY_MEMBER', 'INV_ALREADY_SENT', 'INV_MAX_REACHED',

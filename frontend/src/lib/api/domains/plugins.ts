@@ -42,7 +42,7 @@ export function pluginsApi(core: ApiCore) {
 
     /**
      * Exchange the JWT for a short-lived, single-use SSE ticket for the build-log
-     * stream (`GET /api/plugin/logs/:requestId`). Keeps the JWT out of the
+     * stream (`GET /api/plugins/logs/:requestId`). Keeps the JWT out of the
      * EventSource query string. Mirrors `getNotificationTicket`; returns the
      * unwrapped ticket string so `useBuildStatus` can pipe it straight into the
      * stream URL. A 2xx without a ticket payload is treated as a 500.
@@ -52,7 +52,7 @@ export function pluginsApi(core: ApiCore) {
       // single-use ticket so it can only open THIS build's log stream (not any
       // other org's by guessing a requestId). Must match the `:requestId` used
       // to open the SSE connection below.
-      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/plugin/logs/ticket', {
+      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/plugins/logs/ticket', {
         method: 'POST',
         body: JSON.stringify({ requestId }),
       });
@@ -69,7 +69,7 @@ export function pluginsApi(core: ApiCore) {
     },
 
     getPluginById: async (id: string) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`);
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`);
     },
 
     uploadPlugin: async (file: File, visibility: Visibility, options?: { signal?: AbortSignal }) => {
@@ -79,7 +79,7 @@ export function pluginsApi(core: ApiCore) {
       formData.append('plugin', file);
       formData.append('visibility', visibility);
 
-      const response = await fetch(`${API_URL}/api/plugin/upload`, {
+      const response = await fetch(`${API_URL}/api/plugins/upload`, {
         method: 'POST',
         headers: core.authHeaders(),
         body: formData,
@@ -108,7 +108,7 @@ export function pluginsApi(core: ApiCore) {
     },
 
     getQueueStatus: async () => {
-      return core.request<ApiResponse<QueueStatus>>('/api/plugin/queue/status');
+      return core.request<ApiResponse<QueueStatus>>('/api/plugins/queue/status');
     },
 
     /** One newest-first page of failed jobs from the plugin build queue (limit ≤ 200). */
@@ -187,14 +187,14 @@ export function pluginsApi(core: ApiCore) {
       failureBehavior?: 'fail' | 'warn' | 'ignore';
       secrets?: Array<{ name: string; required: boolean; description?: string }>;
     }) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`, {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
     },
 
     deletePlugin: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/plugin/${id}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/plugins/${id}`, {
         method: 'DELETE',
       });
     },
@@ -248,7 +248,7 @@ export function pluginsApi(core: ApiCore) {
     // Plugin AI generation endpoints
     // ============================================
     getPluginAIProviders: async () => {
-      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/plugin/providers');
+      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/plugins/providers');
     },
 
     deployGeneratedPlugin: async (data: {
@@ -269,7 +269,7 @@ export function pluginsApi(core: ApiCore) {
         requestId?: string;
         pluginName?: string;
         version?: string;
-      }>>('/api/plugin/deploy-generated', {
+      }>>('/api/plugins/deploy-generated', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -279,7 +279,7 @@ export function pluginsApi(core: ApiCore) {
      * Stream AI plugin generation with progressive partial results.
      */
     streamPluginGeneration: async function*(prompt: string, provider: string, model: string, apiKey?: string) {
-      yield* core.streamRequest('/api/plugin/generate/stream', {
+      yield* core.streamRequest('/api/plugins/generate/stream', {
         prompt, provider, model, ...(apiKey ? { apiKey } : {}),
       });
     },

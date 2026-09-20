@@ -161,6 +161,80 @@ groups:
   # shared registry). Routed to the ops-team Slack channels.
   - name: platform-wide
     rules:
+      # ---- Liveness ----
+      # The blind spot every other rule shares: they all need the service to be
+      # UP ENOUGH to emit the metric they alert on. ServiceError5xxBurst needs it
+      # serving 5xx; QuotaServiceFailOpenSustained needs it reporting fail-opens.
+      # A container that is restart-looping, OOM-killed, hung, or unreachable
+      # emits nothing at all — and so tripped nothing at all until this rule
+      # existed.
+      #
+      # SCOPE, stated honestly: `up == 0` means "the scrape of a CONFIGURED
+      # target failed". On this target the targets are static (prometheus.yml),
+      # so unlike the k8s targets a removed container still has its series and
+      # still alerts — but a service never listed there is still invisible.
+      #
+      # Prometheus cannot alert on its own death either. If that matters, pair
+      # this with an always-firing watchdog alert and an external check on
+      # Alertmanager, so silence itself becomes a signal.
+      - alert: ServiceDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.job }} is not responding to scrapes"
+          description: "Prometheus has failed to scrape {{ $labels.job }} ({{ $labels.instance }}) for 5m. The target is configured but unreachable — restart loop, OOM, or a hung process. Check: docker compose ps && docker compose logs {{ $labels.job }}"
+
+      # ---- Datastores ----
+      # These complement ServiceDown rather than duplicating it. ServiceDown
+      # fires when the scrape itself fails (container gone/hung). These fire when
+      # the exporter is HEALTHY AND REPORTING but cannot reach the datastore
+      # behind it — a hung or wedged database in a running container, a rejected
+      # credential, or a filled disk. From the outside those look identical to
+      # healthy; `up` is 1 the whole time.
+      #
+      # Metric names verified against the exporter binaries themselves rather
+      # than assumed from docs: pg_up, mongodb_up and redis_up are what
+      # postgres-exporter v0.17.1, mongodb_exporter 0.44.0 and redis_exporter
+      # v1.69.0 actually emit when their target is unreachable. The exporters are
+      # standalone containers here (the k8s targets run them as sidecars) — see
+      # docker-compose.yml and the scrape jobs in prometheus.yml.
+      - alert: PostgresUnreachable
+        expr: pg_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres is not answering its exporter"
+          description: "postgres-exporter has been unable to query Postgres for 3m while its own container is healthy. Postgres is the single-primary data tier — every service loses writes. Check: docker compose logs postgres"
+
+      - alert: MongoDBUnreachable
+        expr: mongodb_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: mongodb
+          tenancy: platform
+        annotations:
+          summary: "MongoDB is not answering its exporter"
+          description: "mongodb-exporter has been unable to query MongoDB for 3m. Audit, billing and quota records are unavailable. Check: docker compose logs mongodb"
+
+      - alert: RedisUnreachable
+        expr: redis_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: redis
+          tenancy: platform
+        annotations:
+          summary: "Redis is not answering its exporter"
+          description: "redis-exporter cannot reach Redis for 3m. This target runs a SINGLE Redis with no Sentinel, so there is no failover — BullMQ plugin builds and the audit spool both stop. Check: docker compose logs redis"
+
       # ---- Queue ----
       - alert: PluginQueueStalled
         expr: sum(plugin_queue_jobs{state="waiting"}) > 50
@@ -232,6 +306,28 @@ groups:
         annotations:
           summary: "Quota service has been failing open for 10+ minutes"
           description: "{{ $value | humanize }} fail-open events/sec averaged over 5m. The quota service is unreachable or unhealthy — every quota check is returning 'allowed' regardless of actual usage. Investigate the quota service before noisy orgs exhaust shared resources."
+
+      # The mirror image of the rule above, and the more urgent of the two.
+      # `quota_fail_closed_total` is incremented by the SAME api-core quota
+      # client when a reservation could not be confirmed and the configured
+      # policy (the default — QUOTA_RESERVE_FAIL_OPEN unset) is to DENY. Where
+      # fail-open silently removes a limit, fail-closed silently removes the
+      # FEATURE: every affected call is rejected as over quota even though the
+      # org is nowhere near its limit, and the user sees a quota error that the
+      # usage page contradicts. `reason` says which failure it was —
+      # `unreachable` (quota service down / NetworkPolicy), `transient-429`
+      # (quota service shedding load), `non-ok` (it answered, badly).
+      # Critical: this is user-visible breakage of a healthy org's work.
+      - alert: QuotaFailClosedSustained
+        expr: sum by (reason) (rate(quota_fail_closed_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Quota reservations failing closed ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} denied-by-default reservations/sec over 5m sustained for 10m, reason={{ $labels.reason }}. The quota service is not confirming reservations and the fail-mode policy is DENY, so orgs are being refused work they are entitled to. Restore the quota service; QUOTA_RESERVE_FAIL_OPEN=true is the deliberate (and riskier) alternative."
 
       # ---- Audit durability (security log) ----
       # The audit trail is compliance-relevant, so losing it must PAGE. Two loss
@@ -321,6 +417,44 @@ groups:
           summary: "Billing entitlement drift persisting"
           description: "The entitlement reconciler keeps finding stored entitlements out of sync with the source of truth ({{ $value | humanize }}/sec over 15m, sustained 30m). Usually self-heals; a persistent signal means a sync leg is stuck — inspect the reconciler logs."
 
+      # ---- Billing: the rest of the *_failed_total family ----
+      # Each of these is a write the billing service could not complete. They are
+      # separated from the sync rule above because they fail for different
+      # reasons and are fixed in different places — a single "billing is sad"
+      # alert would tell an operator nothing about where to look.
+      - alert: BillingEventWriteFailing
+        expr: sum by (type) (rate(billing_event_write_failed_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Billing event writes failing (type={{ $labels.type }})"
+          description: "{{ $value | humanize }} failed billing-event writes/sec over 5m sustained for 15m. The billing event log is the audit trail for money movement, so a sustained gap means charges and plan changes are happening with no durable record. Usually the Mongo write path — check the billing service logs and MongoDB health."
+
+      - alert: BillingAddonSyncFailing
+        expr: sum by (source) (rate(billing_provider_addon_sync_failed_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Add-on entitlements not syncing from the provider (source={{ $labels.source }})"
+          description: "{{ $value | humanize }} failures/sec over 5m sustained for 15m reconciling add-on subscriptions from the payment provider. Orgs that bought (or cancelled) an add-on keep their OLD entitlements — a paid pack may be inactive, or a cancelled one still active. Check the provider webhook/poll leg named by source={{ $labels.source }}."
+
+      - alert: BillingDisputeRetrieveFailing
+        expr: sum by (reason) (rate(billing_dispute_retrieve_failed_total[15m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Cannot retrieve disputed charges from the payment provider"
+          description: "{{ $value | humanize }} failures/sec over 15m sustained for 30m looking up the charge behind a dispute (reason={{ $labels.reason }}). A dispute that cannot be resolved to a charge is not reversed automatically, so the org keeps service it has charged back. Reconcile those disputes by hand in the provider dashboard."
+
       # ---- Auth: SAML assertions being rejected ----
       # `platform_saml_signins_total{result}` counts every SAML sign-in outcome.
       # Rejections are NOT all equal, so this fires on the ones that mean something
@@ -339,6 +473,25 @@ groups:
         annotations:
           summary: "SAML assertions being rejected ({{ $labels.result }})"
           description: "{{ $value | humanize }} SAML rejections/sec of type {{ $labels.result }} over 5m, sustained 10m. `invalid_assertion` usually means the identity provider rotated its signing certificate without the new one being added here (see runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org); `idp_initiated` means people are starting sign-in at the identity provider, which is refused by design; `replay` means an assertion was presented twice. Filter the audit log on `sso.saml.refused` for the affected org."
+
+      # ---- Auth: SAML Single Logout ----
+      # `platform_saml_slo_total{direction,result}` counts both legs of SLO.
+      # The two results that matter are `refused` (an SLO message arrived that we
+      # would not act on — unsigned, unknown issuer, or a malformed request) and
+      # `capped` (an IdP-initiated logout matched more sessions than the per-
+      # request cap, so some sessions were LEFT ALIVE). Both mean a sign-out the
+      # user believes happened did not: `refused` is a broken or hostile IdP
+      # connection, `capped` is a real, silent gap in session revocation.
+      - alert: SamlSingleLogoutFailing
+        expr: sum by (direction, result) (rate(platform_saml_slo_total{result=~"refused|capped"}[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "SAML single logout not completing ({{ $labels.direction }}/{{ $labels.result }})"
+          description: "{{ $value | humanize }} SLO events/sec of result={{ $labels.result }} over 10m, sustained 15m. `refused` means the logout message was rejected — usually the IdP's signing certificate rotated (runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org) or the issuer does not match the configured connection. `capped` means an IdP-initiated logout hit the per-request session cap and some sessions stayed signed in; revoke them explicitly from the org's session list."
 
       # ---- Auth: bootstrap-admin MFA exception used long after install (#8) ----
       # The bootstrap admin (BOOTSTRAP_SUPERADMIN_EMAILS, system org) may hold a
@@ -375,6 +528,104 @@ groups:
         annotations:
           summary: "Sustained MFA enforcement refusals ({{ $labels.reason }})"
           description: "{{ $value | humanize }} refusals/sec of type {{ $labels.reason }} over 5m, sustained 15m. `machine_principal` means a service account or API key is calling a human-only route — point it at the machine equivalent. `weak_session` means people have not enrolled a factor yet; check the org's grace deadline before tightening further. `bootstrap_session` means the install's admin is still un-enrolled."
+
+      # ---- Auth: administrative MFA resets ----
+      # `platform_mfa_resets_total{stage}` traces the whole approval flow:
+      # requested -> approved | denied | withdrawn, plus `direct` for a reset
+      # applied without the two-person flow. Resets are legitimate (people lose
+      # phones) but each one strips a second factor from an account, so this
+      # alerts on VOLUME rather than on any single reset: a burst of `approved`
+      # or any use of `direct` is what a social-engineering campaign looks like
+      # from the inside. Deliberately low thresholds — a handful a day is normal.
+      - alert: MfaResetsElevated
+        expr: sum by (stage) (increase(platform_mfa_resets_total{stage=~"approved|direct"}[1h])) > 3
+        for: 0m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Unusual number of MFA resets ({{ $labels.stage }})"
+          description: "{{ $value | humanize }} MFA resets of stage={{ $labels.stage }} in the last hour. `direct` bypassed the two-person approval entirely. Each reset removes a second factor, so a cluster of them is the shape of a social-engineering campaign — cross-check `auth.mfa.reset.*` in the audit log against the accounts and the people who approved them."
+
+      # ---- Auth: breached-password check unavailable ----
+      # The HIBP range check is FAIL-OPEN by design (see PASSWORD_BREACH_CHECK in
+      # .env.example): an unreachable range API lets the password through rather
+      # than blocking every registration and password change on a third party's
+      # uptime. The cost of that choice is that the control disappears SILENTLY —
+      # which is precisely what this rule exists to prevent. `outcome` is
+      # ok | breached | unavailable; only `unavailable` is a fault.
+      #
+      # Sustained `unavailable` on an air-gapped install means PASSWORD_BREACH_CHECK
+      # was left at `hibp` instead of being set to `off` — fix the setting rather
+      # than opening egress.
+      - alert: PasswordBreachCheckUnavailable
+        expr: sum(rate(platform_password_breach_checks_total{outcome="unavailable"}[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Breached-password checks are failing open"
+          description: "{{ $value | humanize }} unavailable breach checks/sec over 10m, sustained 15m. Every password set or changed in that window was accepted WITHOUT being checked against known-breached credentials — the check fails open on purpose. Either restore egress to PASSWORD_BREACH_CHECK_URL, or set PASSWORD_BREACH_CHECK=off if this install is deliberately air-gapped (which stops the alert and makes the choice explicit)."
+
+      # ---- Auth: SSO just-in-time provisioning refused ----
+      # A refusal here is a person who authenticated successfully at their IdP
+      # and was then NOT let in, because JIT would not create their account:
+      # `not_entitled` (the org's plan does not include SSO/JIT), `platform_admin`
+      # (JIT may never mint a platform administrator — by design), a seat cap, or
+      # a domain that does not match the connection. From the user's side this is
+      # indistinguishable from a broken login, and it is invisible in the IdP's
+      # own logs, so it needs to surface here.
+      - alert: SsoJitRefusalBurst
+        expr: sum by (reason) (rate(platform_sso_jit_refused_total[10m])) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "SSO just-in-time provisioning being refused ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} JIT refusals/sec of reason={{ $labels.reason }} over 10m, sustained 15m — people are authenticating at their identity provider and still cannot get in. `not_entitled` means the org's plan does not include this; `platform_admin` is refused by design and never auto-provisioned. Filter the audit log on `sso.jit.refused` for the affected org."
+
+      # ---- Directory sync (SCIM) ----
+      # `platform_scim_errors_total{resource,operation,reason}` counts refused or
+      # failed directory operations. SCIM is how an organisation DEPROVISIONS
+      # people, so a stuck sync is a security problem and not just an
+      # inconvenience: a leaver removed in the IdP keeps their access here until
+      # the sync succeeds. `reason=internal` is our fault; the rest are the
+      # caller's (bad filter, unknown attribute, revoked scope) and still need
+      # someone to fix the connection.
+      - alert: ScimErrorBurst
+        expr: sum by (resource, operation, reason) (rate(platform_scim_errors_total[10m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "SCIM directory sync failing ({{ $labels.resource }}/{{ $labels.operation }}, {{ $labels.reason }})"
+          description: "{{ $value | humanize }} SCIM errors/sec over 10m, sustained 15m, on {{ $labels.operation }} {{ $labels.resource }} (reason={{ $labels.reason }}). While this persists the directory and this platform disagree about who has access — a deprovisioned user may still be able to sign in. `internal` is a platform fault; anything else means the connection needs fixing at the IdP. Filter the audit log on `org.scim.refused`."
+
+      # ---- Passkeys: FIDO metadata blob not loading ----
+      # `platform_fido_mds_loads_total{outcome,source}` records every attempt to
+      # load the FIDO Alliance metadata blob. It is only consulted by orgs that
+      # set an approved-authenticator (AAGUID) allowlist — but for those orgs a
+      # failed load is a HARD STOP: registration requests direct attestation and
+      # is REFUSED when no metadata is loaded, so nobody in that org can enrol a
+      # new passkey. `source=url` failures are egress or an expired blob;
+      # `source=file` failures are a missing or stale FIDO_MDS_BLOB_PATH mount.
+      - alert: FidoMdsLoadFailing
+        expr: sum by (source) (increase(platform_fido_mds_loads_total{outcome="failure"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "FIDO metadata blob failed to load (source={{ $labels.source }})"
+          description: "{{ $value | humanize }} failed MDS loads in the last hour. Orgs with an approved-authenticator allowlist cannot enrol new passkeys until a blob loads — the refusal is deliberate (the policy asked for provenance we could not verify). source=url: check egress to FIDO_MDS_URL. source=file: the FIDO_MDS_BLOB_PATH file is missing, unreadable or expired — refresh it per docs/runbooks/secret-rotation.md. Orgs with no allowlist are unaffected."
 
       # ---- Auth: failed-login burst (credential stuffing / brute force) ----
       # platform_logins_failed_total is a platform-wide counter (no per-IP/org

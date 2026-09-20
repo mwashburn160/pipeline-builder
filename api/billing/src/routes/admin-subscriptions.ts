@@ -12,11 +12,13 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
+  errorMessage,
   getParam,
   parseQueryInt,
   parseQueryIntClamped,
   parseQueryString,
   validateBody,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -124,7 +126,7 @@ export function createAdminSubscriptionRoutes(): Router {
     // `billing.addon.prune` rides along: a tier change auto-drops any bundle the
     // destination tier now includes (applyTierIncludedAddonPrune).
     audited('billing.tier.override', 'billing.addon.prune'),
-    withRoute(async ({ req, res, ctx }) => {
+    withRoute(async ({ req, res, ctx, userId }) => {
       const subscriptionId = getParam(req.params, 'id');
       const validation = validateBody(req, AdminSubscriptionUpdateSchema);
       if (!validation.ok) {
@@ -140,7 +142,10 @@ export function createAdminSubscriptionRoutes(): Router {
       const orgId = subscription.orgId;
       // Attribute every override row to the acting sysadmin — this is the
       // highest-value attribution surface (a privileged cross-org write).
-      const actorId = req.user?.sub;
+      // Named distinctly from the shared `actorId()` helper (imported above) so
+      // it doesn't shadow it: this one stays OPTIONAL, because a `billing_events`
+      // row with no actor is a legitimate system/webhook row.
+      const overrideActorId = req.user?.sub;
       // Capture the pre-change status so the status block can detect a crossing
       // of the entitled/non-entitled boundary (nothing below mutates status
       // before that block).
@@ -200,7 +205,7 @@ export function createAdminSubscriptionRoutes(): Router {
         // line-item removal + addon_pruned trail. `subscription.addons` already
         // reflects the prune, so the reduced set is what syncs.
         const runPlanSideEffects = applyPlanTierChange(subscription, plan, {
-          oldPlanId, newPlanId: planId, pruned, actorId, source: 'admin_plan_change',
+          oldPlanId, newPlanId: planId, pruned, actorId: overrideActorId, source: 'admin_plan_change',
         });
 
         deferred.push(async () => {
@@ -212,7 +217,7 @@ export function createAdminSubscriptionRoutes(): Router {
           // tier/plan-id whitelist — no card/payment secret or AWS account id can leak.
           getAuditClient().record({
             action: 'billing.tier.override',
-            actorId: actorId ?? 'system',
+            actorId: actorId({ userId }),
             affectedOrgId: orgId,
             targetId: subscriptionId,
             details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },
@@ -249,7 +254,7 @@ export function createAdminSubscriptionRoutes(): Router {
             // deliberately left billing (admin override, not a provider cancel).
             { status, ...(enteringTerminal && { providerUntouched: true }) },
             subscriptionId,
-            actorId,
+            overrideActorId,
           );
 
           if (enteringTerminal) {
@@ -286,7 +291,7 @@ export function createAdminSubscriptionRoutes(): Router {
               });
               await recordReactivatePlanMissing(orgId, subscriptionId, 'admin', {
                 status, planId: subscription.planId,
-              }, actorId);
+              }, overrideActorId);
             }
           }
         });
@@ -296,7 +301,7 @@ export function createAdminSubscriptionRoutes(): Router {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
         deferred.push(async () => {
-          await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId, actorId);
+          await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId, overrideActorId);
         });
       }
 
@@ -358,7 +363,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
     audited('billing.subscription.delete'),
-    withRoute(async ({ req, res }) => {
+    withRoute(async ({ req, res, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId');
       if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -384,7 +389,7 @@ export function createAdminSubscriptionRoutes(): Router {
             logger.warn('Provider cancel failed during cascade — continuing with local delete', {
               orgId: targetOrgId,
               subscriptionId: sub._id?.toString(),
-              error: err instanceof Error ? err.message : String(err),
+              error: errorMessage(err),
             });
           }
         }
@@ -405,7 +410,7 @@ export function createAdminSubscriptionRoutes(): Router {
       for (const sub of billable) {
         getAuditClient().record({
           action: 'billing.subscription.delete',
-          actorId: req.user?.sub ?? 'system',
+          actorId: actorId({ userId }),
           orgId: targetOrgId,
           targetId: sub._id?.toString(),
           details: { planId: sub.planId, orgId: targetOrgId },

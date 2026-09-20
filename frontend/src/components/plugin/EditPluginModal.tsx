@@ -240,7 +240,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
               {p.dockerfile && (
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-fg-muted mb-1">Dockerfile</label>
-                  <pre className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
+                  <pre className="text-xs text-fg-muted bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
                 </div>
               )}
             </div>
@@ -334,11 +334,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
                 <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
-                <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
+                <label htmlFor="editIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
               </div>
               <div className="flex items-center">
                 <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
-                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
+                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
               </div>
             </div>
           </div>

@@ -7,12 +7,13 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // combo-pricing only needs createLogger from api-core + Config from pipeline-core;
 // mock both to avoid loading the real pipeline-core config graph (which pulls
 // FEATURE_METADATA etc.). The pure functions take bundles/combos as args, so Config
 // is never actually invoked here.
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ warn: () => {}, info: () => {}, debug: () => {}, error: () => {} }),
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({

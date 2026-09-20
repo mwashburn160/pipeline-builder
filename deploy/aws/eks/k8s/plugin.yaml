@@ -78,7 +78,7 @@ spec:
         # lands on the node (verified Bottlerocket's SELinux permits it). Auto Mode's managed
         # NodeClass exposes no Bottlerocket sysctl/user-data knob, so we do it here per-pod.
         - name: enable-userns
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           command: ["sh", "-c", "sysctl -w user.max_user_namespaces=15000 || echo 15000 > /proc/sys/user/max_user_namespaces"]
           securityContext:
             privileged: true
@@ -91,7 +91,7 @@ spec:
               cpu: "25m"
               memory: 16Mi
         - name: wait-for-dependencies
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -116,7 +116,7 @@ spec:
           # v0.32.1 (was v0.16.0): newer runc reaper no longer wedges in a hot
           # "container not running" retry loop when a build container is killed
           # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
-          image: moby/buildkit:v0.32.1-rootless
+          image: moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88  # moby/buildkit:v0.32.1-rootless
           restartPolicy: Always
           args:
             - --addr
@@ -475,6 +475,15 @@ data:
 # =============================================================================
 # Plugin PodDisruptionBudget
 # =============================================================================
+# maxUnavailable (not minAvailable) because this is the one workload deliberately
+# left at minReplicaCount: 1 — each replica carries its own buildkitd sidecar, so
+# a permanently-idle second one is expensive. `minAvailable: 1` against a single
+# replica is a deadlock: no eviction can ever satisfy it, so every node drain
+# hangs until the node is force-terminated. `maxUnavailable: 1` still limits a
+# voluntary disruption to one pod at a time once KEDA has scaled out, and lets
+# the drain proceed when there is only one. Evicting a mid-build pod is safe and
+# already designed for: the KEDA trigger counts `active` jobs and BullMQ retries
+# the build on a surviving pod (see the ScaledObject notes above).
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -482,7 +491,7 @@ metadata:
   labels:
     app: plugin
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: plugin

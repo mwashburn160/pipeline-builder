@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, loadAndRestore, sendSuccess } from '@pipeline-builder/api-core';
+import { audited, loadAndRestore, sendSuccess, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
@@ -30,7 +30,7 @@ export function createRestorePluginRoutes(): Router {
 
     emitPluginAudit({
       action: 'plugin.restore',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'plugin',

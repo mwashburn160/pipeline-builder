@@ -4,7 +4,7 @@
 /**
  * Tests for BOOTSTRAP_SUPERADMIN_EMAILS auto-promote at platform startup.
  *
- * The promotion is routed through `grantPlatformAdmin` (roles-service) — which
+ * The promotion is routed through `grantPlatformAdmin` (platform-admin-roles) — which
  * assigns the system-org Super Admin Role AND bumps `tokenVersion` — instead of a
  * bare `isSuperAdmin=true` write. That keeps the flag from being silently cleared
  * by a later `recomputeUserOrgRole` and takes effect without a re-login. These
@@ -31,10 +31,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
-// The Super Admin Role grant is delegated to roles-service; mock it so the
-// bootstrap's orchestration (per-user grant, audit on a real change) is what's
-// under test — not the transactional Role assignment itself.
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+// The Super Admin Role grant is delegated to platform-admin-roles; mock it so
+// the bootstrap's orchestration (per-user grant, audit on a real change) is what
+// is under test — not the transactional Role assignment itself.
+jest.unstable_mockModule('../src/services/platform-admin-roles.js', () => ({
   grantPlatformAdmin: (...args: [string]) => mockGrant(...args),
 }));
 
@@ -137,14 +137,17 @@ describe('bootstrapSuperAdmins', () => {
 
   it('returns 0 (and audits nothing) when every listed user is already a sysadmin (warm boot)', async () => {
     setEnv('alice@example.com');
-    // Self-healing grant is invoked but reports no change — the user already holds
-    // the Super Admin Role, so nothing flips.
+    // The grant is re-asserted but reports no change — the user already holds the
+    // Super Admin Role, so nothing flips and no session churn follows.
     mockGrant.mockResolvedValue({ changed: false });
     findsUsers([{ _id: { toString: () => 'u-alice' }, email: 'alice@example.com', isSuperAdmin: true }]);
 
     const count = await bootstrapSuperAdmins();
     expect(count).toBe(0);
-    expect(mockGrant).toHaveBeenCalledWith('u-alice'); // still invoked (heals a legacy flag-only row)
+    // Still invoked: authority derives from the RoleAssignment, and the pre-read
+    // (which selects only `isSuperAdmin`) can't see it — so the sweep re-asserts
+    // rather than filtering on the flag.
+    expect(mockGrant).toHaveBeenCalledWith('u-alice');
     expect(mockAuditCreate).not.toHaveBeenCalled();
   });
 

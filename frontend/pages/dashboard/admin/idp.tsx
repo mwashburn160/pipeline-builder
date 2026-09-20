@@ -63,7 +63,7 @@ export default function IdpRosterPage() {
       sortValue: (c) => orgNames[c.orgId] ?? c.orgId,
       render: (c) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          <div className="text-sm font-medium text-fg">
             {orgNames[c.orgId] ?? <span className="text-fg-muted">(unknown org)</span>}
           </div>
           <CopyableId value={c.orgId} size="sm" />

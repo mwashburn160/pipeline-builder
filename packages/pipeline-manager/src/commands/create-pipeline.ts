@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import ora from 'ora';
 import pico from 'picocolors';
@@ -119,7 +120,7 @@ export function createPipeline(program: Command): void {
           props = JSON.parse(fileContent);
         } catch (error) {
           printError('Invalid JSON in properties file', {
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
             hint: 'Ensure the file contains valid JSON syntax',
           });
           throw new ValidationError('Properties file must contain valid JSON', 'file');
@@ -318,7 +319,7 @@ export function createPipeline(program: Command): void {
           } catch (deployError) {
             printError('Pipeline was created but the deploy failed', {
               pipelineId: pipeline.id,
-              error: deployError instanceof Error ? deployError.message : String(deployError),
+              error: errorMessage(deployError),
               retry: `pipeline-manager pipeline deploy --id ${pipeline.id}`,
             });
             // Re-throw so the process exits non-zero. The record is intentionally

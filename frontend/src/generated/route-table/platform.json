@@ -4138,7 +4138,7 @@
     "auth": true,
     "permissions": [],
     "systemAdmin": false,
-    "servicePrincipal": false,
+    "servicePrincipal": true,
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],

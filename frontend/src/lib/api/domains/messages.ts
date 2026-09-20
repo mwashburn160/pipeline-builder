@@ -139,6 +139,30 @@ export function messagesApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Contact support. A dedicated route whose RECIPIENT the server forces to
+     * the support desk — there is no `recipientOrgId` to send, and one sent
+     * anyway is ignored. Gated on `messages:read` rather than `messages:write`,
+     * so a read-only member (who cannot use {@link sendMessage}) can still
+     * reach support; reaching support is self-service.
+     */
+    sendSupportMessage: async (data: {
+      subject: string;
+      content: string;
+      priority?: MessagePriority;
+      /** Ids of previously-uploaded attachments to link to this message. */
+      attachmentIds?: string[];
+      /** See {@link sendMessage} — makes a client-level retry collapse to one. */
+      idempotencyKey?: string;
+    }) => {
+      const { idempotencyKey, ...body } = data;
+      return core.request<ApiResponse<Message>>('/api/messages/support', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey() },
+        body: JSON.stringify(body),
+      });
+    },
+
     /** Reply to a message thread */
     replyToMessage: async (id: string, content: string, attachmentIds?: string[], idempotencyKey?: string) => {
       return core.request<ApiResponse<Message>>(`/api/messages/${id}/reply`, {

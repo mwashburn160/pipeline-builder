@@ -15,10 +15,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockIsSystemAdmin = jest.fn<(req: unknown) => boolean>();
-const mockIsOrgAdmin = jest.fn<(req: unknown) => boolean>();
 const mockList = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const mockListPanelKeys = jest.fn<(ids: string[]) => Promise<Map<string, string[]>>>();
 const mockFindById = jest.fn<(id: string) => Promise<unknown>>();
@@ -38,11 +38,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { observability: { dashboardMaxName: 150, dashboardMaxDescription: 1000, dashboardMaxPanelTitle: 200, dashboardMaxPanels: 50 } },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  getAdminContext: (req: unknown) => ({ isSuperAdmin: mockIsSystemAdmin(req), isOrgAdmin: mockIsOrgAdmin(req), adminType: 'org admin' }),
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-  requireAuthContext: (req: any) => ({ userId: req.user.sub, orgId: req.user.organizationId }),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(async () => ({ exceeded: false })),
@@ -69,8 +65,19 @@ function makeRes() {
   return r;
 }
 
+/**
+ * `controller-helper` runs FOR REAL (see helpers/controller-helper-mock.ts), so
+ * `requireAuthContext` + `getAdminContext` are driven by this fixture: `sub` and
+ * `organizationId` satisfy the auth/org gates, and ORG-ADMIN authority is the
+ * `role` claim that the real `isOrgAdmin` reads — it used to be a spy on
+ * `isOrgAdmin` itself, which meant the predicate was never exercised. Only
+ * api-core's `isSystemAdmin` stays mocked: platform-admin authority is a JWT
+ * claim the controller cannot derive locally.
+ */
+let user: Record<string, unknown> | null = { sub: 'u1', organizationId: 'org1' };
+
 const req = (extra: Record<string, unknown> = {}) =>
-  ({ user: { sub: 'u1', organizationId: 'org1' }, params: { id: 'd1' }, body: {}, ...extra }) as any;
+  ({ user, params: { id: 'd1' }, body: {}, ...extra }) as any;
 
 // Seeded-default shapes: Queue Health is all fleet-wide; Audit Activity is all
 // org-scoped + admin-only; Plugin Builds mixes orgScoped and fleet-wide panels;
@@ -82,9 +89,9 @@ const MIXED = { id: 'mixed', name: 'Plugin Builds', panels: [panel('plugin_build
 const EMPTY = { id: 'empty', name: 'Fresh', panels: [] };
 const ALL = [QUEUE, AUDIT, MIXED, EMPTY];
 
-const asMember = () => { mockIsSystemAdmin.mockReturnValue(false); mockIsOrgAdmin.mockReturnValue(false); };
-const asOrgAdmin = () => { mockIsSystemAdmin.mockReturnValue(false); mockIsOrgAdmin.mockReturnValue(true); };
-const asSysadmin = () => { mockIsSystemAdmin.mockReturnValue(true); mockIsOrgAdmin.mockReturnValue(false); };
+const asMember = () => { mockIsSystemAdmin.mockReturnValue(false); user = { sub: 'u1', organizationId: 'org1' }; };
+const asOrgAdmin = () => { mockIsSystemAdmin.mockReturnValue(false); user = { sub: 'u1', organizationId: 'org1', role: 'admin' }; };
+const asSysadmin = () => { mockIsSystemAdmin.mockReturnValue(true); user = { sub: 'u1', organizationId: 'org1', isSuperAdmin: true }; };
 const keysOf = (panels: Array<{ queryKey: string }>) => panels.map(p => p.queryKey);
 
 beforeEach(() => {
@@ -207,5 +214,33 @@ describe('createDashboard', () => {
     const res = await create('audit_recent_events');
     expect(res._status).toBe(201);
     expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Below the catalog-scope filtering sits `requireAuthContext`, which every one
+ * of these handlers calls first. Prove it bites: an unauthenticated caller and
+ * an org-less one are refused before the dashboard service is touched at all.
+ */
+describe('the requireAuthContext gate', () => {
+  it('401s an anonymous caller and reads nothing', async () => {
+    user = null;
+    for (const handler of [listDashboards, getDashboard, cloneDashboard, createDashboard]) {
+      const res = makeRes();
+      await handler(req(), res);
+      expect(res._status).toBe(401);
+    }
+    expect(mockList).not.toHaveBeenCalled();
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(mockClone).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('400s a signed-in caller with no organization', async () => {
+    user = { sub: 'u1' };
+    const res = makeRes();
+    await listDashboards(req(), res);
+    expect(res._status).toBe(400);
+    expect(mockList).not.toHaveBeenCalled();
   });
 });

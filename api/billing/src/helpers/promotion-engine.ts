@@ -27,7 +27,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { createLogger, emitCounter } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
 import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
@@ -254,7 +254,7 @@ export async function evaluatePromotions(
       results.push(await grantPromotionToOrg(promo, subscription, orgId, ctx));
     } catch (err) {
       logger.error('Promotion grant errored (fail-soft)', {
-        promotionId: promo._id, orgId, error: err instanceof Error ? err.message : String(err),
+        promotionId: promo._id, orgId, error: errorMessage(err),
       });
     }
   }
@@ -321,7 +321,7 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
       const r = await grantPromotionToOrg(promo, sub, sub.orgId, ctx);
       if (r.granted) { res.granted += 1; res.spentCents += r.cents ?? 0; } else if (r.reason === 'budget_exhausted') {res.skippedBudget += 1;} else if (r.reason === 'already_granted') {res.alreadyGranted += 1;}
     } catch (err) {
-      logger.error('Promotion batch grant errored (fail-soft)', { promotionId: promo._id, orgId: sub.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.error('Promotion batch grant errored (fail-soft)', { promotionId: promo._id, orgId: sub.orgId, error: errorMessage(err) });
     }
   }
   if (res.skippedBudget > 0) logger.warn('Promotion batch: budget exhausted — eligible orgs skipped', { promotionId: promo._id, skipped: res.skippedBudget });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from 'crypto';
-import { createLogger, sendError, ErrorCode, createEnvRedisClient } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, createEnvRedisClient, errorMessage } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -327,7 +327,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         if (settled) return;
         settled = true;
         store.delete(fullKey).catch((err) => {
-          logger.warn('Idempotency reservation release failed', { key: fullKey, error: err instanceof Error ? err.message : String(err) });
+          logger.warn('Idempotency reservation release failed', { key: fullKey, error: errorMessage(err) });
         });
       };
 
@@ -339,7 +339,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
           body: bodyCaptured ? capturedBody : null,
           expiresAt: Date.now() + ttlMs,
         }, ttlSec).catch((err) => {
-          logger.warn('Idempotency store.set failed', { key: fullKey, error: err instanceof Error ? err.message : String(err) });
+          logger.warn('Idempotency store.set failed', { key: fullKey, error: errorMessage(err) });
         });
       };
 
@@ -409,7 +409,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       next();
     }).catch((err) => {
       // If the store backend is down, fail open — process the request normally.
-      logger.warn('Idempotency store.get failed; proceeding without dedup', { key: fullKey, error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Idempotency store.get failed; proceeding without dedup', { key: fullKey, error: errorMessage(err) });
       next();
     });
   };

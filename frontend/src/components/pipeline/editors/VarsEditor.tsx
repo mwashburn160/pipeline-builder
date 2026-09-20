@@ -48,7 +48,7 @@ export default function VarsEditor({ value, onChange, disabled }: VarsEditorProp
   };
 
   const inputCls =
-    'w-full px-3 py-1.5 border rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 ' +
+    'w-full px-3 py-1.5 border rounded-lg text-sm bg-white dark:bg-gray-800 text-fg ' +
     'placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors';
 
   return (

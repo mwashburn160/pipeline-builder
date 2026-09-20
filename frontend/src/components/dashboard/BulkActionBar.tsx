@@ -9,7 +9,20 @@ import { TOAST_OFFSET_CSS_VAR } from '@/lib/constants';
 
 /**
  * Row-selection state for a bulk-editable list (the pipelines and plugins
- * catalogs). `toggle` flips one id; `clear` empties the set.
+ * catalogs, the users / invitations tables, the registry tag table).
+ *
+ * The set is the single source of truth and deliberately survives filter and
+ * page changes — the typical flow is "search → check several → search again →
+ * act on the union".
+ *
+ * - `toggle` flips one id.
+ * - `toggleAll` is the header checkbox: given the ids currently eligible
+ *   (the visible page, the *pending* rows, the tags in view), it deselects
+ *   them all when every one is already selected and otherwise selects them
+ *   all — leaving ids outside that set untouched.
+ * - `allSelected` answers the header checkbox's `checked` for the same ids.
+ * - `clear` empties the set; `replace` swaps it wholesale (e.g. keeping only
+ *   the rows a partially-failed bulk action left behind).
  */
 export function useRowSelection() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -20,8 +33,24 @@ export function useRowSelection() {
       return next;
     });
   }, []);
+  const toggleAll = useCallback((ids: readonly string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      // Decide from `prev`, not a caller-supplied flag, so the header checkbox
+      // can't act on a stale "all selected" read.
+      if (ids.length > 0 && ids.every((id) => prev.has(id))) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
   const clear = useCallback(() => setSelectedIds(new Set()), []);
-  return { selectedIds, toggle, clear };
+  const replace = useCallback((ids: Iterable<string>) => setSelectedIds(new Set(ids)), []);
+  return { selectedIds, toggle, toggleAll, clear, replace };
+}
+
+/** Whether every id in `ids` is selected (false for an empty `ids`). */
+export function allSelected(selectedIds: ReadonlySet<string>, ids: readonly string[]): boolean {
+  return ids.length > 0 && ids.every((id) => selectedIds.has(id));
 }
 
 interface BulkActionBarProps {
@@ -75,7 +104,7 @@ function VisibleBulkActionBar({ count, busy, onActivate, onDelete, onClear }: Bu
   return (
     <div ref={ref} className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
       <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <span className="text-sm font-medium text-fg-muted">
           {count} selected
         </span>
         <div className="flex items-center gap-2">

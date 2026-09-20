@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, SsoSpInfo, SsoTestReport } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
 
 /**
  * An org SERVICE ACCOUNT: a non-human principal owned by the org. It holds the
@@ -90,7 +90,7 @@ export function organizationsApi(core: ApiCore) {
     // Organization endpoints
     // ============================================
     /** `opts.signal` cancels the request on the wire (shared query cache / debounced pickers). */
-    listOrganizations: async (params?: { search?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+    listOrganizations: async (params?: { search?: string; tier?: QuotaTier; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`, { signal: opts?.signal });
     },
 
@@ -134,7 +134,7 @@ export function organizationsApi(core: ApiCore) {
      *  Backend requires step-up because the change affects billing. */
     updateOrganizationTier: async (
       id: string,
-      tier: 'developer' | 'pro' | 'team' | 'enterprise',
+      tier: QuotaTier,
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<{ id: string; previousTier?: string; tier: string }>>(
@@ -496,8 +496,8 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
     // Invitation endpoints
     // ============================================
-    listInvitations: async (params?: { status?: string; invitationType?: string; role?: 'admin' | 'member'; search?: string; offset?: number; limit?: number }) => {
-      return core.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`);
+    listInvitations: async (params?: { status?: string; invitationType?: string; role?: 'admin' | 'member'; search?: string; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Public preview of an invitation by its token (GET /invitation/:token).

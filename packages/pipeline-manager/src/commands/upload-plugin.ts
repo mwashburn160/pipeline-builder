@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import FormData from 'form-data';
 import ora from 'ora';
@@ -129,7 +130,7 @@ export function uploadPlugin(program: Command): void {
         } catch (error) {
           printError('Cannot read plugin file', {
             path: filePath,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           });
           throw new ValidationError('Plugin file is not readable', 'file', filePath);
         }

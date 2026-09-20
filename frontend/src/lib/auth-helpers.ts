@@ -1,9 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Runtime role/permission guards for the client-decoded user. `User` is a
-// type-only import (erased at build time), so there's no runtime cycle with
-// `@/types` re-exporting these back for back-compat.
+// Runtime role/permission guards for the client-decoded user.
 import type { User } from '@/types';
 
 /**

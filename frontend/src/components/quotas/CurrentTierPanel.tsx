@@ -54,7 +54,7 @@ export function CurrentTierPanel({
             <p className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
               Current tier
             </p>
-            <p className="text-lg font-semibold leading-tight text-gray-900 dark:text-gray-100">
+            <p className="text-lg font-semibold leading-tight text-fg">
               {preset.label}
             </p>
             <p className="text-xs text-fg-muted">

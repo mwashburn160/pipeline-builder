@@ -235,7 +235,7 @@ export default function MessagesPage() {
       });
     return () => controller.abort();
     // `openMessage` is stable per org; the id pair is what drives a (re)load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `openMessage` is stable per org; the id pair is what drives a (re)load
   }, [isReady, linkedId, selectedId]);
 
   // Deleting used to fire straight from the row/thread trash icon with no
@@ -321,12 +321,12 @@ export default function MessagesPage() {
         <Card className="flex overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
 
           {/* Left panel: conversation list */}
-          <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-gray-200 dark:border-gray-700 flex-col`}>
+          <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-default flex-col`}>
             {/* List header */}
-            <div className="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between px-3 py-3 border-b border-default">
               {/* Heading names the ACTIVE tab and carries the server's total for
                   it, so the count can't disagree with what the backend holds. */}
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 capitalize">
+              <h2 className="text-sm font-semibold text-fg-muted capitalize">
                 {noun}
                 {headingCount !== null && (
                   <span className="ml-1.5 font-normal text-fg-subtle">{headingCount}</span>
@@ -344,7 +344,7 @@ export default function MessagesPage() {
             </div>
 
             {/* Search — free-text over subject/content (server-side). */}
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="px-3 py-2 border-b border-default">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
                 <input
@@ -353,7 +353,7 @@ export default function MessagesPage() {
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search messages"
                   aria-label="Search messages"
-                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-default bg-surface text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand transition-colors"
                 />
                 {searchInput && (
                   <button
@@ -368,21 +368,21 @@ export default function MessagesPage() {
             </div>
 
             {deepLinkError && (
-              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="px-3 py-2 border-b border-default">
                 <RetryError message={deepLinkError} onRetry={() => { setDeepLinkError(null); writeMessageParam(null); }} />
               </div>
             )}
 
             {/* Filter tabs — message type */}
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-1 px-3 py-2 border-b border-default">
               {FILTER_TABS.map(({ key, label }) => (
                 <button
                   key={key}
                   onClick={() => setMessageFilter(key)}
                   className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
                     messageFilter === key
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                      : 'text-fg-muted hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-gray-700/50'
+                      ? 'bg-info-bg text-info'
+                      : 'text-fg-muted hover:text-fg hover:bg-surface-muted'
                   }`}
                 >
                   {label}
@@ -390,7 +390,7 @@ export default function MessagesPage() {
               ))}
             </div>
             {/* Server-side filters — read state, priority, channel. */}
-            <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-default">
               <FilterSelect aria-label="Filter by read state" value={readFilter} onChange={(e) => setReadFilter(e.target.value as ReadFilter)} className="text-xs">
                 <option value="">Any status</option>
                 <option value="unread">Unread</option>
@@ -410,7 +410,7 @@ export default function MessagesPage() {
                 <button
                   type="button"
                   onClick={() => { setReadFilter(''); setPriorityFilter(''); setChannelFilter(''); }}
-                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                  className="text-xs font-medium text-info hover:underline"
                 >
                   Clear
                 </button>
@@ -420,7 +420,7 @@ export default function MessagesPage() {
             {/* Live-updates status — only shown when SSE has dropped after a
                 healthy connection; the list keeps refreshing via polling. */}
             {livePaused && (
-              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="px-3 py-2 border-b border-default">
                 <LiveStatusIndicator paused={livePaused} />
               </div>
             )}
@@ -472,6 +472,7 @@ export default function MessagesPage() {
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
                 onDelete={canWrite ? ((id: string) => setPendingDelete(id)) : undefined}
+                canWrite={canWrite}
               />
             ) : (
               <EmptyChat />
@@ -501,7 +502,10 @@ export default function MessagesPage() {
         supportAlias={supportAlias}
         supportAliases={supportAliases}
         fetchMembers={fetchMembers}
-        onUploadAttachment={uploadAttachment}
+        // Attachment uploads are `messages:write` (POST /messages/attachments);
+        // omitting the handler hides the attach control in the support-only
+        // contact form a read-only viewer gets.
+        onUploadAttachment={canWrite ? uploadAttachment : undefined}
         recentRecipients={recentRecipients}
         searchRecipients={isSuperAdmin ? searchRecipients : undefined}
         recipientSuggestions={recipientSuggestions}

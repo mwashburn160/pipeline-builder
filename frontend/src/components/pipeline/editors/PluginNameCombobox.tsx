@@ -97,7 +97,7 @@ export default function PluginNameCombobox({
                           onMouseDown={(e) => e.preventDefault()}
                           onMouseEnter={() => setActiveIndex(i)}
                           onClick={() => handleSelect(plugin)}
-                          className={`w-full text-left px-3 py-1.5 cursor-pointer text-gray-900 dark:text-gray-100 transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                          className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                         >
                           <div className="flex justify-between items-center">
                             <span className="truncate font-medium">{plugin.name}</span>

@@ -29,7 +29,8 @@ import {
   IGM_NOT_FOUND,
   IGM_PROVIDER_UNSUPPORTED,
 } from './idp-mapping-errors.js';
-import { assertMappableRoleSet, type MappableRole, type RoleAssignmentActor } from './roles-service.js';
+import { assertMappableRoleSet, type MappableRole } from './mapped-roles.js';
+import type { RoleAssignmentActor } from './role-authority.js';
 import { groupKey, providerSupportsGroups } from '../helpers/idp-claims.js';
 import { toOrgId } from '../helpers/org-id.js';
 import IdpGroupMapping, { type IdpGroupMappingDocument } from '../models/idp-group-mapping.js';

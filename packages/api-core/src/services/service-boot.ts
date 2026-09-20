@@ -5,7 +5,19 @@ import { setApiKeyExchangeServiceName } from './api-key-exchange.js';
 import type { RemoteAuditClient } from './remote-audit-client.js';
 import { wireAuthzDenialAuditor } from './remote-audit-client.js';
 import { createEnvRedisTokenRevocationStore } from './token-revocation.js';
-import { setTokenRevocationStore } from '../middleware/auth.js';
+import { setTokenRevocationStore, type TokenRevocationStore } from '../middleware/auth.js';
+
+/** Per-service overrides for {@link wireServiceSecurity}. */
+export interface ServiceSecurityOptions {
+  /**
+   * Token-revocation reader to register instead of the env-Redis one. The
+   * plugin service passes a store built on the pooled ioredis connection its
+   * BullMQ build queue and readiness probe already share, so the process holds
+   * ONE Redis connection rather than two. Fail-open either way: a miss/outage
+   * yields null and auth degrades to natural token expiry.
+   */
+  tokenRevocationStore?: TokenRevocationStore;
+}
 
 /**
  * Wire the two boot-security concerns every stateless service sets up
@@ -20,15 +32,23 @@ import { setTokenRevocationStore } from '../middleware/auth.js';
  *
  * Collapses the copy-pasted lines in each service's `index.ts` into one call.
  *
- * NOTE: the PLUGIN service opts out — it shares its health-check Redis
- * connection via `createRedisTokenRevocationStore(getHealthRedisConnection())`
- * instead of the env-Redis store — so it wires these two concerns by hand.
+ * EVERY stateless service goes through here, plugin included. Plugin used to
+ * hand-roll these three calls because it needs a different revocation store
+ * (its pooled BullMQ Redis connection, not the env-Redis one) — which meant the
+ * next concern added here would have silently skipped it. That override is now
+ * a parameter, so opting out of the env-Redis store no longer means opting out
+ * of the wiring.
  *
  * @param serviceName short service name minted into the `authz.denied` records
  * @param getAuditClient lazy accessor for the service's RemoteAuditClient
+ * @param opts per-service overrides — see {@link ServiceSecurityOptions}
  */
-export function wireServiceSecurity(serviceName: string, getAuditClient: () => RemoteAuditClient): void {
+export function wireServiceSecurity(
+  serviceName: string,
+  getAuditClient: () => RemoteAuditClient,
+  opts: ServiceSecurityOptions = {},
+): void {
   wireAuthzDenialAuditor(serviceName, getAuditClient);
-  setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+  setTokenRevocationStore(opts.tokenRevocationStore ?? createEnvRedisTokenRevocationStore());
   setApiKeyExchangeServiceName(serviceName);
 }

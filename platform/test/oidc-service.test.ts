@@ -11,16 +11,23 @@
  *     no-verifier refusal, and an issuer that advertises no S256
  *
  * Uses REAL `jsonwebtoken` + Node `crypto` (a locally-generated RSA keypair
- * feeds a served JWKS); only `fetch` and platform config are stubbed, so the
- * signature path is exercised for real rather than mocked.
+ * feeds a served JWKS); only the outbound transport (`safeFetch`) and platform
+ * config are stubbed, so the signature path is exercised for real rather than
+ * mocked.
  */
 
 import crypto from 'crypto';
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+// oidc-service now performs its outbound calls through api-core's SSRF-safe
+// `safeFetch` (resolve → PIN the vetted IP → refuse redirects) rather than the
+// global `fetch`, so that is what the suite stubs.
+const mockSafeFetch = jest.fn<(url: string, opts?: Record<string, unknown>) => Promise<unknown>>();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  safeFetch: (url: string, opts?: Record<string, unknown>) => mockSafeFetch(url, opts),
+}));
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { oauth: { callbackBaseUrl: 'https://app.test', oidcDocCacheTtlMs: 3_600_000 } },
 }));
@@ -65,8 +72,15 @@ function exchange(c: typeof cfg, code: string, nonce: string) {
   return exchangeAndValidate(c, code, nonce, { codeVerifier: VERIFIER });
 }
 
+/** A `SafeFetchResponse` double. Note `json()` is SYNCHRONOUS on that shape
+ *  (the body is already buffered under the transport's size cap), unlike the
+ *  `Response.json()` promise the old global-`fetch` stub returned. */
 function okJson(body: unknown) {
-  return { ok: true, status: 200, json: async () => body } as Response;
+  return { ok: true, status: 200, redirected: false, headers: {}, body: Buffer.alloc(0), text: () => JSON.stringify(body), json: () => body };
+}
+/** A non-2xx `SafeFetchResponse` double. */
+function errJson(status: number, body: unknown = {}) {
+  return { ok: false, status, redirected: false, headers: {}, body: Buffer.alloc(0), text: () => JSON.stringify(body), json: () => body };
 }
 
 /** Sign an id_token with the given private key; claims spread over sane defaults. */
@@ -91,12 +105,12 @@ function stubFetch(idToken?: string, over: { tokenOk?: boolean; jwksKeys?: unkno
     if (u.endsWith('/.well-known/openid-configuration')) return okJson(DISCOVERY);
     if (u === DISCOVERY.jwks_uri) return okJson({ keys: over.jwksKeys ?? [goodJwk] });
     if (u === DISCOVERY.token_endpoint) {
-      if (over.tokenOk === false) return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as Response;
+      if (over.tokenOk === false) return errJson(400, { error: 'invalid_grant' });
       return okJson({ id_token: idToken, access_token: 'at' });
     }
-    return { ok: false, status: 404, json: async () => ({}) } as Response;
+    return errJson(404);
   });
-  global.fetch = fn as unknown as typeof fetch;
+  mockSafeFetch.mockImplementation(fn);
   return fn;
 }
 
@@ -108,18 +122,17 @@ function stubDiscovery(over: Partial<typeof DISCOVERY> & { code_challenge_method
     if (u.endsWith('/.well-known/openid-configuration')) return okJson(doc);
     if (u === DISCOVERY.jwks_uri) return okJson({ keys: [goodJwk] });
     if (u === DISCOVERY.token_endpoint) return okJson({ id_token: idToken, access_token: 'at' });
-    return { ok: false, status: 404, json: async () => ({}) } as Response;
+    return errJson(404);
   });
-  global.fetch = fn as unknown as typeof fetch;
+  mockSafeFetch.mockImplementation(fn);
   return fn;
 }
 
-const realFetch = global.fetch;
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSafeFetch.mockReset();
   __resetOidcCaches();
 });
-afterEach(() => { global.fetch = realFetch; });
 
 describe('ssoCallbackUrl', () => {
   it('derives a per-org callback URL from the callback base', () => {

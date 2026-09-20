@@ -31,7 +31,21 @@ const invites = new Map<string, string[]>();
 /** userId → lastActiveOrgId. */
 const lastActive = new Map<string, string>();
 
-const mockOrgUpdateOne = jest.fn(async (..._a: unknown[]) => ({}));
+/** CAS-aware: matches nothing when the filter's `parentOrgId` no longer agrees
+ *  with the store, exactly as Mongo would for the losing racer. */
+const mockOrgUpdateOne = jest.fn(async (filter: any, ..._a: unknown[]) => {
+  const current = orgs.get(String(filter._id));
+  if (!current) return { matchedCount: 0, modifiedCount: 0 };
+  if ('parentOrgId' in filter) {
+    const want = filter.parentOrgId === null ? null : String(filter.parentOrgId);
+    const have = current.parentOrgId ? String(current.parentOrgId) : null;
+    if (want !== have) return { matchedCount: 0, modifiedCount: 0 };
+  }
+  return { matchedCount: 1, modifiedCount: 1 };
+});
+/** Set by a test to land a COMPETING write just before the move's transaction
+ *  opens — the interleaving the in-session re-validation exists to catch. */
+let concurrentWrite: (() => void) | null = null;
 const mockUserUpdateMany = jest.fn(async (..._a: unknown[]) => ({}));
 const mockOrgFind = jest.fn();
 const mockPublish = jest.fn(async (..._a: unknown[]) => undefined);
@@ -50,6 +64,28 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({ get: (...a: unknown[]) => mockBillingGet(...a) }),
   getServiceAuthHeader: () => 'Bearer svc',
   tierAllowsTeams: (t: string | undefined) => t === 'team' || t === 'enterprise',
+  // REAL traversal semantics (the platform mock defaults these to flat), driven
+  // by the SESSION-bound callbacks `move` now passes — so the in-transaction
+  // re-validation is genuinely exercised against the store.
+  isAncestorOrgWith: async (ancestor: string, candidate: string, getParent: (id: string) => Promise<string | undefined>) => {
+    let cur = await getParent(candidate);
+    while (cur) {
+      if (cur === ancestor) return true;
+      cur = await getParent(cur);
+    }
+    return false;
+  },
+  expandOrgScopeWith: async (orgId: string, getChildren: (frontier: string[]) => Promise<string[]>) => {
+    const out = [orgId];
+    let frontier = [orgId];
+    while (frontier.length > 0) {
+      const kids = await getChildren(frontier);
+      const fresh = kids.filter((k) => !out.includes(k));
+      out.push(...fresh);
+      frontier = fresh;
+    }
+    return out;
+  },
   QUOTA_TIERS: {
     developer: { limits: { plugins: 5, seats: 1, eventRetentionDays: 7, doraRetentionDays: 30 } },
     pro: { limits: { plugins: 10, seats: 3, eventRetentionDays: 30, doraRetentionDays: 90 } },
@@ -62,7 +98,14 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishUsersRevocation: (...a: unknown[]) => mockPublish(...a) }));
-jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'tx' }) }));
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: (fn: (s: unknown) => unknown) => {
+    const race = concurrentWrite;
+    concurrentWrite = null;
+    race?.();
+    return fn({ id: 'tx' });
+  },
+}));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   // Live scope: self + live direct children.
   expandOrgScope: async (id: string) => [id, ...[...orgs.values()].filter((o) => o.parentOrgId === id && !o.deletedAt).map((o) => o._id)],
@@ -76,7 +119,17 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (id: string) => chain(orgs.get(String(id)) ?? null),
-    find: (q: unknown) => chain(mockOrgFind(q)),
+    find: (q: any) => {
+      // The session-bound downward walk: live direct children of a frontier.
+      if (q?.parentOrgId?.$in) {
+        const frontier: string[] = q.parentOrgId.$in.map(String);
+        return chain([...orgs.values()].filter((o) => o.parentOrgId && frontier.includes(String(o.parentOrgId)) && !o.deletedAt));
+      }
+      return chain(mockOrgFind(q));
+    },
+    exists: (q: any) => ({
+      session: async () => ([...orgs.values()].some((o) => String(o.parentOrgId) === String(q.parentOrgId)) ? { _id: 'x' } : null),
+    }),
     updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
   },
   UserOrganization: {
@@ -100,6 +153,7 @@ const SOLO = 'dddddddddddddddddddddddd';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  concurrentWrite = null;
   orgs.clear(); members.clear(); invites.clear(); lastActive.clear();
   orgs.set(ROOT_A, { _id: ROOT_A, name: 'A', tier: 'team', featureEntitlements: ['sso'], quotas: { seats: 10 } });
   orgs.set(ROOT_B, { _id: ROOT_B, name: 'B', tier: 'enterprise', featureEntitlements: ['audit_log'], quotas: { seats: 5 } });
@@ -195,7 +249,8 @@ describe('move — re-sync', () => {
     const result = await orgHierarchyService.move(TEAM, ROOT_B);
 
     const [filter, update] = mockOrgUpdateOne.mock.calls[0] as [any, any];
-    expect(filter).toEqual({ _id: TEAM });
+    // COMPARE-AND-SET on the parent this request validated against.
+    expect(filter).toEqual({ _id: TEAM, parentOrgId: ROOT_A });
     expect(update.$set).toEqual({
       parentOrgId: ROOT_B,
       tier: 'enterprise',
@@ -256,6 +311,59 @@ describe('move — a root being nested must have no billable subscription', () =
   ])('fails closed on %s', async (_label, resp) => {
     mockBillingGet.mockResolvedValueOnce(resp);
     await expect(orgHierarchyService.move(SOLO, ROOT_A)).rejects.toThrow('ORG_MOVE_BILLING_UNVERIFIED');
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Concurrency. Every structural check used to run BEFORE the transaction, so
+ * two interleaved sysadmin moves each validated against a tree the other was
+ * about to change — enough to nest a root under its own descendant (a parent
+ * cycle), which silently corrupts pooled quota, seats and tier propagation for
+ * both accounts. The checks now re-run inside the session and the write is a
+ * compare-and-set on the parent this request read.
+ */
+describe('move — concurrent moves', () => {
+  it('refuses the CYCLE a racing move would have created', async () => {
+    // In flight: B becomes a team of A. Meanwhile A was made a team of B.
+    orgs.delete(TEAM); // A has no teams of its own, so the move is legal on entry
+    concurrentWrite = () => orgs.set(ROOT_A, { ...orgs.get(ROOT_A)!, parentOrgId: ROOT_B });
+
+    await expect(orgHierarchyService.move(ROOT_B, ROOT_A)).rejects.toThrow('ORG_MOVE_CYCLE');
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the org was reparented between the pre-flight read and the transaction', async () => {
+    concurrentWrite = () => orgs.set(TEAM, { ...orgs.get(TEAM)!, parentOrgId: null });
+
+    await expect(orgHierarchyService.move(TEAM, ROOT_B)).rejects.toThrow('ORG_MOVE_CONFLICT');
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the racing write lands after validation (the conditional write matches nothing)', async () => {
+    // Validation passes on the session's snapshot; the store changes underneath
+    // just before the write, so the CAS filter matches no document.
+    mockOrgUpdateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 } as never);
+
+    await expect(orgHierarchyService.move(TEAM, ROOT_B)).rejects.toThrow('ORG_MOVE_CONFLICT');
+    // The loser writes NOTHING — no session bumps, no revocation publish.
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('re-asserts the destination inside the session (destination deleted mid-flight)', async () => {
+    concurrentWrite = () => orgs.set(ROOT_B, { ...orgs.get(ROOT_B)!, deletedAt: new Date() });
+
+    await expect(orgHierarchyService.move(TEAM, ROOT_B)).rejects.toThrow('ORG_MOVE_TARGET_NOT_FOUND');
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('re-asserts "has teams" inside the session (a team appeared mid-flight)', async () => {
+    members.set(SOLO, ['s1']);
+    concurrentWrite = () => orgs.set('eeeeeeeeeeeeeeeeeeeeeeee', { _id: 'eeeeeeeeeeeeeeeeeeeeeeee', parentOrgId: SOLO });
+
+    await expect(orgHierarchyService.move(SOLO, ROOT_A)).rejects.toThrow('ORG_MOVE_HAS_TEAMS');
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
   });
 });

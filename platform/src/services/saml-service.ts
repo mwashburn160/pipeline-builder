@@ -58,7 +58,7 @@
 import crypto from 'crypto';
 import { SAML, ValidateInResponseTo, generateServiceProviderMetadata, type Profile } from '@node-saml/node-saml';
 import { parseDomFromString, xpath } from '@node-saml/node-saml/lib/xml.js';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { getSamlSpKeys } from './saml-sp-keys.js';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
@@ -560,7 +560,7 @@ export async function validateSamlResponse(
   } catch (err) {
     logger.warn('SAML assertion verification failed', {
       orgId: cfg.orgId,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     throw new Error('SAML_INVALID_ASSERTION');
   }
@@ -670,7 +670,7 @@ export async function validateSamlLogoutMessage(
       if (!message.query.Signature || !message.query.SigAlg) throw new Error('unsigned redirect-binding logout message');
       if (message.query.SAMLResponse) {
         // verifyLogoutResponse inside checks status, issuer and InResponseTo.
-        const inResponseTo = await logoutResponseInResponseTo(message.query.SAMLResponse, true);
+        const inResponseTo = await logoutResponseInResponseTo(message.query.SAMLResponse, 'redirect');
         await saml.validateRedirectAsync(message.query, message.rawQuery);
         await requestIdCache.remove(inResponseTo);
         return { kind: 'response' };
@@ -680,7 +680,7 @@ export async function validateSamlLogoutMessage(
       return await claimLogoutRequest(profile);
     }
     if (message.body.SAMLResponse) {
-      const inResponseTo = await logoutResponseInResponseTo(message.body.SAMLResponse, false);
+      const inResponseTo = await logoutResponseInResponseTo(message.body.SAMLResponse, 'post');
       if (!(await requestIdCache.peek(inResponseTo))) throw new Error('LogoutResponse answers no request we sent');
       const { loggedOut } = await saml.validatePostResponseAsync({ SAMLResponse: message.body.SAMLResponse });
       if (!loggedOut) throw new Error('not a LogoutResponse');
@@ -691,16 +691,19 @@ export async function validateSamlLogoutMessage(
     const { profile } = await saml.validatePostRequestAsync({ SAMLRequest: message.body.SAMLRequest });
     return await claimLogoutRequest(profile);
   } catch (err) {
-    logger.warn('SAML logout message refused', { orgId: cfg.orgId, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('SAML logout message refused', { orgId: cfg.orgId, error: errorMessage(err) });
     throw new Error('SAML_INVALID_LOGOUT');
   }
 }
 
-/** The `InResponseTo` of a LogoutResponse (deflated on the redirect binding),
- *  required to be present. */
-async function logoutResponseInResponseTo(b64: string, deflated: boolean): Promise<string> {
+/** The `InResponseTo` of a LogoutResponse, required to be present. The binding
+ *  decides the encoding: HTTP-Redirect carries the XML DEFLATE-compressed
+ *  before base64 (SAML 2.0 bindings §3.4.4.1), HTTP-POST base64 only. Named by
+ *  binding rather than by a bare `deflated` flag so the call sites read as the
+ *  binding they are already branching on. */
+async function logoutResponseInResponseTo(b64: string, binding: SamlLogoutBinding['binding']): Promise<string> {
   const { inflateRawSync } = await import('zlib');
-  const xml = deflated
+  const xml = binding === 'redirect'
     ? inflateRawSync(Buffer.from(b64, 'base64')).toString('utf8')
     : Buffer.from(b64, 'base64').toString('utf8');
   const dom = await parseDomFromString(xml);

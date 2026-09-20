@@ -60,6 +60,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/messages/support',
+    waive: 'audit',
+    reason: 'Contact-support message — a 1:1 conversation to the support desk, the same intentionally-unaudited message-content class as POST /messages creates (only admin broadcasts and deletes are audited).',
+  },
+  {
+    method: 'POST',
     path: '/messages/:id/reply',
     waive: 'audit',
     reason: '1:1 conversation reply — intentionally not audited (noise + it would pull private message traffic into the trail); only admin broadcasts and deletes are.',

@@ -32,7 +32,7 @@ export function RangePicker({ value, onChange }: RangePickerProps) {
             className={`px-3 py-1.5 text-xs font-medium ${i > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''} ${
               active
                 ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                : 'bg-white dark:bg-gray-900 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
             aria-pressed={active}
           >

@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields, audited } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields, audited, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
@@ -31,9 +31,9 @@ export function createUpdatePipelineRoutes(): Router {
 
     const body = validation.value;
 
-    // Validate any templates in the update body (metadata.*, vars.*, projectName)
+    // Validate any templates in the update body (metadata.*, vars.*, project)
     try {
-      validatePipelineTemplates(body as unknown as PipelineLike);
+      validatePipelineTemplates(body);
     } catch (err) {
       return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
@@ -116,7 +116,7 @@ export function createUpdatePipelineRoutes(): Router {
     // Best-effort attributed audit — emitted only after the update landed.
     emitPipelineAudit({
       action: 'pipeline.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline',
       targetId: updated.id,

@@ -23,7 +23,8 @@
 import api from './api';
 import { CACHE_TTL_MS } from './constants';
 import { invalidateQueries, type Query } from './query-cache';
-import type { Pipeline } from '@/types';
+import type { SessionMeta } from './api/domains/auth';
+import type { Pipeline, TotpStatus } from '@/types';
 
 /**
  * Stable key fragment for a params object — sorted, `undefined` dropped — so
@@ -52,6 +53,8 @@ const PREFIX = {
   executionCount: 'execution-count?',
   plans: 'plans',
   subscription: 'subscription',
+  totpStatus: 'totp-status',
+  sessions: 'sessions',
 } as const;
 
 type PipelineParams = Record<string, string>;
@@ -104,6 +107,35 @@ export const queries = {
     key: PREFIX.subscription,
     run: (signal) => api.getSubscription({ signal }),
   }),
+
+  /** The account's authenticator-app state. The Security page asks three times
+   *  over (the posture strip, the TOTP panel, the recovery-code row), which is
+   *  three requests for one answer.
+   *
+   *  It THROWS on a failed read rather than resolving to "off": on a security
+   *  surface a false negative reads as "nothing is protecting this account",
+   *  and every caller would otherwise have to re-derive that rule. */
+  totpStatus: (): Query<TotpStatus> => ({
+    key: PREFIX.totpStatus,
+    run: async (signal) => {
+      const res = await api.getTotpStatus({ signal });
+      if (!res.success || !res.data) throw new Error('Failed to load two-factor status');
+      return res.data.totp;
+    },
+  }),
+
+  /** Signed-in devices + stored machine credentials. Asked for twice on the
+   *  Security page (the posture strip and the sessions panel). Throws on
+   *  failure for the same reason as {@link queries.totpStatus} — a false-empty
+   *  reads as "nothing is signed in" when devices may well be. */
+  sessions: (): Query<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }> => ({
+    key: PREFIX.sessions,
+    run: async (signal) => {
+      const res = await api.listSessions({ signal });
+      if (!res.success || !res.data) throw new Error('Failed to load sessions');
+      return { sessions: res.data.sessions, machineSessions: res.data.machineSessions };
+    },
+  }),
 };
 
 /**
@@ -119,4 +151,6 @@ export const invalidate = {
   executionCount: () => invalidateQueries(PREFIX.executionCount),
   plans: () => invalidateQueries(PREFIX.plans),
   subscription: () => invalidateQueries(PREFIX.subscription),
+  totpStatus: () => invalidateQueries(PREFIX.totpStatus),
+  sessions: () => invalidateQueries(PREFIX.sessions),
 };

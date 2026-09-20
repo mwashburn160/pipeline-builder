@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const subscribeMock = jest.fn(async () => ({ id: 'sub-1', isActive: false }));
@@ -56,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   drizzleCount: jest.fn(),
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: jest.fn(), eq: jest.fn(), isNull: jest.fn(), inArray: jest.fn(), sql: jest.fn(),
 }));
 

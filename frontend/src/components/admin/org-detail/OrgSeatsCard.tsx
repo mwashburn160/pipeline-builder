@@ -64,7 +64,7 @@ export function OrgSeatsCard({
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Armchair className="w-5 h-5 text-fg-muted" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Seats</h3>
+          <h3 className="text-base font-semibold text-fg">Seats</h3>
         </div>
         <button type="button" onClick={openEditor} className="action-link text-sm">Set limit</button>
       </div>
@@ -114,7 +114,7 @@ export function OrgSeatsCard({
                 placeholder="e.g. 25"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
               <Checkbox checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} disabled={form.loading} />
               Unlimited seats
             </label>

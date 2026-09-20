@@ -17,6 +17,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeEach, afterAll, beforeAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 let seenSignal: AbortSignal | undefined;
 
@@ -76,7 +77,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
 }));
 
 const mockDecrementQuota = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer service'),
   reserveQuota: jest.fn(async () => ({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } })),

@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -27,23 +28,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireSystemAdmin: (_req: any, _res: any) => true,
-  requireAuth: (_req: any, _res: any) => true,
-  canAccessOrg: jest.fn(),
-  canAdministerOrg: jest.fn(),
-  // Applies the error map like the real wrapper, so a mapped code is observable.
-  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try {
-        await fn(req, res);
-      } catch (err) {
-        const mapped = errorMap?.[(err as Error).message];
-        if (!mapped) throw err;
-        res.status(mapped.status).json({ success: false, message: mapped.message });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
@@ -111,7 +96,15 @@ describe('updateOrgAIConfig audit — admin.org.ai-config.update', () => {
 });
 
 describe('updateOrganization (PUT /organization/:id) — audit + error mapping', () => {
-  const req = (body: Record<string, unknown>): any => ({ user: { sub: 'admin-1', organizationId: 'sysorg' }, params: { id: 'org-acme' }, headers: {}, body });
+  /**
+   * `PUT /organization/:id` is `requireSystemAdmin`-gated and that gate now runs
+   * FOR REAL (see helpers/controller-helper-mock.ts) — api-core's
+   * `isSystemAdmin` reads the JWT's `isSuperAdmin` claim, so platform-admin
+   * authority has to be carried by the FIXTURE.
+   */
+  const SYSADMIN = { sub: 'admin-1', organizationId: 'sysorg', isSuperAdmin: true };
+  const req = (body: Record<string, unknown>, user: unknown = SYSADMIN): any =>
+    ({ user, params: { id: 'org-acme' }, headers: {}, body });
 
   it('audits org.update against the edited org, naming the changed fields', async () => {
     mockUpdateOrg.mockResolvedValue({ id: 'org-acme', name: 'Acme Corp', slug: 'acme', description: '' });
@@ -133,6 +126,21 @@ describe('updateOrganization (PUT /organization/:id) — audit + error mapping',
     const res = mockRes();
     await (updateOrganization as any)(req({ name: 'Acme' }), res);
     expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  // Negative: this route is fleet-wide (it can move tier/quota), so nothing
+  // short of a platform admin reaches the service — not even an owner of the
+  // very org named in `:id`.
+  it.each([
+    ['an anonymous caller', null, 401],
+    ['an owner of the target org', { sub: 'o1', organizationId: 'org-acme', role: 'owner' }, 403],
+  ] as const)('refuses %s: no write, no audit', async (_label, user, status) => {
+    const res = mockRes();
+    await (updateOrganization as any)(req({ name: 'Acme Corp' }, user), res);
+
+    expect(res.status).toHaveBeenCalledWith(status);
+    expect(mockUpdateOrg).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
   });
 });

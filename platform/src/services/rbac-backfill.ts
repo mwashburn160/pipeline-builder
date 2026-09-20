@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
-import { permissionsForGrantsRole } from './roles-service.js';
+import { permissionsForGrantsRole } from './role-authority.js';
 import { Role, RoleAssignment, UserOrganization } from '../models/index.js';
 import type { RoleGrant } from '../models/index.js';
 

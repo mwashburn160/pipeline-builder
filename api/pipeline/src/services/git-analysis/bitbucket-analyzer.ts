@@ -4,7 +4,7 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { buildAnalysis } from './analysis-core.js';
 import type { ParsedGitUrl, RepoAnalysis } from './analysis-core.js';
-import { fetchWithTimeout, readJsonCapped } from './http.js';
+import { fetchWithTimeout } from './http.js';
 
 const BITBUCKET_API_BASE_URL = CoreConstants.BITBUCKET_API_BASE_URL;
 
@@ -35,12 +35,12 @@ export async function analyzeBitbucketRepo(parsed: ParsedGitUrl, token?: string)
     throw new Error(`Bitbucket API error: ${repoRes.status} ${repoRes.statusText}`);
   }
 
-  const repoData = await readJsonCapped<Record<string, unknown>>(repoRes);
+  const repoData = repoRes.json<Record<string, unknown>>();
   const mainBranch = repoData.mainbranch as Record<string, unknown> | undefined;
   const language = repoData.language as string | undefined;
 
   const srcData = srcRes.ok
-    ? await readJsonCapped<{ values?: Array<{ path: string; type: string }> }>(srcRes)
+    ? srcRes.json<{ values?: Array<{ path: string; type: string }> }>()
     : { values: [] };
   const detectedFiles = (srcData.values || [])
     .filter((s) => s.type === 'commit_file' || s.type === 'commit_directory')

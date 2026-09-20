@@ -75,3 +75,13 @@ export const ORG_MOVE_NOOP = 'ORG_MOVE_NOOP';
 export const ORG_MOVE_BILLED = 'ORG_MOVE_BILLED';
 /** Billing couldn't confirm the org has no billable subscription (fail closed). → 503 */
 export const ORG_MOVE_BILLING_UNVERIFIED = 'ORG_MOVE_BILLING_UNVERIFIED';
+/**
+ * Another move committed against this org while this one was validating, so the
+ * org no longer sits under the parent this request read. → 409
+ *
+ * The write is conditional on that parent id, so the loser of the race changes
+ * nothing: two concurrent sysadmin moves can no longer interleave their
+ * validation and produce a parent CYCLE (which silently corrupts pooled quota,
+ * seats and tier propagation for both accounts).
+ */
+export const ORG_MOVE_CONFLICT = 'ORG_MOVE_CONFLICT';

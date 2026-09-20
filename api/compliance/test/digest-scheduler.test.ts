@@ -55,14 +55,14 @@ describe('isDigestDue', () => {
 describe('buildDigest', () => {
   const entry = (subject: string, priority: 'urgent' | 'high' | 'normal') => ({
     id: subject,
-    notification: { recipientOrgId: 'o1', messageType: 'conversation', priority, subject, content: 'c', payload: { event: 'compliance.block' } },
+    notification: { recipientOrgId: 'o1', messageType: 'conversation', priority, subject, body: 'c', payload: { event: 'compliance.block' } },
   });
 
   it('summarises all parked subjects and counts them', () => {
     const d = buildDigest('o1', [entry('A blocked', 'high'), entry('B warnings', 'normal')] as any);
     expect(d.subject).toContain('2 notifications');
-    expect(d.content).toContain('A blocked');
-    expect(d.content).toContain('B warnings');
+    expect(d.body).toContain('A blocked');
+    expect(d.body).toContain('B warnings');
     expect((d.payload as { count: number }).count).toBe(2);
   });
 

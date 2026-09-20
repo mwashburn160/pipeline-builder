@@ -11,13 +11,11 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { TeamSettingsDrawer } from './TeamSettingsDrawer';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
+import { formatDateMedium } from '@/lib/format';
 import { triggerBlobDownload } from '@/lib/csv-export';
 import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations';
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
 
 /**
  * The parent org's teams, with everything a parent admin does to one without
@@ -83,6 +81,7 @@ export function TeamsCard({
     try {
       await api.deleteTeam(parentOrgId, team.orgId, stepUpToken);
       toast.success(`Deleted ${team.orgName} — restore it from Recently deleted teams`);
+      invalidate.organizations();
       await onChanged();
     } catch (e) {
       toast.error(formatError(e, `Failed to delete ${team.orgName}`));
@@ -96,6 +95,7 @@ export function TeamsCard({
     try {
       await api.restoreOrganization(team.orgId, stepUpToken);
       toast.success(`Restored ${team.orgName}`);
+      invalidate.organizations();
       await onChanged();
     } catch (e) {
       toast.error(formatError(e, `Failed to restore ${team.orgName}`));
@@ -105,7 +105,7 @@ export function TeamsCard({
   return (
     <Card className="mb-4">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-fg inline-flex items-center gap-2">
           <Building2 className="w-4 h-4 text-fg-subtle" /> Teams <span className="text-fg-subtle font-normal">({teams.length})</span>
         </h2>
         {parentOrgName && <span className="text-xs text-fg-muted truncate">Teams of {parentOrgName}</span>}
@@ -117,7 +117,7 @@ export function TeamsCard({
         <ul className="divide-y divide-gray-100 dark:divide-gray-800">
           {teams.map((t) => (
             <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
-              <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{t.orgName}</span>
+              <span className="font-medium text-fg truncate">{t.orgName}</span>
               <div className="flex items-center gap-3 shrink-0">
                 {canManageMembers && (
                   <button onClick={() => onAddMember(t)} className="action-link text-xs inline-flex items-center gap-1">
@@ -163,9 +163,9 @@ export function TeamsCard({
             {deletedTeams.map((t) => (
               <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0">
-                  <span className="block font-medium text-gray-700 dark:text-gray-300 truncate">{t.orgName}</span>
+                  <span className="block font-medium text-fg-muted truncate">{t.orgName}</span>
                   <span className="block text-xs text-fg-muted">
-                    Deleted <RelativeTime value={t.deletedAt} /> · purged permanently on {formatDate(t.purgeAfter)}
+                    Deleted <RelativeTime value={t.deletedAt} /> · purged permanently on {formatDateMedium(t.purgeAfter)}
                   </span>
                 </span>
                 <button

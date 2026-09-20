@@ -2,149 +2,111 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared `@pipeline-builder/api-core` mock for ESM suites.
+ * Billing's `@pipeline-builder/api-core` mock.
  *
- * Collapses the factory that every suite passed to
- * `jest.unstable_mockModule('@pipeline-builder/api-core', () => ({ ... }))`.
- * Provides the winston-logger stub plus the api-core runtime VALUES that the
- * transitively loaded pipeline-core / pipeline-data graph imports — under
- * transpile-only/`verbatimModuleSyntax` those stay real imports, so the mock
- * must expose them or ESM linking against it throws "does not provide an
- * export named X". Pass `overrides` for the exports a given suite exercises
- * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
+ * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
+ * classes, pagination constants, audit/boot wiring) live in
+ * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * billing-specific defaults belong here.
+ *
+ * ── WHY BILLING IS EXEMPT FROM THE spread-the-real-module RULE ──────────────
+ * Everywhere else in the repo a module mock must start from the real module
+ * (`drizzleMock`, `apiCoreMock`, platform's `controllerHelperMock`) so it cannot
+ * go stale — and `no-restricted-syntax` in `.projenrc.ts` enforces that. Billing's
+ * suites keep INLINE literal mocks for `../src/helpers/billing-helpers.js`,
+ * `@pipeline-builder/api-server` and `@pipeline-builder/pipeline-data`, and the
+ * lint rule exempts this project for those specifiers. That exemption is a known
+ * debt, not a style preference — it was tried and reverted, and here is exactly
+ * why, so nobody burns the same day rediscovering it:
+ *
+ *   `src/helpers/billing-helpers.ts` does `import { incCounter } from
+ *   '@pipeline-builder/api-server'` at line 6, and its transitive graph
+ *   VALIDATES CONFIG AT IMPORT ("MONGODB_URI environment variable is required
+ *   when BILLING_ENABLED=true"). So `jest.requireActual` on it only succeeds
+ *   inside a window that (a) opens after the suite registers its `../src/config.js`
+ *   mock and sets env, and (b) closes before the suite's `await import(SUT)` puts
+ *   billing-helpers in flight — resolving it inside the mock factory throws
+ *   "Cannot require() ES Module … currently being loaded by a concurrent import()".
+ *   Several suites have NO config mock at all, and `subscription-lifecycle.test.ts`
+ *   registers its `@pipeline-builder/api-server` mock 40 lines AFTER where the
+ *   `requireActual` would have to go. There is no single ordering that satisfies
+ *   all 14 suites: 10 of 14 failed, 9 of them failing to load outright.
+ *
+ * The real fix is to make `billing-helpers.ts` importable without a validated
+ * config (move the `incCounter` import behind the call site, and the config
+ * assertion out of module scope). That is production source, so it is deliberately
+ * NOT done here. Until then these inline mocks can silently go stale — that is the
+ * risk being accepted, and it has already bitten once (`MANAGEABLE_SUBSCRIPTION_STATUSES`
+ * is hand-copied into 10 suites).
  */
 import { jest } from '@jest/globals';
+import {
+  baseApiCoreMock,
+  loggerMock,
+  passThroughMiddleware,
+  serviceAuditDefaults,
+  withDelegatingSendBadRequest,
+} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
 // Real TIER_FEATURES (side-effect-free deep import) so the mock can't drift from
-// api-core as features are added — billing derives entitlement copy from it.
+// api-core — billing derives entitlement copy from it.
 import { TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
-/** No-op guard: the default mock covers route wiring, not the permission gate.
- *  Suites that assert the gate override `requirePermission` with real semantics. */
-const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
-
-/** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
-export const loggerMock = () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
-});
-
-/** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
-const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
-
-/** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
-class NotFoundError extends Error {
-  statusCode = 404;
-  code = 'NOT_FOUND';
-  constructor(message?: string) {
-    super(message);
-    this.name = 'NotFoundError';
-  }
-}
+export { loggerMock };
 
 /**
- * The REAL api-core exports, used as the base of every mock below. Suites stub
- * only what they exercise; everything else is the genuine export, so adding an
- * export to api-core can never again break a suite with "does not provide an
- * export named X". (`requireActual` bypasses the module mock.)
+ * The REAL api-core exports, resolved HERE (not inside the shared factory):
+ * `requireActual` on an ESM barrel only succeeds while nothing else is
+ * mid-`import()` of it, and this module — a static import of every suite that
+ * uses it, evaluated before the suite's `await import(SUT)` — is the one point
+ * where that reliably holds.
  */
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/** Billing-specific defaults layered over the shared base. */
+const billingDefaults = (): Record<string, unknown> => ({
+  ...serviceAuditDefaults(),
+  // Metrics no-op — the promotion engine emits `billing_promotion_*` counters.
+  emitCounter: () => undefined,
+  // billing-helpers.syncEntitlements reads the tier's seat limit to sync it to
+  // platform (the seat leg of the two-target fan-out).
+  getTierLimits: (tier: string) => ({
+    seats: 10,
+    plugins: 50,
+    pipelines: 5,
+    apiCalls: 25000,
+    aiCalls: 50,
+    storageBytes: 2147483648,
+    dashboards: 20,
+    alertRules: 50,
+    alertDestinations: 10,
+    idpConfigs: 1,
+    // Phase 8 retention baselines — standard tiers 30/180; `unlimited` -1
+    // (the retention leg pushes these effective values to reporting).
+    eventRetentionDays: tier === 'unlimited' ? -1 : 30,
+    doraRetentionDays: tier === 'unlimited' ? -1 : 180,
+  }),
+  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
+  // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this
+  // to decide which pure-feature add-ons a destination tier now bundles in.
+  TIER_FEATURES,
+  // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
+  // factories that RETURN middleware. Suites exercising the gate override these
+  // with real 403-unless-permitted semantics.
+  requirePermission: () => passThroughMiddleware,
+  requirePermissionOrService: () => passThroughMiddleware,
+  // Service-to-service auth header minted for the quota/platform entitlement sync.
+  getServiceAuthHeader: (_opts?: unknown) => 'Bearer test-service-token',
+  // Query-param + error helpers the route modules import at load time.
+  parseQueryString: (v: unknown) => (typeof v === 'string' ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined),
+  sendError: (res: { status: (n: number) => { json: (b: unknown) => unknown } }, status: number, message: string, code?: string) =>
+    res.status(status).json({ success: false, statusCode: status, message, code }),
+});
 
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const api: Record<string, unknown> = {
-    ...actualApiCore,
-    createLogger: loggerMock,
-    MAX_PAGE_LIMIT: 1000,
-    DEFAULT_PAGE_LIMIT: 100,
-    closeLeaderLock: async () => undefined,
-    loadAndRestore: async () => null,
-    REPORT_INTERVALS: ['day', 'week', 'month'],
-    scrubAwsIdentifiersFromString: (s: string) => s,
-    scrubAwsIdentifiers: <T>(v: T): T => v,
-    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
-    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
-    // Metrics no-op — the promotion engine emits `billing_promotion_*` counters.
-    emitCounter: () => undefined,
-    SYSTEM_ORG_ID: '000000000000000000000001',
-    // billing-helpers.syncEntitlements reads the tier's seat limit to sync it to
-    // platform (the seat leg of the two-target fan-out).
-    getTierLimits: (tier: string) => ({
-      seats: 10,
-      plugins: 50,
-      pipelines: 5,
-      apiCalls: 25000,
-      aiCalls: 50,
-      storageBytes: 2147483648,
-      dashboards: 20,
-      alertRules: 50,
-      alertDestinations: 10,
-      idpConfigs: 1,
-      // Phase 8 retention baselines — standard tiers 30/180; `unlimited` -1
-      // (the retention leg pushes these effective values to reporting).
-      eventRetentionDays: tier === 'unlimited' ? -1 : 30,
-      doraRetentionDays: tier === 'unlimited' ? -1 : 180,
-    }),
-    VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
-    // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this
-    // to decide which pure-feature add-ons a destination tier now bundles in.
-    // The REAL api-core TIER_FEATURES (deep-imported) — enterprise/unlimited
-    // auto-include every flag (incl. both compliance content sets); the compliance
-    // sync leg derives ['standard','advanced'] from these for an entitled account.
-    TIER_FEATURES,
-    // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
-    // factories that RETURN middleware, so each stub is a function producing the
-    // pass-through guard. Suites exercising the gate override these with real
-    // 403-unless-permitted semantics.
-    requirePermission: () => passThroughMiddleware,
-    requirePermissionOrService: () => passThroughMiddleware,
-    // Service-to-service auth header minted for the quota/platform entitlement sync.
-    getServiceAuthHeader: (_opts?: unknown) => 'Bearer test-service-token',
-    // Remote audit client factory — kept for any module still linking it directly.
-    createRemoteAuditClient: () => ({ record: () => {} }),
-    createEnvRedisAuditSpool: () => null,
-    // Leader-lock redis factory (marketplace-metering scheduler) — no lock in suites.
-    createEnvRedisLock: () => null,
-    // Service audit factory — src/services/audit.ts now links against this. Returns
-    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
-    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
-    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
-    // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
-    setAuthzDenialAuditor: () => {},
-    wireAuthzDenialAuditor: () => {},
-    wireServiceSecurity: () => {},
-    // Token-revocation reader hooks (session-invalidation) — stubbed for parity
-    // so suites that transitively load the boot module still link.
-    setTokenRevocationStore: () => {},
-    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-
-    ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
-    PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
-    ErrorCode,
-    // Query-param + error helpers the route modules import at load time. Faithful
-    // enough for linking + the happy path; suites asserting on them override.
-    parseQueryString: (v: unknown) => (typeof v === 'string' ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined),
-    sendError: (res: { status: (n: number) => { json: (b: unknown) => unknown } }, status: number, message: string, code?: string) =>
-      res.status(status).json({ success: false, statusCode: status, message, code }),
-    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-    NotFoundError,
-    createCacheService: () => ({
-      getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-      invalidatePattern: () => Promise.resolve(0),
-    }),
-    ...overrides,
-  };
-  // sendBadRequest delegates to the (possibly-overridden) sendError, mirroring
-  // the real impl — so suites that spy on sendError also observe 400s routed
-  // through sendBadRequest, and don't need a bare `res.status` on their stub.
-  if (!('sendBadRequest' in overrides)) {
-    api.sendBadRequest = (res: unknown, message: string, code?: string) =>
-      (api.sendError as (r: unknown, s: number, m: string, c?: string) => unknown)(
-        res, 400, message, code ?? ErrorCode.VALIDATION_ERROR);
-  }
-  return api;
+  const merged = { ...billingDefaults(), ...overrides };
+  return withDelegatingSendBadRequest(baseApiCoreMock(actualApiCore, merged), overrides);
 }

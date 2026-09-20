@@ -89,7 +89,7 @@ function AttachmentItem({ att }: { att: MessageAttachment }) {
       )}
       <div className="flex items-center gap-2 text-xs">
         <Paperclip className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
-        <span className="truncate flex-1 text-gray-700 dark:text-gray-300" title={att.filename}>{att.filename}</span>
+        <span className="truncate flex-1 text-fg-muted" title={att.filename}>{att.filename}</span>
         <span className="text-fg-subtle shrink-0">{formatBytes(att.sizeBytes)}</span>
         <button
           type="button"

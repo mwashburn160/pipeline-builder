@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import path from 'path';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
@@ -62,7 +63,6 @@ const PLATFORM_ACCOUNT = {
  * src/lambda/token-renew-handler.ts).
  */
 async function deployRenewSchedule(opts: {
-  platformUrl: string;
   secretName: string;
   days: number;
   fiveFieldCron: string;
@@ -97,7 +97,6 @@ async function deployRenewSchedule(opts: {
     '--stack-name', stackName,
     '--template-file', templatePath,
     '--parameter-overrides',
-    `PlatformBaseUrl=${opts.platformUrl}`,
     `PlatformSecretName=${opts.secretName}`,
     `RenewDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
@@ -358,7 +357,7 @@ export function storeToken(program: Command): void {
           } catch (err) {
             printWarning(
               `Stored the new key, but could not revoke the previous one (${previous.keyId}): `
-              + `${err instanceof Error ? err.message : String(err)}. It expires on its own; revoke it from `
+              + `${errorMessage(err)}. It expires on its own; revoke it from `
               + 'Settings → Service accounts if you want it gone now.',
             );
           }
@@ -369,7 +368,6 @@ export function storeToken(program: Command): void {
         if (options.schedule) {
           const fiveFieldCron = options.cron || process.env.TOKEN_RENEW_SCHEDULE || DEFAULT_RENEW_CRON;
           scheduleExpression = await deployRenewSchedule({
-            platformUrl: client.getBaseUrl(),
             secretName,
             days,
             fiveFieldCron,

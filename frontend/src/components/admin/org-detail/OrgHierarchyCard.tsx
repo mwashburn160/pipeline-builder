@@ -31,7 +31,7 @@ export function OrgHierarchyCard({ org, onChanged }: { org: OrganizationDetail; 
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Network className="w-5 h-5 text-fg-muted" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Hierarchy</h3>
+          <h3 className="text-base font-semibold text-fg">Hierarchy</h3>
         </div>
         {org.id !== 'system' && (
           <button type="button" onClick={() => setMoving(true)} className="action-link text-sm">Move organization</button>
@@ -86,7 +86,7 @@ type Destination = 'parent' | 'top';
  * under an eligible root, or — for a team — make it top-level. The rules are
  * stated up front; anything the backend still refuses (400) is shown verbatim.
  */
-export function MoveOrganizationDialog({ org, onClose, onMoved }: {
+function MoveOrganizationDialog({ org, onClose, onMoved }: {
   org: OrganizationDetail;
   onClose: () => void;
   onMoved: () => void;

@@ -90,7 +90,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
               trailing slash is added automatically.
             </p>
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
+              <label className="block text-xs font-medium text-fg-muted">Namespace prefix</label>
               <Input
                 type="text"
                 placeholder="org-acme/"

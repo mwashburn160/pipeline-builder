@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindOne = jest.fn<(...a: unknown[]) => unknown>();
@@ -24,7 +25,8 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({ loadActiv
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: jest.fn(), publishUsersRevocation: jest.fn(), publishUserDeletionRevocation: jest.fn(),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn(), assertNotLastPrivilegedMember: jest.fn() }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn() }));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertNotLastPrivilegedMember: jest.fn() }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: {} } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({}) }));
@@ -68,10 +70,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   apiKeyService: {},
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: jest.fn(), updateProfileSchema: {}, changePasswordSchema: {} }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuthUserId: (req: any) => req.user?.sub,
-  withController: (_l: string, fn: Function) => fn,
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 const { userProfileService } = await import('../src/services/user-profile-service.js');
 const { updatePreferences } = await import('../src/controllers/user-profile.js');

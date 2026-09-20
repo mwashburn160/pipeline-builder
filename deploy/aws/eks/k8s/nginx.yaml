@@ -32,7 +32,9 @@ metadata:
     app: nginx
     app.kubernetes.io/component: gateway
 spec:
-  replicas: 1
+  # Start at 2 so the first rollout already satisfies the PDB; the HPA
+  # below owns the count from then on.
+  replicas: 2
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -71,7 +73,7 @@ spec:
         # upstream names in the logs. Default 60s × 10 upstreams = ~10min
         # worst-case if every upstream is missing.
         - name: wait-for-upstreams
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           env:
             - name: WAIT_TIMEOUT_SEC
               value: "60"
@@ -137,7 +139,7 @@ spec:
           # 8080/8443 by default (no <1024 bind), and uses /tmp for the PID
           # file. Lets us drop ALL caps and enable readOnlyRootFilesystem
           # without the CHOWN / SETUID / SETGID dance the upstream image needs.
-          image: nginxinc/nginx-unprivileged:1.31
+          image: nginxinc/nginx-unprivileged@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb  # nginxinc/nginx-unprivileged:1.31
           securityContext:
             runAsNonRoot: true
             runAsUser: 101
@@ -230,7 +232,14 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: nginx
-  minReplicas: 1
+  # 2 on this target: EKS is MULTI-NODE, so a second replica is a real
+  # availability gain (different node, different AZ) and — with the
+  # `minAvailable: 1` PodDisruptionBudget below — it is what lets a node drain
+  # finish at all. At one replica that PDB is a deadlock: Auto Mode recycles
+  # nodes routinely, and evicting the only pod would break the budget, so the
+  # drain blocks until it is force-terminated. The HPA still scales further on
+  # load. (ec2/minikube stay at 1 — single-node clusters, nothing to drain.)
+  minReplicas: 2
   maxReplicas: 3
   metrics:
     - type: Resource

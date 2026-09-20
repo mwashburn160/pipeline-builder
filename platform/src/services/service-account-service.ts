@@ -14,7 +14,7 @@
  * live key within one token lifetime (5 minutes).
  *
  * The rules this module enforces, and why:
- *   - **Role ceiling** — delegated to `roles-service.setServiceAccountRoles`,
+ *   - **Role ceiling** — delegated to `service-account-roles.setServiceAccountRoles`,
  *     which applies the SAME ceiling as assigning a Role to a person: you cannot
  *     create a machine credential more powerful than yourself.
  *   - **No seat** — an account creates no `UserOrganization` row, and seats count
@@ -35,8 +35,7 @@ import { createLogger, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { QuotaTier, TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
-import { clearServiceAccountRoles, serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles } from './roles-service.js';
-import type { ServiceAccountRole, RoleAssignmentActor } from './roles-service.js';
+import type { RoleAssignmentActor } from './role-authority.js';
 import {
   SA_INVALID_BUDGET,
   SA_INVALID_NAME,
@@ -50,6 +49,8 @@ import {
   SA_NOT_FOUND,
   SA_ORG_NOT_FOUND,
 } from './service-account-errors.js';
+import { clearServiceAccountRoles, serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles } from './service-account-roles.js';
+import type { ServiceAccountRole } from './service-account-roles.js';
 // The org-teardown legs live in their own module so the ORG CASCADE can import
 // them without dragging the key service and the token signer into its graph.
 // Re-exported here so callers (and tests) still find the whole surface in one place.
@@ -204,7 +205,9 @@ function nextResetAt(): Date {
 type OrgFacts = {
   id: string;
   name?: string;
-  tier?: QuotaTier;
+  /** Required: `Organization.tier` is an enum field with a default, so every
+   *  org row carries a valid tier. */
+  tier: QuotaTier;
   parentOrgId?: string | null;
   featureEntitlements?: string[];
 };
@@ -221,7 +224,7 @@ async function requireLiveOrg(orgId: string): Promise<OrgFacts> {
   return {
     id: orgId,
     name: org.name,
-    tier: org.tier as QuotaTier | undefined,
+    tier: org.tier,
     parentOrgId: (org as { parentOrgId?: string | null }).parentOrgId ?? null,
     featureEntitlements: (org as { featureEntitlements?: string[] }).featureEntitlements ?? [],
   };

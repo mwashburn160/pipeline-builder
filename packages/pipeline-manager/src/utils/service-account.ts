@@ -26,6 +26,7 @@
  * so one is minted immediately before each gated call.
  */
 
+import { errorMessage } from '@pipeline-builder/api-core';
 import type { ApiClient } from './api-client.js';
 import { printInfo, printSuccess, printWarning } from './output-utils.js';
 
@@ -110,7 +111,7 @@ async function stepUp(client: ApiClient, password: string): Promise<string> {
     throw new Error(
       'Could not re-verify your password (step-up). Creating a service account and issuing its key '
       + 'are both step-up gated. Check the password passed via --password / PLATFORM_PASSWORD. '
-      + `(${err instanceof Error ? err.message : String(err)})`,
+      + `(${errorMessage(err)})`,
     );
   }
 }

@@ -157,32 +157,20 @@ jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({
     // ingestStripeInvoice reads the existing row (to preserve a prior reversal)
     // before upserting — return the stored row via a lean()-able handle.
     findOne: (filter: any) => ({ lean: async () => store.get(filter.externalInvoiceId) ?? null }),
+    // reverseLedgerInvoice flips an already-ingested row's status in place and
+    // returns the updated document (`{ new: true }`), or null when absent.
+    findOneAndUpdate: async (filter: any, update: any) => {
+      const row = store.get(filter.externalInvoiceId);
+      if (!row) return null;
+      Object.assign(row, update.$set);
+      return row;
+    },
     aggregate: mockAggregate,
     countDocuments: async (filter: any) => [...store.values()].filter((r) => filter.orgId === undefined || r.orgId === filter.orgId).length,
   },
 }));
 
-const mockSubFind = jest.fn<(...a: unknown[]) => Promise<any[]>>().mockResolvedValue([]);
-jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  // backfillLedgerFromProvider now streams via `.cursor()` — return a cursor whose
-  // async iterator yields whatever mockSubFind resolves to (keeps existing
-  // `mockSubFind.mockResolvedValue([...])` setups working).
-  Subscription: {
-    find: (...a: unknown[]) => ({
-      async *cursor() {
-        const rows = await mockSubFind(...a);
-        for (const r of rows) yield r;
-      },
-    }),
-  },
-}));
-
-const mockListCustomerInvoices = jest.fn<(...a: unknown[]) => Promise<any[]>>().mockResolvedValue([]);
-jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
-  getPaymentProvider: () => ({ listCustomerInvoices: mockListCustomerInvoices }),
-}));
-
-const { ingestStripeInvoice, recordMarketplaceConsumption, getBillingSummary, getAdminBillingSummary, backfillLedgerFromProvider } = await import('../src/helpers/billing-ledger.js');
+const { ingestStripeInvoice, recordMarketplaceConsumption, getBillingSummary, getAdminBillingSummary, reverseLedgerInvoice } = await import('../src/helpers/billing-ledger.js');
 const { createBillingSummaryRoutes } = await import('../src/routes/billing-summary.js');
 
 const invoice = (over: any = {}) => ({
@@ -333,20 +321,29 @@ describe('getAdminBillingSummary (cross-account)', () => {
   });
 });
 
-describe('backfillLedgerFromProvider', () => {
-  it('ingests each account customer’s provider invoices', async () => {
-    mockSubFind.mockResolvedValue([{ orgId: 'org-1', externalCustomerId: 'cus_1' }]);
-    mockListCustomerInvoices.mockResolvedValue([invoice({ id: 'hist_1' }), invoice({ id: 'hist_2' })]);
-    const result = await backfillLedgerFromProvider();
-    expect(result).toEqual({ accounts: 1, ingested: 2, errors: 0 });
-    expect(store.size).toBe(2);
+describe('reverseLedgerInvoice', () => {
+  it('flips an ingested row to the reversal status and returns its orgId', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_rev' }));
+    const orgId = await reverseLedgerInvoice('in_rev', 'refunded', 1200);
+    expect(orgId).toBe('org-1');
+    expect(store.get('in_rev')).toMatchObject({ status: 'refunded', amountPaidCents: 1200 });
   });
 
-  it('is fail-soft per account (an error on one does not abort the run)', async () => {
-    mockSubFind.mockResolvedValue([{ orgId: 'org-1', externalCustomerId: 'cus_1' }]);
-    mockListCustomerInvoices.mockRejectedValue(new Error('stripe down'));
-    const result = await backfillLedgerFromProvider();
-    expect(result).toMatchObject({ accounts: 1, ingested: 0, errors: 1 });
+  it('clamps a negative net amount to zero', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_neg' }));
+    await reverseLedgerInvoice('in_neg', 'disputed', -500);
+    expect(store.get('in_neg')).toMatchObject({ status: 'disputed', amountPaidCents: 0 });
+  });
+
+  it('leaves amountPaidCents alone when no net amount is supplied', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_keep', amount_paid: 4900 }));
+    const before = store.get('in_keep').amountPaidCents;
+    await reverseLedgerInvoice('in_keep', 'void');
+    expect(store.get('in_keep')).toMatchObject({ status: 'void', amountPaidCents: before });
+  });
+
+  it('is a no-op returning null when the invoice was never ingested', async () => {
+    expect(await reverseLedgerInvoice('in_missing', 'refunded', 0)).toBeNull();
   });
 });
 

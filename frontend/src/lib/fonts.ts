@@ -20,7 +20,9 @@
 
 import { Fraunces, IBM_Plex_Sans } from 'next/font/google';
 
-/** Body/UI face. Weights match what the design system actually uses. */
+/** Body/UI face. Weights match what the design system actually uses.
+ *  Exported because `next/font` loader results are module-level bindings the
+ *  build-time transform resolves by name — not a dead export to trim. */
 export const sans = IBM_Plex_Sans({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
@@ -29,7 +31,8 @@ export const sans = IBM_Plex_Sans({
   fallback: ['ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
 });
 
-/** Display face, used for headings only. */
+/** Display face, used for headings only. Exported for the same reason as
+ *  `sans`. */
 export const serif = Fraunces({
   subsets: ['latin'],
   weight: ['400', '600', '700'],

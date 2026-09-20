@@ -8,35 +8,102 @@
  * returning true if the condition is MET (no violation) or false if VIOLATED.
  */
 
-import { envInt } from '@pipeline-builder/api-core';
+import { createContext, Script, type Context } from 'vm';
+import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleOperator } from '@pipeline-builder/pipeline-data';
 
+const logger = createLogger('rule-operators');
+
 /**
- * Cap on user-supplied regex patterns in compliance rules — long patterns
- * enable catastrophic-backtracking DoS. Override via
- * `COMPLIANCE_MAX_REGEX_LENGTH`.
- *
- * KNOWN LIMITATION: Node's built-in `RegExp` engine is backtracking-based, so
- * even short patterns (e.g. `(a+)+$`) can still ReDoS on adversarial input.
- * The nested-quantifier heuristic in `validateRegexPattern` is narrow and
- * does not cover every pathological case. A future hardening should swap in
- * the `re2` package (linear-time) or run evaluation in a worker thread with
- * a hard timeout — both are out of scope here because they add a native
- * build dependency. Until then, keeping the length cap small is the cheapest
- * mitigation we have.
+ * Cap on user-supplied regex patterns in compliance rules. Override via
+ * `COMPLIANCE_MAX_REGEX_LENGTH`. Authoring-time hygiene only — it is NOT the
+ * ReDoS bound (a 9-character `(a+)+$` is already catastrophic).
  */
 const MAX_REGEX_LENGTH = envInt('COMPLIANCE_MAX_REGEX_LENGTH', 100, { min: 1 });
 
 /**
- * Safely compile and test a regex pattern with length limits.
- * Returns false (violation) if pattern is invalid or too long.
+ * HARD wall-clock bound on one rule-authored regex match. Override via
+ * `COMPLIANCE_REGEX_TIMEOUT_MS`.
  */
-function safeRegexTest(pattern: string, value: string): boolean {
+const REGEX_TIMEOUT_MS = envInt('COMPLIANCE_REGEX_TIMEOUT_MS', 50, { min: 1 });
+
+/**
+ * ReDoS bound for rule-authored patterns.
+ *
+ * Rule patterns are authored by an org (and PROPAGATE from a parent org), then
+ * evaluated on the entity-create hot path, so an unbounded match pins the
+ * compliance pod's event loop for every tenant. Node's `RegExp` is a
+ * backtracking engine and a length cap plus a nested-quantifier heuristic is
+ * not a bound — `(a+)+$` is 6 characters.
+ *
+ * The bound here is real: the match runs inside a `vm` context under a
+ * `timeout`, and V8's irregexp engine honours the isolate's termination check,
+ * so a catastrophically-backtracking match is INTERRUPTED rather than run to
+ * completion (verified on the pinned Node 24 runtime — a 40×'a' + 'b' input
+ * against `(a+)+$` aborts at the deadline instead of hanging).
+ *
+ * Why not `re2`: it is a native (node-gyp) dependency, which would have to
+ * clear the repo's `minimumReleaseAge` supply-chain hold AND be built for both
+ * image architectures. `vm` is in the standard library, needs no dependency,
+ * and keeps `evaluateOperator` synchronous (a worker thread would force every
+ * caller of `evaluateRules` async for the same guarantee).
+ *
+ * The script and context are created once and reused; the context holds no
+ * state beyond the three scratch globals, and stays usable after a timeout.
+ */
+const REGEX_SCRIPT = new Script('__pbResult = new RegExp(__pbPattern).test(__pbValue)');
+
+interface RegexSandbox extends Context {
+  __pbPattern: string;
+  __pbValue: string;
+  /** Written by the sandboxed script, not by us — hence `unknown`. */
+  __pbResult: unknown;
+}
+
+/**
+ * Read the sandbox's result. Behind a function call on purpose: the value is
+ * written by the vm script OUT OF BAND, so narrowing it from our own
+ * `ctx.__pbResult = false` reset would be wrong (and TS would fold the
+ * comparison away).
+ */
+function readSandboxResult(ctx: RegexSandbox): boolean {
+  return ctx.__pbResult === true;
+}
+
+let sandbox: RegexSandbox | null = null;
+
+function getSandbox(): RegexSandbox {
+  // `Object.create(null)` so a pattern can't reach anything through the
+  // prototype chain; the context holds no globals of its own.
+  if (!sandbox) sandbox = createContext(Object.create(null) as RegexSandbox) as RegexSandbox;
+  return sandbox;
+}
+
+/**
+ * Compile and test a rule-authored regex under a hard length cap and a hard
+ * wall-clock deadline. Returns false (= VIOLATED, fail-closed) when the pattern
+ * is too long, is invalid, or exceeds {@link REGEX_TIMEOUT_MS}.
+ */
+export function safeRegexTest(pattern: string, value: string): boolean {
   if (pattern.length > MAX_REGEX_LENGTH) return false;
+  const ctx = getSandbox();
+  ctx.__pbPattern = pattern;
+  ctx.__pbValue = value;
+  ctx.__pbResult = false;
   try {
-    const regex = new RegExp(pattern);
-    return regex.test(value);
-  } catch {
+    REGEX_SCRIPT.runInContext(ctx, { timeout: REGEX_TIMEOUT_MS });
+    return readSandboxResult(ctx);
+  } catch (err) {
+    // A timeout is the interesting case: the pattern is pathological (or the
+    // input adversarial) and would otherwise have pinned the event loop. Log
+    // it — the pattern, never the entity value — and fail closed.
+    if (err instanceof Error && /timed out/i.test(err.message)) {
+      logger.warn('Compliance regex evaluation exceeded its deadline; treating as violated', {
+        pattern, timeoutMs: REGEX_TIMEOUT_MS, valueLength: value.length,
+      });
+      // Drop the context so nothing from the aborted run is carried forward.
+      sandbox = null;
+    }
     return false;
   }
 }
@@ -153,11 +220,15 @@ export function evaluateOperator(
 }
 
 /**
- * Validate that a regex pattern is safe to use.
+ * Author-time validation for a regex pattern. Defence in depth ONLY — the
+ * actual ReDoS bound is the deadline in {@link safeRegexTest}, which holds for
+ * patterns this check misses and for rules that PROPAGATED from a parent org
+ * before this check existed.
  *
  * Checks for:
  * - Maximum length (`MAX_REGEX_LENGTH`, default 100; override via `COMPLIANCE_MAX_REGEX_LENGTH`)
- * - Nested quantifiers that could cause ReDoS (e.g., `(a+)+`)
+ * - Nested quantifiers that could cause ReDoS (e.g., `(a+)+`) — a narrow
+ *   heuristic that rejects the obvious cases early with a clear message
  * - Valid regex syntax
  *
  * @param pattern - The regex pattern string to validate
@@ -177,7 +248,7 @@ export function validateRegexPattern(pattern: string): string | null {
     new RegExp(pattern);
     return null;
   } catch (err) {
-    return `Invalid regex pattern: ${err instanceof Error ? err.message : String(err)}`;
+    return `Invalid regex pattern: ${errorMessage(err)}`;
   }
 }
 

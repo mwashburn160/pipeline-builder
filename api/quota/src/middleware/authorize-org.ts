@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, requireInternalService, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial, tagRouteGate } from '@pipeline-builder/api-core';
+import { isSystemAdmin, normalizeOrgId, requireInternalService, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('authorize-org');
@@ -46,10 +46,17 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
       return sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.MISSING_REQUIRED_FIELD);
     }
 
-    const targetOrgId = getParam(req.params, 'orgId');
+    const rawTargetOrgId = getParam(req.params, 'orgId');
+    const targetOrgId = normalizeOrgId(rawTargetOrgId);
     if (!targetOrgId) {
       return sendError(res, 400, 'Organization ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
     }
+    // Canonicalize the param for everything downstream. The service compares org
+    // ids as STRINGS in several places — `findOrgWithHierarchy` matches
+    // `String(_id)` (always lowercase hex) and `{ parentOrgId: orgId }` against
+    // stored lowercase strings — so a mixed-case `:orgId` silently resolved to
+    // "no such org / no hierarchy" while this guard happily admitted it.
+    req.params.orgId = targetOrgId;
 
     // System-admin-only routes delegate to api-core's gate so a denial is
     // routed through the shared `authz.denied` auditor (wired at boot by
@@ -64,7 +71,13 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
     // orgs cannot coexist with same-name-different-case — the lower() on
     // both sides is convenience, not a security weakening. See test
     // `should allow same-org access case-insensitively`.
-    const isSameOrg = requestingOrgId.toLowerCase() === targetOrgId.toLowerCase();
+    //
+    // Both sides go through api-core's `normalizeOrgId`, the SINGLE spelling
+    // rule (`getIdentity` and platform's `controller-helper` use the same one),
+    // so a mixed-case org id is judged identically at every hop instead of
+    // passing here and 403'ing on platform.
+    const callerOrg = normalizeOrgId(requestingOrgId);
+    const isSameOrg = callerOrg !== undefined && callerOrg === targetOrgId;
 
     // Standard routes — same-org or system admin
     if (!isSameOrg && !isSystemAdmin(req)) {

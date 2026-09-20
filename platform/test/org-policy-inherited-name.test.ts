@@ -9,25 +9,31 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockMfaPolicy = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
 const mockImpPolicy = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
 const mockGetOrgName = jest.fn<(...a: unknown[]) => Promise<string | undefined>>();
+const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: async () => true,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: (...a: unknown[]) => mockGetOrgName(...a) }));
+// These reads are `canAdministerOrg`-gated and that gate runs FOR REAL (see
+// helpers/controller-helper-mock.ts). The fixture below is a genuine
+// PARENT-org admin reading its TEAM's policy, which is exactly the cross-org
+// branch `canAdministerOrg` resolves by lazily importing this module — so
+// `isAncestorOrg` is mocked alongside `getOrgName`: root IS an ancestor of team.
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getOrgName: (...a: unknown[]) => mockGetOrgName(...a),
+  isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
+}));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 // Only reached when the admin-actions policy changes; stubbed so its graph stays out.
@@ -62,11 +68,18 @@ function makeRes() {
   r.json = (b: unknown) => { r._body = b; return r; };
   return r;
 }
-const req = () => ({ user: { sub: 'u1', organizationId: 'root' }, params: { id: 'team' } }) as any;
+/**
+ * A PARENT-org admin reading the policy of a descendant team: `role` is what
+ * the real `isOrgAdmin` reads, and `root` → `team` is resolved through the
+ * mocked `isAncestorOrg`. `user` is overridable for the negative cases.
+ */
+const req = (user: unknown = { sub: 'u1', organizationId: 'root', role: 'admin' }) =>
+  ({ user, params: { id: 'team' } }) as any;
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetOrgName.mockResolvedValue('Acme Root');
+  mockIsAncestorOrg.mockResolvedValue(true);
 });
 
 describe('GET /organization/:id/mfa-policy — inheritedFromName', () => {
@@ -106,5 +119,32 @@ describe('GET /organization/:id/impersonation-policy — inheritedFromName', () 
     await getImpersonationPolicy(req(), res, jest.fn() as any);
 
     expect(res._body.data).not.toHaveProperty('inheritedFromName');
+  });
+});
+
+/**
+ * The reach these reads depend on is the PARENT → team one, so prove it is a
+ * gate and not a formality: a caller who is not an admin of an ancestor org
+ * gets 403 and the policy is never resolved.
+ */
+describe('policy reads — the canAdministerOrg gate', () => {
+  it.each([
+    ['an anonymous caller', null, 401],
+    ['a plain member of the parent org', { sub: 'u2', organizationId: 'root' }, 403],
+    ['an admin of an unrelated org', { sub: 'u3', organizationId: 'other', role: 'admin' }, 403],
+  ] as const)('refuses %s', async (_label, user, status) => {
+    // Nobody is anyone's ancestor for this block — the unrelated admin must be
+    // refused by the hierarchy walk, not by a same-org shortcut.
+    mockIsAncestorOrg.mockResolvedValue(false);
+
+    for (const handler of [getMfaPolicy, getImpersonationPolicy]) {
+      const res = makeRes();
+      // `null`, not `undefined` — an explicit `undefined` would re-trigger the
+      // parent-admin default parameter.
+      await handler(req(user) as any, res, jest.fn() as any);
+      expect(res._status).toBe(status);
+    }
+    expect(mockMfaPolicy).not.toHaveBeenCalled();
+    expect(mockImpPolicy).not.toHaveBeenCalled();
   });
 });

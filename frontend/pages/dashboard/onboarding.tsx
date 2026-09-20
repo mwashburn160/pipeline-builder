@@ -5,6 +5,7 @@ import { Sparkles } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +18,12 @@ import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
 import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { usePlans } from '@/hooks/usePlans';
+
+/** An org the signed-in user's verified email domain could join. */
+type DomainOrg = { orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' };
+
+/** How long the submit buttons may wait on domain discovery before giving up. */
+const DISCOVERY_TIMEOUT_MS = 6000;
 
 /**
  * First-run onboarding for social-signup (OAuth) users.
@@ -45,8 +52,6 @@ export default function OnboardingPage() {
   const [phase, setPhase] = useState<'setup' | 'install'>('setup');
 
   // Domain-based discovery (P2b): orgs the user's verified email domain can join.
-  const [domainOrgs, setDomainOrgs] = useState<Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }>>([]);
-  const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
   const [requestedOrgIds, setRequestedOrgIds] = useState<Set<string>>(new Set());
 
@@ -59,20 +64,23 @@ export default function OnboardingPage() {
   // Already onboarded (e.g. navigated here directly) — nothing to do.
   useEffect(() => {
     if (isReady && user && !user.needsOnboarding) router.replace('/dashboard');
-  }, [isReady, user?.id, user?.needsOnboarding, router]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isReady, user?.id, user?.needsOnboarding, router]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed on the user id + flag, not the whole user, so a profile refresh does not re-redirect
 
-  // Discover orgs the user could join by their verified email domain.
+  // Discover orgs the user could join by their verified email domain. Fail-soft
+  // and optional: an error just means no suggestions.
+  const discovery = useFetch<DomainOrg[]>(
+    async (signal) => (await api.getDomainOrgs({ signal })).data?.orgs ?? [],
+    [],
+  );
+  const domainOrgs = discovery.data ?? [];
+  // Safety fallback: the client has no fetch timeout, so a hung request must
+  // not leave the submit buttons disabled forever.
+  const [discoveryTimedOut, setDiscoveryTimedOut] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    // Safety fallback: discovery is fail-soft/optional, so never let a hung fetch
-    // (no fetch timeout in the client) leave the submit buttons disabled forever.
-    const fallback = setTimeout(() => { if (!cancelled) setDiscoveryLoading(false); }, 6000);
-    api.getDomainOrgs()
-      .then((res) => { if (!cancelled && res.success && res.data?.orgs) setDomainOrgs(res.data.orgs); })
-      .catch(() => { /* fail-soft: discovery is optional */ })
-      .finally(() => { if (!cancelled) setDiscoveryLoading(false); });
-    return () => { cancelled = true; clearTimeout(fallback); };
+    const t = setTimeout(() => setDiscoveryTimedOut(true), DISCOVERY_TIMEOUT_MS);
+    return () => clearTimeout(t);
   }, []);
+  const discoveryLoading = discovery.loading && !discoveryTimedOut;
 
   const goToDashboard = async () => {
     // Refresh first (syncs the new org name), THEN re-apply the optimistic clear —

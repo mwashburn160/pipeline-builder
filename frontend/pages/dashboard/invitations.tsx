@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Mail, Trash2 } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -21,6 +21,8 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionBar';
+import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/BulkSelectionBanner';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 
@@ -95,33 +97,17 @@ export default function InvitationsPage() {
   // Bulk-revoke multi-select. Only pending invites are selectable (the others
   // can't be revoked). Mirrors the users-page bulk-delete UX: a Set of ids, a
   // header select-all over the visible pending rows, and a confirm before firing.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { selectedIds, toggle: toggleSelected, toggleAll, clear: clearSelection, replace: replaceSelection } = useRowSelection();
   const [pendingBulkRevoke, setPendingBulkRevoke] = useState(false);
   const [bulkRevokeLoading, setBulkRevokeLoading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ revoked: number; failed: number; errors: string[] } | null>(null);
-
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   const pendingVisibleIds = useMemo(
     () => list.data.filter((inv) => inv.status === 'pending').map((inv) => inv.id),
     [list.data],
   );
-  const allPendingSelected = pendingVisibleIds.length > 0 && pendingVisibleIds.every((id) => selectedIds.has(id));
-  const toggleSelectAllPending = useCallback(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allPendingSelected) pendingVisibleIds.forEach((id) => next.delete(id));
-      else pendingVisibleIds.forEach((id) => next.add(id));
-      return next;
-    });
-  }, [pendingVisibleIds, allPendingSelected]);
+  const allPendingSelected = allSelected(selectedIds, pendingVisibleIds);
+  const toggleSelectAllPending = useCallback(() => toggleAll(pendingVisibleIds), [toggleAll, pendingVisibleIds]);
 
   const handleBulkRevoke = async () => {
     const ids = Array.from(selectedIds);
@@ -147,12 +133,11 @@ export default function InvitationsPage() {
     setPendingBulkRevoke(false);
     setBulkResult({ revoked, failed: errors.length, errors: errors.slice(0, 10) });
     // Keep only the ones that failed selected, so a retry hits just those.
-    const failedIds = new Set(
+    replaceSelection(
       results.map((r, i) => ({ r, id: ids[i] }))
         .filter(({ r }) => !(r.status === 'fulfilled' && r.value.success))
         .map(({ id }) => id),
     );
-    setSelectedIds(failedIds);
     if (revoked > 0) list.refresh();
   };
 
@@ -273,7 +258,7 @@ export default function InvitationsPage() {
     {
       id: 'email',
       header: 'Email',
-      render: (inv) => <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{inv.email}</span>,
+      render: (inv) => <span className="text-sm font-medium text-fg">{inv.email}</span>,
     },
     {
       id: 'role',
@@ -338,35 +323,18 @@ export default function InvitationsPage() {
 
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
-      {selectedIds.size > 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900/40 dark:bg-blue-900/20">
-          <span className="text-blue-800 dark:text-blue-200">
-            <strong>{selectedIds.size}</strong> invitation{selectedIds.size === 1 ? '' : 's'} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setSelectedIds(new Set())} className="action-link text-sm">Clear</button>
-            <Button
-              variant="danger"
-              onClick={() => setPendingBulkRevoke(true)}
-              className="inline-flex items-center gap-1 text-sm"
-            >
-              <Trash2 className="h-4 w-4" /> Revoke {selectedIds.size}
-            </Button>
-          </div>
-        </div>
-      )}
+      <BulkSelectionBanner
+        count={selectedIds.size}
+        noun="invitation"
+        actionLabel="Revoke"
+        onClear={clearSelection}
+        onAction={() => setPendingBulkRevoke(true)}
+      />
 
       {bulkResult && (
-        <div className={`mb-3 rounded-lg px-3 py-2 text-sm ${bulkResult.failed === 0 ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300'}`}>
-          <div>
-            Bulk revoke finished — <strong>{bulkResult.revoked}</strong> revoked, <strong>{bulkResult.failed}</strong> failed.
-          </div>
-          {bulkResult.errors.length > 0 && (
-            <ul className="mt-1 list-disc pl-5 text-xs">
-              {bulkResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
-            </ul>
-          )}
-        </div>
+        <BulkResultSummary failed={bulkResult.failed} errors={bulkResult.errors}>
+          Bulk revoke finished — <strong>{bulkResult.revoked}</strong> revoked, <strong>{bulkResult.failed}</strong> failed.
+        </BulkResultSummary>
       )}
 
       {/* Filter */}
@@ -422,7 +390,9 @@ export default function InvitationsPage() {
           icon: Mail,
           title: 'No invitations found',
           description: list.hasActiveFilters ? 'Try adjusting your filter.' : 'Send an invitation to add team members.',
-          action: list.hasActiveFilters ? undefined : (
+          // Same gate as the header button: without `invitations:manage` the
+          // send would 403, so the empty state must not offer it either.
+          action: list.hasActiveFilters || !canManageInvitations ? undefined : (
             <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
               <Mail className="w-4 h-4 mr-1.5" /> Send invitation
             </Button>

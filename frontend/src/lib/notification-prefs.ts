@@ -13,7 +13,7 @@
 import api from '@/lib/api';
 import { setPreference, usePreferences, type NotificationPrefs } from '@/lib/preferences-store';
 
-export { DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs } from '@/lib/preferences-store';
+export type { NotificationPrefs } from '@/lib/preferences-store';
 
 /**
  * Save `prefs` for the scope. Applies immediately, then persists to the server;

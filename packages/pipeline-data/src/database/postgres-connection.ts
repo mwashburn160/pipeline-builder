@@ -162,7 +162,7 @@ export class Connection {
     // Initialize retry strategy
     this.retryStrategy = new ConnectionRetryStrategy({
       maxRetries: this.options.maxRetries,
-      baseDelay: this.options.retryDelay,
+      retryDelayMs: this.options.retryDelay,
     });
 
     try {

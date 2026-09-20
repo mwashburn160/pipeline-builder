@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestMetric } from '@pipeline-builder/pipeline-data';
@@ -136,7 +136,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
         try {
           sseManager.send(org, 'MESSAGE', 'execution-updated', { at: new Date().toISOString() });
         } catch (err) {
-          ctx.log('WARN', 'Execution-status SSE notify failed (non-fatal)', { org, error: err instanceof Error ? err.message : String(err) });
+          ctx.log('WARN', 'Execution-status SSE notify failed (non-fatal)', { org, error: errorMessage(err) });
         }
       }
     }

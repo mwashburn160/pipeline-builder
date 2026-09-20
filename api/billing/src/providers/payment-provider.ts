@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { StripeInvoiceLike } from '../helpers/billing-ledger.js';
 import type { BillingInterval, SubscriptionStatus } from '../models/subscription.js';
 
 /**
@@ -130,13 +129,6 @@ export interface PaymentProvider {
 
   /** How this provider realizes a usage credit. Absent = none. */
   readonly usageCreditSupport?: UsageCreditSupport;
-
-  /**
-   * List a customer's historical invoices (newest first) for the billing-ledger
-   * BACKFILL — invoices weren't persisted before the ledger existed. Optional:
-   * providers without an invoice API (stub, marketplace) omit it.
-   */
-  listCustomerInvoices?(externalCustomerId: string, limit?: number): Promise<StripeInvoiceLike[]>;
 
   /**
    * Create a hosted session where the customer can add/update a payment method,

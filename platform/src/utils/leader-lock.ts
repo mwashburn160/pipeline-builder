@@ -20,7 +20,7 @@
  * correctness prerequisite).
  */
 
-import { createLogger, withLeaderLock, type LockRedis } from '@pipeline-builder/api-core';
+import { createLogger, withLeaderLock, type LockRedis, errorMessage } from '@pipeline-builder/api-core';
 import { getRedisClient } from './redis-client.js';
 
 const logger = createLogger('leader-lock');
@@ -48,7 +48,7 @@ export async function runWithLeaderLock(
     try {
       await fn();
     } catch (err) {
-      logger.error('Background job failed', { key, error: err instanceof Error ? err.message : String(err) });
+      logger.error('Background job failed', { key, error: errorMessage(err) });
     }
   };
   const redis = await getRedisClient();

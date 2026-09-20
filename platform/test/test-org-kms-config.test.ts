@@ -13,9 +13,9 @@
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
 import { z } from 'zod';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFindById = jest.fn();
-const mockRequireSystemAdmin = jest.fn();
 const mockDeriveKeyAsync = jest.fn();
 const mockPerOrgCtor = jest.fn();
 const mockAudit = jest.fn();
@@ -59,11 +59,7 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireSystemAdmin: (req: any, res: any) => mockRequireSystemAdmin(req, res),
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
@@ -101,6 +97,24 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 const { testOrgKmsConfig } = await import('../src/controllers/org-kms-config.js');
 
 
+/**
+ * The route is `requireSystemAdmin`-gated and that gate now runs FOR REAL (see
+ * helpers/controller-helper-mock.ts). Authority is therefore expressed in the
+ * REQUEST — api-core's `isSystemAdmin` reads the JWT's `isSuperAdmin` claim —
+ * rather than by stubbing the gate, which is what the deleted
+ * `mockRequireSystemAdmin` used to do (and which meant the gate itself was
+ * never actually under test).
+ */
+const SYSADMIN = { sub: 'sa-1', isSuperAdmin: true };
+/** A signed-in org admin: passes `requireAuth`, fails `isSystemAdmin`. */
+const ORG_ADMIN = { sub: 'a-1', organizationId: 'o1', role: 'admin' };
+
+/** Request fixture; `user` defaults to the platform admin the route requires. */
+const asReq = (body: unknown, user: unknown = SYSADMIN) =>
+  // NOTE: pass `null` (not `undefined`) for the anonymous case — an explicit
+  // `undefined` would re-trigger the SYSADMIN default parameter.
+  ({ params: { orgId: 'o1' }, body, user }) as any;
+
 function mockRes() {
   const res: any = {};
   res.status = jest.fn(() => res);
@@ -110,62 +124,69 @@ function mockRes() {
 
 beforeEach(() => {
   mockOrgFindById.mockReset();
-  mockRequireSystemAdmin.mockReset();
   mockDeriveKeyAsync.mockReset();
   mockPerOrgCtor.mockReset();
   mockAudit.mockReset();
 });
 
 describe('testOrgKmsConfig', () => {
-  it('returns the sysadmin gate path if not authorized', async () => {
-    mockRequireSystemAdmin.mockImplementation((_req: any, res: any) => {
-      res.status(403).json({ success: false });
-      return false;
-    });
+  it('401s an anonymous caller and never looks the org up', async () => {
     const res = mockRes();
-    await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)({ params: { orgId: 'o1' } }, res);
+    await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }, null),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(mockOrgFindById).not.toHaveBeenCalled();
+    expect(mockDeriveKeyAsync).not.toHaveBeenCalled();
+  });
+
+  it('403s a mere ORG admin — per-org KMS config is platform-admin only', async () => {
+    const res = mockRes();
+    await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }, ORG_ADMIN),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockOrgFindById).not.toHaveBeenCalled();
+    expect(mockDeriveKeyAsync).not.toHaveBeenCalled();
   });
 
   it('returns 400 when keyId is missing', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     const res = mockRes();
     await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
-      { params: { orgId: 'o1' }, body: { ciphertextBase64: 'AQI=' } },
+      asReq({ ciphertextBase64: 'AQI=' }),
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('returns 400 when ciphertextBase64 is not base64', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     const res = mockRes();
     await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
-      { params: { orgId: 'o1' }, body: { keyId: 'alias/pb', ciphertextBase64: 'not!base64!' } },
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'not!base64!' }),
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('returns 404 when the org does not exist', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(null) }) });
     const res = mockRes();
     await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
-      { params: { orgId: 'o1' }, body: { keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' } },
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }),
       res,
     );
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
   it('returns a stable SHA-256 fingerprint on success and never touches Mongo for writes', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'o1' }) }) });
     mockDeriveKeyAsync.mockResolvedValue(Buffer.alloc(32, 0x11));
 
     const res = mockRes();
     await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
-      { params: { orgId: 'o1' }, body: { keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' } },
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }),
       res,
     );
 
@@ -183,13 +204,12 @@ describe('testOrgKmsConfig', () => {
   });
 
   it('returns 400 with the underlying KMS error message when deriveKey fails', async () => {
-    mockRequireSystemAdmin.mockReturnValue(true);
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'o1' }) }) });
     mockDeriveKeyAsync.mockRejectedValue(new Error('AccessDenied: IAM cannot kms:Decrypt'));
 
     const res = mockRes();
     await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
-      { params: { orgId: 'o1' }, body: { keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' } },
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }),
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);

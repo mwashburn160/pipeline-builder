@@ -8,6 +8,7 @@ import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } fro
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('remote-audit');
 
@@ -157,7 +158,6 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.tier.override',
   // Operator-only reseed of the invoice ledger from the payment provider's
   // history (POST /billing/admin/backfill) — mutates finance data fleet-wide.
-  'billing.ledger.backfill',
   'billing.addon.add',
   'billing.addon.remove',
   // System-initiated removal of a tier-included add-on on a plan upgrade (the
@@ -340,7 +340,7 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
       }
       return ok;
     } catch (err) {
-      logger.warn('Remote audit ingest threw', { action: event.action, error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Remote audit ingest threw', { action: event.action, error: errorMessage(err) });
       return false;
     }
   }
@@ -380,7 +380,7 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
         }
       }
     } catch (err) {
-      logger.warn('Audit spool drain failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Audit spool drain failed', { error: errorMessage(err) });
     } finally {
       draining = false;
     }

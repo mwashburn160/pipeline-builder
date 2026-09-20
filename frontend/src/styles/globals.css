@@ -104,7 +104,13 @@
     --pb-border: rgba(12, 20, 33, 0.12);
     --pb-text: #0f172a;
     --pb-text-muted: #475569;
-    --pb-text-subtle: #64748b;
+    /* Contrast floor, not a shade choice. `text-fg-subtle` is used for small
+       text (timestamps, captions, hints) and lands on `--pb-surface-muted` in
+       two dozen places; the old #64748b scored 4.28:1 there and 4.40:1 on the
+       page background, both under the 4.5:1 WCAG AA threshold for small text.
+       #5b6b7f keeps the slate cast and clears it everywhere: 4.90 on
+       surface-muted, 5.04 on the canvas, 5.45 on surface. */
+    --pb-text-subtle: #5b6b7f;
     --pb-brand: #0f6fff;
     --pb-brand-strong: #0b5fe0;
     --pb-accent: #efb64c;
@@ -138,7 +144,11 @@
     --pb-border: rgba(148, 163, 184, 0.22);
     --pb-text: #e2e8f0;
     --pb-text-muted: #94a3b8;
-    --pb-text-subtle: #7c8aa0;
+    /* Same floor as light. #7c8aa0 cleared AA on `--pb-surface-muted` by
+       0.06 (4.56:1), which is inside the rounding of any surface tweak;
+       #8494aa restores headroom (5.17 on surface-muted, 5.74 on surface,
+       6.22 on the canvas) while staying clearly dimmer than `--pb-text-muted`. */
+    --pb-text-subtle: #8494aa;
     --pb-brand: #63a6ff;
     --pb-brand-strong: #3b82f6;
     --pb-accent: #f5c85c;
@@ -191,6 +201,32 @@
 @layer components {
   .page-reveal {
     animation: pb-fade-up 420ms ease-out both;
+  }
+
+  /* Toast entrance. CSS rather than framer-motion: the toast stack mounts on
+     every route, and this is a fade plus an 8px rise. The reduced-motion block
+     at the bottom of this file collapses it like every other animation here. */
+  .toast-item {
+    animation: pb-toast-in 200ms ease-out both;
+  }
+
+  /* Empty-state entrance — same reasoning: a fade and a 10px rise, reachable
+     from every list in the app. The glyph's settle is its own keyframe so the
+     two can run at their original, slightly different durations. */
+  .empty-state-reveal {
+    animation: pb-fade-up 350ms ease-out both;
+  }
+
+  .empty-state-glyph {
+    animation: pb-scale-in 400ms ease-out both;
+  }
+
+  /* Tooltip bubble: a 100ms fade, on almost every screen. Opacity ONLY — the
+     bubble is centred with Tailwind's `-translate-x/y-1/2`, and an animation
+     that wrote `transform` would clobber that (and, with `both`, leave
+     `transform: none` behind when it finished). */
+  .tooltip-bubble {
+    animation: pb-tooltip-in 100ms ease-out both;
   }
 
   /* ---- Card ---- */
@@ -612,6 +648,39 @@
        instead of the viewport (clipped/offset modals). `none` leaves no
        lingering transform. */
     transform: none;
+  }
+}
+
+@keyframes pb-toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    /* `none` for the same reason as pb-fade-up: a lingering transform would
+       make the toast a containing block for any fixed descendant. */
+    transform: none;
+  }
+}
+
+@keyframes pb-scale-in {
+  0% {
+    transform: scale(0.96);
+  }
+  100% {
+    /* `none`, not scale(1): see pb-fade-up — a lingering transform makes the
+       element a containing block for any fixed descendant. */
+    transform: none;
+  }
+}
+
+@keyframes pb-tooltip-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 

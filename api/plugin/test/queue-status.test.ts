@@ -72,7 +72,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       requestId: 'test-req', log: jest.fn(),
     };
     (req as any).__ctx = ctx;
-    await handler({ req, res, ctx, orgId: req.headers['x-org-id'] || '000000000000000000000001', userId: 'user-1' });
+    // `userId` mirrors the real wrapper, which takes it from `getIdentity` —
+    // i.e. the JWT `sub`, falling back to the `x-user-id` hop header.
+    await handler({ req, res, ctx, orgId: req.headers['x-org-id'] || '000000000000000000000001', userId: req.user?.sub ?? 'user-1' });
   },
 }));
 

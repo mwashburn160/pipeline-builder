@@ -10,7 +10,7 @@ import { WHATS_NEW } from '@/lib/help/whats-new';
 export function WhatsNewPanel() {
   return (
     <Card>
-      <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
+      <h2 className="text-sm font-semibold text-fg inline-flex items-center gap-1.5">
         <Sparkles className="w-4 h-4 text-warning" />
         What&apos;s new
       </h2>

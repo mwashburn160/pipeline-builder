@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { DEFAULT_TOAST_DURATION_MS, ERROR_TOAST_DURATION_MS, MAX_VISIBLE_TOASTS, TOAST_OFFSET_CSS_VAR } from '@/lib/constants';
 
@@ -49,11 +48,14 @@ const icons: Record<ToastType, typeof CheckCircle> = {
   info: Info,
 };
 
+// One `--pb-*` status triple per severity (background / border / foreground),
+// so the stack re-resolves with the theme rather than pairing a light class
+// with a `dark:` one.
 const typeStyles: Record<ToastType, string> = {
-  success: 'bg-green-50 dark:bg-green-900/40 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200',
-  error: 'bg-red-50 dark:bg-red-900/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200',
-  warning: 'bg-yellow-50 dark:bg-yellow-900/40 border-yellow-200 dark:border-yellow-800 text-yellow-800 dark:text-yellow-200',
-  info: 'bg-blue-50 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200',
+  success: 'bg-success-bg border-success-border text-success-strong',
+  error: 'bg-danger-bg border-danger-border text-danger-strong',
+  warning: 'bg-warning-bg border-warning-border text-warning-strong',
+  info: 'bg-info-bg border-info-border text-info-strong',
 };
 
 let nextId = 0;
@@ -81,12 +83,26 @@ function defaultDuration(type: ToastType): number {
  * - Only errors interrupt a screen reader (role=alert, assertive); everything
  *   else is announced politely (role=status) so it doesn't cut off whatever
  *   the user is reading.
+ * - The slide-in is the `.toast-item` CSS animation, not framer-motion: the
+ *   stack mounts on every route (the provider sits in `_app`), and a fade plus
+ *   an 8px rise is not worth an animation runtime. Dismissal is immediate —
+ *   a CSS exit would have to keep the node mounted, and a toast that lingers
+ *   after you close it is worse than one that simply goes.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  // Mirror of `toasts` for the synchronous dedupe check in `addToast`.
+  // THE stack — not a mirror of `toasts`. `addToast` has to read the current
+  // list synchronously (to dedupe and to know the id it must arm a timer for),
+  // which state can't give it mid-tick, so the ref is authoritative and
+  // `setToasts` simply publishes it. Every mutation below goes through
+  // `commit`: when only `addToast` wrote the ref back, a dismiss-then-toast in
+  // the same tick re-committed the list as it was BEFORE the dismiss, putting
+  // the just-removed toast back on screen.
   const toastsRef = useRef<ToastItem[]>([]);
-  toastsRef.current = toasts;
+  const commit = useCallback((next: (prev: ToastItem[]) => ToastItem[]) => {
+    toastsRef.current = next(toastsRef.current);
+    setToasts(toastsRef.current);
+  }, []);
   // Track every auto-dismiss timer so a manual close or provider unmount
   // can cancel it. Without this, a closed toast's expiry timer keeps
   // running and calls setState on an unmounted component (a leak in
@@ -103,8 +119,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const removeToast = useCallback((id: string) => {
     clearTimer(id);
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, [clearTimer]);
+    commit((prev) => prev.filter((t) => t.id !== id));
+  }, [clearTimer, commit]);
 
   const armTimer = useCallback((id: string, duration: number) => {
     clearTimer(id);
@@ -116,22 +132,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (existing) {
       const bumped = { ...existing, count: existing.count + 1, duration };
       // Move it to the newest slot so a repeat stays visible under the cap.
-      toastsRef.current = [...toastsRef.current.filter((t) => t.id !== existing.id), bumped];
-      setToasts(toastsRef.current);
+      commit((prev) => [...prev.filter((t) => t.id !== existing.id), bumped]);
       armTimer(existing.id, duration);
       return;
     }
     const id = String(++nextId);
-    toastsRef.current = [...toastsRef.current, { id, type, message, duration, count: 1 }];
-    setToasts(toastsRef.current);
+    commit((prev) => [...prev, { id, type, message, duration, count: 1 }]);
     armTimer(id, duration);
-  }, [armTimer]);
+  }, [armTimer, commit]);
 
   const dismissMany = useCallback((ids: string[]) => {
     for (const id of ids) clearTimer(id);
     const drop = new Set(ids);
-    setToasts((prev) => prev.filter((t) => !drop.has(t.id)));
-  }, [clearTimer]);
+    commit((prev) => prev.filter((t) => !drop.has(t.id)));
+  }, [clearTimer, commit]);
 
   // Cancel any pending dismiss timers on unmount.
   useEffect(() => {
@@ -176,39 +190,33 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             </button>
           </div>
         )}
-        <AnimatePresence>
-          {visible.map((t) => {
-            const Icon = icons[t.type];
-            const urgent = t.type === 'error';
-            return (
-              <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                role={urgent ? 'alert' : 'status'}
-                aria-live={urgent ? 'assertive' : 'polite'}
-                className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm ${typeStyles[t.type]}`}
+        {visible.map((t) => {
+          const Icon = icons[t.type];
+          const urgent = t.type === 'error';
+          return (
+            <div
+              key={t.id}
+              role={urgent ? 'alert' : 'status'}
+              aria-live={urgent ? 'assertive' : 'polite'}
+              className={`toast-item flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm ${typeStyles[t.type]}`}
+            >
+              <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
+              <p className="text-sm font-medium flex-1">{t.message}</p>
+              {t.count > 1 && (
+                <span className="flex-shrink-0 text-xs font-semibold opacity-80" aria-label={`repeated ${t.count} times`}>
+                  ×{t.count}
+                </span>
+              )}
+              <button
+                onClick={() => removeToast(t.id)}
+                className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+                aria-label="Dismiss notification"
               >
-                <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
-                <p className="text-sm font-medium flex-1">{t.message}</p>
-                {t.count > 1 && (
-                  <span className="flex-shrink-0 text-xs font-semibold opacity-80" aria-label={`repeated ${t.count} times`}>
-                    ×{t.count}
-                  </span>
-                )}
-                <button
-                  onClick={() => removeToast(t.id)}
-                  className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
-                  aria-label="Dismiss notification"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

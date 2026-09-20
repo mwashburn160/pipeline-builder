@@ -79,7 +79,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
                   isCurrent
                     ? 'text-blue-600 dark:text-blue-400'
                     : isCompleted
-                    ? 'text-gray-700 dark:text-gray-300'
+                    ? 'text-fg-muted'
                     : 'text-fg-muted'
                 }`}
               >

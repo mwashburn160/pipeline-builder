@@ -4,7 +4,7 @@
 import { createLogger, envInt } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { lt } from 'drizzle-orm';
-import type { ValidationResult } from '../engine/rule-engine.js';
+import type { RuleValidationResult } from '../engine/rule-engine.js';
 
 const logger = createLogger('compliance-check-log');
 
@@ -18,7 +18,7 @@ export async function logComplianceCheck(
   action: string,
   entityId: string | undefined,
   entityName: string | undefined,
-  result: ValidationResult,
+  result: RuleValidationResult,
   scanId?: string,
 ): Promise<void> {
   const auditResult = result.blocked ? 'block' : result.warnings.length > 0 ? 'warn' : 'pass';

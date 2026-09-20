@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, requireStepUp, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitComplianceAudit } from '../services/audit.js';
@@ -58,7 +58,7 @@ export function createCompliancePurgeRoutes(opts: {
 
     emitComplianceAudit({
       action,
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType,

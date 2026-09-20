@@ -9,11 +9,15 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
-const mockCanAdminister = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 const mockScope = jest.fn<(...a: unknown[]) => Promise<string[]>>(async () => ['root', 'team']);
+// `canAdministerOrg` runs FOR REAL; its cross-org branch lazily imports
+// `helpers/org-hierarchy.js`, so the ancestor walk is mocked HERE (the module is
+// replaced wholesale, and an absent `isAncestorOrg` would throw on that branch).
+const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
 const svc = {
   request: jest.fn<(...a: any[]) => Promise<any>>(),
   approve: jest.fn<(...a: any[]) => Promise<any>>(),
@@ -29,20 +33,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: () => true,
-  canAdministerOrg: (...a: unknown[]) => mockCanAdminister(...a),
-  withController: (_label: string, fn: Function, map?: Record<string, { status: number; message: string; code?: string }>) =>
-    async (req: any, res: any) => {
-      try { await fn(req, res); } catch (err) {
-        const mapped = map?.[(err as Error).message];
-        if (mapped) res.status(mapped.status).json({ success: false, message: mapped.message, code: mapped.code });
-        else throw err;
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: (...a: unknown[]) => mockScope(...a) }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  expandOrgScope: (...a: unknown[]) => mockScope(...a),
+  isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
+}));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
 jest.unstable_mockModule('../src/services/mfa-recovery.js', () => ({
@@ -80,6 +76,16 @@ const pending = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// The controller-helper runs FOR REAL (see helpers/controller-helper-mock.ts):
+// `requireAuth` reads `req.user`, and `canAdministerOrg` reads api-core's
+// `isSystemAdmin` (the `isSuperAdmin` claim), then `isOrgAdmin` (the `role`
+// claim), then the caller's `organizationId` vs. the target org — falling back
+// to the mocked ancestor walk. Authority is therefore expressed by the FIXTURE.
+/** An owner/admin of `organizationId` — administers that org and its teams. */
+const adminOf = (organizationId: string) => ({ role: 'admin', organizationId });
+/** A signed-in plain member — authenticated, but administers nothing. */
+const memberOf = (organizationId: string) => ({ role: 'member', organizationId });
+
 function makeRes() {
   const r: any = { _status: 0, _body: undefined };
   r.status = (s: number) => { r._status = s; return r; };
@@ -94,14 +100,14 @@ const call = async (handler: any, { params = {}, body = {}, user = {} }: { param
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCanAdminister.mockResolvedValue(true);
+  mockIsAncestorOrg.mockResolvedValue(false);
   mockScope.mockResolvedValue(['root', 'team']);
 });
 
 describe('request', () => {
   it('files the request with the caller as requester, and audits it under the real actor', async () => {
     svc.request.mockResolvedValue(pending({ requestedBy: 'admin2', expiresAt: '2026-09-20T00:00:00.000Z' }));
-    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' } });
+    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' }, user: adminOf('team') });
     expect(res._status).toBe(201);
     expect(svc.request).toHaveBeenCalledWith({
       organizationId: 'team',
@@ -114,21 +120,21 @@ describe('request', () => {
   });
 
   it('refuses a caller who does not administer the org', async () => {
-    mockCanAdminister.mockResolvedValue(false);
-    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' } });
+    // A plain member of the very org in the URL: authenticated, no authority.
+    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' }, user: memberOf('team') });
     expect(res._status).toBe(403);
     expect(svc.request).not.toHaveBeenCalled();
   });
 
   it('requires a real reason', async () => {
-    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'x' } });
+    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'x' }, user: adminOf('team') });
     expect(res._status).toBe(400);
     expect(svc.request).not.toHaveBeenCalled();
   });
 
   it('maps the service refusals', async () => {
     svc.request.mockRejectedValue(new Error('MFA_RESET_ALREADY_PENDING'));
-    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' } });
+    const res = await call(ctrl.requestMfaReset, { params: { id: 'team' }, body: { userId: TARGET, reason: 'Lost phone and laptop' }, user: adminOf('team') });
     expect(res._status).toBe(409);
     expect(res._body.code).toBe('MFA_RESET_ALREADY_PENDING');
   });
@@ -138,7 +144,7 @@ describe('approve', () => {
   it('approves as the caller and audits the reset with the requester recorded separately', async () => {
     svc.get.mockResolvedValue(pending());
     svc.approve.mockResolvedValue({ request: pending({ status: 'approved', decidedBy: 'admin2' }), result: RESULT });
-    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, body: { graceHours: 24 } });
+    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, body: { graceHours: 24 }, user: adminOf('team') });
     expect(res._status).toBe(200);
     expect(svc.approve).toHaveBeenCalledWith({ requestId: 'r1', approver: expect.objectContaining({ id: 'admin2' }), graceHours: 24 });
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'auth.mfa.reset_approved', expect.objectContaining({
@@ -150,15 +156,17 @@ describe('approve', () => {
 
   it('checks tenancy against the REQUEST\'s org, not the URL\'s', async () => {
     svc.get.mockResolvedValue(pending({ organizationId: 'team' }));
-    mockCanAdminister.mockImplementation(async (_req, orgId) => orgId !== 'team');
-    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' } });
+    // The caller administers the URL's org ('root') but NOT the request's own
+    // org ('team') — 'root' is not an ancestor of it in this fixture.
+    mockIsAncestorOrg.mockResolvedValue(false);
+    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, user: adminOf('root') });
     expect(res._status).toBe(403);
     expect(svc.approve).not.toHaveBeenCalled();
   });
 
   it('404s a request outside the URL org\'s subtree', async () => {
     svc.get.mockResolvedValue(pending({ organizationId: 'elsewhere' }));
-    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' } });
+    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, user: adminOf('root') });
     expect(res._status).toBe(404);
     expect(svc.approve).not.toHaveBeenCalled();
   });
@@ -166,14 +174,14 @@ describe('approve', () => {
   it('refuses the second-person violation with its own code', async () => {
     svc.get.mockResolvedValue(pending());
     svc.approve.mockRejectedValue(new Error('MFA_RESET_SECOND_PERSON_REQUIRED'));
-    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' } });
+    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, user: adminOf('team') });
     expect(res._status).toBe(403);
     expect(res._body.code).toBe('MFA_RESET_SECOND_PERSON_REQUIRED');
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it('refuses a grace beyond the ceiling', async () => {
-    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, body: { graceHours: 500 } });
+    const res = await call(ctrl.approveMfaReset, { params: { id: 'root', requestId: 'r1' }, body: { graceHours: 500 }, user: adminOf('team') });
     expect(res._status).toBe(400);
   });
 });
@@ -182,7 +190,7 @@ describe('deny', () => {
   it('records a withdrawal when the requester denies their own request', async () => {
     svc.get.mockResolvedValue(pending({ requestedBy: 'admin2' }));
     svc.deny.mockResolvedValue(pending({ requestedBy: 'admin2', status: 'denied' }));
-    await call(ctrl.denyMfaReset, { params: { id: 'team', requestId: 'r1' } });
+    await call(ctrl.denyMfaReset, { params: { id: 'team', requestId: 'r1' }, user: adminOf('team') });
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'auth.mfa.reset_denied', expect.objectContaining({
       details: expect.objectContaining({ withdrawn: true }),
     }));
@@ -191,7 +199,7 @@ describe('deny', () => {
   it('records a denial by another admin with its note', async () => {
     svc.get.mockResolvedValue(pending());
     svc.deny.mockResolvedValue(pending({ status: 'denied' }));
-    await call(ctrl.denyMfaReset, { params: { id: 'team', requestId: 'r1' }, body: { note: 'Could not verify' } });
+    await call(ctrl.denyMfaReset, { params: { id: 'team', requestId: 'r1' }, body: { note: 'Could not verify' }, user: adminOf('team') });
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'auth.mfa.reset_denied', expect.objectContaining({
       details: expect.objectContaining({ withdrawn: false, note: 'Could not verify' }),
     }));
@@ -221,7 +229,7 @@ describe('direct (sysadmin)', () => {
 describe('list', () => {
   it('lists requests across the org and its teams', async () => {
     svc.list.mockResolvedValue([pending()]);
-    const res = await call(ctrl.listMfaResets, { params: { id: 'root' } });
+    const res = await call(ctrl.listMfaResets, { params: { id: 'root' }, user: adminOf('root') });
     expect(svc.list).toHaveBeenCalledWith(['root', 'team']);
     expect(res._body.data.requests).toHaveLength(1);
   });

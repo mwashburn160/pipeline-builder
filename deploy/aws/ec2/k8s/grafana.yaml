@@ -34,6 +34,26 @@ spec:
   selector:
     app: grafana
 ---
+# Manual hostPath PV + an empty storageClassName, like every other volume on
+# this target. `pb-ebs` exists ONLY in the EKS overlay (k8s/storageclasses.yaml),
+# so naming it here left the claim Pending forever and Grafana never started.
+# The directory is pre-seeded by bin/startup.sh.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grafana-pv
+  labels:
+    app: grafana
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 2Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /opt/pipeline/pipeline-data/db-data/grafana
+    type: DirectoryOrCreate
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -41,11 +61,14 @@ metadata:
   labels:
     app: grafana
 spec:
-  storageClassName: pb-ebs
+  storageClassName: ""
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 2Gi
+  selector:
+    matchLabels:
+      app: grafana
 ---
 # Datasource provisioning. Grafana reads this at boot; editing it and restarting
 # is the supported way to change wiring (the UI edits would be overwritten).
@@ -123,9 +146,31 @@ spec:
         runAsUser: 472        # the grafana user in the official image
         runAsGroup: 472
         fsGroup: 472
+      # hostPath volumes are NOT chowned by fsGroup, so the pre-seeded
+      # /opt/pipeline/pipeline-data/db-data/grafana is root-owned and Grafana
+      # (472) crashloops on "GF_PATHS_DATA is not writable". Same fix as
+      # prometheus/alertmanager on this target. (eks uses pb-ebs, where fsGroup
+      # does apply, so it doesn't need this.)
+      initContainers:
+        - name: fix-permissions
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 472:472 /var/lib/grafana"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
       containers:
         - name: grafana
-          image: grafana/grafana:12.3.0
+          image: grafana/grafana@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8  # grafana/grafana:12.3.0
           ports:
             - containerPort: 3000
               name: http

@@ -98,10 +98,10 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
   return (
     <Modal title="Delete Tag" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
-        <div className="text-sm text-gray-700 dark:text-gray-300">
+        <div className="text-sm text-fg-muted">
           You are about to delete the manifest pointed to by:
         </div>
-        <div className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
+        <div className="font-mono text-sm text-fg break-all">
           {repo}:{tagRef}
         </div>
 

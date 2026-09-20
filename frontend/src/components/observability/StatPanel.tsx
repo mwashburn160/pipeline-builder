@@ -35,7 +35,7 @@ export function StatPanel({ queryKey, title, range, span = 3, format = defaultFo
   return (
     <Panel title={title} span={span} loading={loading} error={error} empty={empty}>
       <div className="text-center">
-        <div className="text-3xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+        <div className="text-3xl font-bold text-fg tabular-nums">
           {format(sum)}
         </div>
       </div>

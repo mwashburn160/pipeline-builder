@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -13,18 +13,19 @@ import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Input } from '@/components/ui/Input';
+import { AddPanelModal } from '@/components/observability/AddPanelModal';
+import { useDashboardDraft } from '@/hooks/internal/useDashboardDraft';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { RetryError } from '@/components/ui/RetryError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { api } from '@/lib/api';
-import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
-import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
+import type { DashboardWithPanels, CatalogEntry, DashboardWrite } from '@/types/observability';
+import type { LayoutPanelInput } from '@/components/observability/DashboardLayoutGrid';
 import { formatError } from '@/lib/constants';
 
 // Load the grid-layout driver only on this page. `ssr: false` is
@@ -63,16 +64,14 @@ export default function DashboardEditPage() {
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id: '';
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState<'private' | 'org' | 'public'>('private');
-  const [panels, setPanels] = useState<Array<Omit<DashboardPanel, 'id' | 'dashboardId'>>>([]);
-  // Stable React keys kept lockstep with `panels`. Index keys break the
-  // controlled inputs when rows reorder/remove (typing in one row jumps to
-  // another) — same lockstep-id pattern EnvEditor/StepEditor use.
-  const panelKeySeq = useRef(0);
-  const [panelKeys, setPanelKeys] = useState<string[]>([]);
-  const [layoutJson, setLayoutJson] = useState<Record<string, PanelCoords>>({});
+  // Title/description/visibility plus the panel list, its React keys and the
+  // grid coordinates — one reducer, because move/remove/add each have to change
+  // all three panel structures together (see the hook).
+  const {
+    draft, load, setName, setDescription, setVisibility,
+    setPanelField, movePanel, removePanel, addPanel, setLayout, isDirty,
+  } = useDashboardDraft();
+  const { name, description, visibility, panels, panelKeys, layoutJson } = draft;
   // editor defaults to drag-resize for new sessions, but anyone who
   // prefers the linear list still has it one click away.
   const [editorMode, setEditorMode] = useState<'grid' | 'list'>('grid');
@@ -96,32 +95,10 @@ export default function DashboardEditPage() {
   const catalog = loaded?.catalog ?? EMPTY_CATALOG;
 
   useEffect(() => {
-    if (!original) return;
-    setName(original.name);
-    setDescription(original.description ?? '');
-    setVisibility(original.visibility);
-    setPanels(original.panels.map(({ id: _id, dashboardId: _did, ...rest }) => rest));
-    setPanelKeys(original.panels.map(() => `panel-${panelKeySeq.current++}`));
-    // layoutJson keys are `p-${position}` end-to-end (server keeps
-    // whatever map we send). Position-based keys survive PUT — which
-    // re-assigns panel ids — without invalidating the saved layout.
-    setLayoutJson(original.layoutJson ?? {});
-  }, [original]);
+    if (original) load(original);
+  }, [original, load]);
 
-  // Draft differs from the loaded doc? Compared field-by-field against
-  // `original` (panels/layoutJson serialized) so an accidental Back / tab
-  // close / sidebar click can warn before discarding edits. Stays false
-  // until the doc has loaded.
-  const dirty = useMemo(() => {
-    if (!original) return false;
-    if (name !== original.name) return true;
-    if (description !== (original.description ?? '')) return true;
-    if (visibility !== original.visibility) return true;
-    const originalPanels = original.panels.map(({ id: _id, dashboardId: _did, ...rest }) => rest);
-    if (JSON.stringify(panels) !== JSON.stringify(originalPanels)) return true;
-    if (JSON.stringify(layoutJson) !== JSON.stringify(original.layoutJson ?? {})) return true;
-    return false;
-  }, [original, name, description, visibility, panels, layoutJson]);
+  const dirty = isDirty(original);
 
   // Warn on Back / reload / tab-close / in-app navigation while there are
   // unsaved edits. `allowNavigation()` is called on Save to bypass the guard
@@ -140,73 +117,6 @@ export default function DashboardEditPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [editorMode]);
-
-  // Reordering (both modes) swaps panels AND swaps their layoutJson entries
-  // so the grid view stays consistent if the user toggles back. Grid-mode
-  // drags update layoutJson directly via `onChange` from DashboardLayoutGrid.
-  const movePanel = useCallback((index: number, delta: -1 | 1) => {
-    setPanels((prev) => {
-      const next = [...prev];
-      const target = index + delta;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next.map((p, i) => ({...p, position: i }));
-    });
-    setPanelKeys((prev) => {
-      const target = index + delta;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-    setLayoutJson((prev) => {
-      const target = index + delta;
-      if (target < 0) return prev;
-      const aKey = `p-${index}`;
-      const bKey = `p-${target}`;
-      const a = prev[aKey];
-      const b = prev[bKey];
-      const out = {...prev };
-      if (a !== undefined) out[bKey] = a; else delete out[bKey];
-      if (b !== undefined) out[aKey] = b; else delete out[aKey];
-      return out;
-    });
-  }, []);
-
-  const removePanel = useCallback((index: number) => {
-    setPanels(prev => prev.filter((_, i) => i !== index).map((p, i) => ({...p, position: i })));
-    setPanelKeys((prev) => prev.filter((_, i) => i !== index));
-    setLayoutJson((prev) => {
-      // Shift any layoutJson entries past `index` down by one to match the
-      // renumbered positions.
-      const out: Record<string, PanelCoords> = {};
-      for (const [k, v] of Object.entries(prev)) {
-        const pos = parseInt(k.replace(/^p-/, ''), 10);
-        if (Number.isNaN(pos) || pos === index) continue;
-        out[`p-${pos < index ? pos: pos - 1}`] = v;
-      }
-      return out;
-    });
-  }, []);
-
-  const addPanel = useCallback((entry: CatalogEntry, title: string, vizKind: string, span: number) => {
-    setPanels(prev => [
-...prev,
-      {
-        queryKey: entry.key,
-        vizKind,
-        title,
-        span,
-        groupBy: null,
-        format: null,
-        position: prev.length,
-      },
-    ]);
-    setPanelKeys((prev) => [...prev, `panel-${panelKeySeq.current++}`]);
-    // New panels have no saved coords — the grid driver computes a default
-    // slot on render; no layoutJson update needed at insert time.
-    setShowAddPanel(false);
-  }, []);
 
   const onSave = async () => {
     if (!original) return;
@@ -290,7 +200,7 @@ export default function DashboardEditPage() {
     >
       <div className="space-y-4">
         {/* Metadata */}
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
+        <div className="rounded-lg border border-default bg-surface p-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-fg-muted mb-1">Name</label>
             <Input
@@ -322,21 +232,21 @@ export default function DashboardEditPage() {
 
         {/* Panels — grid or list view; mode-switch keeps the linear
             UI as an option for keyboard / accessibility users. */}
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <div className="rounded-lg border border-default bg-surface">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-default">
             <h3 className="text-sm font-semibold">Panels ({panels.length})</h3>
             <div className="flex items-center gap-2">
-              <div className="inline-flex border border-gray-300 dark:border-gray-600 rounded overflow-hidden text-xs">
+              <div className="inline-flex border border-default rounded overflow-hidden text-xs">
                 <button
                   onClick={() => setEditorMode('grid')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-brand text-white' : 'hover:bg-surface-muted'}`}
                   aria-pressed={editorMode === 'grid'}
                 >
                   <LayoutGrid className="w-3.5 h-3.5" /> Grid
                 </button>
                 <button
                   onClick={() => setEditorMode('list')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-brand text-white' : 'hover:bg-surface-muted'}`}
                   aria-pressed={editorMode === 'list'}
                 >
                   <List className="w-3.5 h-3.5" /> List
@@ -361,7 +271,7 @@ export default function DashboardEditPage() {
               <DashboardLayoutGrid
                 panels={panels.map<LayoutPanelInput>((p, i) => ({ id: `p-${i}`, title: p.title, span: p.span }))}
                 layoutJson={layoutJson}
-                onChange={setLayoutJson}
+                onChange={setLayout}
                 width={gridWidth}
                 renderPanel={(_panel, i) => (
                   <div className="h-full flex flex-col gap-1">
@@ -377,9 +287,9 @@ export default function DashboardEditPage() {
                       <input
                         type="text"
                         value={panels[i].title}
-                        onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, title: e.target.value } : q))}
+                        onChange={(e) => setPanelField(i, { title: e.target.value })}
                         aria-label={`Panel ${i + 1} title`}
-                        className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
+                        className="flex-1 px-2 py-1 text-sm border border-default rounded bg-surface"
                       />
                       <IconButton
                         onClick={() => movePanel(i, -1)}
@@ -408,9 +318,9 @@ export default function DashboardEditPage() {
                     </div>
                     <Select
                       value={panels[i].vizKind}
-                      onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, vizKind: e.target.value } : q))}
+                      onChange={(e) => setPanelField(i, { vizKind: e.target.value })}
                       aria-label={`Panel ${i + 1} visualization type`}
-                      className="px-2 py-0.5 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
+                      className="px-2 py-0.5 text-xs border border-default rounded bg-surface"
                     >
                       <option value="stat">stat</option>
                       <option value="line">line</option>
@@ -422,7 +332,7 @@ export default function DashboardEditPage() {
               />
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-default">
               {panels.map((p, i) => (
                 <li key={panelKeys[i] ?? i} className="px-4 py-3 flex items-center gap-3">
                   <div className="flex flex-col gap-0.5">
@@ -447,9 +357,9 @@ export default function DashboardEditPage() {
                     <input
                       type="text"
                       value={p.title}
-                      onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, title: e.target.value }: q))}
+                      onChange={(e) => setPanelField(i, { title: e.target.value })}
                       aria-label={`Panel ${i + 1} title`}
-                      className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      className="w-full px-2 py-1 text-sm border border-default rounded bg-surface text-fg"
                     />
                     <div className="text-xs text-fg-muted mt-1 font-mono">
                       {p.queryKey} · {p.vizKind} · span={p.span}
@@ -457,9 +367,9 @@ export default function DashboardEditPage() {
                   </div>
                   <Select
                     value={p.vizKind}
-                    onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, vizKind: e.target.value }: q))}
+                    onChange={(e) => setPanelField(i, { vizKind: e.target.value })}
                     aria-label={`Panel ${i + 1} visualization type`}
-                    className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
+                    className="px-2 py-1 text-xs border border-default rounded bg-surface"
                   >
                     <option value="stat">stat</option>
                     <option value="line">line</option>
@@ -468,9 +378,9 @@ export default function DashboardEditPage() {
                   </Select>
                   <Select
                     value={p.span}
-                    onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, span: parseInt(e.target.value, 10) }: q))}
+                    onChange={(e) => setPanelField(i, { span: parseInt(e.target.value, 10) })}
                     aria-label={`Panel ${i + 1} column span`}
-                    className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
+                    className="px-2 py-1 text-xs border border-default rounded bg-surface"
                   >
                     {[3, 4, 6, 8, 9, 12].map(s => <option key={s} value={s}>span {s}</option>)}
                   </Select>
@@ -492,111 +402,9 @@ export default function DashboardEditPage() {
         <AddPanelModal
           catalog={catalog}
           onClose={() => setShowAddPanel(false)}
-          onAdd={addPanel}
+          onAdd={(entry, title, vizKind, span) => { addPanel(entry, title, vizKind, span); setShowAddPanel(false); }}
         />
       )}
     </DashboardLayout>
-  );
-}
-
-/** Modal to pick a catalog query + viz + title for a new panel. */
-function AddPanelModal(props: {
-  catalog: CatalogEntry[];
-  onClose: () => void;
-  onAdd: (entry: CatalogEntry, title: string, vizKind: string, span: number) => void;
-}) {
-  const { catalog, onClose, onAdd } = props;
-  const [filter, setFilter] = useState('');
-  const [selected, setSelected] = useState<CatalogEntry | null>(null);
-  const [title, setTitle] = useState('');
-  const [vizKind, setVizKind] = useState('line');
-  const [span, setSpan] = useState<number>(6);
-
-  const filtered = catalog.filter(c => c.key.toLowerCase().includes(filter.toLowerCase()));
-
-  return (
-    <Modal title="Add panel" onClose={onClose} maxWidth="max-w-lg" tall>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Filter</label>
-          <Input
-            type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Type to filter catalog keys…"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Catalog query ({filtered.length})</label>
-          <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded">
-            {filtered.map(entry => (
-              <button
-                key={entry.key}
-                onClick={() => { setSelected(entry); if (!title) setTitle(entry.key.replace(/_/g, ' ')); }}
-                className={`block w-full text-left px-3 py-1.5 text-xs font-mono border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${selected?.key === entry.key ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-              >
-                <div>{entry.key}</div>
-                <div className="text-2xs text-fg-muted">{entry.source}</div>
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <div className="p-3 text-xs text-fg-muted">No matches.</div>
-            )}
-          </div>
-        </div>
-        {selected && (
-          <>
-            <div>
-              <label className="block text-xs font-medium text-fg-muted mb-1">Title</label>
-              <Input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Viz</label>
-                <Select
-                  value={vizKind}
-                  onChange={(e) => setVizKind(e.target.value)}
-                >
-                  <option value="stat">stat</option>
-                  <option value="line">line</option>
-                  <option value="table">table</option>
-                  <option value="stacked-bar">stacked-bar</option>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Span</label>
-                <Select
-                  value={span}
-                  onChange={(e) => setSpan(parseInt(e.target.value, 10))}
-                >
-                  {[3, 4, 6, 8, 9, 12].map(s => <option key={s} value={s}>span {s}</option>)}
-                </Select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={onClose}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onAdd(selected, title.trim() || selected.key, vizKind, span)}
-                disabled={!title.trim()}
-              >
-                Add panel
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-    </Modal>
   );
 }

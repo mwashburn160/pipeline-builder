@@ -74,7 +74,7 @@ export function useUrlTab<T extends string>(
     if (owner) setTab((prev) => (prev === owner ? prev : owner));
     // `valid` is static config; depending on the array identity would re-run
     // this on every render for callers passing an inline literal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `valid` is static config; its array identity would re-run this every render
   }, [router.isReady, fromUrl]);
 
   // Land on the section the fragment names. The browser's own fragment scroll

@@ -88,7 +88,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.12",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -145,6 +145,42 @@
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../jest-uuid-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../jest-env-guard.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 86,
+        "branches": 82,
+        "functions": 73,
+        "lines": 86
+      },
+      "**/src/services/scim-service.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/services/mfa-recovery.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/controllers/token-exchange.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/services/api-key-service.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      }
     }
   },
   "type": "module",

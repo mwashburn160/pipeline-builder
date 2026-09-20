@@ -21,6 +21,7 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { OrgTeamRef } from '@/lib/api/domains/organizations';
 import type { OrgIdpConfigDto } from '@/types';
@@ -91,6 +92,9 @@ function TeamIdentitySection({ team, readOnly, onRenamed }: {
       const renamed = result.data?.organization?.name ?? next;
       setName(renamed);
       setSaved(renamed);
+      // The team's name is what the org switcher and every org list show, and
+      // both read through the shared cache.
+      invalidate.organizations();
       await onRenamed();
     }
   };

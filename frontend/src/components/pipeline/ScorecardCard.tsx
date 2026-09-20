@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { FeatureLock } from '@/components/ui/FeatureLock';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useFetch } from '@/hooks/useFetch';
 import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import api from '@/lib/api';
 import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
@@ -30,25 +30,16 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
   const gate = useFeatureGate('advanced_reporting');
   const enabled = gate.entitled;
 
-  const [scorecard, setScorecard] = useState<PipelineScorecard | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    setLoading(true);
-    setFailed(false);
-    api.getPipelineScorecard(pipelineId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setScorecard(res.data.scorecard);
-        else setFailed(true);
-      })
-      .catch(() => { if (!cancelled) setFailed(true); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+  const read = useFetch<PipelineScorecard | null>(async (signal) => {
+    if (!enabled) return null;
+    const res = await api.getPipelineScorecard(pipelineId, { signal });
+    // A `success: false` body is a failure too — not an empty scorecard.
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the scorecard');
+    return res.data.scorecard;
   }, [pipelineId, enabled]);
+  const scorecard = read.data;
+  const loading = enabled && read.loading;
+  const failed = !!read.error;
 
   if (!enabled) {
     // Nothing until the entitlement has resolved (no flash of the lock), then
@@ -58,7 +49,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
       <Card>
         <div className="flex items-center gap-2 mb-3">
           <Gauge className="w-5 h-5 text-fg-muted" aria-hidden="true" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maturity scorecard</h3>
+          <h3 className="text-base font-semibold text-fg">Maturity scorecard</h3>
         </div>
         <FeatureLock flag="advanced_reporting" />
       </Card>
@@ -69,7 +60,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
     <Card>
       <div className="flex items-center gap-2 mb-3">
         <Gauge className="w-5 h-5 text-fg-muted" />
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maturity scorecard</h3>
+        <h3 className="text-base font-semibold text-fg">Maturity scorecard</h3>
       </div>
       {loading ? (
         <p className="text-sm text-fg-subtle">Computing…</p>
@@ -85,7 +76,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
               N/A
             </span>
             <div>
-              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Not enough data yet</div>
+              <div className="text-sm font-medium text-fg-muted">Not enough data yet</div>
               <div className="text-xs text-fg-subtle">A grade appears once this pipeline has enforced compliance rules and recorded production deploys.</div>
             </div>
           </div>
@@ -100,7 +91,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
               {scorecard.grade}
             </span>
             <div>
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+              <div className="text-2xl font-semibold text-fg">
                 {scorecard.score ?? '—'}<span className="text-sm text-fg-subtle font-normal"> / 100</span>
               </div>
               <div className="text-xs text-fg-subtle">

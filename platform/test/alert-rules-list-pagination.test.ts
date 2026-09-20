@@ -8,6 +8,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockListForOrg = jest.fn<(...a: unknown[]) => Promise<{ rules: unknown[]; total: number }>>();
@@ -19,11 +20,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-  requireOrgMembership: (req: any) => req.user?.organizationId ?? null,
-  requireAuthContext: jest.fn(),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),

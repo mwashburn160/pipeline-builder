@@ -9,7 +9,7 @@
  * UI gate: gating a control the API does not gate hides capability a customer
  * already paid for, and NOT gating one the API does gate turns a click into a
  * bare 403. Both were happening — hence the registry and the parity test
- * (`frontend/test/route-permissions.test.ts`) that checks it against the
+ * (`frontend/test/route-permissions.test.tsx`) that checks it against the
  * generated route tables in `src/generated/route-table/`.
  *
  * `enforcement`:

@@ -242,7 +242,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/organization/names',
     waive: 'all',
-    reason: 'Internal batch id→name resolver — the controller requires isServicePrincipal (never reachable by a user token) and returns only id→name; nothing is written.',
+    reason: 'Internal batch id→name resolver — gated by requireServicePrincipal on the route (never reachable by a user token) and returns only id→name; nothing is written.',
   },
   {
     path: /^GET \/organization\/:id\/(parent|seat-usage|feature-entitlements)$/,

@@ -11,11 +11,10 @@
  * - runServer, startServer — server lifecycle with graceful shutdown
  *
  * **Middleware**
- * - attachRequestContext / createRequestContext — attaches identity + logging to each request
+ * - attachRequestContext — attaches identity + logging to each request
  * - requireOrgId — validates organization ID is present on the request
  * - withTenantContext — opens the RLS tenant scope for the request
  * - checkQuota — quota enforcement middleware
- * - idempotencyMiddleware — idempotent request handling
  * - createProtectedRoute / createAuthenticatedWithOrgRoute — composable middleware chains
  *
  * **Route Helpers**

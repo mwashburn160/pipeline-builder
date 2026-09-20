@@ -3,7 +3,7 @@
 
 import { buildAnalysis } from './analysis-core.js';
 import type { ParsedGitUrl, RepoAnalysis } from './analysis-core.js';
-import { fetchWithTimeout, readJsonCapped } from './http.js';
+import { fetchWithTimeout } from './http.js';
 
 /**
  * Analyze a GitLab repository via the GitLab REST API.
@@ -29,10 +29,10 @@ export async function analyzeGitLabRepo(parsed: ParsedGitUrl, token?: string): P
     throw new Error(`GitLab API error: ${repoRes.status} ${repoRes.statusText}`);
   }
 
-  const repoData = await readJsonCapped<Record<string, unknown>>(repoRes);
-  const languages = langRes.ok ? await readJsonCapped<Record<string, number>>(langRes) : {};
+  const repoData = repoRes.json<Record<string, unknown>>();
+  const languages = langRes.ok ? langRes.json<Record<string, number>>() : {};
   const tree = treeRes.ok
-    ? await readJsonCapped<Array<{ name: string; type: string }>>(treeRes)
+    ? treeRes.json<Array<{ name: string; type: string }>>()
     : [];
 
   const detectedFiles = tree

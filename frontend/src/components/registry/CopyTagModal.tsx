@@ -150,7 +150,7 @@ export function CopyTagModal({
       <div className="space-y-4">
         <div>
           <div className="text-xs font-medium text-fg-muted mb-1">Source</div>
-          <div className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">{source}</div>
+          <div className="font-mono text-sm text-fg break-all">{source}</div>
         </div>
 
         <div>
@@ -162,7 +162,7 @@ export function CopyTagModal({
             onChange={(e) => setTargetRepo(e.target.value)}
             list="copy-target-suggestions"
             placeholder="e.g. system/foo"
-            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-fg"
             autoFocus
           />
           <datalist id="copy-target-suggestions">
@@ -178,7 +178,7 @@ export function CopyTagModal({
             value={targetRef}
             onChange={(e) => setTargetRef(e.target.value)}
             placeholder={sourceRef}
-            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-fg"
           />
           <div className="text-xs text-fg-muted mt-1">Leave blank to keep <code>{sourceRef}</code>.</div>
         </div>
@@ -211,7 +211,7 @@ export function CopyTagModal({
                 onChange={(e) => setConfirmPhrase(e.target.value)}
                 placeholder={PROMOTE_CONFIRM_PHRASE}
                 aria-label={`Type ${PROMOTE_CONFIRM_PHRASE} to confirm promotion`}
-                className="w-full px-3 py-1.5 text-sm font-mono border border-yellow-400 dark:border-yellow-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="w-full px-3 py-1.5 text-sm font-mono border border-yellow-400 dark:border-yellow-600 rounded-md bg-white dark:bg-gray-800 text-fg"
               />
             </div>
           </div>

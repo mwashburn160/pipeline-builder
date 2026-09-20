@@ -12,8 +12,10 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
+  errorMessage,
   getParam,
   validateBody,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -174,7 +176,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.create'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.create'), withRoute(async ({ req, res, orgId, userId }) => {
     const pre = await preflightCreate(req, res, orgId);
     if (!pre) return;
     const { planId, interval, plan, customerEmail, referralCode } = pre;
@@ -276,7 +278,7 @@ export function createSubscriptionRoutes(): Router {
     // so no card/payment secret or AWS account id can reach the trail.
     getAuditClient().record({
       action: 'billing.subscription.create',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: subscription._id.toString(),
       details: { planId, interval, tier: plan.tier, status: subscription.status },
@@ -302,7 +304,7 @@ export function createSubscriptionRoutes(): Router {
 
   // `billing.addon.prune` rides along: a tier upgrade auto-drops any bundle the
   // destination tier now includes (applyTierIncludedAddonPrune → finalizePrunedAddons).
-  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.update', 'billing.addon.prune'), withRoute(async ({ req, res, orgId }) => {
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.update', 'billing.addon.prune'), withRoute(async ({ req, res, orgId, userId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -433,7 +435,7 @@ export function createSubscriptionRoutes(): Router {
         });
       } catch (promoErr) {
         logger.error('Promotion evaluation failed (plan_change)', {
-          orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
+          orgId, error: errorMessage(promoErr),
         });
       }
     }
@@ -444,7 +446,7 @@ export function createSubscriptionRoutes(): Router {
     // details are an explicit plan/interval whitelist — no payment secrets.
     getAuditClient().record({
       action: 'billing.subscription.update',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: subscriptionId,
       details: {
@@ -465,7 +467,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId, userId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -488,7 +490,7 @@ export function createSubscriptionRoutes(): Router {
       subscription.cancelAtPeriodEnd = false;
       await subscription.save();
       logger.error('Provider cancel failed; reverted local cancelAtPeriodEnd', {
-        orgId, subscriptionId, error: err instanceof Error ? err.message : String(err),
+        orgId, subscriptionId, error: errorMessage(err),
       });
       throw err;
     }
@@ -506,7 +508,7 @@ export function createSubscriptionRoutes(): Router {
     // so no card/payment secret or AWS account id can reach the trail.
     getAuditClient().record({
       action: 'billing.subscription.cancel',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },
@@ -518,7 +520,7 @@ export function createSubscriptionRoutes(): Router {
       await clawbackRecentPromotions(subscription, req.user?.sub);
     } catch (promoErr) {
       logger.error('Promotion clawback failed on cancel', {
-        orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
+        orgId, error: errorMessage(promoErr),
       });
     }
 
@@ -537,7 +539,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId, userId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -562,7 +564,7 @@ export function createSubscriptionRoutes(): Router {
       subscription.cancelAtPeriodEnd = true;
       await subscription.save();
       logger.error('Provider reactivate failed; reverted local cancelAtPeriodEnd', {
-        orgId, subscriptionId, error: err instanceof Error ? err.message : String(err),
+        orgId, subscriptionId, error: errorMessage(err),
       });
       throw err;
     }
@@ -576,7 +578,7 @@ export function createSubscriptionRoutes(): Router {
     // decision. Fire-and-forget; plan id only, no payment secrets.
     getAuditClient().record({
       action: 'billing.subscription.reactivate',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },

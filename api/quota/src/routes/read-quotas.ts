@@ -45,6 +45,16 @@ interface AtRiskCacheEntry {
 // the loop walks the whole org collection to exhaustion.
 const ORG_SCAN_PAGE_SIZE = 1000;
 
+/**
+ * Hard ceiling on the 1-based `offset` query param of GET /quotas/all. The
+ * limit was already clamped, but the offset was not: `offset=99999999999` made
+ * Mongo walk (and discard) every matching document before returning an empty
+ * page, so a single sysadmin request could pin a mongod core. Deep paging past
+ * this is not a real access pattern — the at-risk scan, which genuinely walks
+ * the whole collection, calls the service directly.
+ */
+const MAX_LIST_OFFSET = 100_000;
+
 export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
@@ -81,7 +91,8 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const limit = parseQueryIntClamped(req.query.limit, 100, 1000);
-      const offset = parseQueryIntClamped(req.query.offset, 1, Number.MAX_SAFE_INTEGER) - 1;
+      // 1-based page start, clamped like `limit` — see MAX_LIST_OFFSET.
+      const offset = parseQueryIntClamped(req.query.offset, 1, MAX_LIST_OFFSET) - 1;
 
       const organizations = await svc.findAll({ limit, offset });
       ctx.log('COMPLETED', 'Listed all organizations', { total: organizations.length, limit, offset });
@@ -182,9 +193,10 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   // can only ever read their own org — passing another org's id is rejected
   // (403) by the same middleware the other per-org reads use, so a caller can
   // never scope this at another tenant. For pooled/hierarchy orgs the numbers
-  // are the ROOT's pooled cap + subtree usage (via `getQuotaStatus`, which
-  // reuses `pooledLimitAndUsage`), matching enforcement; flat orgs report their
-  // own. The cross-org GET /quotas/at-risk (sysadmin-only) above is unchanged.
+  // are the ROOT's pooled cap + subtree usage (via the single `findByOrgId`
+  // read, which resolves the pool ONCE for every dimension), matching
+  // enforcement; flat orgs report their own. The cross-org GET /quotas/at-risk
+  // (sysadmin-only) above is unchanged.
   //
   // MUST be registered before `/:orgId/:quotaType` so `at-risk` is not parsed
   // as a quota type.
@@ -206,16 +218,18 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
       const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
 
-      // Org metadata (name/slug/tier) for the response rows.
+      // ONE read for everything. `findByOrgId` already resolves the pool once
+      // and overlays the ROOT's shared cap + subtree usage onto every pooled
+      // dimension, so its `quotas` map is exactly what `getQuotaStatus` would
+      // return per type — but without re-walking the hierarchy (a root
+      // resolution + a subtree query) once per dimension, which this
+      // dashboard-polled route did N times per call.
       const summary = await svc.findByOrgId(targetOrgId);
 
       const entries: AtRiskEntry[] = [];
       for (const type of VALID_QUOTA_TYPES) {
-        // Pooled-aware status so the numbers match enforcement: for hierarchy
-        // orgs this is the root's shared cap + subtree usage; for flat orgs
-        // it's the org's own.
-        const status = await svc.getQuotaStatus(targetOrgId, type);
-        if (status.unlimited) continue;
+        const status = summary.quotas[type];
+        if (!status || status.unlimited) continue;
         // limit === 0 ⇒ permanently at-risk (any use is 100%+); report as 100%.
         const percent = status.limit === 0
           ? 100

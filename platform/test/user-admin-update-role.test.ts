@@ -38,9 +38,11 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'sess' }),
 }));
 
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({
+  assertNotLastPrivilegedMember: jest.fn(async () => undefined),
+}));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertActorMayAssignBuiltinAdmin: jest.fn(async () => undefined),
-  assertNotLastPrivilegedMember: jest.fn(async () => undefined),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),

@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSetSeatLimit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -32,20 +33,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireSystemAdmin: (_req: any, _res: any) => true,
-  requireAuth: (_req: any, _res: any) => true,
-  canAccessOrg: jest.fn(),
-  canAdministerOrg: jest.fn(),
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any) => {
-      try {
-        await fn(req, res);
-      } catch {
-        return res.status(500).json({ success: false, message: 'error' });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
 

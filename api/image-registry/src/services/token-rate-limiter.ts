@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient } from '@pipeline-builder/api-core';
+import { createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient, errorMessage } from '@pipeline-builder/api-core';
 
 const logger = createLogger('token-rate-limit');
 
@@ -97,7 +97,7 @@ async function checkBucket(key: string, max: number): Promise<boolean> {
       return count <= max;
     } catch (err) {
       logger.warn('Redis /token rate-limit check failed; falling back to in-memory', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }

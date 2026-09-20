@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, audited } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, audited, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -42,7 +42,7 @@ export function createDeletePipelineRoutes(): Router {
     // Best-effort attributed audit — emitted only after the delete landed.
     emitPipelineAudit({
       action: 'pipeline.delete',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'pipeline',
       targetId: id,

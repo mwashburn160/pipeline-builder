@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, isOrgAdmin, User } from '../src/types';
+import { isSystemAdmin, isOrgAdmin } from '../src/lib/auth-helpers';
+import { User } from '../src/types';
 
 // ---------------------------------------------------------------------------
 // Helpers

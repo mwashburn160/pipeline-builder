@@ -12,6 +12,7 @@ import {
   ErrorCode,
   createLogger,
   errorMessage,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
@@ -189,7 +190,7 @@ export function createMarketplaceRoutes(): Router {
     // org's "administrative actions require MFA" policy (machines pass).
     requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler,
     audited('billing.subscription.create'),
-    withRoute(async ({ req, res, ctx, orgId }) => {
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;
       if (typeof registrationRef !== 'string' || !registrationRef) {
         return sendError(res, 400, 'registrationRef is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -276,7 +277,7 @@ export function createMarketplaceRoutes(): Router {
       // identifier (and any AWS account id) is deliberately NOT recorded.
       getAuditClient().record({
         action: 'billing.subscription.create',
-        actorId: req.user?.sub ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetId: subscription._id.toString(),
         details: { planId: pending.planId, interval: pending.interval, tier: plan.tier, provider: 'aws-marketplace' },

@@ -73,7 +73,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
           automatically. Results are cached ~60s server-side.
         </p>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
+          <label className="block text-xs font-medium text-fg-muted">Namespace prefix</label>
           <Input
             type="text"
             placeholder="org-acme/"
@@ -108,15 +108,15 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
             </div>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{formatBytes(storageResult.bytes)}</div>
+                <div className="text-lg font-semibold text-fg tabular-nums">{formatBytes(storageResult.bytes)}</div>
                 <div className="text-xs text-fg-muted">total</div>
               </div>
               <div>
-                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.repos)}</div>
+                <div className="text-lg font-semibold text-fg tabular-nums">{fmtNum(storageResult.repos)}</div>
                 <div className="text-xs text-fg-muted">repos</div>
               </div>
               <div>
-                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.blobs)}</div>
+                <div className="text-lg font-semibold text-fg tabular-nums">{fmtNum(storageResult.blobs)}</div>
                 <div className="text-xs text-fg-muted">unique blobs</div>
               </div>
             </div>

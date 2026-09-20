@@ -86,7 +86,7 @@ export default function ArtifactKeyCombobox({
                       className={`w-full text-left px-3 py-1.5 cursor-pointer transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                     >
                       <div className="flex justify-between items-center">
-                        <span className="truncate text-gray-900 dark:text-gray-100">{opt.label}</span>
+                        <span className="truncate text-fg">{opt.label}</span>
                       </div>
                       <div className="text-xs text-fg-subtle truncate">{opt.key}</div>
                     </button>

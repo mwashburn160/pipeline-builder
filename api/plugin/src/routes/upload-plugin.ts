@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, audited, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, audited, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient, actorId } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -278,7 +278,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           // directly, no image build), so we have the persisted plugin id.
           emitPluginAudit({
             action: 'plugin.upload',
-            actorId: req.user?.sub ?? userId ?? 'system',
+            actorId: actorId({ userId }),
             orgId,
             targetType: 'plugin',
             targetId: result.id,
@@ -354,7 +354,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           await enqueueBuild(tier, `${s.name}:${s.version || '0.0.0'}`, jobData);
         } catch (queueErr) {
           ctx.log('ERROR', 'Failed to enqueue build job', {
-            error: queueErr instanceof Error ? queueErr.message: String(queueErr),
+            error: errorMessage(queueErr),
           });
           decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
@@ -375,7 +375,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // `targetId` is omitted here; name/version identify the artifact.
         emitPluginAudit({
           action: 'plugin.upload',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'plugin',
           details: {

@@ -144,7 +144,7 @@ export default function AlertRulesPage() {
         <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
       </div>
 
-      {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
+      {error && <RetryError message={formatError(error, 'Failed to load alert rules')} onRetry={refetch} className="mb-4" />}
 
       {loading && !data ? (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
@@ -174,7 +174,7 @@ export default function AlertRulesPage() {
               <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{r.name}</span>
+                  <span className="text-sm font-medium text-fg">{r.name}</span>
                   <Badge color={r.severity === 'critical' ? 'red' : 'yellow'}>{r.severity}</Badge>
                   <Badge color="gray">for {r.forDuration}</Badge>
                   {!r.enabled && <Badge color="gray">disabled</Badge>}
@@ -267,7 +267,7 @@ function MaterializedRulesModal({ onClose }: { onClose: () => void }) {
       {loading && yaml === null ? (
         <div className="h-40 skeleton rounded" />
       ) : error ? (
-        <RetryError message={error.message} onRetry={refetch} />
+        <RetryError message={formatError(error, 'Failed to load alert rules')} onRetry={refetch} />
       ) : (
         <div className="max-h-[60vh] overflow-auto">
           <CodeBlock code={yaml ?? ''} language="YAML" />

@@ -1,155 +1,154 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * Compliance's notification channels.
+ *
+ * The webhook and email TRANSPORTS are api-core's shared factories now, and
+ * their behaviour — pin the vetted IP, refuse redirects, HMAC when a secret is
+ * present, cap body + time, skipped/dedupe semantics — is asserted against the
+ * real code in `packages/api-core/test/notification-channels.test.ts`. Asserting
+ * it again here would test the same code twice; the compliance-local fork that
+ * used to justify it is gone.
+ *
+ * What belongs to compliance, and so to this file: WHICH channels it registers,
+ * that it builds them from the shared factories, the arguments it configures
+ * them with, and its own `in-app` transport (the one transport that legitimately
+ * differs per service — compliance posts to the message service over HTTP,
+ * platform writes the shared table directly).
+ */
+
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockLookup = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-// The SSRF denylist is api-core's REAL `isPrivateAddress` (imported from its
-// module file, which the package-specifier mock below does not intercept), so
-// these tests exercise the actual guard, not a stub.
-const { isPrivateAddress } = await import('@pipeline-builder/api-core/lib/utils/ssrf.js');
+/** Records what the shared factories were configured with, and stands in for
+ *  the transports they return. */
+const webhookOpts: Record<string, any>[] = [];
+const emailOpts: Record<string, any>[] = [];
+const mockWebhookDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true, code: 200 }));
+const mockEmailDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',
-  isPrivateAddress,
-}));
-
-// Control the up-front SSRF resolve independently from the send.
-jest.unstable_mockModule('dns/promises', () => ({
-  lookup: (...args: unknown[]) => mockLookup(...args),
-}));
-
-// Capture the https.request options (to prove the vetted IP is pinned) and drive
-// a synthetic response with a configurable status code.
-let capturedOptions: Record<string, unknown> | null = null;
-const responseCtl = { statusCode: 200 };
-const mockHttpsRequest = jest.fn((options: Record<string, unknown>, cb: (res: unknown) => void) => {
-  capturedOptions = options;
-  const res = {
-    statusCode: responseCtl.statusCode,
-    resume: jest.fn(),
-    on: (evt: string, handler: (...a: unknown[]) => void) => {
-      if (evt === 'end') handler();
-      return res;
-    },
-  };
-  // Invoke the response callback asynchronously, like the real client.
-  queueMicrotask(() => cb(res));
-  const req = { on: jest.fn(() => req), end: jest.fn() };
-  return req;
-});
-
-jest.unstable_mockModule('https', () => ({
-  request: (...args: unknown[]) => mockHttpsRequest(args[0] as Record<string, unknown>, args[1] as (res: unknown) => void),
+  createWebhookChannel: (opts: Record<string, any> = {}) => {
+    webhookOpts.push(opts);
+    return { channel: opts.name ?? 'webhook', deliver: mockWebhookDeliver };
+  },
+  createEmailChannel: (opts: Record<string, any>) => {
+    emailOpts.push(opts);
+    return { channel: 'email', deliver: mockEmailDeliver };
+  },
+  createChannelRegistry: (channels: { channel: string }[]) => {
+    const byName = new Map(channels.map((c) => [c.channel, c]));
+    return (name: string) => byName.get(name) ?? null;
+  },
 }));
 
 // notification-channels imports these clients at module load; stub so their real
 // InternalHttpClient imports don't run.
+const mockMessagePost = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
+const mockEmailPost = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
-  messageClient: { post: jest.fn(async () => undefined) },
+  messageClient: { post: (...a: unknown[]) => mockMessagePost(...a) },
 }));
 jest.unstable_mockModule('../src/helpers/email-client.js', () => ({
-  emailClient: { post: jest.fn(async () => undefined) },
+  emailClient: { post: (...a: unknown[]) => mockEmailPost(...a) },
 }));
 
-const { webhookChannel } = await import('../src/helpers/notification-channels.js');
+const { inAppChannel, getNotificationChannel } =
+  await import('../src/helpers/notification-channels.js');
 
 const notification = {
   recipientOrgId: 'org-1',
   subject: 's',
-  content: 'c',
+  body: 'c',
   priority: 'normal' as const,
   messageType: 'announcement' as const,
   payload: { foo: 'bar' },
 };
 
-describe('webhookChannel SSRF / DNS-rebinding handling', () => {
-  beforeEach(() => {
-    mockLookup.mockReset();
-    // A public address — clears resolveSafeWebhookTarget.
-    mockLookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    mockHttpsRequest.mockClear();
-    capturedOptions = null;
-    responseCtl.statusCode = 200;
+beforeEach(() => {
+  mockMessagePost.mockClear();
+  mockMessagePost.mockResolvedValue(undefined);
+  mockEmailPost.mockClear();
+  mockEmailPost.mockResolvedValue(undefined);
+});
+
+describe('channel registry', () => {
+  it('exposes exactly the three compliance channels', () => {
+    for (const c of ['in-app', 'webhook', 'email']) {
+      expect(getNotificationChannel(c)?.channel).toBe(c);
+    }
+    // `slack` is platform's alert-relay channel, not compliance's.
+    expect(getNotificationChannel('slack')).toBeNull();
+    // Channel names are DB data, so an unknown value must not throw.
+    expect(getNotificationChannel('pagerduty')).toBeNull();
   });
 
-  it('pins the validated IP into the connection and preserves Host/SNI (defeats rebinding)', async () => {
-    const result = await webhookChannel.deliver(notification, { url: 'https://hooks.example.com/x' });
+  it('builds webhook + email from the SHARED api-core factories, not a local fork', () => {
+    expect(webhookOpts).toHaveLength(1);
+    expect(emailOpts).toHaveLength(1);
+    // Compliance takes the generic webhook (no custom name/renderer): the org's
+    // configured payload is forwarded verbatim.
+    expect(webhookOpts[0].name).toBeUndefined();
+    expect(webhookOpts[0].render).toBeUndefined();
+  });
+});
 
-    expect(result.ok).toBe(true);
-    // The host is resolved exactly ONCE (up-front validation). The send must not
-    // re-resolve — that second lookup is the rebinding hole.
-    expect(mockLookup).toHaveBeenCalledTimes(1);
-    expect(mockHttpsRequest).toHaveBeenCalledTimes(1);
-    // SNI + Host stay the original hostname so cert validation is unchanged.
-    expect(capturedOptions?.servername).toBe('hooks.example.com');
-    expect(capturedOptions?.hostname).toBe('hooks.example.com');
+describe('email channel configuration', () => {
+  it('delegates the actual send to platform, which resolves the recipients', async () => {
+    // Compliance has no SMTP/SES of its own, so its injected sender asks
+    // platform to send on its behalf.
+    await emailOpts[0].send({
+      orgId: 'org-9', targetUsers: ['u1'], subject: 'subj', text: 'body text',
+    });
 
-    // The pinned lookup short-circuits DNS to the vetted public IP — a rebind
-    // that would now resolve to a private address can never take effect because
-    // this function never consults DNS again.
-    const pinnedLookup = capturedOptions?.lookup as (
-      h: string, o: unknown, cb: (e: Error | null, a: string, f: number) => void,
-    ) => void;
-    const cb = jest.fn();
-    pinnedLookup('hooks.example.com', {}, cb);
-    expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4);
-    expect(mockLookup).toHaveBeenCalledTimes(1); // still once — no re-resolution
+    expect(mockEmailPost).toHaveBeenCalledTimes(1);
+    const [path, payload] = mockEmailPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(path).toBe('/internal/notify-email');
+    expect(payload).toMatchObject({
+      orgId: 'org-9', targetUsers: ['u1'], subject: 'subj', text: 'body text',
+    });
   });
 
-  it('treats a 3xx redirect response as a FAILED delivery (not a false green)', async () => {
-    // https.request never auto-follows, so a redirect surfaces as its status and
-    // must be recorded as a failed delivery, not a success.
-    responseCtl.statusCode = 302;
+  it('passes targetUsers: null through as "every org admin"', async () => {
+    await emailOpts[0].send({ orgId: 'org-9', targetUsers: null, subject: 's', text: 't' });
+    const [, payload] = mockEmailPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload.targetUsers).toBeNull();
+  });
+});
 
-    const result = await webhookChannel.deliver(notification, { url: 'https://hooks.example.com/x' });
+describe('inAppChannel (the one transport that stays per-service)', () => {
+  it('posts to the message service, mapping the shared `body` onto `content`', async () => {
+    const result = await inAppChannel.deliver(notification, {});
 
+    expect(result).toEqual({ ok: true });
+    expect(mockMessagePost).toHaveBeenCalledTimes(1);
+    const [path, payload] = mockMessagePost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(path).toBe('/messages');
+    expect(payload).toMatchObject({
+      recipientOrgId: 'org-1',
+      messageType: 'announcement',
+      subject: 's',
+      content: 'c',
+      priority: 'normal',
+    });
+  });
+
+  it('authors the cross-tenant write as the system org with a service token', async () => {
+    await inAppChannel.deliver(notification, {});
+    const [, , opts] = mockMessagePost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
+    // A user bearer cannot write across tenants — it must be service-minted.
+    expect(opts.headers.Authorization).toBe('Bearer test-service-token');
+    expect(opts.headers['x-org-id']).toBeDefined();
+  });
+
+  it('reports failed (not thrown) when the message service rejects', async () => {
+    mockMessagePost.mockRejectedValueOnce(new Error('message service down'));
+    const result = await inAppChannel.deliver(notification, {});
     expect(result.ok).toBe(false);
-    expect(result.code).toBe(302);
-  });
-
-  it('signs the body when a secret is configured', async () => {
-    await webhookChannel.deliver(notification, { url: 'https://hooks.example.com/x', secret: 's3cr3t' });
-
-    const headers = capturedOptions?.headers as Record<string, string>;
-    expect(headers['X-PB-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
-  });
-
-  it('reports success for a 2xx delivery', async () => {
-    responseCtl.statusCode = 200;
-
-    const result = await webhookChannel.deliver(notification, { url: 'https://hooks.example.com/x' });
-
-    expect(result.ok).toBe(true);
-    expect(result.code).toBe(200);
-  });
-
-  it('rejects a webhook host that resolves to a private address (guard intact) and never connects', async () => {
-    mockLookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
-
-    const result = await webhookChannel.deliver(notification, { url: 'https://sneaky.example.com/x' });
-
-    expect(result.ok).toBe(false);
-    expect(mockHttpsRequest).not.toHaveBeenCalled();
-  });
-
-  it('rejects a hex-form IPv4-mapped IPv6 loopback resolution (::ffff:7f00:1 = 127.0.0.1)', async () => {
-    mockLookup.mockResolvedValue([{ address: '::ffff:7f00:1', family: 6 }]);
-
-    const result = await webhookChannel.deliver(notification, { url: 'https://rebind.example.com/x' });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/private address/);
-    expect(mockHttpsRequest).not.toHaveBeenCalled();
-  });
-
-  it('rejects a non-https webhook url before resolving', async () => {
-    const result = await webhookChannel.deliver(notification, { url: 'http://hooks.example.com/x' });
-
-    expect(result.ok).toBe(false);
-    expect(mockLookup).not.toHaveBeenCalled();
-    expect(mockHttpsRequest).not.toHaveBeenCalled();
+    expect(result.error).toMatch(/message service down/);
   });
 });

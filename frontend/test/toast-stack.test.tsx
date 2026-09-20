@@ -84,6 +84,28 @@ describe('Toast stack', () => {
     ['c', 'd', 'e'].forEach((m) => expect(screen.getByText(m)).toBeInTheDocument());
   });
 
+  it('does not resurrect a toast dismissed in the same tick', () => {
+    // The dismiss and the new toast are batched into one render. `addToast`
+    // reads the stack synchronously, so a ref that only `addToast` wrote back
+    // re-committed the list as it was BEFORE the dismiss.
+    renderStack();
+    act(() => { fire.error('gone'); });
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => { fireEvent.click(dismiss); fire.success('fresh'); });
+    expect(screen.queryByText('gone')).not.toBeInTheDocument();
+    expect(screen.getByText('fresh')).toBeInTheDocument();
+  });
+
+  it('does not resurrect the collapsed toasts dismissed in the same tick', () => {
+    renderStack();
+    act(() => { ['a', 'b', 'c', 'd', 'e'].forEach((m) => fire.info(m)); });
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Dismiss older' })); fire.info('f'); });
+    expect(screen.queryByText('a')).not.toBeInTheDocument();
+    expect(screen.queryByText('b')).not.toBeInTheDocument();
+    expect(screen.queryByText('+2 more')).not.toBeInTheDocument();
+    expect(screen.getByText('f')).toBeInTheDocument();
+  });
+
   it('positions the stack from the toast-offset CSS variable', () => {
     renderStack();
     expect(screen.getByTestId('toast-stack').style.bottom).toBe(`calc(1rem + var(${TOAST_OFFSET_CSS_VAR}, 0px))`);

@@ -29,7 +29,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 | [Pipeline Manager (CLI)](pipeline-manager.md) | The `pipeline-manager` CLI — `infra provision`, build/deploy pipelines, audits |
 | [Deploy Operations](deploy-operations.md) | Ops runbook — preflight, secrets rotation, backups, teardown |
 | [Secret Rotation](runbooks/secret-rotation.md) | Rotating every secret with zero downtime — JWT, refresh, at-rest key, alert relay, registry signing key |
-| [Access Key Cutover](runbooks/access-key-cutover.md) | The one-time reissue when personal access tokens become opaque access keys |
+| [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three stored machine credentials |
 
 ---
 
@@ -61,6 +61,7 @@ Author and ship pipelines and plugins.
 | [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories, and how to author your own |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Samples](samples.md) | Ready-to-load pipeline templates for 7 languages + CDK patterns |
+| [Testing Conventions](testing.md) | Shared mock factories, real authz gates in tests, coverage ratchets, the permission contract, and the traps that cost people a day |
 
 ### Govern
 
@@ -87,7 +88,7 @@ Run, secure, and observe the platform.
 | [AWS Deployment](aws-deployment.md) | EC2 / EKS deploy, post-deploy setup, reporting infra, drift detection |
 | [Deploy Operations](deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
 | [Secret Rotation](runbooks/secret-rotation.md) | Per-secret rotation runbooks — overlap windows, restart order, verification, rollback, the lingering-rotation alert |
-| [Access Key Cutover](runbooks/access-key-cutover.md) | Reissuing every personal access token as an opaque access key — inventory, cutover, what to watch |
+| [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal keys, provisioning the `platform-automation` / `registry-push` / `reporting-ingest` service accounts, what to watch |
 | [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ, plus per-internal-route L7 policies via a waypoint (local, EC2, EKS) |
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
 | [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |

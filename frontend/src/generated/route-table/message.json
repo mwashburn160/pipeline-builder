@@ -509,6 +509,29 @@
     "audit": []
   },
   {
+    "method": "POST",
+    "path": "/messages/support",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "GET",
     "path": "/messages/unread/count",
     "auth": true,

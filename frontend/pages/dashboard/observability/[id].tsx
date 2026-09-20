@@ -76,7 +76,7 @@ function LogFilterForm({ value, onApply }: { value: LogUrlFilters; onApply: (nex
   const [draft, setDraft] = useState<LogUrlFilters>(value);
   // Follow the URL when it changes underneath (Clear, back/forward).
   const valueKey = JSON.stringify(value);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `value` is tracked by its JSON key; its identity would re-seed the draft every render
   useEffect(() => { setDraft(value); }, [valueKey]);
 
   const submit = (e: FormEvent) => {
@@ -264,7 +264,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <DashboardLayout title="Dashboard" subtitle="">
-        <RetryError message={error.message} onRetry={refetch} />
+        <RetryError message={formatError(error, 'Failed to load the dashboard')} onRetry={refetch} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );

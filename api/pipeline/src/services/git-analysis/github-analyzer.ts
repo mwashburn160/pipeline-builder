@@ -4,7 +4,7 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { buildAnalysis } from './analysis-core.js';
 import type { ParsedGitUrl, RepoAnalysis } from './analysis-core.js';
-import { fetchWithTimeout, readJsonCapped } from './http.js';
+import { fetchWithTimeout } from './http.js';
 
 const GITHUB_API_BASE_URL = CoreConstants.GITHUB_API_BASE_URL;
 
@@ -41,10 +41,10 @@ export async function analyzeGitHubRepo(parsed: ParsedGitUrl, token?: string): P
     throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
   }
 
-  const repoData = await readJsonCapped<Record<string, unknown>>(repoRes);
-  const languages = langRes.ok ? await readJsonCapped<Record<string, number>>(langRes) : {};
+  const repoData = repoRes.json<Record<string, unknown>>();
+  const languages = langRes.ok ? langRes.json<Record<string, number>>() : {};
   const contents = contentsRes.ok
-    ? await readJsonCapped<Array<{ name: string; type: string }>>(contentsRes)
+    ? contentsRes.json<Array<{ name: string; type: string }>>()
     : [];
 
   const detectedFiles = contents

@@ -5,6 +5,7 @@ import { createEnvRedisClient } from './env-redis.js';
 import type { RemoteAuditEvent } from './remote-audit-client.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('audit-spool');
 
@@ -75,7 +76,7 @@ const DEFAULT_MAX_DEPTH = 10_000;
 const MAX_MOVE_ITERATIONS = 100_000;
 
 function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }
 
 function safeParse(raw: string): AuditSpoolEntry | null {

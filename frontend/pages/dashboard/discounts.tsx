@@ -138,7 +138,7 @@ export default function DiscountsPage() {
       header: 'Discount',
       render: (d) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 flex flex-wrap items-center gap-1.5">
+          <div className="text-sm font-medium text-fg flex flex-wrap items-center gap-1.5">
             {formatDiscount(d)}
             {!d.isActive && <Badge color="gray">Inactive</Badge>}
           </div>
@@ -156,7 +156,7 @@ export default function DiscountsPage() {
       cellClassName: 'text-sm text-fg-muted',
       render: (d) => (
         <div>
-          {d.campaign && <div className="text-gray-700 dark:text-gray-300">{d.campaign}</div>}
+          {d.campaign && <div className="text-fg-muted">{d.campaign}</div>}
           {d.alias && <div className="font-mono text-xs">{d.alias}</div>}
           {!d.campaign && !d.alias && <span className="text-fg-subtle">—</span>}
         </div>
@@ -316,7 +316,7 @@ export default function DiscountsPage() {
           }
         >
           <p className="text-sm text-fg-muted mb-3">
-            This opaque code redeems the discount. It is a <strong className="text-gray-700 dark:text-gray-300">bearer credential</strong> —
+            This opaque code redeems the discount. It is a <strong className="text-fg-muted">bearer credential</strong> —
             anyone who has it can redeem it, so share it carefully. It is shown once here.
           </p>
           <div className="flex items-center gap-2">

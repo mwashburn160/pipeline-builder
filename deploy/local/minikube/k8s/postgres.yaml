@@ -95,7 +95,7 @@ spec:
         runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:
         - name: postgres
-          image: postgres:18
+          image: postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae  # postgres:18
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -172,7 +172,7 @@ spec:
         # signal ServiceDown keys off. Postgres speaks no Prometheus itself, so
         # the pod's scrape annotation points here.
         - name: postgres-exporter
-          image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+          image: quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17  # quay.io/prometheuscommunity/postgres-exporter:v0.17.1
           ports:
             - containerPort: 9187
               name: metrics

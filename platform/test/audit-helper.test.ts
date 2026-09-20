@@ -119,11 +119,11 @@ describe('audit helper', () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ impersonatorId: 'sysadmin-1' }));
   });
 
-  it('should promote groupId to a first-class field', async () => {
+  it('should promote roleId to a first-class field', async () => {
     const req = mockReq({ user: { sub: 'u1', organizationId: 'org-1' } });
-    audit(req, 'org.role.member.add', { targetType: 'user', targetId: 'u2', groupId: 'grp-7' });
+    audit(req, 'org.role.member.add', { targetType: 'user', targetId: 'u2', roleId: 'grp-7' });
     await flush();
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'grp-7' }));
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ roleId: 'grp-7' }));
   });
 
   it('should pass through an explicit failure outcome', async () => {

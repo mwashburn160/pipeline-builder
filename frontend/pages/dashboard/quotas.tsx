@@ -143,7 +143,7 @@ export default function QuotasPage() {
     const sidebarOrg = platformOrgs.find((o) => o.id === loadedOrg.orgId);
     applyOrgData(loadedOrg.quota, { orgId: loadedOrg.orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
     // Seeds on a NEW read only — a picker-page change must not reset edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seeds on a NEW read only — a picker-page change must not reset edits
   }, [loadedOrg]);
 
   function applyOrgData(

@@ -19,8 +19,8 @@ interface ServiceRow { name: string; purpose: string; prefixes: string[] }
  */
 const SERVICES: ServiceRow[] = [
   { name: 'Platform', purpose: 'Auth, users, organizations, invitations, RBAC, audit, config', prefixes: ['/api/auth', '/api/user', '/api/users', '/api/organization', '/api/invitation', '/api/audit', '/api/admin', '/api/config'] },
-  { name: 'Pipeline', purpose: 'Pipeline CRUD, AI generation, templates, scorecard, registry', prefixes: ['/api/pipeline', '/api/pipelines', '/api/pipeline-templates'] },
-  { name: 'Plugin', purpose: 'Plugin CRUD, upload, build queue, AI generation', prefixes: ['/api/plugin', '/api/plugins'] },
+  { name: 'Pipeline', purpose: 'Pipeline CRUD, AI generation, templates, scorecard, registry', prefixes: ['/api/pipelines', '/api/pipeline-templates'] },
+  { name: 'Plugin', purpose: 'Plugin CRUD, upload, build queue, AI generation', prefixes: ['/api/plugins'] },
   { name: 'Compliance', purpose: 'Rules, policies, exemptions, scans, validation', prefixes: ['/api/compliance'] },
   { name: 'Reporting', purpose: 'Execution reports, analytics, DORA metrics', prefixes: ['/api/reports'] },
   { name: 'Quota', purpose: 'Per-organization resource limits and usage', prefixes: ['/api/quota'] },
@@ -37,7 +37,7 @@ const SERVICES: ServiceRow[] = [
  * generated OpenAPI spec each service serves at `/docs/openapi.json`.
  */
 const SERVICE_COLUMNS: Column<ServiceRow>[] = [
-  { id: 'name', header: 'Service', cellClassName: 'font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap align-top', render: (svc) => svc.name },
+  { id: 'name', header: 'Service', cellClassName: 'font-medium text-fg whitespace-nowrap align-top', render: (svc) => svc.name },
   { id: 'purpose', header: 'Purpose', cellClassName: 'text-gray-600 dark:text-gray-300 align-top', render: (svc) => svc.purpose },
   {
     id: 'routes',

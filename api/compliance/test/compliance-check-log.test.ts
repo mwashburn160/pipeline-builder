@@ -25,10 +25,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
-import type { ValidationResult } from '../src/engine/rule-engine.js';
+import type { RuleValidationResult } from '../src/engine/rule-engine.js';
 const { logComplianceCheck } = await import('../src/helpers/compliance-check-log.js');
 
-function makeResult(overrides: Partial<ValidationResult> = {}): ValidationResult {
+function makeResult(overrides: Partial<RuleValidationResult> = {}): RuleValidationResult {
   return {
     passed: true,
     blocked: false,

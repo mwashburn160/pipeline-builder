@@ -32,6 +32,7 @@
 import { createEnvRedisClient } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('durable-event-bus');
 
@@ -111,7 +112,7 @@ const DEFAULT_MIN_IDLE_MS = 60_000;
 const DEFAULT_MAX_DELIVERIES = 10;
 
 function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }
 
 function streamKey(topic: string): string {

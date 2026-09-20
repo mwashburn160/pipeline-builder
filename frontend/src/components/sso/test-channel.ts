@@ -15,7 +15,7 @@
  */
 
 /** Prefix the platform puts on every test `state` / `RelayState`. */
-export const SSO_TEST_STATE_PREFIX = 'ssotest.';
+const SSO_TEST_STATE_PREFIX = 'ssotest.';
 
 /** Same-origin channel the landing pages answer on. */
 export const SSO_TEST_CHANNEL = 'pb-sso-test';
@@ -51,7 +51,7 @@ export function publishSsoTestResult(result: SsoTestPopupResult): void {
 }
 
 /** How long to wait for the popup (the server-side state expires anyway). */
-export const SSO_TEST_TIMEOUT_MS = 10 * 60_000;
+const SSO_TEST_TIMEOUT_MS = 10 * 60_000;
 
 /** Wait for the popup's result for `state`, from either transport. */
 export function awaitSsoTestResult(state: string, signal: AbortSignal, timeoutMs = SSO_TEST_TIMEOUT_MS): Promise<SsoTestPopupResult> {

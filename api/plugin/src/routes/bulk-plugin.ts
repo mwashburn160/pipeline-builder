@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
+import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -92,7 +92,7 @@ export function createBulkPluginRoutes(): Router {
       const deletedIds = deleted.map(d => d.id);
       emitPluginAudit({
         action: 'plugin.bulk.delete',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'plugin',
         details: { count: deletedIds.length, ids: deletedIds },
@@ -200,7 +200,7 @@ export function createBulkPluginRoutes(): Router {
       const updatedIds = updated.map(u => u.id);
       emitPluginAudit({
         action: 'plugin.bulk.update',
-        actorId: req.user?.sub ?? userId ?? 'system',
+        actorId: actorId({ userId }),
         orgId,
         targetType: 'plugin',
         details: { count: updatedIds.length, ids: updatedIds, fields: Object.keys(updateData) },

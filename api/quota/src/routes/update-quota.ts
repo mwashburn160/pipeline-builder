@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody } from '@pipeline-builder/api-core';
+import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -20,7 +20,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     requireAuth as RequestHandler,
     authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
     audited('quota.limit.update'),
-    withRoute(async ({ req, res, ctx }) => {
+    withRoute(async ({ req, res, ctx, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, UpdateQuotaSchema);
@@ -40,7 +40,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         );
         emitQuotaAudit({
           action: 'quota.limit.update',
-          actorId: req.user?.sub ?? 'system',
+          actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,
           details: {
             ...(body.tier !== undefined ? { tier: body.tier } : {}),
@@ -70,7 +70,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     // still works unattended.
     requireStepUp as RequestHandler,
     audited('quota.delete'),
-    withRoute(async ({ req, res, ctx }) => {
+    withRoute(async ({ req, res, ctx, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
       const deleted = await svc.delete(targetOrgId);
       ctx.log('COMPLETED', deleted ? 'Quota org deleted': 'Quota org delete: not found', { orgId: targetOrgId });
@@ -81,7 +81,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       if (deleted) {
         emitQuotaAudit({
           action: 'quota.delete',
-          actorId: req.user?.sub ?? 'system',
+          actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,
           details: { deleted: true },
         });
@@ -100,7 +100,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     // its caps). Step-up re-verifies the human sysadmin; service principals exempt.
     requireStepUp as RequestHandler,
     audited('quota.reset'),
-    withRoute(async ({ req, res, ctx }) => {
+    withRoute(async ({ req, res, ctx, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, ResetQuotaSchema);
@@ -116,7 +116,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         // value (the pre-reset counter is not read back here).
         emitQuotaAudit({
           action: 'quota.reset',
-          actorId: req.user?.sub ?? 'system',
+          actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,
           details: { quotaType: quotaType ?? 'all', newUsed: 0 },
         });

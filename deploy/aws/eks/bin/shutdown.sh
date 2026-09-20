@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# SHELL OPTIONS — the missing `-e` is DELIBERATE, not an oversight. Teardown has
+# to keep going past the first failure: a partially-provisioned or
+# already-partly-deleted stack leaves some of these resources absent, and
+# aborting on the first "not found" would strand every resource after it —
+# exactly the cost (an orphaned ALB, EFS or node group billing indefinitely)
+# that this script exists to avoid. Each step reports its own outcome instead.
+# `-u` and `pipefail` still apply.
 set -uo pipefail
 # =============================================================================
 # Pipeline Builder — EKS Auto Mode teardown

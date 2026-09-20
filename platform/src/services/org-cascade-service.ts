@@ -7,10 +7,12 @@
  * Orchestrates the destructive sweep across every store the platform owns
  * data in for a given org * - Postgres (via pipeline-core): every org-scoped (`org_id`) table. Soft-deleted
  * where `deleted_at` exists; hard-deleted otherwise.
- * - Mongo (platform's own): Invitation, AuditEvent (the org's own hash chain,
- * archived first), OrgIdpConfig, IdpGroupMapping, OrgDomain and JoinRequest. NOTE:
- * `UserOrganization` membership rows are removed later by
- * `organizationService.delete` (the purge sweep), not by this cascade.
+ * - Mongo (platform's own): every collection in `MONGO_CASCADE_COLLECTIONS`
+ * (invitations, IdP config + group mappings, domains, join requests, SAML SLO
+ * sessions, service accounts + their keys) plus AuditEvent (the org's own hash
+ * chain, archived first). Memberships, Role assignments and Roles are removed
+ * later by `organizationService.delete` (the purge sweep) rather than here, but
+ * they are in the same table so the EXPORT still captures them.
  * - Quota service: HTTP DELETE /quotas/:orgId.
  * - Billing service: HTTP DELETE /billing/subscriptions/by-org/:orgId.
  *
@@ -20,7 +22,7 @@
  */
 
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
@@ -44,6 +46,10 @@ import OrgDomain from '../models/org-domain.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 import Organization from '../models/organization.js';
 import PersonalAccessToken from '../models/personal-access-token.js';
+import RoleAssignment from '../models/role-assignment.js';
+import Role from '../models/role.js';
+import SamlSession from '../models/saml-session.js';
+import ServiceAccount from '../models/service-account.js';
 import UserOrganization from '../models/user-organization.js';
 import User from '../models/user.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -134,6 +140,123 @@ export const CASCADE_TABLE_NAMES: ReadonlySet<string> = new Set(
 );
 
 // ---------------------------------------------------------------------------
+// Mongo collections the org teardown covers
+// ---------------------------------------------------------------------------
+
+/** One Mongo collection the org teardown removes, and how to read its rows. */
+interface MongoCascadeCollection {
+  /** Key under `report.mongo` / `export.mongo`. */
+  readonly name: string;
+  /** Every row belonging to the org — what the export/snapshot must capture. */
+  readonly read: (orgId: string) => Promise<unknown[]>;
+  /**
+   * Remove them, returning the row count. ABSENT means the rows are dropped by
+   * `organizationService.delete` (the purge's own transaction) instead of here
+   * — they are still the org's data, so they are still exported.
+   */
+  readonly remove?: (orgId: string) => Promise<number>;
+}
+
+/** Service-account ids owned by `orgId` — the key/assignment rows hang off these. */
+async function serviceAccountIds(orgId: string): Promise<unknown[]> {
+  const docs = await ServiceAccount.find({ organizationId: toOrgId(orgId) }).select('_id').lean();
+  return docs.map((d) => (d as { _id: unknown })._id);
+}
+
+/**
+ * ONE table driving BOTH the destructive Mongo sweep and {@link exportOrg}.
+ *
+ * The two used to be written separately, and drifted: the cascade deleted the
+ * org's IdP config, group mappings, domains, join requests, service accounts +
+ * keys — and `organizationService.delete` its memberships, Role assignments and
+ * Roles — while the export captured only invitations and audit events. The
+ * soft-delete recovery snapshot was therefore NOT a recovery snapshot (a
+ * restored org came back with no SSO, no domains, no automation credentials and
+ * no members), and the data-portability artifact under-reported what the
+ * platform held. `AuditEvent` is the one collection not in this table: it is
+ * archived in fixed batches and exported under a cap, both of which need their
+ * own handling — `CASCADE_MONGO_COLLECTION_NAMES` includes it all the same.
+ */
+const MONGO_CASCADE_COLLECTIONS: readonly MongoCascadeCollection[] = [
+  {
+    name: 'invitations',
+    read: (orgId) => Invitation.find({ organizationId: orgId } as never).lean(),
+    remove: async (orgId) => (await Invitation.deleteMany({ organizationId: orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    name: 'idpConfigs',
+    read: (orgId) => OrgIdpConfig.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await OrgIdpConfig.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    name: 'idpGroupMappings',
+    read: (orgId) => IdpGroupMapping.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await IdpGroupMapping.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    name: 'orgDomains',
+    read: (orgId) => OrgDomain.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await OrgDomain.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    name: 'joinRequests',
+    read: (orgId) => JoinRequest.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await JoinRequest.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    // SAML SLO bookkeeping (one row per platform session a SAML sign-in
+    // opened). TTL-expiring, but the rows are org-scoped: without this leg a
+    // purged org's rows sat in the collection until their refresh window
+    // lapsed, and the SLO endpoint kept matching them.
+    name: 'samlSessions',
+    read: (orgId) => SamlSession.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await SamlSession.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    // Removed (with its keys and Role assignments) by the service-account leg
+    // below, which reports BOTH counts — hence no `remove` here.
+    name: 'serviceAccounts',
+    read: (orgId) => ServiceAccount.find({ organizationId: toOrgId(orgId) } as never).lean(),
+  },
+  {
+    // `keyHash` is the stored form of the secret — never put it in an artifact
+    // handed to an operator or a tenant.
+    name: 'serviceAccountKeys',
+    read: async (orgId) => {
+      const ids = await serviceAccountIds(orgId);
+      if (ids.length === 0) return [];
+      return PersonalAccessToken.find({ serviceAccountId: { $in: ids } } as never)
+        .select('-keyHash').lean();
+    },
+  },
+  // The three below are removed by `organizationService.delete` (one
+  // transaction, after this cascade), so they carry no `remove` — but without
+  // them a restored org has no members and no Roles.
+  {
+    name: 'memberships',
+    read: (orgId) => UserOrganization.find({ organizationId: toOrgId(orgId) } as never).lean(),
+  },
+  {
+    name: 'roleAssignments',
+    read: (orgId) => RoleAssignment.find({ organizationId: toOrgId(orgId) } as never).lean(),
+  },
+  {
+    name: 'roles',
+    read: (orgId) => Role.find({ organizationId: toOrgId(orgId) } as never).lean(),
+  },
+];
+
+/**
+ * Every Mongo collection the org teardown removes. Exported so a reflection
+ * test can assert each one appears in {@link exportOrg}'s artifact — the Mongo
+ * twin of {@link CASCADE_TABLE_NAMES}.
+ */
+export const CASCADE_MONGO_COLLECTION_NAMES: ReadonlySet<string> = new Set([
+  ...MONGO_CASCADE_COLLECTIONS.map((c) => c.name),
+  'auditEvents',
+]);
+
+// ---------------------------------------------------------------------------
 // HTTP clients for downstream services
 // ---------------------------------------------------------------------------
 
@@ -178,6 +301,8 @@ export interface CascadeReport {
     idpGroupMappings: number;
     orgDomains: number;
     joinRequests: number;
+    /** SAML SLO session rows (see models/saml-session.ts). */
+    samlSessions: number;
     /** Service accounts removed, and how many of their keys went with them. */
     serviceAccounts: number;
     serviceAccountKeys: number;
@@ -231,6 +356,7 @@ export async function cascadeDeleteOrg( orgId: string,
       idpGroupMappings: 0,
       orgDomains: 0,
       joinRequests: 0,
+      samlSessions: 0,
       serviceAccounts: 0,
       serviceAccountKeys: 0,
     },
@@ -283,14 +409,29 @@ export async function cascadeDeleteOrg( orgId: string,
     }
   });
 
-  // -- Mongo: invitations + audit events. The `admin.org.delete` event for this
-  // purge is written by the purge sweep AFTER the cascade returns and the org is
-  // hard-deleted, so no such row exists yet to preserve.
-  try {
-    const invRes = await Invitation.deleteMany({ organizationId: orgId } as never);
-    report.mongo.invitations = invRes.deletedCount ?? 0;
-  } catch (err) {
-    logger.error('Invitation cleanup failed', { orgId, error: errorMessage(err) });
+  // -- Mongo: every collection in MONGO_CASCADE_COLLECTIONS that owns its own
+  // delete (invitations, the per-org IdP config + group mappings, registered
+  // domains + join requests). Each is isolated so one failure doesn't skip the
+  // rest, exactly as the hand-written blocks it replaced were.
+  //
+  // Why each of these must go: an orphaned IdP config or group mapping would be
+  // silently inherited by a future org reusing this id (and the mappings name
+  // Roles that are about to be deleted); `domain` is globally UNIQUE, so a
+  // lingering row would permanently block any future org — a re-signup of the
+  // same company included — from registering it.
+  //
+  // Audit events are handled separately below (archive-then-delete). The
+  // `admin.org.delete` event for this purge is written by the purge sweep AFTER
+  // the cascade returns and the org is hard-deleted, so no such row exists yet
+  // to preserve.
+  for (const collection of MONGO_CASCADE_COLLECTIONS) {
+    if (!collection.remove) continue;
+    try {
+      const removed = await collection.remove(orgId);
+      (report.mongo as unknown as Record<string, number>)[collection.name] = removed;
+    } catch (err) {
+      logger.error('Mongo cleanup failed', { collection: collection.name, orgId, error: errorMessage(err) });
+    }
   }
 
   // Audit events: ARCHIVE the forensic trail to a durable, TTL-free store
@@ -360,43 +501,6 @@ export async function cascadeDeleteOrg( orgId: string,
       { orgId, error: errorMessage(err) },
     );
     report.auditArchive = { ok: false, error: errorMessage(err) };
-  }
-
-  // Per-org IdP config doc (separate collection — would otherwise orphan
-  // and a future org reusing this id would silently inherit SSO config).
-  // Sysadmin-only writes the collection, so deleting on cascade is safe.
-  try {
-    const idpRes = await OrgIdpConfig.deleteMany({ orgId } as never);
-    report.mongo.idpConfigs = (idpRes as { deletedCount?: number }).deletedCount ?? 0;
-  } catch (err) {
-    logger.error('OrgIdpConfig cleanup failed', { orgId, error: errorMessage(err) });
-  }
-
-  // IdP group → Role mappings (3a) — same reasoning as the config above: they
-  // name Roles that are about to be deleted, and a future org reusing this id
-  // would otherwise inherit a rule set granting them.
-  try {
-    const mapRes = await IdpGroupMapping.deleteMany({ orgId } as never);
-    report.mongo.idpGroupMappings = (mapRes as { deletedCount?: number }).deletedCount ?? 0;
-  } catch (err) {
-    logger.error('IdpGroupMapping cleanup failed', { orgId, error: errorMessage(err) });
-  }
-
-  // Domain-based join (P2b): registered domains + pending join requests. The
-  // domain row MUST be freed on delete — `domain` is globally unique, so a
-  // lingering row would permanently block any future org (incl. a re-signup of
-  // the same company) from registering it.
-  try {
-    const domRes = await OrgDomain.deleteMany({ orgId } as never);
-    report.mongo.orgDomains = (domRes as { deletedCount?: number }).deletedCount ?? 0;
-  } catch (err) {
-    logger.error('OrgDomain cleanup failed', { orgId, error: errorMessage(err) });
-  }
-  try {
-    const jrRes = await JoinRequest.deleteMany({ orgId } as never);
-    report.mongo.joinRequests = (jrRes as { deletedCount?: number }).deletedCount ?? 0;
-  } catch (err) {
-    logger.error('JoinRequest cleanup failed', { orgId, error: errorMessage(err) });
   }
 
   // Service accounts (#2): the org OWNS them, so the purge deletes them and
@@ -512,6 +616,23 @@ export async function cascadeDeleteOrg( orgId: string,
 // Soft-delete (grace window + auto-export)
 // ---------------------------------------------------------------------------
 
+/**
+ * How long a soft-deleted ORG waits before the purge sweep may destroy it.
+ *
+ * `ORG_DELETION_RETENTION_DAYS` (7d) is the intent, but it can never be SHORTER
+ * than the row-level soft-delete window `SOFT_DELETE_RETENTION_DAYS` (30d) that
+ * the same cascade stamps onto every Postgres row it tombstones. When it was,
+ * the org document and its quota/billing records were destroyed on day 7 while
+ * the rows they own sat tombstoned until day 30 — 23 days of rows belonging to
+ * an org that no longer exists, invisible to any product surface and missed by
+ * a restore that no longer had an org to restore into. Taking the MAX of the
+ * two keeps the org alive at least as long as anything it owns; raising
+ * `ORG_DELETION_RETENTION_DAYS` above the row window still works as written.
+ */
+export function orgPurgeRetentionMs(): number {
+  return Math.max(config.organization.deletionRetentionDays * 86400 * 1000, softDeleteRetentionMs());
+}
+
 /** Result of a successful {@link softDeleteOrg}. */
 export interface SoftDeleteResult {
   orgId: string;
@@ -585,7 +706,7 @@ export async function softDeleteOrg(
 
   // 2. Tombstone + session cut-off, atomically.
   const now = new Date();
-  const purgeAfter = new Date(now.getTime() + config.organization.deletionRetentionDays * 86400 * 1000);
+  const purgeAfter = new Date(now.getTime() + orgPurgeRetentionMs());
 
   let bumpedMemberIds: Types.ObjectId[] = [];
   const membersInvalidated = await withMongoTransaction(async (session) => {
@@ -661,7 +782,10 @@ export interface OrgExport {
   exportedAt: string;
   orgId: string;
   postgres: Record<string, unknown[]>;
-  mongo: { invitations: unknown[]; auditEvents: unknown[] };
+  /** One entry per {@link CASCADE_MONGO_COLLECTION_NAMES} member — always
+   *  present (an empty array means the org had no rows), so a consumer can tell
+   *  "nothing to restore" from "never captured". */
+  mongo: Record<string, unknown[]>;
   /** Set when a collection hit its export cap, so the caller can tell a
    *  complete artifact from a partial one. Absent means nothing was capped. */
   truncated?: { auditEvents: { cap: number } };
@@ -700,7 +824,9 @@ export async function exportOrg(
     exportedAt: new Date().toISOString(),
     orgId,
     postgres: {},
-    mongo: { invitations: [], auditEvents: [] },
+    // Seeded with every covered collection so a read failure in lenient mode
+    // leaves an EMPTY array + a `failed` entry, never a missing key.
+    mongo: Object.fromEntries([...CASCADE_MONGO_COLLECTION_NAMES].map((name) => [name, [] as unknown[]])),
   };
   const recordFailure = (store: 'postgres' | 'mongo', name: string, err: unknown): void => {
     if (strict) throw err;
@@ -722,11 +848,17 @@ export async function exportOrg(
     }
   });
 
-  try {
-    result.mongo.invitations = await Invitation.find({ organizationId: orgId }).lean();
-  } catch (err) {
-    recordFailure('mongo', 'invitations', err);
+  // Every Mongo collection the teardown removes — the SAME table the cascade
+  // deletes from, so the snapshot cannot silently omit one.
+  for (const collection of MONGO_CASCADE_COLLECTIONS) {
+    try {
+      result.mongo[collection.name] = await collection.read(orgId);
+    } catch (err) {
+      result.mongo[collection.name] = [];
+      recordFailure('mongo', collection.name, err);
+    }
   }
+
   try {
     // CAPPED: the export materializes into one JSON object, so an uncapped
     // read of a retention-ceiling tenant's whole trail is a heap-exhaustion

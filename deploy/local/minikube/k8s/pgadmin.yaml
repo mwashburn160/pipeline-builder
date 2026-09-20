@@ -86,7 +86,7 @@ spec:
       serviceAccountName: pgadmin
       initContainers:
         - name: wait-for-postgres
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -102,7 +102,7 @@ spec:
               until nc -z postgres 5432; do sleep 3; done
               echo "Postgres ready"
         - name: fix-permissions
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -121,7 +121,7 @@ spec:
         fsGroup: 5050
       containers:
         - name: pgadmin
-          image: dpage/pgadmin4:9
+          image: dpage/pgadmin4@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de  # dpage/pgadmin4:9
           ports:
             - containerPort: 8080
               name: http

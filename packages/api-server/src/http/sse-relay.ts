@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createEnvRedisClient } from '@pipeline-builder/api-core';
+import { createLogger, createEnvRedisClient, errorMessage, retryForever } from '@pipeline-builder/api-core';
 import type { SSEPayload } from './sse-connection-manager.js';
 
 const logger = createLogger('sse-relay');
@@ -87,7 +87,7 @@ export function createRedisSSERelay(publisher: RedisPubSubClient, channel: strin
   // A duplicated ioredis connection doesn't inherit the publisher's listeners;
   // without its own, a dropped connection is an unhandled 'error' that crashes Node.
   subscriber.on('error', (err) => {
-    logger.warn('SSE relay subscriber connection error', { channel, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('SSE relay subscriber connection error', { channel, error: errorMessage(err) });
   });
   let closed = false;
 
@@ -96,7 +96,7 @@ export function createRedisSSERelay(publisher: RedisPubSubClient, channel: strin
       if (closed) return;
       // Fire-and-forget: never await, never surface a rejection to the caller.
       void Promise.resolve(publisher.publish(channel, JSON.stringify(msg))).catch((err) => {
-        logger.warn('SSE relay publish failed', { error: err instanceof Error ? err.message : String(err) });
+        logger.warn('SSE relay publish failed', { error: errorMessage(err) });
       });
     },
     subscribe(handler) {
@@ -106,33 +106,34 @@ export function createRedisSSERelay(publisher: RedisPubSubClient, channel: strin
         try {
           parsed = JSON.parse(message) as SSERelayMessage;
         } catch (err) {
-          logger.warn('SSE relay received unparseable frame', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE relay received unparseable frame', { error: errorMessage(err) });
           return;
         }
         try {
           handler(parsed);
         } catch (err) {
-          logger.warn('SSE relay handler threw', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE relay handler threw', { error: errorMessage(err) });
         }
       });
       // Retry until subscribed: at startup the connection usually isn't up yet,
       // and giving up after one attempt left the pod on local-only delivery for
       // its whole life. Once subscribed, ioredis re-subscribes after reconnects.
-      let delayMs = SUBSCRIBE_RETRY_MIN_MS;
-      const attempt = (): void => {
-        if (closed) return;
-        void Promise.resolve(subscriber.subscribe(channel)).then(
-          () => logger.info('SSE relay subscribed', { channel }),
-          (err) => {
-            logger.warn('SSE relay subscribe failed; retrying (local-only delivery meanwhile)', {
-              retryInMs: delayMs, error: err instanceof Error ? err.message : String(err),
-            });
-            setTimeout(attempt, delayMs).unref?.();
-            delayMs = Math.min(delayMs * 2, SUBSCRIBE_RETRY_MAX_MS);
-          },
-        );
-      };
-      attempt();
+      // Deliberately NOT awaited — `start()` must return immediately so the
+      // service keeps serving (local-only) while the subscription comes up.
+      void retryForever(() => Promise.resolve(subscriber.subscribe(channel)), {
+        baseMs: SUBSCRIBE_RETRY_MIN_MS,
+        maxMs: SUBSCRIBE_RETRY_MAX_MS,
+        onAttemptFailed: (err, retryInMs) => logger.warn(
+          'SSE relay subscribe failed; retrying (local-only delivery meanwhile)',
+          { retryInMs, error: errorMessage(err) },
+        ),
+        shouldContinue: () => !closed,
+      }).then(() => {
+        // `retryForever` only resolves on success or on abort; `closed` tells
+        // the two apart, so a relay torn down mid-retry doesn't claim it
+        // subscribed.
+        if (!closed) logger.info('SSE relay subscribed', { channel });
+      });
     },
     async close() {
       closed = true;

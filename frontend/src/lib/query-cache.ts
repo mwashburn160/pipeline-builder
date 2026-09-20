@@ -29,7 +29,7 @@ import { abortError } from './abort';
 
 /** Default freshness window. Long enough to cover a navigate-and-come-back,
  *  short enough that a stale list is never what somebody acts on. */
-export const DEFAULT_STALE_MS = 30_000;
+const DEFAULT_STALE_MS = 30_000;
 
 interface CacheEntry {
   value: unknown;

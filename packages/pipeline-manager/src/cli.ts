@@ -4,6 +4,7 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { program } from 'commander';
 import { auditStacks } from './commands/audit-stacks.js';
 import { auditTokens } from './commands/audit-tokens.js';
@@ -361,7 +362,7 @@ function setupErrorHandlers(): void {
   process.on('unhandledRejection', (reason: unknown) => {
     console.error(''); // Empty line
     printError('Unhandled promise rejection', {
-      reason: reason instanceof Error ? reason.message: String(reason),
+      reason: errorMessage(reason),
     });
 
     const error = reason instanceof Error ? reason: new Error(String(reason));
@@ -443,7 +444,7 @@ export function initializeCli(options: CliOptions = {}): void {
     printDebug('CLI initialization complete');
   } catch (error) {
     printError('CLI initialization failed', {
-      error: error instanceof Error ? error.message: String(error),
+      error: errorMessage(error),
     });
 
     handleError(error, ERROR_CODES.CONFIGURATION, {
@@ -534,7 +535,7 @@ export function main(options: CliOptions = {}): void {
     // Final catch-all error handler
     console.error(''); // Empty line
     printError('Fatal CLI error', {
-      error: error instanceof Error ? error.message: String(error),
+      error: errorMessage(error),
     });
 
     handleError(error, ERROR_CODES.GENERAL, {

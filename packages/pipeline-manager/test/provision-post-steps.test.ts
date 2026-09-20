@@ -30,30 +30,30 @@ describe('resolvePostSteps', () => {
     expect(reg.env).toMatchObject({ LOAD_PLUGINS: 'y', LOAD_TEMPLATES: 'y', LOAD_COMPLIANCE: 'n', BUILD_BOOTSTRAP: 'y' });
   });
 
-  it('--no-init drops the register step', () => {
+  it('--init skip drops the register step', () => {
     const { steps } = resolvePostSteps({ ...base, init: false, smokeTest: true });
     expect(steps.map((s) => s.id)).toEqual(['smoke-test']);
   });
 
-  it('ec2 --auto-init drops the register step (the instance self-runs it on boot)', () => {
+  it('ec2 --init auto drops the register step (the instance self-runs it on boot)', () => {
     const { steps, skipped } = resolvePostSteps({ ...base, target: 'ec2', url: 'https://x.example.com', autoInit: true, smokeTest: true });
     expect(steps.map((s) => s.id)).toEqual(['smoke-test']); // register not surfaced
     expect(skipped.map((s) => s.id)).not.toContain('register'); // dropped cleanly, not a "skip" warning
   });
 
-  it('eks --auto-init drops the register step (setup.sh self-runs it in its final phase)', () => {
+  it('eks --init auto drops the register step (setup.sh self-runs it in its final phase)', () => {
     const { steps, skipped } = resolvePostSteps({ ...base, target: 'eks', url: 'https://x.example.com', autoInit: true, smokeTest: true });
     expect(steps.map((s) => s.id)).toEqual(['smoke-test']); // register not surfaced
     expect(skipped.map((s) => s.id)).not.toContain('register'); // dropped cleanly, not a "skip" warning
   });
 
-  it('eks WITHOUT --auto-init (manual) still surfaces the register step', () => {
+  it('eks --init manual still surfaces the register step', () => {
     const { steps } = resolvePostSteps({ ...base, target: 'eks', url: 'https://x.example.com' });
     expect(steps.map((s) => s.id)).toContain('register');
     expect(steps.find((s) => s.id === 'register')!.command).toBe('./deploy/bin/init-platform.sh eks');
   });
 
-  it('--auto-init on a non-AWS target (docker/minikube) is ignored (register stays)', () => {
+  it('--init auto on a non-AWS target (docker/minikube) is ignored (register stays)', () => {
     const { steps } = resolvePostSteps({ ...base, target: 'docker', autoInit: true });
     expect(steps.map((s) => s.id)).toEqual(['register']);
   });

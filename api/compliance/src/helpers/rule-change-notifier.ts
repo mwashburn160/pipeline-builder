@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { inAppChannel, type ComplianceNotification } from './notification-channels.js';
+import { inAppChannel, type NotificationMessage } from './notification-channels.js';
 import { subscriptionService, type ComplianceRuleSubscription } from '../services/subscription-service.js';
 
 const logger = createLogger('rule-change-notifier');
@@ -41,12 +41,12 @@ export async function notifyPublishedRuleChange(
       : `The published compliance rule "${ruleName}" has been updated by the system administrator. If you have pinned a specific version, your pinned version will continue to be used. Otherwise, the updated rule will take effect after cache refresh.`;
 
     for (const sub of recipients) {
-      const notification: ComplianceNotification = {
+      const notification: NotificationMessage = {
         recipientOrgId: sub.orgId,
         messageType: 'conversation',
         priority: 'normal',
         subject,
-        content,
+        body: content,
         payload: { event: 'compliance.rule-change', ruleId, ruleName, changeType },
       };
       // Channel swallows its own errors → one failed subscriber doesn't abort the rest.

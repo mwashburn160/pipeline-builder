@@ -8,7 +8,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { useFetch } from '@/hooks/useFetch';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
-import { StatCard } from '@/components/reports/StatCard';
+import { StatCard } from '@/components/ui/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
 

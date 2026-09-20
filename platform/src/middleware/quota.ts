@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota } from '@pipeline-builder/api-core';
+import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
@@ -56,7 +56,7 @@ export function releaseFeatureQuota(
       decrementQuota(quotaService, rootOrgId, quotaType, auth, logWarn);
     })
     .catch((err: unknown) => logWarn('Feature-quota release skipped (root resolution failed)', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     }));
 }
 

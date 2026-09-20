@@ -8,8 +8,11 @@ import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { SecretActions } from '@/components/ui/SecretActions';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/hooks/useAuth';
 import { useLoadable } from '@/hooks/useLoadable';
+import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
+import { invalidate, queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { RecoveryCodeStatus } from '@/types';
 
@@ -63,8 +66,7 @@ export function RecoveryCodes({
   );
 }
 
-interface Loaded { status: RecoveryCodeStatus; totpEnabled: boolean }
-const EMPTY: Loaded = { status: { remaining: 0, total: 0, generatedAt: null }, totpEnabled: false };
+const EMPTY: RecoveryCodeStatus = { remaining: 0, total: 0, generatedAt: null };
 
 /**
  * How many recovery codes the account has left, and a way to replace the set —
@@ -77,13 +79,17 @@ const EMPTY: Loaded = { status: { remaining: 0, total: 0, generatedAt: null }, t
  */
 export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
-  const load = useCallback(async (): Promise<Loaded> => {
-    const [codes, totp] = await Promise.all([api.getRecoveryCodeStatus(), api.getTotpStatus()]);
+  const { refreshUser } = useAuth();
+  const load = useCallback(async (): Promise<RecoveryCodeStatus> => {
+    const codes = await api.getRecoveryCodeStatus();
     if (!codes.success || !codes.data) throw new Error('Failed to load recovery codes');
-    return { status: codes.data.recoveryCodes, totpEnabled: totp.data?.totp.enabled === true };
+    return codes.data.recoveryCodes;
   }, []);
-  const { data, reload } = useLoadable<Loaded>(load, EMPTY, 'Failed to load recovery codes');
-  const { status, totpEnabled } = data;
+  const { data: status, reload } = useLoadable<RecoveryCodeStatus>(load, EMPTY, 'Failed to load recovery codes');
+  // Shared with the TOTP panel and the posture strip through the read cache
+  // rather than a third request for the same answer.
+  const { data: totp } = useQuery(queries.totpStatus());
+  const totpEnabled = totp?.enabled === true;
   const [confirming, setConfirming] = useState(false);
   const [fresh, setFresh] = useState<string[] | null>(null);
 
@@ -94,6 +100,10 @@ export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
       if (!res.success || !res.data) { toast.error(res.message || 'Could not create new recovery codes'); return; }
       setFresh(res.data.recoveryCodes);
       void reload();
+      // The remaining-code count lives on the TOTP status too, and the posture
+      // strip reads it off the profile.
+      invalidate.totpStatus();
+      void refreshUser({ force: true });
     } catch (err) {
       toast.error(formatError(err, 'Could not create new recovery codes'));
     }

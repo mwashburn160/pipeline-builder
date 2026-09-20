@@ -15,6 +15,6 @@ export function useOpenOnCreateQuery(open: () => void) {
     delete rest.create;
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
     // `open` is intentionally excluded — fires once on the create param.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` excluded on purpose: this fires once, on the create param
   }, [router.isReady, router.query.create]);
 }

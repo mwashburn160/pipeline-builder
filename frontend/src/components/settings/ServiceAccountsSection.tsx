@@ -41,7 +41,7 @@ const EMPTY: ServiceAccountsData = { accounts: [], billing: null, roles: [] };
  * of exchanges per period, at least 1 — the same rule as the API's schema.
  * Returns null for anything else.
  */
-export function parseTokenBudget(text: string): number | null {
+function parseTokenBudget(text: string): number | null {
   const trimmed = text.trim();
   if (trimmed === '') return -1;
   if (!/^\d+$/.test(trimmed)) return null;

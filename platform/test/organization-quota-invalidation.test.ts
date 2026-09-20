@@ -150,13 +150,6 @@ describe('setTier — tier downgrade invalidation', () => {
     expect(tokenBump()).toBeUndefined();
   });
 
-  it('does NOT bump on a legacy no-tier → tier transition', async () => {
-    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1' }));
-
-    await setTier('root-1', 'pro');
-
-    expect(tokenBump()).toBeUndefined();
-  });
 
   it('is a no-member no-op even on a downgrade (no User write)', async () => {
     mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve([]) });

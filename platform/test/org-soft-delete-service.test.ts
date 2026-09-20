@@ -28,6 +28,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({ update: jest.fn(), delete: jest.fn(), select: jest.fn(() => mockSelectChain) }),
   schema: new Proxy({}, { get: (_t, name) => ({ orgId: `${String(name)}.org_id` }) }),
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+  // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
+  // FLOOR under the org's own purge deadline.
+  softDeleteRetentionMs: () => 30 * 24 * 60 * 60 * 1000,
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
@@ -48,9 +51,22 @@ const mockPatUpdateMany = jest.fn();
 const mockServiceAccountFind = jest.fn<(...a: unknown[]) => unknown>();
 
 const auditExportQuery = { sort: () => auditExportQuery, limit: () => auditExportQuery, lean: async () => [] };
+/** Mongoose query stub for the STRICT snapshot export, which now reads every
+ *  collection the teardown removes (a missing one aborts the soft-delete). */
+const emptyFind = () => queryChain([]);
+/** Chainable query stub: `.select()`, `.session()`, `.sort()`, `.limit()`, `.lean()`. */
+const queryChain = (rows: unknown[]) => {
+  const c: any = { lean: async () => rows, select: () => c, session: () => c, sort: () => c, limit: () => c };
+  return c;
+};
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => auditExportQuery), create: jest.fn() } }));
 jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })) } }));
-jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn() } }));
+jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/org-domain.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/join-request.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/role.js', () => ({ __esModule: true, default: { find: emptyFind } }));
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   __esModule: true,
   default: { findById: (...a: unknown[]) => mockOrgFindById(...a), updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a) },
@@ -66,21 +82,24 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
   },
 }));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ __esModule: true, default: { find: (...a: unknown[]) => mockUserOrgFind(...a) } }));
-jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a) } }));
+jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
+  __esModule: true,
+  default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a), find: emptyFind },
+}));
 // Service accounts (#2): the tombstone also revokes their keys — they hold no
 // session, so the members' tokenVersion bump cannot reach them.
 jest.unstable_mockModule('../src/models/service-account.js', () => ({
   __esModule: true,
   default: { find: (...a: unknown[]) => mockServiceAccountFind(...a) },
 }));
-jest.unstable_mockModule('../src/models/role-assignment.js', () => ({ __esModule: true, default: { deleteMany: jest.fn() } }));
+jest.unstable_mockModule('../src/models/role-assignment.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ /* fake session */ }),
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
-const { softDeleteOrg } = await import('../src/services/org-cascade-service.js');
+const { softDeleteOrg, orgPurgeRetentionMs } = await import('../src/services/org-cascade-service.js');
 const { ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 const SYSTEM_ORG_ID = '000000000000000000000001';
@@ -93,13 +112,15 @@ beforeEach(() => {
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => ({ _id: 'org-acme', name: 'Acme', deletedAt: null }) }) });
   mockOrgUpdateOne.mockReturnValue({ session: () => Promise.resolve({}) });
   mockSnapshotCreate.mockResolvedValue({ _id: 'snap-1' });
-  mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ userId: 'u1' }, { userId: 'u2' }]) }) }) });
+  // Chainable: the session cut-off reads `.select().session().lean()`, while the
+  // snapshot export reads the same collection with a plain `.lean()`.
+  mockUserOrgFind.mockReturnValue(queryChain([{ userId: 'u1' }, { userId: 'u2' }]));
   mockUserUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
   // No one working in the org on inherited (parent-admin) authority by default.
-  mockUserFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) });
+  mockUserFind.mockReturnValue(queryChain([]));
   mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
   // One service account in the org, holding one live key.
-  mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'sa-1' }]) }) });
+  mockServiceAccountFind.mockReturnValue(queryChain([{ _id: 'sa-1' }]));
 });
 
 describe('softDeleteOrg', () => {
@@ -109,13 +130,16 @@ describe('softDeleteOrg', () => {
     // Snapshot persisted (name denormalized, deletedBy captured).
     expect(mockSnapshotCreate).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-acme', name: 'Acme', deletedBy: 'admin-1' }));
 
-    // Tombstone set: deletedAt + purgeAfter (~7 days out).
+    // Tombstone set: deletedAt + purgeAfter. The deadline is the GREATER of the
+    // org window (7d here) and the shared row-level soft-delete window (30d) —
+    // the org must outlive the rows this same cascade tombstones, or they are
+    // orphaned for the difference.
     const [filter, update] = mockOrgUpdateOne.mock.calls[0] as [any, any];
     expect(filter).toEqual({ _id: 'org-acme' });
     expect(update.$set.deletedAt).toBeInstanceOf(Date);
     expect(update.$set.purgeAfter).toBeInstanceOf(Date);
     const windowMs = update.$set.purgeAfter.getTime() - update.$set.deletedAt.getTime();
-    expect(Math.abs(windowMs - 7 * 86400_000)).toBeLessThan(5000);
+    expect(Math.abs(windowMs - 30 * 86400_000)).toBeLessThan(5000);
 
     // All active members invalidated.
     const [uFilter, uUpdate] = mockUserUpdateMany.mock.calls[0] as [any, any];
@@ -149,8 +173,8 @@ describe('softDeleteOrg', () => {
   });
 
   it('does NOT revoke member PATs when the org has no active members', async () => {
-    mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) });
-    mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
+    mockUserOrgFind.mockReturnValue(queryChain([]));
+    mockServiceAccountFind.mockReturnValue(queryChain([]));
 
     const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
 
@@ -211,5 +235,26 @@ describe('softDeleteOrg', () => {
 
   it('refuses to soft-delete the system org', async () => {
     await expect(softDeleteOrg(SYSTEM_ORG_ID, SYSTEM_ORG_ID, 'admin-1')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
+  });
+});
+
+/**
+ * `ORG_DELETION_RETENTION_DAYS` (7d) was shorter than the row-level
+ * `SOFT_DELETE_RETENTION_DAYS` (30d) the same cascade stamps onto every
+ * Postgres row it tombstones — so the org document, its quota record and its
+ * subscription were destroyed on day 7 while the rows they own sat tombstoned
+ * until day 30, belonging to an org that no longer existed.
+ */
+describe('orgPurgeRetentionMs', () => {
+  it('is floored at the shared row-level soft-delete window', () => {
+    // Config says 7 days; the row window (mocked at 30d) wins.
+    expect(orgPurgeRetentionMs()).toBe(30 * 86400_000);
+  });
+
+  it('never purges the org before the rows it cascades', async () => {
+    await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+    const [, update] = mockOrgUpdateOne.mock.calls[0] as [any, any];
+    const window = update.$set.purgeAfter.getTime() - update.$set.deletedAt.getTime();
+    expect(window).toBeGreaterThanOrEqual(30 * 86400_000 - 5000);
   });
 });

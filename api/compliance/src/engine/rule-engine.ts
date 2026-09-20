@@ -70,7 +70,7 @@ export interface Violation {
 /**
  * Result of evaluating all rules against an entity.
  */
-export interface ValidationResult {
+export interface RuleValidationResult {
   passed: boolean;
   violations: Violation[];
   warnings: Violation[];
@@ -247,13 +247,13 @@ function orderRulesForEvaluation(rules: EvaluableRule[]): EvaluableRule[] {
  * @param rules - Active rules for the entity's org+target
  * @param entity - Entity attributes as key-value pairs
  * @param exemptions - Active exemptions for this entity (optional)
- * @returns ValidationResult with violations, warnings, and pass/block status
+ * @returns RuleValidationResult with violations, warnings, and pass/block status
  */
 export function evaluateRules(
   rules: EvaluableRule[],
   entity: Record<string, unknown>,
   exemptions: ActiveExemption[] = [],
-): ValidationResult {
+): RuleValidationResult {
   const now = new Date();
   const violations: Violation[] = [];
   const warnings: Violation[] = [];

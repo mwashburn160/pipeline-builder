@@ -5,7 +5,6 @@
  * Tests for the tenant-context primitive. Covers:
  * - AsyncLocalStorage scope propagation
  * - withTenantTx GUC plumbing
- * - requireTenantContext fail-fast
  * - the warn/strict/silent context-mode toggle for surfacing missing-context bugs
  */
 
@@ -21,7 +20,6 @@ jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
 
 const {
   getTenantContext,
-  requireTenantContext,
   runWithTenantContext,
   withTenantTx,
 } = await import('../src/database/tenancy.js');
@@ -65,18 +63,6 @@ describe('runWithTenantContext / getTenantContext', () => {
       await new Promise((r) => setTimeout(r, 5));
       expect(getTenantContext()?.orgId).toBe('org-async');
     });
-  });
-});
-
-describe('requireTenantContext', () => {
-  it('returns the active context inside a scope', () => {
-    runWithTenantContext({ orgId: 'org-r', isSuperAdmin: false }, () => {
-      expect(requireTenantContext().orgId).toBe('org-r');
-    });
-  });
-
-  it('throws outside any scope', () => {
-    expect(() => requireTenantContext()).toThrow(/no tenant scope active/);
   });
 });
 

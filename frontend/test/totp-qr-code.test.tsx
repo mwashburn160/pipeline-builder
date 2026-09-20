@@ -34,9 +34,12 @@ describe('TotpQrCode', () => {
 
     const modules = svg.querySelectorAll('rect');
     expect(modules.length).toBeGreaterThan(50);
-    // Dark modules only — the ground is the element's own white background, so
-    // the symbol stays readable in a dark-themed page.
-    expect(svg).toHaveClass('bg-white');
+    // Dark modules on an EXPLICIT light ground, so the symbol stays scannable on
+    // a dark-themed page. The invariant is "the element paints its own opaque
+    // background" — asserted as such rather than pinned to one palette token, so
+    // swapping `bg-white` for another light ground doesn't fail the test while
+    // dropping the background altogether (which breaks scanning) still does.
+    expect(svg.getAttribute('class') ?? '').toMatch(/(^|\s)bg-(white|surface|neutral-50|neutral-100|zinc-50|slate-50)(\s|$)/);
     expect([...modules].every((r) => r.getAttribute('fill') === '#000000')).toBe(true);
   });
 

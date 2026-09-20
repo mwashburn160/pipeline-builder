@@ -11,4 +11,5 @@ export * from './http.js';
 export * from './quota-tiers.js';
 export * from './feature-flags.js';
 export * from './permissions.js';
+export * from './metadata-keys.js';
 export * from './audit-events.js';

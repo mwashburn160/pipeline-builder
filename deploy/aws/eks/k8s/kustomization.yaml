@@ -50,6 +50,7 @@ resources:
   # Observability
   - prometheus.yaml
   - thanos-query.yaml
+  - thanos-compact.yaml
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml

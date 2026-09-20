@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Download, FileText, Loader2, RefreshCw, ScrollText, Search } from 'lucide-react';
+import { Download, FileText, Loader2, RefreshCw, ScrollText } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +24,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { Modal } from '@/components/ui/Modal';
 import { FilterSelect } from '@/components/ui/FilterSelect';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { LogEntryRow } from '@/components/observability/LogEntryRow';
 import { LogVolumeChart } from '@/components/observability/LogVolumeChart';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -171,17 +172,15 @@ export default function LogsPage() {
 
       <Card className="mb-4">
         <form onSubmit={applyQuery} className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
-            <input
-              type="text"
-              value={queryInput}
-              onChange={(e) => setQueryInput(e.target.value)}
-              placeholder={SYNTAX_HINT}
-              aria-label="Search logs"
-              className="w-full rounded border border-gray-300 bg-white py-1.5 pl-8 pr-2 font-mono text-xs dark:border-gray-600 dark:bg-gray-900"
-            />
-          </div>
+          <SearchInput
+            value={queryInput}
+            onChange={setQueryInput}
+            onClear={() => setQueryInput('')}
+            placeholder={SYNTAX_HINT}
+            aria-label="Search logs"
+            containerClassName="min-w-0 flex-1"
+            className="font-mono text-xs"
+          />
 
           <FilterSelect
             aria-label="Time range"

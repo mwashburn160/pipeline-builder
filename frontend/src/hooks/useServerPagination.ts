@@ -91,7 +91,7 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
       },
     );
     // filters is read via JSON key (avoids object-identity churn)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `filters` is tracked by its JSON key, which avoids object-identity churn
   }, [pagination.offset, pagination.limit, filterKey, tick]);
 
   const setOffset = useCallback(

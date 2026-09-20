@@ -4,7 +4,6 @@
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { roleDisplayName } from '@/lib/role-display';
 import type { OrganizationMember, OrganizationRole } from '@/types';
 
 interface ManageRolesModalProps {
@@ -74,7 +73,7 @@ export function ManageRolesModal({
                 className="mt-0.5"
               />
               <span className="min-w-0">
-                <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(r.name)}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-200">{r.name}</span>
                 {r.description && <span className="block text-xs text-fg-subtle">{r.description}</span>}
               </span>
             </label>

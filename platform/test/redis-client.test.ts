@@ -14,10 +14,11 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockCreateEnvRedisClient = jest.fn<(label: string) => unknown>();
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createEnvRedisClient: (label: string) => mockCreateEnvRedisClient(label),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));

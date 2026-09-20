@@ -15,6 +15,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const insertedRowsRef: { value: { id: string }[] } = { value: [] };
@@ -71,7 +72,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   };
 });
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
   or: (...a: unknown[]) => ({ __op: 'or', a }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),

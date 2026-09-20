@@ -21,6 +21,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { errorMessage } from '@pipeline-builder/api-core';
 import { printDebug, printWarning } from './output-utils.js';
 
 const STORE_DIR = path.join(os.homedir(), '.pipeline-manager');
@@ -106,7 +107,7 @@ export function clearSession(baseUrl: string): void {
     // Losing the ability to clear a dead session is a nuisance, not a failure.
     printWarning('Could not update the stored credentials', {
       path: STORE_FILE,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
   }
 }

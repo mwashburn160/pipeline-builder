@@ -1,5 +1,4 @@
 import { type LucideIcon } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { Button } from './Button';
 
 interface EmptyStateProps {
@@ -25,16 +24,20 @@ interface EmptyStateProps {
 
 type IllustrationType = 'default' | 'pipelines' | 'plugins' | 'messages' | 'search';
 
+// Each illustration is a tinted disc behind the icon. The three that map onto a
+// semantic intent use the `--pb-*` tokens (one class each instead of a
+// light/dark pair); `plugins` keeps purple, for which the token set — brand plus
+// success/warning/danger/info — has no equivalent.
 const illustrationColors: Record<IllustrationType, { bg: string; icon: string; ring: string }> = {
   default: {
-    bg: 'bg-gray-100 dark:bg-gray-800',
+    bg: 'bg-surface-muted',
     icon: 'text-fg-subtle',
     ring: '',
   },
   pipelines: {
-    bg: 'bg-blue-50 dark:bg-blue-900/20',
-    icon: 'text-blue-400 dark:text-blue-500',
-    ring: 'ring-4 ring-blue-100/50 dark:ring-blue-900/30',
+    bg: 'bg-info-bg',
+    icon: 'text-info',
+    ring: 'ring-4 ring-info-border/50',
   },
   plugins: {
     bg: 'bg-purple-50 dark:bg-purple-900/20',
@@ -42,14 +45,14 @@ const illustrationColors: Record<IllustrationType, { bg: string; icon: string; r
     ring: 'ring-4 ring-purple-100/50 dark:ring-purple-900/30',
   },
   messages: {
-    bg: 'bg-green-50 dark:bg-green-900/20',
-    icon: 'text-green-400 dark:text-green-500',
-    ring: 'ring-4 ring-green-100/50 dark:ring-green-900/30',
+    bg: 'bg-success-bg',
+    icon: 'text-success',
+    ring: 'ring-4 ring-success-border/50',
   },
   search: {
-    bg: 'bg-yellow-50 dark:bg-yellow-900/20',
-    icon: 'text-yellow-500 dark:text-yellow-400',
-    ring: 'ring-4 ring-yellow-100/50 dark:ring-yellow-900/30',
+    bg: 'bg-warning-bg',
+    icon: 'text-warning',
+    ring: 'ring-4 ring-warning-border/50',
   },
 };
 
@@ -82,20 +85,19 @@ export function EmptyState({
             <Icon className={`w-5 h-5 ${colors.icon}`} aria-hidden="true" />
           </div>
         )}
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        <h3 className="text-sm font-semibold text-fg">{title}</h3>
         {description && <p className="mt-1 text-sm text-fg-muted max-w-sm mx-auto">{description}</p>}
         {cta && <div className="mt-4">{cta}</div>}
       </div>
     );
   }
 
+  // The entrance is CSS (`.empty-state-reveal`), not framer-motion: it is a
+  // fade plus a 10px rise with no exit, and this component is reachable from
+  // every list in the app. The reduced-motion block in globals.css collapses it
+  // like every other animation there.
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: 'easeOut' }}
-      className={`relative text-center py-16 overflow-hidden ${className}`}
-    >
+    <div className={`empty-state-reveal relative text-center py-16 overflow-hidden ${className}`}>
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div
           className="absolute -top-10 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full opacity-70 blur-3xl"
@@ -107,18 +109,15 @@ export function EmptyState({
         />
       </div>
       {Icon && (
-        <motion.div
-          initial={{ scale: 0.96 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
-          className={`mx-auto w-20 h-20 rounded-full ${colors.bg} ${colors.ring} flex items-center justify-center mb-5 transition-colors`}
+        <div
+          className={`empty-state-glyph mx-auto w-20 h-20 rounded-full ${colors.bg} ${colors.ring} flex items-center justify-center mb-5 transition-colors`}
         >
           <Icon className={`w-9 h-9 ${colors.icon}`} aria-hidden="true" />
-        </motion.div>
+        </div>
       )}
-      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+      <h3 className="text-base font-semibold text-fg">{title}</h3>
       {description && <p className="mt-1.5 text-sm text-fg-muted max-w-sm mx-auto">{description}</p>}
       {cta && <div className="mt-5">{cta}</div>}
-    </motion.div>
+    </div>
   );
 }

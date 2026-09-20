@@ -17,9 +17,9 @@ import {
 const PIPELINE_SELF_SCOPE = ['metadata', 'vars'];
 
 const isPipelineTemplatable = (field: string): boolean => {
-  // Templatable: projectName/project (top-level string), metadata.* values, vars.* values.
-  // (`projectName` is the synthetic validator key; `project` is the real props key.)
-  if (field === 'projectName' || field === 'project') return true;
+  // Templatable: `project` (top-level string), metadata.* values, vars.* values.
+  // `project` is the props key every writer emits and the only name accepted.
+  if (field === 'project') return true;
   if (field.startsWith('metadata.') || field.startsWith('metadata[')) return true;
   if (field.startsWith('vars.') || field.startsWith('vars[')) return true;
   return false;
@@ -32,21 +32,33 @@ const isPipelineKnownPath = allowedScopeRoots(PIPELINE_SELF_SCOPE);
  * `metadata.env` writes scope `metadata.env`; `vars.branch` writes scope `vars.branch`.
  */
 function fieldToScopePath(field: string): string | null {
-  if (field === 'projectName' || field === 'project') return field;
+  if (field === 'project') return field;
   if (field.startsWith('metadata.') || field.startsWith('metadata[')) return field;
   if (field.startsWith('vars.') || field.startsWith('vars[')) return field;
   return null;
 }
 
+/**
+ * The only shape this validator needs: the three templatable fields, plus the
+ * `props` nesting that create/update bodies and DB rows use.
+ *
+ * Every member is `unknown` and OPTIONAL on purpose. The callers are Zod-
+ * validated request bodies and Drizzle rows, whose concrete types declare
+ * `project: string`, `metadata: Record<string, string>` and so on. Naming those
+ * types here would force every call site through `as unknown as PipelineLike`
+ * — which is exactly what this used to require, and what silenced real drift:
+ * a cast through `unknown` accepts a body that has NONE of these fields, so a
+ * schema rename would have compiled and validated nothing. Declared this way,
+ * the bodies satisfy it structurally and the casts are gone, so a rename breaks
+ * the build instead. The narrowing that the validator actually depends on
+ * happens below, where each field is read.
+ */
 export interface PipelineLike {
-  projectName?: string;
-  project?: string;
-  metadata?: Record<string, unknown>;
-  vars?: Record<string, unknown>;
+  project?: unknown;
+  metadata?: unknown;
+  vars?: unknown;
   /** Create/update bodies + DB rows nest the templatable fields here (BuilderProps). */
   props?: PipelineLike;
-  // Other fields ignored by the validator
-  [k: string]: unknown;
 }
 
 /**
@@ -60,7 +72,7 @@ export function validatePipelineTemplates(pipeline: PipelineLike): void {
   // pass the props object directly.
   const src = pipeline.props ?? pipeline;
   const doc = {
-    projectName: src.projectName ?? src.project,
+    project: src.project,
     metadata: src.metadata,
     vars: src.vars,
   };

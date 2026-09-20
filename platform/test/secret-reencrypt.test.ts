@@ -22,6 +22,10 @@ const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockIdpFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockIdpFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockIdpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockTotpFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockTotpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSamlFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockSamlUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockWrap = jest.fn<(...a: unknown[]) => string>();
 const mockUnwrap = jest.fn<(...a: unknown[]) => string>();
 
@@ -38,6 +42,18 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     find: (...a: unknown[]) => mockOrgFind(...a),
+  },
+  UserTotp: {
+    find: (...a: unknown[]) => mockTotpFind(...a),
+    updateOne: (...a: unknown[]) => mockTotpUpdateOne(...a),
+  },
+}));
+
+jest.unstable_mockModule('../src/models/saml-sp-key.js', () => ({
+  __esModule: true,
+  default: {
+    find: (...a: unknown[]) => mockSamlFind(...a),
+    updateOne: (...a: unknown[]) => mockSamlUpdateOne(...a),
   },
 }));
 
@@ -60,6 +76,11 @@ const { reencryptOrgSecrets, captureOrgSecrets, reencryptAllStoredSecrets } = aw
 /** `Model.find().select().cursor()` over a fixed array of docs. */
 function cursorOver(docs: unknown[]) {
   return { select: () => ({ cursor: () => (async function* () { yield* docs; })() }) };
+}
+
+/** `Model.find().cursor()` — the SP-key sweep needs no projection. */
+function bareCursorOver(docs: unknown[]) {
+  return { cursor: () => (async function* () { yield* docs; })() };
 }
 
 beforeEach(() => {
@@ -151,11 +172,30 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     const orgB: any = { _id: 'org-b', aiProviderKeys: undefined, markModified: jest.fn(), save: jest.fn(async () => undefined) };
     mockOrgFind.mockReturnValue(cursorOver([orgA, orgB]));
     mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', orgId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
+    mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'old-totp' }]));
+    mockSamlFind.mockReturnValue(bareCursorOver([
+      { _id: 'signing', privateKeyEncrypted: 'old-sign' },
+      { _id: 'encryption', privateKeyEncrypted: 'old-enc' },
+    ]));
     mockUnwrap.mockImplementation((raw: unknown) => `plain:${raw}`);
 
     const summary = await reencryptAllStoredSecrets();
 
-    expect(summary).toEqual({ orgsScanned: 2, aiKeysReencrypted: 2, idpSecretsReencrypted: 1, failures: [] });
+    expect(summary).toEqual({
+      orgsScanned: 2,
+      aiKeysReencrypted: 2,
+      idpSecretsReencrypted: 1,
+      totpSecretsReencrypted: 1,
+      samlSpKeysReencrypted: 2,
+      failures: [],
+    });
+    // Authenticator secrets are salted per USER, and the SP keys per deployment
+    // — neither is reachable from the org sweep, which is how they were missed.
+    expect(mockTotpUpdateOne).toHaveBeenCalledWith({ _id: 'totp-1' }, { $set: { secret: 'enc:plain:old-totp' } });
+    expect(mockUnwrap).toHaveBeenCalledWith('old-totp', 'user:u-1', 'totp.secret');
+    expect(mockWrap).toHaveBeenCalledWith('plain:old-totp', 'user:u-1');
+    expect(mockSamlUpdateOne).toHaveBeenCalledWith({ _id: 'signing' }, { $set: { privateKeyEncrypted: 'enc:plain:old-sign' } });
+    expect(mockUnwrap).toHaveBeenCalledWith('old-sign', 'saml-sp-keys', 'saml-sp.signing');
     // Each blob was read (previous key falls back inside decryptSecret) and
     // written back under the now-current key.
     expect(orgA.aiProviderKeys.anthropic).toBe('enc:plain:old-a');
@@ -170,6 +210,8 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'broken', openai: 'old-o' }, markModified: jest.fn(), save: jest.fn(async () => undefined) };
     mockOrgFind.mockReturnValue(cursorOver([orgA]));
     mockIdpFind.mockReturnValue(cursorOver([]));
+    mockTotpFind.mockReturnValue(cursorOver([]));
+    mockSamlFind.mockReturnValue(bareCursorOver([]));
     mockUnwrap.mockImplementation((raw: unknown) => {
       if (raw === 'broken') throw new Error('bad auth tag');
       return `plain:${raw}`;
@@ -182,5 +224,26 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     // The readable key was still migrated, and the unreadable blob is untouched.
     expect(orgA.aiProviderKeys.openai).toBe('enc:plain:old-o');
     expect(orgA.aiProviderKeys.anthropic).toBe('broken');
+  });
+
+  it('records an unreadable TOTP secret or SP key under its own scope, never reporting a clean run', async () => {
+    mockOrgFind.mockReturnValue(cursorOver([]));
+    mockIdpFind.mockReturnValue(cursorOver([]));
+    mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'broken' }]));
+    mockSamlFind.mockReturnValue(bareCursorOver([{ _id: 'signing', privateKeyEncrypted: 'broken' }]));
+    mockUnwrap.mockImplementation(() => { throw new Error('bad auth tag'); });
+
+    const summary = await reencryptAllStoredSecrets();
+
+    // The whole point: the operator must NOT see zero failures and then drop
+    // SECRET_ENCRYPTION_KEY_PREVIOUS — that would brick every enrolment.
+    expect(summary.totpSecretsReencrypted).toBe(0);
+    expect(summary.samlSpKeysReencrypted).toBe(0);
+    expect(summary.failures).toEqual([
+      { orgId: 'user:u-1', field: 'totp.secret', error: 'bad auth tag' },
+      { orgId: 'saml-sp-keys', field: 'saml-sp.signing', error: 'bad auth tag' },
+    ]);
+    expect(mockTotpUpdateOne).not.toHaveBeenCalled();
+    expect(mockSamlUpdateOne).not.toHaveBeenCalled();
   });
 });

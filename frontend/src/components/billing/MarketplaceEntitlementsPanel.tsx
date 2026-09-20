@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
 import { Receipt } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import type { MarketplaceEntitlements, MarketplaceEntitlement } from '@/lib/api/domains/billing';
 import { formatDate } from '@/lib/format';
@@ -29,15 +29,12 @@ const ENTITLEMENT_COLUMNS: Column<MarketplaceEntitlement>[] = [
  * renders nothing, so non-Marketplace deployments never see it.
  */
 export function MarketplaceEntitlementsPanel() {
-  const [data, setData] = useState<MarketplaceEntitlements | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getMarketplaceEntitlements()
-      .then((res) => { if (!cancelled && res.success && res.data) setData(res.data); })
-      .catch(() => { /* fail-soft: not a marketplace account, or none found */ });
-    return () => { cancelled = true; };
-  }, []);
+  // Fail-soft: a 400 (provider isn't marketplace) or 404 (no subscription)
+  // arrives as `error`, and the panel renders nothing either way.
+  const { data } = useFetch<MarketplaceEntitlements | null>(
+    async (signal) => (await api.getMarketplaceEntitlements({ signal })).data ?? null,
+    [],
+  );
 
   if (!data || data.entitlements.length === 0) return null;
 

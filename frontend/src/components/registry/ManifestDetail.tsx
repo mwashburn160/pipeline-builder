@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { TabBar } from '@/components/ui/TabBar';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -69,7 +70,7 @@ export function ManifestDetail({
     return (
       <div className="m-3 p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
         <div className="font-medium mb-1">Failed to load manifest</div>
-        <div className="text-xs">{error.message}</div>
+        <div className="text-xs">{formatError(error, 'Something went wrong')}</div>
       </div>
     );
   }
@@ -87,7 +88,7 @@ export function ManifestDetail({
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono truncate">
+        <div className="text-sm font-medium text-fg font-mono truncate">
           {breadcrumbs.map((seg, i) => (
             <span key={i}>
               {i > 0 && <span className="text-fg-subtle mx-1">→</span>}
@@ -126,7 +127,7 @@ export function ManifestDetail({
           <WarningAlert className="m-3" message={<>{kind.reason}. Showing raw JSON.</>} />
         )}
         {effectiveTab === 'json' && (
-          <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded">
+          <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-gray-50 dark:bg-gray-800 text-fg border border-gray-200 dark:border-gray-700 rounded">
             {/* The raw manifest body embeds config `Env`/history that can carry an
                 AWS account id; redact before rendering the JSON. */}
             {JSON.stringify(redactDetails(kind.manifest.body), null, 2)}
@@ -202,7 +203,7 @@ function IndexSummary({
               onClick={() => onSelectPlatform?.(label)}
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded"
             >
-              <span className="font-mono text-sm text-gray-900 dark:text-gray-100">{label}</span>
+              <span className="font-mono text-sm text-fg">{label}</span>
               <span className="ml-auto text-xs text-fg-muted font-mono truncate">
                 {p.digest.slice(0, 19)}…
               </span>
@@ -220,7 +221,7 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
   return (
     <>
       <dt className="text-fg-muted font-medium">{label}</dt>
-      <dd className={`text-gray-900 dark:text-gray-100 break-all ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
+      <dd className={`text-fg break-all ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
     </>
   );
 }
@@ -306,7 +307,7 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
       open={isOpen}
       onToggle={setManualOpen}
       className="mx-3 mb-3 border border-gray-200 dark:border-gray-700 rounded text-sm"
-      summaryClassName="px-3 py-2 cursor-pointer list-none text-gray-700 dark:text-gray-300 font-medium flex items-center gap-2"
+      summaryClassName="px-3 py-2 cursor-pointer list-none text-fg-muted font-medium flex items-center gap-2"
       bodyClassName="px-3 pb-3"
       title={
         <>

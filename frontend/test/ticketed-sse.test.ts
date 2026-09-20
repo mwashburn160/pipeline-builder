@@ -159,7 +159,7 @@ describe('useBuildStatus', () => {
 
     await runBackoff();
     expect(result.current.status).toBe('building');
-    expect(latest().url).toBe('/api/plugin/logs/req-1?ticket=tk');
+    expect(latest().url).toBe('/api/plugins/logs/req-1?ticket=tk');
   });
 
   it('marks the build failed once reconnects are exhausted', async () => {

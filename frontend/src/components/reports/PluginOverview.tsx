@@ -2,7 +2,7 @@ import { Puzzle } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Card } from '@/components/ui/Card';
 import { SectionHeading, StatCardSkeleton } from './ReportHelpers';
-import { StatCard } from './StatCard';
+import { StatCard } from '@/components/ui/StatCard';
 import type { PluginSummary, PluginDistribution } from './types';
 
 interface PluginOverviewProps {

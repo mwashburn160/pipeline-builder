@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
@@ -110,7 +111,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));;
 
-jest.unstable_mockModule('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   SQL: class {},
   sql: Object.assign((..._a: any[]) => ({}), { raw: (..._a: any[]) => ({}) }),
   or: jest.fn(),

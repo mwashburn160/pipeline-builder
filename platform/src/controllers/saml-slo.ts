@@ -29,7 +29,7 @@
  * browser lands on the sign-in page).
  */
 
-import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -91,7 +91,7 @@ export async function recordSamlSession(input: {
     );
   } catch (err) {
     logger.warn('Could not record the SAML session for single logout', {
-      orgId: input.orgId, error: err instanceof Error ? err.message : String(err),
+      orgId: input.orgId, error: errorMessage(err),
     });
   }
 }
@@ -125,7 +125,7 @@ export const startSsoLogout = withController('Start SSO logout', async (req, res
       redirectUrl = await buildSamlLogoutRequestUrl(cfg, row, '');
     }
   } catch (err) {
-    logger.warn('SP-initiated SAML logout unavailable', { orgId: row.orgId, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('SP-initiated SAML logout unavailable', { orgId: row.orgId, error: errorMessage(err) });
   }
 
   if (redirectUrl) {
@@ -139,6 +139,55 @@ export const startSsoLogout = withController('Start SSO logout', async (req, res
   }
   sendSuccess(res, 200, { redirectUrl });
 }, SAML_ERROR_MAP);
+
+/**
+ * How many SAML session rows one SLO request revokes per round trip, and the
+ * hard ceiling on the whole request.
+ *
+ * The endpoint is UNAUTHENTICATED (signature-gated only) and IdP-driven, and a
+ * LogoutRequest naming only a `NameID` matches EVERY session that person has in
+ * the org. The old code read the whole match set with an unbounded `find()` and
+ * then revoked serially, so one message could pull an arbitrary number of rows
+ * into memory and hold a request open for as many sequential writes — a cheap
+ * amplification lever for anyone who can get one signed logout replayed.
+ *
+ * So: bounded batches, each revoked in parallel, repeated until the filter is
+ * drained or {@link SLO_MAX_SESSIONS_PER_REQUEST} rows have been handled. The
+ * cap is not a correctness loss — every unrevoked row is a refresh slot that
+ * still expires on its own TTL, and the person's next SLO (or sign-out) clears
+ * the rest — but it IS reported, in the audit detail and as its own metric
+ * label, so a tenant legitimately over the cap is visible rather than silent.
+ */
+const SLO_REVOKE_BATCH_SIZE = 100;
+const SLO_MAX_SESSIONS_PER_REQUEST = 1000;
+
+/**
+ * Revoke the platform sessions matching an IdP LogoutRequest, in bounded
+ * batches. Each row's refresh slot is removed (so nothing can renew) and the
+ * bookkeeping row deleted; `drained` is false when the cap stopped us early.
+ */
+async function revokeMatchingSamlSessions(
+  filter: Record<string, unknown>,
+): Promise<{ revoked: number; userIds: string[]; drained: boolean }> {
+  const seenUsers = new Set<string>();
+  let revoked = 0;
+  for (;;) {
+    const remaining = SLO_MAX_SESSIONS_PER_REQUEST - revoked;
+    if (remaining <= 0) return { revoked, userIds: [...seenUsers], drained: false };
+    const rows = await SamlSession.find(filter)
+      .select('_id userId sessionId')
+      .limit(Math.min(SLO_REVOKE_BATCH_SIZE, remaining))
+      .lean();
+    if (rows.length === 0) return { revoked, userIds: [...seenUsers], drained: true };
+
+    await Promise.all(rows.map((row) => authService.revokeRefreshSession(row.userId, row.sessionId)));
+    // Delete AFTER the revokes so a mid-batch failure leaves the rows in place
+    // for the next attempt rather than losing the handle on a live session.
+    await SamlSession.deleteMany({ _id: { $in: rows.map((r) => r._id) } });
+    for (const row of rows) seenUsers.add(row.userId);
+    revoked += rows.length;
+  }
+}
 
 /** The SLO message as it arrived, on whichever binding. */
 function bindingOf(req: Request): { message: SamlLogoutBinding; relayState?: string } {
@@ -210,21 +259,22 @@ export const handleSamlSlo = withController('SAML SLO', async (req, res) => {
     nameID: verified.session.nameID,
     ...(verified.session.sessionIndex ? { sessionIndex: verified.session.sessionIndex } : {}),
   };
-  const rows = await SamlSession.find(filter).select('_id userId sessionId').lean();
-  for (const row of rows) {
-    await authService.revokeRefreshSession(row.userId, row.sessionId);
-  }
-  if (rows.length > 0) await SamlSession.deleteMany({ _id: { $in: rows.map((r) => r._id) } });
+  const { revoked, userIds, drained } = await revokeMatchingSamlSessions(filter);
 
-  const userIds = [...new Set(rows.map((r) => r.userId))];
   audit(req, 'sso.saml.logout', {
     targetType: 'user',
     ...(userIds.length === 1 ? { targetId: userIds[0] } : {}),
     affectedOrgId: orgId,
-    details: { direction: 'idp', sessionsRevoked: rows.length, userIds },
+    details: { direction: 'idp', sessionsRevoked: revoked, userIds, ...(drained ? {} : { capped: SLO_MAX_SESSIONS_PER_REQUEST }) },
   });
-  incCounter('platform_saml_slo_total', { direction: 'idp', result: rows.length > 0 ? 'revoked' : 'no_session' });
-  logger.info('[SAML] IdP-initiated logout', { orgId, sessionsRevoked: rows.length });
+  incCounter('platform_saml_slo_total', { direction: 'idp', result: revoked > 0 ? 'revoked' : 'no_session' });
+  if (!drained) {
+    incCounter('platform_saml_slo_total', { direction: 'idp', result: 'capped' });
+    logger.warn('[SAML] IdP-initiated logout hit its per-request cap — remaining sessions lapse with their refresh window', {
+      orgId, revoked, cap: SLO_MAX_SESSIONS_PER_REQUEST,
+    });
+  }
+  logger.info('[SAML] IdP-initiated logout', { orgId, sessionsRevoked: revoked });
 
   if (cfg.sloUrl) {
     // Success even when no session matched: the person is not signed in here,

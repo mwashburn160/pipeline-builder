@@ -3,8 +3,7 @@
 
 import { withLeaderLock, type LockRedis } from './leader-lock.js';
 import { createLogger } from '../utils/logger.js';
-
-const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+import { errorMessage } from '../utils/response.js';
 
 /** Optional cross-pod single-runner lock for a scheduler's cycle. The redis
  *  client is resolved per cycle. */

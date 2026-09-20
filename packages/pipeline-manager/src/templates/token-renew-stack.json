@@ -2,10 +2,6 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "Pipeline Builder service-account KEY ROTATION — a scheduled Lambda that replaces the pb_sa_ key in Secrets Manager before it expires (rotate, store, then revoke the predecessor), so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager infra store-token.",
   "Parameters": {
-    "PlatformBaseUrl": {
-      "Type": "String",
-      "Description": "Base URL of the platform (e.g. https://app.example.com)"
-    },
     "PlatformSecretName": {
       "Type": "String",
       "Description": "Secrets Manager secret name holding the service-account key (e.g. pipeline-builder/{orgId}/platform)"
@@ -81,7 +77,6 @@
         "MemorySize": 256,
         "Environment": {
           "Variables": {
-            "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
             "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" },
             "RENEW_DAYS": { "Ref": "RenewDays" },
             "PIPELINE_MANAGER_VERSION": { "Ref": "PipelineManagerVersion" },

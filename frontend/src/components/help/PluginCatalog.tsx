@@ -10,7 +10,7 @@ import type { PluginCategory } from '@/lib/plugin-categories';
 type CatalogEntry = typeof PLUGIN_CATALOG[number];
 
 const CATALOG_COLUMNS: Column<CatalogEntry>[] = [
-  { id: 'name', header: 'Name', cellClassName: 'text-gray-900 dark:text-gray-100 font-mono text-xs', render: (p) => p.name },
+  { id: 'name', header: 'Name', cellClassName: 'text-fg font-mono text-xs', render: (p) => p.name },
   {
     id: 'category',
     header: 'Category',

@@ -22,7 +22,7 @@ export interface SsoProviderPreset {
   hint: string;
 }
 
-export const SSO_PRESETS: readonly SsoProviderPreset[] = [
+const SSO_PRESETS: readonly SsoProviderPreset[] = [
   {
     id: 'okta-oidc',
     label: 'Okta',

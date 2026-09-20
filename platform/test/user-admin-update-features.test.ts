@@ -28,9 +28,11 @@ jest.unstable_mockModule('mongoose', () => {
   return { ...api, default: api };
 });
 
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({
+  assertNotLastPrivilegedMember: jest.fn(),
+}));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertActorMayAssignBuiltinAdmin: jest.fn(),
-  assertNotLastPrivilegedMember: jest.fn(),
   assignBuiltinAdminRole: jest.fn(async () => true),
   ensureBaselineRole: jest.fn(async () => undefined),
   recomputeUserOrgRole: jest.fn(async () => undefined),

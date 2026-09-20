@@ -38,8 +38,8 @@ import {
   IGM_NOT_FOUND,
   IGM_PROVIDER_UNSUPPORTED,
 } from '../services/idp-mapping-errors.js';
+import type { RoleAssignmentActor } from '../services/role-authority.js';
 import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND } from '../services/roles-errors.js';
-import type { RoleAssignmentActor } from '../services/roles-service.js';
 import { idpGroupMappingCreateSchema, idpGroupMappingUpdateSchema, validateBody } from '../utils/validation.js';
 
 /**

@@ -36,7 +36,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 import { OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } from './oauth.js';
 import { config } from '../config/index.js';
@@ -128,7 +128,7 @@ function recordFailure(req: Parameters<typeof audit>[0], userId: string, err: un
     },
   });
   incCounter('platform_step_up_total', { method: 'reauth', outcome: 'failure' });
-  logger.warn('Step-up re-auth failed', { userId, provider, error: err instanceof Error ? err.message : String(err) });
+  logger.warn('Step-up re-auth failed', { userId, provider, error: errorMessage(err) });
   throw err;
 }
 

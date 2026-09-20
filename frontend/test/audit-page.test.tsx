@@ -6,7 +6,7 @@
  *   - the hash-chain "Verify integrity" button is sysadmin-only
  *   - the "Denied attempts" quick-filter toggles the action filter to
  *     `authz.denied` and clears cleanly
- *   - impersonator / target / group (and, for a sysadmin, org) filters reach
+ *   - impersonator / target / role (and, for a sysadmin, org) filters reach
  *     the API — from the URL, and from the ids on a row
  */
 
@@ -19,11 +19,13 @@ const authGuard = mockAuthGuard();
 // useAuthGuard is swapped per-test to flip the sysadmin flag.
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
-// The page reads router.query for deep-link hydration only.
+// `useListPage({ urlSync: true })` hydrates from router.query and mirrors the
+// settled state back with a shallow `router.replace`, so the mock needs both.
 let routerQuery: Record<string, string> = {};
+const routerReplace = jest.fn();
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: routerQuery }),
+  useRouter: () => ({ isReady: true, query: routerQuery, pathname: '/dashboard/audit', replace: (...a: unknown[]) => routerReplace(...a) }),
 }));
 
 // DashboardLayout drags in providers — reduce it to a passthrough wrapper.
@@ -45,6 +47,7 @@ beforeEach(() => {
     data: { events: [], pagination: { total: 0, offset: 0, limit: 50, hasMore: false } },
   });
   verifyAuditChain.mockReset();
+  routerReplace.mockReset();
   authGuard.isSuperAdmin = false;
   routerQuery = {};
 });
@@ -115,16 +118,16 @@ describe('AuditPage — identity filters', () => {
     orgId: 'org-9',
     targetType: 'pipeline',
     targetId: 'pl-cccccccc',
-    groupId: 'grp-dddddddd',
+    roleId: 'role-dddddddd',
     createdAt: '2026-09-01T00:00:00Z',
   };
 
-  it('hydrates impersonator, target, group and org from the URL for a sysadmin', async () => {
+  it('hydrates impersonator, target, role and org from the URL for a sysadmin', async () => {
     authGuard.isSuperAdmin = true;
-    routerQuery = { impersonatorId: 'op-1', targetId: 'pl-1', groupId: 'grp-1', orgId: 'org-7' };
+    routerQuery = { impersonatorId: 'op-1', targetId: 'pl-1', roleId: 'role-1', orgId: 'org-7' };
     render(<AuditPage />);
     await waitFor(() => expect(lastFilters()).toMatchObject({
-      impersonatorId: 'op-1', targetId: 'pl-1', groupId: 'grp-1', orgId: 'org-7',
+      impersonatorId: 'op-1', targetId: 'pl-1', roleId: 'role-1', orgId: 'org-7',
     }));
   });
 
@@ -149,18 +152,51 @@ describe('AuditPage — identity filters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'pipeline' }));
     await waitFor(() => expect(lastFilters()).toMatchObject({ targetType: 'pipeline', targetId: 'pl-cccccccc' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'group' }));
-    await waitFor(() => expect(lastFilters()).toMatchObject({ groupId: 'grp-dddddddd' }));
+    fireEvent.click(screen.getByRole('button', { name: 'role' }));
+    await waitFor(() => expect(lastFilters()).toMatchObject({ roleId: 'role-dddddddd' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'org' }));
     await waitFor(() => expect(lastFilters()).toMatchObject({ orgId: 'org-9' }));
   });
 
+  it('never offers the sysadmin-only scopes to an org admin', async () => {
+    render(<AuditPage />);
+    await screen.findByText(/no matching audit events/i);
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    expect(screen.queryByLabelText(/filter by org id/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/filter by affected org id/i)).not.toBeInTheDocument();
+    // …but does offer every scope the backend honours for them.
+    expect(screen.getByLabelText(/filter by actor user id/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/filter by role id/i)).toBeInTheDocument();
+  });
+
+  it('leaves an org admin\u2019s deep-linked org scope out of the filter count', async () => {
+    // `useListPage`'s URL hydration is not role-aware, so the value lands in
+    // filter state; the page must still treat it as not-in-effect.
+    routerQuery = { orgId: 'org-7' };
+    render(<AuditPage />);
+    await screen.findByText(/no matching audit events/i);
+    // A counted filter would badge the toggle, changing its accessible name.
+    expect(screen.getByRole('button', { name: /^filters$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument();
+  });
+
+  it('mirrors the settled filter state back into the URL', async () => {
+    render(<AuditPage />);
+    await screen.findByText(/no matching audit events/i);
+    fireEvent.click(screen.getByRole('button', { name: /denied attempts/i }));
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ action: 'authz.denied' }) }),
+      undefined,
+      { shallow: true },
+    ));
+  });
+
   it('offers to clear filters from the empty state', async () => {
-    routerQuery = { groupId: 'grp-1' };
+    routerQuery = { roleId: 'role-1' };
     render(<AuditPage />);
     expect(await screen.findByText(/no matching audit events/i)).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /clear filters/i })[0]);
-    await waitFor(() => expect(lastFilters()).not.toHaveProperty('groupId'));
+    await waitFor(() => expect(lastFilters()).not.toHaveProperty('roleId'));
   });
 });

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createRemoteAuditAccessor } from '@pipeline-builder/api-core';
-import type { RemoteAuditEvent } from '@pipeline-builder/api-core';
 
 /**
  * Audit wiring for the quota service. Route handlers push attributed `quota.*`
@@ -12,19 +11,12 @@ import type { RemoteAuditEvent } from '@pipeline-builder/api-core';
  * backs the boot-registered `authz.denied` auditor. Emission is FIRE-AND-FORGET
  * (`record` never throws / is not awaited); handlers MUST emit only AFTER the
  * mutation succeeds. See `createRemoteAuditAccessor`.
+ *
+ * Both shapes come from the ONE api-core factory: `getAuditClient` (the
+ * spool-backed client `wireServiceBoot` registers the `authz.denied` sink on)
+ * and `emitQuotaAudit` (the terse emitter route handlers call, with the
+ * `'quota'` service principal already baked in). Best-effort — never blocks or
+ * throws; emit only AFTER the mutation succeeds, and keep `details` free of
+ * secrets/tokens and AWS account ids.
  */
-const accessor = createRemoteAuditAccessor('quota');
-
-/** The spool-backed remote client — passed to `wireAuthzDenialAuditor` and
- *  called directly by route files via `getAuditClient().record(...)`. */
-export const getAuditClient = accessor.getAuditClient;
-
-/**
- * Emit an attributed quota audit event. Thin wrapper baking in the `'quota'`
- * service principal so call sites stay terse. Best-effort — never blocks or
- * throws. Keep `details` free of secrets/tokens and AWS account ids (numeric
- * quota limits + quotaType are fine).
- */
-export function emitQuotaAudit(event: RemoteAuditEvent): void {
-  accessor.emit(event);
-}
+export const { getAuditClient, emit: emitQuotaAudit } = createRemoteAuditAccessor('quota');

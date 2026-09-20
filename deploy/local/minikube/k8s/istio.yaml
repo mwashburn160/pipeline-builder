@@ -169,6 +169,10 @@ metadata: { name: thanos-store-gateway, namespace: pipeline-builder, labels: { a
 ---
 apiVersion: v1
 kind: ServiceAccount
+metadata: { name: thanos-compact, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
 metadata: { name: mongo-express, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: v1
@@ -373,6 +377,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/loki
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/thanos-store-gateway
+              # The compactor is the only component that DELETES from the bucket.
+              - cluster.local/ns/pipeline-builder/sa/thanos-compact
               - cluster.local/ns/pipeline-builder/sa/default
       to:
         - operation:

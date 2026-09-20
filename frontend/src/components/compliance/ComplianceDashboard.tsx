@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell, ChevronDown, History, SlidersHorizontal } from 'lucide-react';
 import api from '@/lib/api';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { Button } from '@/components/ui/Button';
 import { TabBar } from '@/components/ui/TabBar';
@@ -16,6 +16,7 @@ import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 import { RESULT_STYLES } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { useComplianceAudit } from './useComplianceAudit';
 
 const RuleList = lazy(() => import('./RuleList'));
 const RuleEditor = lazy(() => import('./RuleEditor'));
@@ -111,7 +112,7 @@ const AUDIT_ACTIONS: { value: string; label: string }[] = [
 ];
 
 function TabSpinner() {
-  return <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" /></div>;
+  return <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-brand border-t-transparent" /></div>;
 }
 
 interface ComplianceDashboardProps {
@@ -122,11 +123,6 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Tab lives in the URL: compliance has 10 views across 2 levels, and none of
   // them could be linked, bookmarked or returned to with browser Back.
   const [tab, setTab] = useUrlTab<Tab>('view', COMPLIANCE_TABS, 'overview');
-  const [audit, setAudit] = useState<ComplianceAuditEntry[]>([]);
-  // A failed audit fetch was previously swallowed (`catch {}`), leaving stale/empty
-  // entries that read as "no audit entries". Track the error so the Overview can
-  // show a retry banner instead.
-  const [auditError, setAuditError] = useState<string | null>(null);
   const [stats, setStats] = useState({ rules: 0, pass: 0, warn: 0, block: 0 });
 
   // Sub-views for drill-downs
@@ -134,46 +130,6 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   const [detailScanId, setDetailScanId] = useState<string | null>(null);
   const [editorRule, setEditorRule] = useState<ComplianceRule | undefined>(undefined);
   const [showEditor, setShowEditor] = useState(false);
-
-  // Audit log filters & pagination
-  const [auditTarget, setAuditTarget] = useState('');
-  const [auditResult, setAuditResult] = useState('');
-  // What produced the check (upload/create validation, a scan, an entity event).
-  const [auditAction, setAuditAction] = useState('');
-  // Date-range scope (empty = unbounded). `getComplianceAuditLog` accepts
-  // dateFrom/dateTo; the result filter already exists as a select above.
-  const [auditDateFrom, setAuditDateFrom] = useState('');
-  const [auditDateTo, setAuditDateTo] = useState('');
-  const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 20, offset: 0, total: 0 });
-
-  // Monotonic guard: driven by four filters + pagination + retry, an older
-  // in-flight response could otherwise resolve last and overwrite the current
-  // filter's rows. Bail on any setState if a newer fetch has started since.
-  const auditGenRef = useRef(0);
-  const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
-    const gen = ++auditGenRef.current;
-    try {
-      const params: Record<string, string | number> = { limit, offset };
-      if (auditTarget) params.target = auditTarget;
-      if (auditResult) params.result = auditResult;
-      if (auditAction) params.action = auditAction;
-      if (auditDateFrom) params.dateFrom = auditDateFrom;
-      if (auditDateTo) params.dateTo = auditDateTo;
-      const res = await api.getComplianceAuditLog(params);
-      if (auditGenRef.current !== gen) return; // superseded by a newer fetch
-      if (res.success && res.data) {
-        setAudit(res.data.entries);
-        setAuditError(null);
-        if (res.data.pagination) {
-          setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
-      } else {
-        setAuditError(res.message || 'Failed to load audit log');
-      }
-    } catch {
-      if (auditGenRef.current === gen) setAuditError('Failed to load audit log');
-    }
-  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo, auditPagination.offset, auditPagination.limit]);
 
   // Pass/warn/block counts come from dedicated `result=` queries that ask
   // for `limit:1` and read `pagination.total`. We can't derive the totals
@@ -198,28 +154,6 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
-
-  // Reset to page 1 when filters change.
-  useEffect(() => {
-    setAuditPagination(prev => ({ ...prev, offset: 0 }));
-  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo]);
-
-  // Refetch the audit log when the filters change. The previous
-  // `filtersActive` truthy-string indirection skipped fetches when both
-  // filters were cleared at once; this fires on any transition.
-  useEffect(() => {
-    // Pass offset 0 explicitly: the reset-offset effect above runs in the same
-    // commit, so `auditPagination.offset` is still the previous page's value in
-    // this closure. Without the explicit 0, changing a filter while on page 2+
-    // would refetch the old offset and render an empty page.
-    fetchAudit(0);
-    // fetchAudit closes over the same deps; we want to fire only when the
-    // user-facing filters change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auditTarget, auditResult, auditAction, auditDateFrom, auditDateTo]);
-
-  const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
-  const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
 
   // Clear sub-views on tab change. NOTE (N37): the RuleHistory view is
   // intentionally only reachable through this gate (rules tab + a selected
@@ -291,8 +225,8 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
                 aria-current={active ? 'page' : undefined}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                   active
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                    : 'text-fg-muted hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? 'bg-info-bg text-info'
+                    : 'text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" /> {label}
@@ -305,26 +239,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       {/* Content */}
       <Suspense fallback={<TabSpinner />}>
         {tab === 'overview' && (
-          <Overview
-            stats={stats}
-            audit={audit}
-            auditError={auditError}
-            onRetryAudit={() => fetchAudit()}
-            auditTarget={auditTarget}
-            auditResult={auditResult}
-            auditAction={auditAction}
-            onTargetChange={setAuditTarget}
-            onResultChange={setAuditResult}
-            onActionChange={setAuditAction}
-            onGoToRules={() => setTab('rules')}
-            auditDateFrom={auditDateFrom}
-            auditDateTo={auditDateTo}
-            onDateFromChange={setAuditDateFrom}
-            onDateToChange={setAuditDateTo}
-            auditPagination={auditPagination}
-            onAuditPageChange={handleAuditPageChange}
-            onAuditPageSizeChange={handleAuditPageSizeChange}
-          />
+          <Overview stats={stats} onGoToRules={() => setTab('rules')} />
         )}
         {tab === 'rules' && (
           showEditor
@@ -350,7 +265,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
         {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} />}
         {tab === 'scans' && (
           detailScanId
-            ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} />
+            ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} readOnly={!canManage} />
             : <ScanManager onViewScan={handleViewScan} readOnly={!canManage} />
         )}
         {tab === 'schedules' && <ScanScheduleManager readOnly={!canManage} />}
@@ -374,7 +289,7 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
     return <div className="text-center py-6 text-sm text-fg-subtle">No compliance changes recorded yet.</div>;
   }
   return (
-    <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+    <ul className="divide-y divide-default">
       {changes.map(e => {
         const r = RESULT_STYLES[e.result] || RESULT_STYLES.pass;
         const violations = Array.isArray(e.violations) ? e.violations : [];
@@ -382,12 +297,12 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
           <li key={e.id} className="py-2 flex items-baseline justify-between gap-2 text-sm">
             <div className="min-w-0 flex items-baseline gap-2">
               <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
-              <span className="text-gray-800 dark:text-gray-200 truncate">
+              <span className="text-fg truncate">
                 <code className="text-xs">{e.action}</code>
                 {e.entityName && <span className="text-fg-muted"> on {e.entityName}</span>}
               </span>
               {violations.length > 0 && (
-                <span className="text-xs text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
+                <span className="text-xs text-danger shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
               )}
             </div>
             <span className="text-xs text-fg-muted whitespace-nowrap">{formatRelativeTime(e.createdAt)}</span>
@@ -400,26 +315,28 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
 
 interface OverviewProps {
   stats: { rules: number; pass: number; warn: number; block: number };
-  audit: ComplianceAuditEntry[];
-  auditError: string | null;
-  onRetryAudit: () => void;
-  auditTarget: string;
-  auditResult: string;
-  auditAction: string;
-  onTargetChange: (v: string) => void;
-  onResultChange: (v: string) => void;
-  onActionChange: (v: string) => void;
   onGoToRules: () => void;
-  auditDateFrom: string;
-  auditDateTo: string;
-  onDateFromChange: (v: string) => void;
-  onDateToChange: (v: string) => void;
-  auditPagination: PaginationState;
-  onAuditPageChange: (offset: number) => void;
-  onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, auditAction, onTargetChange, onResultChange, onActionChange, onGoToRules, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+function Overview({ stats, onGoToRules }: OverviewProps) {
+  // The check log's filters/pagination/fetch — state the Overview alone reads,
+  // so it lives here rather than being drilled down from the dashboard shell.
+  const {
+    entries: audit,
+    error: auditError,
+    filters: { target: auditTarget, result: auditResult, action: auditAction, dateFrom: auditDateFrom, dateTo: auditDateTo },
+    setTarget: onTargetChange,
+    setResult: onResultChange,
+    setAction: onActionChange,
+    setDateFrom: onDateFromChange,
+    setDateTo: onDateToChange,
+    filtersActive,
+    pagination: auditPagination,
+    handlePageChange: onAuditPageChange,
+    handlePageSizeChange: onAuditPageSizeChange,
+    retry: onRetryAudit,
+  } = useComplianceAudit();
+
   // Inline drill-in: which row is expanded to show its violations/metadata.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -480,7 +397,6 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
     onDateToChange(to.toISOString().slice(0, 10));
   };
   const allDatesActive = !auditDateFrom && !auditDateTo;
-  const filtersActive = Boolean(auditResult || auditTarget || auditAction || auditDateFrom || auditDateTo);
 
   return (
     <div className="space-y-6">
@@ -504,14 +420,14 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               onClick={onClick}
               aria-pressed={result != null ? active : undefined}
               title={result != null ? (active ? 'Clear filter' : `Show ${label.toLowerCase()} checks`) : 'View rules'}
-              className={`text-left rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm transition hover:border-gray-300 hover:shadow dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                active ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 dark:border-gray-700'
+              className={`text-left rounded-lg border bg-surface p-4 shadow-sm transition hover:shadow focus:outline-none focus:ring-2 focus:ring-brand ${
+                active ? 'border-brand ring-1 ring-brand' : 'border-default'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`rounded-lg p-2 ${STAT_COLORS[color]}`}><Icon className="h-5 w-5" /></div>
                 <div>
-                  <div className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</div>
+                  <div className="text-2xl font-bold text-fg tabular-nums">{value}</div>
                   <div className="text-xs text-fg-muted">{label}</div>
                 </div>
               </div>
@@ -520,8 +436,8 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
         })}
       </div>
 
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100 dark:border-gray-800 gap-2 flex-wrap">
+      <div className="rounded-lg border border-default bg-surface p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3 pb-3 border-b border-default gap-2 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <TabBar
               items={ACTIVITY_TABS}
@@ -571,7 +487,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               {AUDIT_ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
             </FilterSelect>
             {/* Date range: quick presets + custom inputs (empty = unbounded). */}
-            <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+            <div className="inline-flex rounded border border-default overflow-hidden">
               {presets.map(p => {
                 const isActive = p.days === null && allDatesActive;
                 return (
@@ -579,8 +495,8 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                     key={p.label}
                     type="button"
                     onClick={() => applyPreset(p.days)}
-                    className={`px-2 py-1 text-xs border-l first:border-l-0 border-gray-300 dark:border-gray-600 ${
-                      isActive ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    className={`px-2 py-1 text-xs border-l first:border-l-0 border-default ${
+                      isActive ? 'bg-brand text-white' : 'bg-surface text-fg-muted hover:bg-surface-muted'
                     }`}
                   >
                     {p.label}
@@ -592,7 +508,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               type="date"
               value={auditDateFrom}
               onChange={e => onDateFromChange(e.target.value)}
-              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs tabular-nums"
+              className="rounded border border-default bg-surface px-2 py-1 text-xs tabular-nums"
               title="From date"
               aria-label="Audit log from date"
             />
@@ -601,7 +517,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               type="date"
               value={auditDateTo}
               onChange={e => onDateToChange(e.target.value)}
-              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs tabular-nums"
+              className="rounded border border-default bg-surface px-2 py-1 text-xs tabular-nums"
               title="To date"
               aria-label="Audit log to date"
             />
@@ -624,21 +540,21 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                 const expanded = expandedId === entry.id;
                 const violations = Array.isArray(entry.violations) ? entry.violations : [];
                 return (
-                  <div key={entry.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                  <div key={entry.id} className="border-b border-default last:border-0">
                     <button
                       type="button"
                       onClick={() => setExpandedId(expanded ? null : entry.id)}
                       aria-expanded={expanded}
-                      className="w-full flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded text-left hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                      className="w-full flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded text-left hover:bg-surface-muted"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className={`h-3.5 w-3.5 text-fg-subtle shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                         <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
                         <span className="text-2xs font-medium text-fg-subtle shrink-0">{entry.action}</span>
-                        <span className="text-sm text-gray-900 dark:text-white truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
-                        <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
+                        <span className="text-sm text-fg truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
+                        <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-default rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
                         {violations.length > 0 && (
-                          <span className="text-2xs text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
+                          <span className="text-2xs text-danger shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
                         )}
                       </div>
                       <span
@@ -649,29 +565,29 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                       </span>
                     </button>
                     {expanded && (
-                      <div className="ml-5 mb-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 text-xs space-y-2">
+                      <div className="ml-5 mb-2 rounded-lg border border-default bg-surface-muted p-3 text-xs space-y-2">
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-fg-muted">
-                          <span><span className="font-medium text-gray-700 dark:text-gray-300">Action:</span> <code>{entry.action}</code></span>
-                          <span><span className="font-medium text-gray-700 dark:text-gray-300">Rules evaluated:</span> {entry.ruleCount}</span>
-                          <span title={formatDateTime(entry.createdAt)}><span className="font-medium text-gray-700 dark:text-gray-300">When:</span> {formatDateTime(entry.createdAt)}</span>
-                          {entry.entityId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Entity ID:</span> <code className="break-all">{entry.entityId}</code></span>}
-                          {entry.scanId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Scan:</span> <code className="break-all">{entry.scanId}</code></span>}
+                          <span><span className="font-medium text-fg-muted">Action:</span> <code>{entry.action}</code></span>
+                          <span><span className="font-medium text-fg-muted">Rules evaluated:</span> {entry.ruleCount}</span>
+                          <span title={formatDateTime(entry.createdAt)}><span className="font-medium text-fg-muted">When:</span> {formatDateTime(entry.createdAt)}</span>
+                          {entry.entityId && <span><span className="font-medium text-fg-muted">Entity ID:</span> <code className="break-all">{entry.entityId}</code></span>}
+                          {entry.scanId && <span><span className="font-medium text-fg-muted">Scan:</span> <code className="break-all">{entry.scanId}</code></span>}
                         </div>
                         {violations.length > 0 ? (
                           <div className="space-y-1.5">
-                            <div className="font-medium text-gray-700 dark:text-gray-300">{violations.length} violation{violations.length === 1 ? '' : 's'}</div>
+                            <div className="font-medium text-fg-muted">{violations.length} violation{violations.length === 1 ? '' : 's'}</div>
                             {violations.map((raw, i) => {
                               const v = readViolation(raw);
                               return (
-                                <div key={i} className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+                                <div key={i} className="rounded border border-default bg-surface p-2">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="font-medium text-gray-900 dark:text-white">{v.ruleName}</span>
-                                    {v.severity && <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{v.severity}</span>}
+                                    <span className="font-medium text-fg">{v.ruleName}</span>
+                                    {v.severity && <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-default rounded px-1 py-0.5">{v.severity}</span>}
                                   </div>
                                   {v.message && <div className="text-fg-muted mt-0.5">{v.message}</div>}
                                   {(v.field || v.operator) && (
-                                    <div className="text-gray-500 dark:text-gray-500 mt-1">
-                                      <code>{v.field}</code> {v.operator} — expected <code className="text-gray-700 dark:text-gray-300">{fmtVal(v.expectedValue)}</code>, got <code className="text-red-600 dark:text-red-400">{fmtVal(v.actualValue)}</code>
+                                    <div className="text-fg-subtle mt-1">
+                                      <code>{v.field}</code> {v.operator} — expected <code className="text-fg-muted">{fmtVal(v.expectedValue)}</code>, got <code className="text-danger">{fmtVal(v.actualValue)}</code>
                                     </div>
                                   )}
                                 </div>

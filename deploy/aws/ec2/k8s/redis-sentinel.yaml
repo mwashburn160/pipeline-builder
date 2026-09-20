@@ -130,7 +130,7 @@ spec:
       securityContext: { runAsUser: 999, runAsNonRoot: true, fsGroup: 999 }
       containers:
         - name: redis
-          image: redis:8-alpine
+          image: redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0  # redis:8-alpine
           command: ["sh", "/scripts/redis-bootstrap.sh"]
           ports:
             - { containerPort: 6379, name: redis }
@@ -154,7 +154,7 @@ spec:
         # differ per member, so one exporter per pod is what makes a failover
         # visible. Redis here requires no auth, so no credentials are wired.
         - name: redis-exporter
-          image: oliver006/redis_exporter:v1.69.0
+          image: oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05  # oliver006/redis_exporter:v1.69.0
           args:
             - "--redis.addr=redis://localhost:6379"
           ports:
@@ -228,7 +228,7 @@ spec:
       securityContext: { runAsUser: 999, runAsNonRoot: true, fsGroup: 999 }
       containers:
         - name: sentinel
-          image: redis:8-alpine
+          image: redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0  # redis:8-alpine
           command: ["sh", "/scripts/sentinel-bootstrap.sh"]
           ports:
             - { containerPort: 26379, name: sentinel }
@@ -248,7 +248,7 @@ spec:
         # is watching — a Sentinel that has lost sight of the primary looks
         # identical to a healthy one from outside.
         - name: redis-exporter
-          image: oliver006/redis_exporter:v1.69.0
+          image: oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05  # oliver006/redis_exporter:v1.69.0
           args:
             - "--redis.addr=redis://localhost:26379"
           ports:

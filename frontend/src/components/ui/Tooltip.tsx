@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useLayoutEffect, useId, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 
 interface TooltipProps {
   content: string;
@@ -108,25 +107,23 @@ export function Tooltip({ content, children, delay = 300, multiline = false, cla
       aria-describedby={visible ? tooltipId : undefined}
     >
       {children}
-      <AnimatePresence>
-        {visible && (
-          <motion.span
-            id={tooltipId}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            role="tooltip"
-            className={`absolute z-50 pointer-events-none px-2.5 py-1.5 text-xs font-medium rounded-lg
-              ${multiline ? 'whitespace-normal break-words max-w-xs' : 'whitespace-nowrap'}
-              bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900
-              shadow-lg ${sideClasses.tooltip}`}
-          >
-            {content}
-            <span className={`absolute w-0 h-0 border-4 ${sideClasses.arrow}`} />
-          </motion.span>
-        )}
-      </AnimatePresence>
+      {/* The 100ms fade is CSS (`.tooltip-bubble`): a tooltip is on almost every
+          screen in the app, and a fade plus a 5% scale does not need an
+          animation runtime. The exit is gone with it — the bubble vanishes on
+          mouse-leave, which is what a tooltip is expected to do. */}
+      {visible && (
+        <span
+          id={tooltipId}
+          role="tooltip"
+          className={`tooltip-bubble absolute z-50 pointer-events-none px-2.5 py-1.5 text-xs font-medium rounded-lg
+            ${multiline ? 'whitespace-normal break-words max-w-xs' : 'whitespace-nowrap'}
+            bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900
+            shadow-lg ${sideClasses.tooltip}`}
+        >
+          {content}
+          <span className={`absolute w-0 h-0 border-4 ${sideClasses.arrow}`} />
+        </span>
+      )}
     </span>
   );
 }

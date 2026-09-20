@@ -13,6 +13,7 @@ import {
   requirePermission,
   validateBody,
   validateQuery,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -91,7 +92,7 @@ export function createScanRoutes(): Router {
     // scalar metadata only (target + dry-run flag), never the filter body.
     emitComplianceAudit({
       action: 'compliance.scan.create',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan',
       targetId: scan.id,
@@ -114,7 +115,7 @@ export function createScanRoutes(): Router {
     // Best-effort attributed audit — the scan cancel succeeded.
     emitComplianceAudit({
       action: 'compliance.scan.cancel',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan',
       targetId: id,

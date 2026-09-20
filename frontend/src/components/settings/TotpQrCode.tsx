@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useFetch } from '@/hooks/useFetch';
 
 /**
  * The enrolment QR code, drawn as real SVG rectangles.
@@ -17,31 +17,17 @@ import { useEffect, useState } from 'react';
  * manual entry, so the caller renders that instead of an error.
  */
 export function TotpQrCode({ value, size = 180 }: { value: string; size?: number }) {
-  const [matrix, setMatrix] = useState<boolean[][] | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setMatrix(null);
-    setFailed(false);
-    void (async () => {
-      try {
-        const { encode } = await import('uqr');
-        // `M` (~15% recovery) is what authenticator apps are tuned for — higher
-        // levels make the modules smaller for no practical gain on a screen.
-        // `border` is the quiet zone, and it is part of the returned matrix; two
-        // modules plus the element's own white padding is what cameras need to
-        // find the symbol's edges.
-        const result = encode(value, { ecc: 'M', border: 2 });
-        if (!cancelled) setMatrix(result.data);
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
-    return () => { cancelled = true; };
+  const { data: matrix, error } = useFetch<boolean[][]>(async () => {
+    const { encode } = await import('uqr');
+    // `M` (~15% recovery) is what authenticator apps are tuned for — higher
+    // levels make the modules smaller for no practical gain on a screen.
+    // `border` is the quiet zone, and it is part of the returned matrix; two
+    // modules plus the element's own white padding is what cameras need to
+    // find the symbol's edges.
+    return encode(value, { ecc: 'M', border: 2 }).data;
   }, [value]);
 
-  if (failed) {
+  if (error) {
     return (
       <p className="text-xs text-fg-muted" role="status">
         Couldn&apos;t draw the QR code — enter the setup key below by hand instead.

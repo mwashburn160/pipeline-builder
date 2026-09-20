@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { Building2, Users } from 'lucide-react';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { Card } from '@/components/ui/Card';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -20,8 +21,8 @@ import { useFormState } from '@/hooks/useFormState';
 import { formatError } from '@/lib/constants';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { QuotaTier } from '@/types';
 
-type Tier = 'developer' | 'pro' | 'team' | 'enterprise';
 type IdentityChanges = { name?: string; slug?: string; description?: string };
 
 /** Max description length — mirrors the platform's `updateOrganizationSchema`. */
@@ -55,11 +56,15 @@ export function OrgIdentityCard({
   const [description, setDescription] = useState('');
   // Validated identity changes, held while the step-up dialog is open.
   const [pendingEdit, setPendingEdit] = useState<IdentityChanges | null>(null);
-  const [pendingTier, setPendingTier] = useState<Tier | null>(null);
+  const [pendingTier, setPendingTier] = useState<QuotaTier | null>(null);
   const [tierError, setTierError] = useState<string | null>(null);
 
-  const currentTier = (org.tier ?? 'developer') as Tier;
+  const currentTier: QuotaTier = org.tier ?? 'developer';
   const isTeam = !!org.parentOrgId;
+  // `unlimited` is what every org is on when billing is disabled, and it is
+  // deliberately not purchasable — never offered, but listed while the org is
+  // on it, or the <select> would show (and submit) "Developer" instead.
+  const tierOptions: readonly QuotaTier[] = TIER_KEYS.includes(currentTier) ? TIER_KEYS : [currentTier, ...TIER_KEYS];
 
   const openEdit = () => {
     setName(org.name ?? '');
@@ -92,6 +97,10 @@ export function OrgIdentityCard({
     if (result !== null) {
       setEditing(false);
       toast.success('Organization updated');
+      // The name/slug is what the org switcher and every org list show, and
+      // both read through the shared cache — without this they keep the old one
+      // until the cache goes stale.
+      invalidate.organizations();
       onChanged();
     }
   };
@@ -104,6 +113,8 @@ export function OrgIdentityCard({
     try {
       await api.updateOrganizationTier(org.id, tier, stepUpToken);
       toast.success(`Tier changed to ${getTierMeta(tier).label}`);
+      // The tier is a column in the org list.
+      invalidate.organizations();
       onChanged();
     } catch (e) {
       setTierError(formatError(e, 'Failed to update tier'));
@@ -115,7 +126,7 @@ export function OrgIdentityCard({
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Building2 className="w-5 h-5 text-fg-muted" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
+          <h3 className="text-base font-semibold text-fg">Identity</h3>
         </div>
         <div className="flex items-center gap-3">
           <button type="button" onClick={openEdit} className="action-link text-sm">Edit</button>
@@ -128,13 +139,13 @@ export function OrgIdentityCard({
             <FilterSelect
               value={currentTier}
               onChange={(e) => {
-                const next = e.target.value as Tier;
+                const next = e.target.value as QuotaTier;
                 if (next !== currentTier) setPendingTier(next);
               }}
               className="text-xs"
               aria-label="Change pricing tier"
             >
-              {TIER_KEYS.map((tier) => (
+              {tierOptions.map((tier) => (
                 <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
               ))}
             </FilterSelect>

@@ -39,7 +39,7 @@
  * Exits 0 on success, 1 when the arguments are incomplete or no such account.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { MFA_RESET_GRACE_MAX_HOURS, recoverMfa } from '../services/mfa-recovery.js';
@@ -96,7 +96,7 @@ let exitCode = 1;
 try {
   exitCode = await main();
 } catch (err) {
-  logger.error('MFA recovery aborted', { error: err instanceof Error ? err.message : String(err) });
+  logger.error('MFA recovery aborted', { error: errorMessage(err) });
 } finally {
   await mongoose.disconnect().catch(() => undefined);
 }

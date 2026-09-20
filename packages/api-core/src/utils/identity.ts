@@ -19,10 +19,51 @@ export interface RequestIdentity {
 }
 
 /**
+ * Canonical org-id normalization: trim + lowercase, empty ⇒ undefined.
+ *
+ * The SINGLE spelling rule for a tenant id across the fleet. Org ids are
+ * 24-hex ObjectId strings (plus the `'system'` sentinel), and hex is
+ * case-insensitive — so `Acme`-style casing differences resolve to the SAME
+ * Mongo document while string comparisons (`activeOrgId === targetOrgId`, an
+ * RLS GUC vs a WHERE clause, a cache key) silently disagree. Everything that
+ * compares or keys on an org id normalizes through here so the comparison and
+ * the lookup can never drift apart.
+ */
+export function normalizeOrgId(orgId: string | undefined | null): string | undefined {
+  return orgId?.trim().toLowerCase() || undefined;
+}
+
+/**
+ * The actor id written when nothing in the request attributes the action to a
+ * person — an internal service hop, a scheduler tick, a token whose subject
+ * never resolved. One spelling, because the audit trail is queried by it.
+ */
+export const SYSTEM_ACTOR_ID = 'system';
+
+/**
+ * The actor id to stamp on an audit event, from a route context.
+ *
+ * Route handlers used to reach back into `req.user.sub` themselves, with
+ * fallbacks that disagreed across services (`?? ''`, `?? userId ?? 'system'`,
+ * `?? 'system'`) — so the same unattributable write landed in the trail under
+ * three different actors depending on which route wrote it.
+ *
+ * `rc.userId` is already the normalized identity `withRoute` resolved (JWT
+ * `sub`, else the `x-user-id` hop header — see {@link getIdentity}), so this is
+ * the same value the rest of the request is scoped by, and the ONE place the
+ * "unattributable" sentinel is chosen. Accepts anything carrying a `userId`,
+ * which the route context does — pass `rc`, or `{ userId }` when the handler
+ * destructures.
+ */
+export function actorId(rc: { userId?: string | null }): string {
+  return rc.userId || SYSTEM_ACTOR_ID;
+}
+
+/**
  * Extract identity information from request headers.
  *
  * Extracts common identity headers used for multi-tenant authentication:
- * - x-org-id: Organization identifier
+ * - x-org-id: Organization identifier (INTERNAL SERVICE hops only, see below)
  * - x-user-id: User identifier
  * - x-request-id: Request trace identifier
  * - x-user-role: User role
@@ -49,15 +90,29 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
   // JWT (e.g. requestId). The JWT payload uses `sub` for the user id per
   // OIDC convention; that's our authoritative source.
   const user = req.user;
-  // Canonical orgId normalization — the SINGLE source of truth. Lowercasing
-  // (and trimming) ONCE here guarantees the RLS GUC (`identityScope` reads this
-  // raw `identity.orgId`) and the app-layer WHERE clauses (route-wrapper /
-  // app-factory, which historically re-lowercased) always agree on tenant. A
+  // The `x-org-id` header is CLIENT-SETTABLE, so it is only ever honored for a
+  // principal that has no tenant of its own to speak for:
+  //   - an INTERNAL SERVICE principal (`principalType: 'service'`), whose token
+  //     names the signing service rather than the tenant it is acting for —
+  //     that is the S2S hop convention (the cascade, the quota client, …); and
+  //   - a request with no verified principal at all (`attachRequestContext`
+  //     runs before `requireAuth`, which recomputes this from the JWT).
+  // For a USER or SERVICE-ACCOUNT principal the JWT is the ONLY authority.
+  // Platform can mint a user token with no `organizationId` (a person between
+  // orgs, mid-invite, mid-onboarding), and the old `user?.organizationId ||
+  // header` fallback let such a token name any tenant it liked — a value that
+  // flows straight into the RLS tenant GUC. Absent ⇒ undefined ⇒ the route's
+  // `requireOrgId` refuses the call, which is the correct answer.
+  const principalType = user?.principalType;
+  const headerOrgId = getHeaderString(req.headers['x-org-id']);
+  const mayUseHeaderOrg = !user || principalType === 'service';
+  const rawOrgId = user?.organizationId || (mayUseHeaderOrg ? headerOrgId : undefined);
+  // Normalized ONCE here (see normalizeOrgId) so the RLS GUC (`identityScope`
+  // reads this `identity.orgId`) and the app-layer WHERE clauses (route-wrapper
+  // / app-factory, which historically re-lowercased) always agree on tenant. A
   // mismatch — GUC set to `Acme` while WHERE queries `acme` — would, under
-  // owner-bypass RLS, silently scope reads to the wrong (or no) tenant. Empty /
-  // whitespace-only collapses to undefined so "missing org" stays falsy.
-  const rawOrgId = user?.organizationId || getHeaderString(req.headers['x-org-id']);
-  const orgId = rawOrgId?.trim().toLowerCase() || undefined;
+  // owner-bypass RLS, silently scope reads to the wrong (or no) tenant.
+  const orgId = normalizeOrgId(rawOrgId);
   return {
     orgId,
     userId: user?.sub || getHeaderString(req.headers['x-user-id']),

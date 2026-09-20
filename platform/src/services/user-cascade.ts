@@ -3,7 +3,7 @@
 
 import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
-import { assertNotLastPrivilegedMember } from './roles-service.js';
+import { assertNotLastPrivilegedMember } from './role-crud.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
 

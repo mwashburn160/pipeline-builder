@@ -19,7 +19,7 @@
  * master and make the secret unreadable afterwards.
  */
 
-import { type EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
+import { type EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob, errorMessage } from '@pipeline-builder/api-core';
 
 /**
  * Quick heuristic — does this raw string look like one of our stored
@@ -55,7 +55,7 @@ export async function unwrapEncrypted(raw: string, orgId: string, fieldLabel: st
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new Error(`Stored secret "${fieldLabel}" is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Stored secret "${fieldLabel}" is not valid JSON: ${errorMessage(err)}`);
   }
   if (!isEncryptedBlob(parsed)) {
     throw new Error(`Stored secret "${fieldLabel}" does not match the EncryptedBlob shape`);

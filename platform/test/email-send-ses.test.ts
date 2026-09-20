@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendMail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockCreateTransport = jest.fn(() => ({ sendMail: mockSendMail }));
@@ -27,7 +28,7 @@ jest.unstable_mockModule('@aws-sdk/client-sesv2', () => ({
   SESv2Client: class { },
   SendEmailCommand: class { },
 }));
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info() {}, warn() {}, error() {}, debug() {} }),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ get config() { return mockConfig; } }));

@@ -14,12 +14,17 @@
  */
 
 /**
- * Parse an integer env var. Unset / blank / non-numeric → `def`. Optional
- * `min`/`max` clamp the result (applied after the default).
+ * Parse an integer env var. Unset / blank / not a clean integer string → `def`.
+ * Optional `min`/`max` clamp the result (applied after the default).
+ *
+ * STRICT on purpose: `parseInt` accepts `50.5` (→ 50) and `12abc` (→ 12), which
+ * is how a typo'd quota limit or timeout silently ships a value nobody wrote.
+ * Anything that isn't `-?\d+` falls back to the code default instead.
  */
 export function envInt(name: string, def: number, opts?: { min?: number; max?: number }): number {
   const raw = process.env[name];
-  let n = raw === undefined || raw.trim() === '' ? def : Number.parseInt(raw, 10);
+  const trimmed = raw?.trim() ?? '';
+  let n = trimmed !== '' && /^[+-]?\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : def;
   if (!Number.isFinite(n)) n = def;
   if (opts?.min !== undefined) n = Math.max(opts.min, n);
   if (opts?.max !== undefined) n = Math.min(opts.max, n);

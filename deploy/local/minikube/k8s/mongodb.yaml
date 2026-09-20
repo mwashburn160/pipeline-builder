@@ -106,7 +106,7 @@ spec:
       initContainers:
         # Fix keyfile permissions (MongoDB requires 400)
         - name: fix-keyfile-permissions
-          image: busybox:1.38
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -128,7 +128,7 @@ spec:
               mountPath: /keyfile
       containers:
         - name: mongodb
-          image: mongo:8.3.7
+          image: mongo@sha256:2f02e2184c6d91c3208e5ab75a0707d1386a05377b20fdaf49a314815774d863  # mongo:8.3.7
           args:
             - "--bind_ip_all"
             - "--replSet"
@@ -202,7 +202,7 @@ spec:
         # this deployment cares about; --compatible-mode keeps the legacy metric
         # names that most community dashboards and alert rules expect.
         - name: mongodb-exporter
-          image: percona/mongodb_exporter:0.44.0
+          image: percona/mongodb_exporter@sha256:d9c577166068197bf6908296d9742cc8267e7b7e1054199436d6d922e8921679  # percona/mongodb_exporter:0.44.0
           args:
             - "--collect-all"
             - "--compatible-mode"

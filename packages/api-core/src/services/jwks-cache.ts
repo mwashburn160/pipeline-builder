@@ -36,6 +36,7 @@ import {
 } from '../utils/jwk.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('jwks-cache');
 
@@ -158,7 +159,7 @@ export class JwksCache {
       if (this.keys.size > 0) {
         logger.warn('JWKS refresh failed; continuing on the cached key set', {
           source: this.source,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         });
         return;
       }
@@ -184,7 +185,7 @@ export class JwksCache {
       emitCounter('jwks_fetch_total', { source: this.source, result: 'error' });
       logger.warn('JWKS fetch failed', {
         source: this.source,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       throw error instanceof Error ? error : new Error(String(error));
     }
@@ -196,7 +197,7 @@ export class JwksCache {
         keys.set(jwk.kid, publicKeyFromJwk(jwk));
       } catch (error) {
         // One unusable entry must not discard the rest of the set.
-        logger.warn('Skipping unusable JWKS entry', { kid: jwk.kid, error: error instanceof Error ? error.message : String(error) });
+        logger.warn('Skipping unusable JWKS entry', { kid: jwk.kid, error: errorMessage(error) });
       }
     }
     if (keys.size === 0) {
@@ -221,7 +222,7 @@ export class JwksCache {
  * Unauthenticated by design: the key set is public, and requiring a credential
  * to fetch the keys that verify credentials is a bootstrap cycle.
  */
-export async function fetchPlatformJwks(): Promise<JwksDocument> {
+async function fetchPlatformJwks(): Promise<JwksDocument> {
   const absolute = process.env.PLATFORM_JWKS_URL;
   const timeout = parseInt(process.env.JWKS_FETCH_TIMEOUT_MS || '3000', 10);
   if (absolute) return fetchJwksFromUrl(absolute, timeout);
@@ -244,7 +245,7 @@ export async function fetchPlatformJwks(): Promise<JwksDocument> {
 }
 
 /** Fetch a JWKS document from an absolute URL (outside-the-cluster verifiers). */
-export async function fetchJwksFromUrl(url: string, timeoutMs = 3000): Promise<JwksDocument> {
+async function fetchJwksFromUrl(url: string, timeoutMs = 3000): Promise<JwksDocument> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

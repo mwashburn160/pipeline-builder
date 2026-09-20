@@ -6,7 +6,7 @@ import { visibilityRung } from './visibility-rungs';
 /** Per-rung emphasis: the narrower the rung, the more legible — `public` is the
  *  common case and stays muted, so the eye catches rows that are restricted. */
 const TONE: Record<string, string> = {
-  private: 'font-medium text-gray-700 dark:text-gray-300',
+  private: 'font-medium text-fg-muted',
   org: 'text-fg-muted',
   public: 'text-fg-subtle',
 };

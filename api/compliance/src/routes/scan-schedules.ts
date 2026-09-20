@@ -12,6 +12,7 @@ import {
   parsePaginationParams,
   validateBody,
   requirePermission,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -72,7 +73,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule create succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.create',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan-schedule',
       targetId: schedule.id,
@@ -104,7 +105,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule update succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan-schedule',
       targetId: id,
@@ -133,7 +134,7 @@ export function createScanScheduleRoutes(): Router {
     // active-state flip is modelled as a schedule update carrying the new state.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.update',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan-schedule',
       targetId: id,
@@ -156,7 +157,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule delete succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.delete',
-      actorId: req.user?.sub ?? userId ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'scan-schedule',
       targetId: id,

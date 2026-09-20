@@ -58,7 +58,7 @@ export function SamlMetadataImport({
   return (
     <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-3 space-y-3" data-testid="saml-metadata-import">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Import identity-provider metadata</p>
+        <p className="text-sm font-medium text-fg-muted">Import identity-provider metadata</p>
         <SegmentedFilter
           options={[{ value: 'url', label: 'From URL' }, { value: 'xml', label: 'Paste / upload' }]}
           value={source}

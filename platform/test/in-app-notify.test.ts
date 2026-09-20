@@ -7,11 +7,12 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockPost = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockWarn = jest.fn();
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: mockWarn, error: jest.fn(), debug: jest.fn() }),
   createSafeClient: () => ({ post: mockPost }),
   getServiceAuthHeader: () => 'Bearer svc',

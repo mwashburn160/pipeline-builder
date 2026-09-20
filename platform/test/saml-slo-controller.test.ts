@@ -17,6 +17,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -26,7 +27,13 @@ const mockBuildRequestUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
 const mockBuildResponseUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
 const mockRevoke = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockFindOneAndDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockFind = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
+/** Spy on the FILTER only — the rows come from the in-memory store below, which
+ *  the bounded revoke loop drains through `deleteMany` (a fixed mockResolvedValue
+ *  would make the drain loop spin until its per-request cap). */
+const mockFind = jest.fn<(...a: unknown[]) => void>();
+interface SamlRow { _id: string; userId: string; sessionId: string }
+let samlRows: SamlRow[] = [];
+const givenSamlRows = (rows: SamlRow[]) => { samlRows = [...rows]; };
 const mockDeleteMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
@@ -39,9 +46,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_l: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getSamlConfigForLogout: (...a: unknown[]) => mockGetCfg(...a),
 }));
@@ -58,8 +63,21 @@ jest.unstable_mockModule('../src/services/saml-service.js', () => ({
 jest.unstable_mockModule('../src/models/saml-session.js', () => ({
   default: {
     findOneAndDelete: (...a: unknown[]) => ({ lean: () => mockFindOneAndDelete(...a) }),
-    find: (...a: unknown[]) => ({ select: () => ({ lean: () => mockFind(...a) }) }),
-    deleteMany: (...a: unknown[]) => mockDeleteMany(...a),
+    find: (...a: unknown[]) => {
+      mockFind(...a);
+      let take = Number.POSITIVE_INFINITY;
+      const q: any = {
+        select: () => q,
+        limit: (n: number) => { take = n; return q; },
+        lean: async () => samlRows.slice(0, take),
+      };
+      return q;
+    },
+    deleteMany: (...a: any[]) => {
+      const ids: string[] = a[0]?._id?.$in ?? [];
+      samlRows = samlRows.filter((r) => !ids.includes(r._id));
+      return mockDeleteMany(...a);
+    },
     updateOne: (...a: unknown[]) => mockUpdateOne(...a),
   },
 }));
@@ -86,6 +104,7 @@ beforeEach(() => {
   mockRevoke.mockResolvedValue(undefined);
   mockDeleteMany.mockResolvedValue({});
   mockUpdateOne.mockResolvedValue({});
+  samlRows = [];
 });
 
 describe('SP-initiated (POST /auth/sso/logout)', () => {
@@ -131,7 +150,7 @@ describe('IdP-initiated (GET|POST /auth/sso/:orgId/saml/slo)', () => {
 
   it('revokes the matching sessions in this org and answers with a signed LogoutResponse', async () => {
     mockValidate.mockResolvedValue({ kind: 'request', id: '_lr1', session: { nameID: 'ada@acme.test', sessionIndex: '_s1' } });
-    mockFind.mockResolvedValue([{ _id: 'r1', userId: 'u1', sessionId: 'sess-1' }]);
+    givenSamlRows([{ _id: 'r1', userId: 'u1', sessionId: 'sess-1' }]);
     const res = makeRes();
     await (handleSamlSlo as any)(getReq({ SAMLRequest: 'abc', RelayState: 'rs', SigAlg: 'a', Signature: 's' }), res);
 
@@ -154,7 +173,7 @@ describe('IdP-initiated (GET|POST /auth/sso/:orgId/saml/slo)', () => {
   it('accepts the POST binding too, and lands on sign-in when the IdP has no SLO URL', async () => {
     mockGetCfg.mockResolvedValue({ ...CFG, sloUrl: undefined });
     mockValidate.mockResolvedValue({ kind: 'request', id: '_lr2', session: { nameID: 'ada@acme.test' } });
-    mockFind.mockResolvedValue([]);
+    givenSamlRows([]);
     const res = makeRes();
     await (handleSamlSlo as any)({ method: 'POST', params: { orgId: ORG }, body: { SAMLRequest: 'xml' }, originalUrl: '/x' }, res);
     expect(mockValidate).toHaveBeenCalledWith(expect.anything(), { binding: 'post', body: { SAMLRequest: 'xml' } });
@@ -200,5 +219,71 @@ describe('recordSamlSession', () => {
     mockUpdateOne.mockRejectedValue(new Error('mongo down'));
     const token = `h.${Buffer.from(JSON.stringify({ sid: 'sess-9' })).toString('base64url')}.s`;
     await expect(recordSamlSession({ userId: 'u1', orgId: ORG, accessToken: token, issuer: 'i', session: { nameID: 'n' } })).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * The SLO endpoint is UNAUTHENTICATED (signature-gated only) and IdP-driven,
+ * and a LogoutRequest naming only a NameID matches EVERY session that person
+ * has in the org. It used to read the whole match set with an unbounded
+ * `find()` and revoke serially — one message could pull an arbitrary number of
+ * rows into memory and hold the request open for that many sequential writes.
+ */
+describe('IdP-initiated fan-out is bounded', () => {
+  const getReq = () => ({
+    method: 'GET', params: { orgId: ORG }, query: { SAMLRequest: 'abc' }, originalUrl: `/auth/sso/${ORG}/saml/slo?SAMLRequest=abc`,
+  });
+  const rows = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({
+    _id: `r${from + i}`, userId: `u${from + i}`, sessionId: `s${from + i}`,
+  }));
+
+  beforeEach(() => {
+    mockValidate.mockResolvedValue({ kind: 'request', id: '_lr', session: { nameID: 'ada@acme.test' } });
+  });
+
+  it('reads in bounded batches and drains the whole match set', async () => {
+    givenSamlRows(rows(250));
+    const res = makeRes();
+    await (handleSamlSlo as any)(getReq(), res);
+
+    // 100-row batches: 3 reads of rows + 1 that finds nothing left.
+    expect(mockFind).toHaveBeenCalledTimes(4);
+    expect(mockDeleteMany).toHaveBeenCalledTimes(3);
+    expect(mockRevoke).toHaveBeenCalledTimes(250);
+    expect(samlRows).toEqual([]);
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.saml.logout', expect.objectContaining({
+      details: expect.objectContaining({ sessionsRevoked: 250 }),
+    }));
+  });
+
+  it('stops at the per-request cap and REPORTS it rather than working unbounded', async () => {
+    givenSamlRows(rows(1500));
+    const res = makeRes();
+    await (handleSamlSlo as any)(getReq(), res);
+
+    expect(mockRevoke).toHaveBeenCalledTimes(1000);
+    expect(samlRows).toHaveLength(500); // the rest lapse with their refresh window
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.saml.logout', expect.objectContaining({
+      details: expect.objectContaining({ sessionsRevoked: 1000, capped: 1000 }),
+    }));
+  });
+
+  it('deletes the bookkeeping rows only AFTER their sessions are revoked', async () => {
+    givenSamlRows(rows(2));
+    const order: string[] = [];
+    mockRevoke.mockImplementation(async () => { order.push('revoke'); });
+    mockDeleteMany.mockImplementation(async () => { order.push('delete'); return {}; });
+
+    await (handleSamlSlo as any)(getReq(), makeRes());
+
+    expect(order).toEqual(['revoke', 'revoke', 'delete']);
+  });
+
+  it('does no work at all when nothing matches', async () => {
+    givenSamlRows([]);
+    await (handleSamlSlo as any)(getReq(), makeRes());
+    expect(mockFind).toHaveBeenCalledTimes(1);
+    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(mockRevoke).not.toHaveBeenCalled();
   });
 });

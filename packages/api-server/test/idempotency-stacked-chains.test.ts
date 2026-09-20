@@ -11,9 +11,10 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ...actualApiCore,
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));

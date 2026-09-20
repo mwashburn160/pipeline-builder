@@ -226,12 +226,12 @@ describe('verifyAuditChain', () => {
     expect(result.brokenAt).toBe(tampered._id);
   });
 
-  it('detects a rewritten groupId (which Role was touched is hashed)', async () => {
+  it('detects a rewritten roleId (which Role was touched is hashed)', async () => {
     const e1 = await appendAuditEvent({
-      action: 'org.role.member.add', actorId: 'admin', orgId: 'org-1', affectedOrgId: 'org-1', groupId: 'role-viewer',
+      action: 'org.role.member.add', actorId: 'admin', orgId: 'org-1', affectedOrgId: 'org-1', roleId: 'role-viewer',
     });
     const row = store.find((r) => r._id === e1._id)!;
-    row.groupId = 'role-admin';
+    row.roleId = 'role-admin';
 
     const result = await verifyAuditChain('org-1');
     expect(result.ok).toBe(false);

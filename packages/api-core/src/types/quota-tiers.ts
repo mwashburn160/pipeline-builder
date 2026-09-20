@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { envInt, envStr } from '../utils/env.js';
+
 /** Available quota tier identifiers.
  *
  * `unlimited` is a special tier: every quota is `-1` (uncapped) and it includes
@@ -167,24 +169,14 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
 };
 
 /**
- * Read an integer env var, falling back to the code default. `-1` = unlimited.
- * Rejects (→ fallback) anything that isn't a clean integer string and any value
- * `< -1`: a decimal (`50.5`) or a nonsense negative (`-5`) would otherwise ship a
- * broken finite limit (parity with `envCents`'s rigor for prices).
+ * Read a tier LIMIT env var. `-1` = unlimited; anything below that is nonsense
+ * (a `-5` limit would ship a broken finite cap), so it falls back to the code
+ * default rather than clamping up to `-1`. The parsing itself is api-core's
+ * shared `envInt` — strict about decimals/garbage — not a local re-derivation.
  */
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const trimmed = raw.trim();
-  if (!/^-?\d+$/.test(trimmed)) return fallback; // no decimals / non-numeric
-  const n = parseInt(trimmed, 10);
-  return Number.isNaN(n) || n < -1 ? fallback : n;
-}
-
-/** Read a string env var, falling back to the code default. */
-function envStr(name: string, fallback: string): string {
-  const raw = process.env[name];
-  return raw === undefined || raw === '' ? fallback : raw;
+function tierLimitEnv(name: string, fallback: number): number {
+  const n = envInt(name, fallback);
+  return n < -1 ? fallback : n;
 }
 
 /**
@@ -207,18 +199,18 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
   const d = DEFAULT_TIER_LIMITS[tier];
   const T = tier.toUpperCase();
   return {
-    plugins: envInt(`QUOTA_TIER_${T}_PLUGINS`, d.plugins),
-    pipelines: envInt(`QUOTA_TIER_${T}_PIPELINES`, d.pipelines),
-    apiCalls: envInt(`QUOTA_TIER_${T}_API_CALLS`, d.apiCalls),
-    aiCalls: envInt(`QUOTA_TIER_${T}_AI_CALLS`, d.aiCalls),
-    storageBytes: envInt(`QUOTA_TIER_${T}_STORAGE_BYTES`, d.storageBytes),
-    dashboards: envInt(`QUOTA_TIER_${T}_DASHBOARDS`, d.dashboards),
-    alertRules: envInt(`QUOTA_TIER_${T}_ALERT_RULES`, d.alertRules),
-    alertDestinations: envInt(`QUOTA_TIER_${T}_ALERT_DESTINATIONS`, d.alertDestinations),
-    idpConfigs: envInt(`QUOTA_TIER_${T}_IDP_CONFIGS`, d.idpConfigs),
-    seats: envInt(`QUOTA_TIER_${T}_SEATS`, d.seats),
-    eventRetentionDays: envInt(`QUOTA_TIER_${T}_EVENT_RETENTION_DAYS`, d.eventRetentionDays),
-    doraRetentionDays: envInt(`QUOTA_TIER_${T}_DORA_RETENTION_DAYS`, d.doraRetentionDays),
+    plugins: tierLimitEnv(`QUOTA_TIER_${T}_PLUGINS`, d.plugins),
+    pipelines: tierLimitEnv(`QUOTA_TIER_${T}_PIPELINES`, d.pipelines),
+    apiCalls: tierLimitEnv(`QUOTA_TIER_${T}_API_CALLS`, d.apiCalls),
+    aiCalls: tierLimitEnv(`QUOTA_TIER_${T}_AI_CALLS`, d.aiCalls),
+    storageBytes: tierLimitEnv(`QUOTA_TIER_${T}_STORAGE_BYTES`, d.storageBytes),
+    dashboards: tierLimitEnv(`QUOTA_TIER_${T}_DASHBOARDS`, d.dashboards),
+    alertRules: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_RULES`, d.alertRules),
+    alertDestinations: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_DESTINATIONS`, d.alertDestinations),
+    idpConfigs: tierLimitEnv(`QUOTA_TIER_${T}_IDP_CONFIGS`, d.idpConfigs),
+    seats: tierLimitEnv(`QUOTA_TIER_${T}_SEATS`, d.seats),
+    eventRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_EVENT_RETENTION_DAYS`, d.eventRetentionDays),
+    doraRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_DORA_RETENTION_DAYS`, d.doraRetentionDays),
   };
 }
 

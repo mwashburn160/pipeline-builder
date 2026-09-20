@@ -18,6 +18,7 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { MfaRequiredError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
+import { formatDateLong } from '@/lib/format';
 import type { OrgMfaPolicy } from '@/types';
 
 /** What the admin is editing, before it is saved. */
@@ -26,10 +27,6 @@ interface Draft {
   graceDays: number;
   idpEnforcesMfa: boolean;
   adminActionsRequireMfa: boolean;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 /**
@@ -164,7 +161,7 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
           )}
           {policy.requireMfa && policy.graceUntil && !policy.enforced && (
             <Callout variant="warning">
-              Members have until <strong>{formatDate(policy.graceUntil)}</strong> to enrol. Until then
+              Members have until <strong>{formatDateLong(policy.graceUntil)}</strong> to enrol. Until then
               they are reminded but can still sign in with one factor; after it, they cannot sign in
               without a second one.
             </Callout>

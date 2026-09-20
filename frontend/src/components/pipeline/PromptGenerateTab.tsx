@@ -56,7 +56,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
         type="button"
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
           <Plug className="w-4 h-4 text-fg-muted" />
@@ -102,7 +102,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
 
 /**
  * Pipeline-create mode that generates a full pipeline configuration from a
- * free-text prompt via `POST /api/pipeline/generate/stream` (SSE). Mirrors the
+ * free-text prompt via `POST /api/pipelines/generate/stream` (SSE). Mirrors the
  * plugin prompt builder's UX and reuses GitUrlTab's plugin-review + streaming
  * consumption pattern, but drives the prompt endpoint instead of repo analysis.
  */

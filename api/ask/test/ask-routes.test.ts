@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- Mocks (before imports) ---------------------------------------------------
 
@@ -36,7 +37,7 @@ const mockReserveQuota = jest.fn<(...a: any[]) => any>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'aiCalls', limit: 100, used: 1, remaining: 99, resetAt: '2026-09-01T00:00:00Z' } }));
 const mockDecrementQuota = jest.fn();
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,

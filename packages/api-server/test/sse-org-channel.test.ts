@@ -10,6 +10,7 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const TEST_SECRET = 'test-secret-org-channel';
 process.env.JWT_SECRET = TEST_SECRET;
@@ -19,7 +20,7 @@ jest.unstable_mockModule('uuid', () => {
   return { v7: () => `uuid-${++n}` };
 });
 const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as typeof import('@pipeline-builder/api-core');
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ...actualApiCore,
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));

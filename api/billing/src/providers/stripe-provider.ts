@@ -5,7 +5,6 @@ import { createLogger } from '@pipeline-builder/api-core';
 import Stripe from 'stripe';
 import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { StripeConfig } from '../config.js';
-import type { StripeInvoiceLike } from '../helpers/billing-ledger.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import type { BillingInterval } from '../models/subscription.js';
 
@@ -318,12 +317,6 @@ export class StripeProvider implements PaymentProvider {
     );
     logger.info('Stripe usage credit applied', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
-  }
-
-  /** List a customer's invoices (newest first) for the ledger backfill. */
-  async listCustomerInvoices(externalCustomerId: string, limit = 100): Promise<StripeInvoiceLike[]> {
-    const resp = await this.stripe.invoices.list({ customer: externalCustomerId, limit });
-    return resp.data as unknown as StripeInvoiceLike[];
   }
 
   /** Expose the Stripe instance for webhook signature verification. */

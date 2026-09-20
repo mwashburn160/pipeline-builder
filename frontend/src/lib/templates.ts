@@ -37,8 +37,8 @@ export class TokenizeError extends Error {
   }
 }
 
-export const MAX_FIELD_SIZE = 4 * 1024;
-export const MAX_PATH_DEPTH = 5;
+const MAX_FIELD_SIZE = 4 * 1024;
+const MAX_PATH_DEPTH = 5;
 
 export function hasTemplate(source: string): boolean {
   return source.includes('{{');
@@ -175,7 +175,7 @@ function readExpr(src: string, start: number, startLine: number, startCol: numbe
 
 export type Scope = Record<string, unknown>;
 
-export function lookupPath(scope: Scope, path: string[]): unknown {
+function lookupPath(scope: Scope, path: string[]): unknown {
   let cur: unknown = scope;
   for (const seg of path) {
     if (cur == null || typeof cur !== 'object') return undefined;

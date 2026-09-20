@@ -252,10 +252,6 @@ export interface RateLimitConfig {
   readonly max: number;
   /** Rate limit window in milliseconds (env: `LIMITER_WINDOWMS`). */
   readonly windowMs: number;
-  /** Include legacy `X-RateLimit-*` headers. */
-  readonly legacyHeaders: boolean;
-  /** Include standard `RateLimit-*` headers (RFC 6585). */
-  readonly standardHeaders: boolean;
 }
 
 /** Price configuration for a single billing plan (in cents). */

@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
@@ -30,10 +31,7 @@ jest.unstable_mockModule('../src/helpers/session-cookie.js', () => ({
   deliverSessionTokens: (_q: unknown, _s: unknown, t: { accessToken: string }) => ({ accessToken: t.accessToken }),
   clearRefreshCookie: jest.fn(),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuthUserId: (req: any) => req.user?.sub,
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: {
     findForTokenIssue: async () => ({ _id: 'u1', lastActiveOrgId: 'org-1', tokenVersion: 1 }),

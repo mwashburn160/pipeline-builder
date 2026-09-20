@@ -17,7 +17,7 @@
 
 import crypto, { type KeyObject } from 'crypto';
 import { readFile } from 'fs/promises';
-import { createLogger, publicJwkFrom, USER_TOKEN_CURVE } from '@pipeline-builder/api-core';
+import { createLogger, publicJwkFrom, USER_TOKEN_CURVE, errorMessage } from '@pipeline-builder/api-core';
 import type { SigningKey } from './signer.js';
 
 const logger = createLogger('token-signing-local');
@@ -33,14 +33,14 @@ export async function loadLocalSigningKey(path: string, opts: { canSign: boolean
   try {
     pem = await readFile(path, 'utf-8');
   } catch (error) {
-    throw new Error(`Token signing key file ${path} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Token signing key file ${path} could not be read: ${errorMessage(error)}`);
   }
 
   let privateKey: KeyObject;
   try {
     privateKey = crypto.createPrivateKey(pem);
   } catch (error) {
-    throw new Error(`Token signing key file ${path} is not a readable private key: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Token signing key file ${path} is not a readable private key: ${errorMessage(error)}`);
   }
   if (privateKey.asymmetricKeyType !== 'ec') {
     throw new Error(`Token signing key ${path} must be an EC ${USER_TOKEN_CURVE} key (got ${privateKey.asymmetricKeyType ?? 'unknown'})`);

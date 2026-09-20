@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Check, ChevronLeft, ChevronRight, KeyRound, ShieldCheck } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -95,7 +95,24 @@ export function SsoSetupWizard({
   const next = () => setStep((s) => (Math.min(6, s + 1) as WizardStep));
   const back = () => setStep((s) => (Math.max(1, s - 1) as WizardStep));
 
+  // Steps 3 and 4 own their own submit button, so the wizard renders no "Next"
+  // for them; whatever was focused (the Next button, or a control in the step
+  // that just unmounted) is gone and focus falls back to <body>, stranding a
+  // keyboard user at the top of the document. Moving focus to the new step's
+  // heading puts them at the start of the step instead — and, because the
+  // heading sits in a live region, a screen reader hears which step it is.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const mountedStepRef = useRef(step);
+  useEffect(() => {
+    // Not on first render: opening the wizard must not steal focus from
+    // whatever the person clicked to get here.
+    if (mountedStepRef.current === step) return;
+    mountedStepRef.current = step;
+    headingRef.current?.focus();
+  }, [step]);
+
   return (
+    <div role="region" aria-label="Single sign-on setup">
     <SectionCard
       icon={ShieldCheck}
       title={config ? 'Edit single sign-on' : 'Set up single sign-on'}
@@ -127,6 +144,14 @@ export function SsoSetupWizard({
           );
         })}
       </ol>
+
+      {/* Always mounted (an aria-live region added together with its text is
+          not announced) and always filled, so every step change is read out. */}
+      <div role="status" aria-live="polite" className="mb-4">
+        <h3 ref={headingRef} tabIndex={-1} className="h3 outline-none">
+          Step {step} of {WIZARD_STEPS.length}: {WIZARD_STEPS[step - 1]}
+        </h3>
+      </div>
 
       {step === 1 && (
         <StepProtocol
@@ -195,6 +220,7 @@ export function SsoSetupWizard({
         )}
       </div>
     </SectionCard>
+    </div>
   );
 }
 
@@ -267,21 +293,33 @@ function StepDomains({
 }) {
   const [domains, setDomains] = useState<string[]>(config.allowedEmailDomains);
   const [pending, setPending] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const verified = useVerifiedDomains(orgId);
   useEffect(() => { setDomains(config.allowedEmailDomains); }, [config.allowedEmailDomains]);
+
+  // The step-up modal closes the moment it hands the token over, so without a
+  // busy flag the button is live again while the PATCH is still on the wire —
+  // a second click re-opens step-up and sends the write twice. The ref stops a
+  // late failure writing state into an unmounted step (the success path
+  // advances the wizard, which unmounts this one).
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const changed = [...domains].sort().join(',') !== [...config.allowedEmailDomains].sort().join(',');
 
   const save = async (stepUpToken: string) => {
     setPending(false);
+    setSaving(true);
     setError(null);
     try {
       const res = await api.patchOwnOrgIdpConfig(orgId, { allowedEmailDomains: domains }, stepUpToken);
       if (res.data?.config) onSaved(res.data.config);
       onContinue();
     } catch (err) {
-      setError(formatError(err, 'Could not save the domains'));
+      if (alive.current) setError(formatError(err, 'Could not save the domains'));
+    } finally {
+      if (alive.current) setSaving(false);
     }
   };
 
@@ -299,7 +337,13 @@ function StepDomains({
         </p>
       )}
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
-      <Button size="sm" readOnly={readOnly} onClick={() => (changed ? setPending(true) : onContinue())}>
+      <Button
+        size="sm"
+        readOnly={readOnly}
+        loading={saving}
+        disabled={saving || pending}
+        onClick={() => (changed ? setPending(true) : onContinue())}
+      >
         {changed ? 'Save and continue' : 'Continue'}
       </Button>
       {pending && (

@@ -26,6 +26,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { decodeJwt } from '@/lib/jwt';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { SECURITY_HREF, SESSIONS_HREF } from '@/lib/security-links';
@@ -108,7 +109,7 @@ export default function SettingsPage() {
       setUsername(user.username);
       setEmail(user.email);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed the form once per signed-in user, not on every profile refresh
   }, [user?.id]);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
@@ -341,6 +342,9 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
         setSlug(org.slug);
         setInitial({ name: org.name, slug: org.slug });
       }
+      // The org switcher and every org list read the name through the shared
+      // cache, so they keep the old one until it is dropped.
+      invalidate.organizations();
       await onSaved();
     }
   };

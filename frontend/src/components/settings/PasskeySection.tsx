@@ -15,8 +15,10 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccountRecoveryCodes, RecoveryCodes } from '@/components/settings/RecoveryCodes';
+import { useAuth } from '@/hooks/useAuth';
 import { useLoadable } from '@/hooks/useLoadable';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkeys';
 import { formatError } from '@/lib/constants';
 import { webauthnErrorMessage } from '@/lib/webauthn';
@@ -53,6 +55,7 @@ import type { Passkey } from '@/types';
  */
 export function PasskeySection({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
+  const { refreshUser } = useAuth();
   const [supported, setSupported] = useState<boolean | null>(null);
   // `browserSupportsWebAuthn` reads `window`, so it can only run after mount —
   // during SSR/hydration there is no navigator to ask.
@@ -66,6 +69,15 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     return res.data.passkeys;
   }, []);
   const { data: passkeys, loading, error: loadError, reload } = useLoadable<Passkey[]>(loadPasskeys, [], 'Failed to load passkeys');
+
+  /** Re-read the list AND the profile. `user.authFactors.passkeyCount` is what
+   *  the posture strip at the top of this page reports, so without the refresh
+   *  it still said "None" after an enrolment. Adding the account's FIRST
+   *  passkey also mints its recovery codes, which is TOTP-status state. */
+  const reloadAll = useCallback(async () => {
+    invalidate.totpStatus();
+    await Promise.all([reload(), refreshUser({ force: true })]);
+  }, [reload, refreshUser]);
 
   const [name, setName] = useState('');
   const [adding, setAdding] = useState(false);
@@ -93,7 +105,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
       setName('');
       if (recoveryCodes?.length) setFreshCodes(recoveryCodes);
       toast.success('Passkey added');
-      void reload();
+      void reloadAll();
     } catch (err) {
       // A dismissed browser prompt is a cancel; only a real failure is shown.
       const message = webauthnErrorMessage(err, 'Failed to add the passkey');
@@ -110,7 +122,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     if (!trimmed || trimmed === passkey.name) return;
     try {
       const res = await api.renamePasskey(passkey.id, trimmed);
-      if (res.success) { toast.success('Passkey renamed'); void reload(); }
+      if (res.success) { toast.success('Passkey renamed'); void reloadAll(); }
       else toast.error(res.message || 'Failed to rename the passkey');
     } catch (err) {
       toast.error(formatError(err, 'Failed to rename the passkey'));
@@ -121,7 +133,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     setRemoving(passkey.id);
     try {
       const res = await api.deletePasskey(passkey.id, stepUpToken);
-      if (res.success) { toast.success('Passkey removed'); void reload(); }
+      if (res.success) { toast.success('Passkey removed'); void reloadAll(); }
       else toast.error(res.message || 'Failed to remove the passkey');
     } catch (err) {
       // Includes the server's LAST_SIGN_IN_METHOD explanation, shown verbatim.
@@ -136,7 +148,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     {
       id: 'name',
       header: 'Name',
-      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      cellClassName: 'font-medium text-fg',
       render: (p) => (renamingId === p.id ? (
         <div className="flex items-center gap-1">
           <Input

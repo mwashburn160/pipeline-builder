@@ -53,7 +53,7 @@ function eventLabel(event: Promotion['trigger']['event']): string {
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">{label}</label>
+      <label className="block text-xs font-medium text-fg-muted">{label}</label>
       {children}
     </div>
   );
@@ -274,7 +274,7 @@ export default function PromotionsPage() {
       id: 'name', header: 'Campaign',
       render: (p) => (
         <div>
-          <div className="font-medium text-gray-900 dark:text-gray-100">{p.name}</div>
+          <div className="font-medium text-fg">{p.name}</div>
           {p.campaign && <div className="text-xs text-fg-muted">{p.campaign}</div>}
         </div>
       ),
@@ -404,7 +404,7 @@ export default function PromotionsPage() {
               </Field>
             )}
             <div>
-              <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Eligible tiers <span className="text-fg-subtle">(none = all)</span></span>
+              <span className="block text-xs font-medium text-fg-muted mb-1">Eligible tiers <span className="text-fg-subtle">(none = all)</span></span>
               <div className="flex flex-wrap gap-2">
                 {TIER_KEYS.map((t) => (
                   <button key={t} type="button" onClick={() => toggleTier(t)} aria-pressed={tiers.includes(t)}
@@ -416,7 +416,7 @@ export default function PromotionsPage() {
                 ))}
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
               <Checkbox checked={firstOnly} onChange={(e) => setFirstOnly(e.target.checked)} />
               First subscription only
             </label>

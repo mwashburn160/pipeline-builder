@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { Download, FileDown, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
@@ -55,6 +56,8 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
         toast.success('Namespace YAML downloaded');
       } else if (op === 'delete') {
         await api.deleteOrganization(org.id, stepUpToken);
+        // The list this navigates to reads through the shared cache.
+        invalidate.organizations();
         void router.push('/dashboard/organizations');
       }
     } catch (e) {
@@ -64,7 +67,7 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
 
   return (
     <Card>
-      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
+      <h3 className="text-base font-semibold text-fg mb-3">Operations</h3>
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setPendingOp('yaml')} className="inline-flex items-center gap-2 text-sm">

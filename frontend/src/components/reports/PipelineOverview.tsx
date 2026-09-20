@@ -7,7 +7,7 @@ import {
   fmtDate, ReportEmpty, SectionHeading,
   StatCardSkeleton, SectionCardSkeleton, StackedTimelineBar,
 } from './ReportHelpers';
-import { StatCard } from './StatCard';
+import { StatCard } from '@/components/ui/StatCard';
 import type { TimelineEntry } from './types';
 
 interface PipelineOverviewProps {

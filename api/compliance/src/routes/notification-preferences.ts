@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode, actorId } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -78,7 +78,7 @@ export function createNotificationPreferenceRoutes(): Router {
   }));
 
   // PUT / — upsert the calling org's preference. Org admin / owner only.
-  router.put('/', requirePermission('compliance:write'), audited('compliance.notification-preference.update'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/', requirePermission('compliance:write'), audited('compliance.notification-preference.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PreferenceUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -98,7 +98,7 @@ export function createNotificationPreferenceRoutes(): Router {
     // webhook secret, and never the URL's credentials: just its host.
     emitComplianceAudit({
       action: 'compliance.notification-preference.update',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetType: 'notification-preference',
       targetId: orgId,

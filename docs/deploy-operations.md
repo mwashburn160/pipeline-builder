@@ -45,14 +45,87 @@ Always update the **k8s Secret** (not just `.env`) on the k8s targets, then `kub
 
 Each target ships its **own** `bin/backup.sh` / `bin/restore.sh` (e.g. [`deploy/local/minikube/bin/backup.sh`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/local/minikube/bin/backup.sh)) — same names across targets, `common.sh` stays shared in [`deploy/bin/`](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/bin). The three **kubectl targets** (minikube / ec2 / eks) run the *port-forward variant*: it stands up short-lived `kubectl port-forward`s to the in-cluster postgres/mongodb (+minio), rewrites the connection env to the tunnels, dumps, and tears them down — so the in-cluster service names don't need to be host-reachable (`DRY_RUN=1` and `restore.sh --list` skip the forwards and need no cluster). The **docker** variant connects directly. They dump and restore Postgres + Mongo (to/from S3; `restore.sh` requires `--confirm-destructive`), and **optionally mirror the MinIO buckets** (attachments/registry/loki/thanos) when `MINIO_ENDPOINT` is set. **They are not scheduled by default** on any target — wire them:
 
-- **EKS:** apply [`deploy/aws/eks/backup/backup-cronjob.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/backup/backup-cronjob.yaml) (kept out of the kustomize overlay so it never auto-applies) after (1) provisioning an **encrypted + versioned** S3 bucket, (2) granting the `db-backup` ServiceAccount `s3:PutObject` (Pod Identity / IRSA — the current eks setup role grants only SES + CodePipeline, so **add** this), (3) pointing `image:` at a backup image with `pg_dump`/`mongodump`/`aws`/**`mc`**, and (4) setting `BACKUP_BUCKET`. (Minikube is local and has no bucket to write to; run `deploy/local/minikube/bin/backup.sh` manually there if you point it at reachable object storage.)
-- **EC2:** `bootstrap.sh` installs `pipeline-backup.timer` **disabled**. To enable it you must install the DB clients, give the host a path to the ClusterIP DBs (port-forward/NodePort), provision the bucket + `s3:PutObject`, and set `BACKUP_BUCKET`.
+#### EKS — enabling the nightly CronJob
+
+[`deploy/aws/eks/backup/backup-cronjob.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/backup/backup-cronjob.yaml) is deliberately **not** in `k8s/kustomization.yaml`, and **adding it there would not enable backups — it would schedule a job that fails every night at 03:00.** The manifest carries three account-specific `REPLACE_ME` values (the backup image, `BACKUP_BUCKET`, `MINIO_BACKUP_TARGET_URL`) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly. The exact steps:
+
+1. **Bucket.** Create an S3 bucket with **SSE-KMS**, **versioning**, and (recommended) **Object Lock** in governance mode. Put retention on a **bucket lifecycle rule**, not on the script's client-side `RETENTION_DAYS` prune — a compromised backup role can skip a client-side prune but cannot shorten a lifecycle rule.
+2. **IAM (the part the deploy does not do for you).** The eks setup role grants only SES + CodePipeline today, so this is an **addition**. Create a role the `db-backup` ServiceAccount can assume, via EKS **Pod Identity** (`aws eks create-pod-identity-association --cluster-name <cluster> --namespace pipeline-builder --service-account db-backup --role-arn <role>`) or IRSA (then uncomment the `eks.amazonaws.com/role-arn` annotation on the ServiceAccount in the manifest). Minimum policy:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       { "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+         "Resource": "arn:aws:s3:::<backup-bucket>/*" },
+       { "Effect": "Allow",
+         "Action": ["kms:GenerateDataKey", "kms:Encrypt"],
+         "Resource": "<the bucket's KMS key ARN>" }
+     ]
+   }
+   ```
+
+   Grant **no** `s3:DeleteObject` and **no** `s3:GetObject`: the job only writes. Restores run from an operator's own credentials via `bin/restore.sh`, so a compromised backup pod can neither read the history back nor delete it. Add `s3:ListBucket` on `arn:aws:s3:::<backup-bucket>` only if you later turn on the client-side prune.
+3. **Image.** Point `image:` at a small image that ships `pg_dump`, `mongodump`, the `aws` CLI, `mc` **and bash** (the job script uses `set -o pipefail`, which dash does not have), and that **runs as non-root** — the pod sets `runAsNonRoot: true, runAsUser: 65532`, so a root-by-default image such as the official `postgres` is rejected by the kubelet.
+4. **Values.** Set `BACKUP_BUCKET`, keep `ENV_NAME` matching what `backup.sh`/`restore.sh` use (they read the same `s3://<bucket>/<env>/<YYYY/MM/DD>/` layout), and either complete the `MINIO_*` block plus a `minio-backup-target` Secret or unset `MINIO_ENDPOINT` to skip the object-storage mirror.
+5. **Apply and verify**: `kubectl apply -f deploy/aws/eks/backup/backup-cronjob.yaml`, then force one run rather than waiting for 03:00 — `kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual` — and check both the pod logs and that the objects actually landed in the bucket.
+6. **Test a restore** into a scratch namespace (`deploy/aws/eks/bin/restore.sh --confirm-destructive`, plus `--minio` for object storage). Until this passes you have a CronJob, not a backup.
+
+Minikube and docker are local and have no bucket to write to; run their `bin/backup.sh` by hand against reachable object storage if you want copies.
+
+#### EC2
+
+`bootstrap.sh` installs `pipeline-backup.timer` **disabled**. To enable it: install the DB clients on the host, give the host a path to the ClusterIP DBs (the shipped `backup.sh` does this itself with `kubectl port-forward`), provision the bucket + the same `s3:PutObject`/KMS grant above (via the instance profile rather than Pod Identity), set `BACKUP_BUCKET`, then `systemctl enable --now pipeline-backup.timer`. Verify with `systemctl list-timers pipeline-backup` and one manual `systemctl start pipeline-backup.service`.
 
 **Bucket hardening:** enable SSE-KMS, versioning, and a **bucket lifecycle** retention policy (not the app's client-side `RETENTION_DAYS` prune, which a compromised role could bypass).
 
 **MinIO object storage** (plugin images, message attachments, logs) is backed up by the same script: set `MINIO_ENDPOINT` + `MINIO_ROOT_USER`/`PASSWORD` + a durable `MINIO_BACKUP_TARGET_URL` and its `*_ACCESS_KEY`/`*_SECRET_KEY`. `backup.sh` runs `mc mirror` (additive — never deletes from the backup, so a source delete can't wipe it; pair the target with **versioning** for point-in-time). Restore with `restore.sh --minio --confirm-destructive` (reverse mirror; standalone, does not touch the DBs). Skipping this (leaving `MINIO_ENDPOINT` unset) is a deliberate opt-out — a DB-only restore can't rebuild a working platform without the blobs.
 
-**DR drill:** periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup.
+### What the data tier actually is
+
+Read this before sizing an RPO, because the topology is the constraint:
+
+| Store | Topology | Standby / failover | Consequence |
+|---|---|---|---|
+| **Postgres** | **single instance**, `replicas: 1`, `strategy: Recreate`, one RWO volume | **none** — no hot standby, no replica, no WAL archiving | Losing the volume loses everything written since the last dump. A pod restart is a brief outage; a lost volume is a restore. |
+| **MongoDB** | **single instance**, `replicas: 1`, running as a ONE-MEMBER replica set (`rs0`) | **none** — `rs0` exists so drivers can use transactions/change streams, *not* for redundancy | Same: one member, one volume, no second copy. |
+| **Redis** | 3 + 3 Sentinel (eks/ec2), single pod (minikube/docker) | Sentinel failover on the AWS targets | Not backed up at all, by design — see below. |
+| **MinIO** | 4-drive EC:2 (eks/ec2), single drive (local) | drive-fault tolerance, not site | Mirrored by `backup.sh` when `MINIO_ENDPOINT` is set. |
+
+Redis HA removed the old data-tier single point of failure; **Postgres is now the one that remains**, with MongoDB beside it. Neither is replicated on any target, including eks.
+
+### RPO and RTO
+
+| | Value | Why |
+|---|---|---|
+| **RPO, Postgres + Mongo** | **up to 24 hours** | The only scheduled backup is the nightly CronJob at **03:00 UTC**. Everything written since the last successful dump is lost. |
+| **RPO, Postgres + Mongo, no schedule wired** | **∞ — total loss** | Nothing is scheduled by default on ANY target. Until you complete the steps above, the RPO is "whenever someone last ran `backup.sh` by hand". |
+| **Point-in-time recovery** | **not possible** | The dumps are LOGICAL (`pg_dump` / `mongodump`). There is no WAL archiving, no `pg_basebackup`, no oplog tailing — you can restore to a dump boundary and to nothing in between. |
+| **RPO, metrics** | ~2 hours | The Thanos sidecar uploads Prometheus' TSDB blocks every 2h; the not-yet-uploaded block is lost with the pod. |
+| **RPO, logs** | minutes | Loki flushes chunks to MinIO continuously; the in-pod WAL is an `emptyDir` and is lost with the pod. |
+| **RTO** | restore time + rollout | There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the MinIO mirror, re-create the secrets (below), roll the deployments. |
+
+Tightening the RPO below a day means either running `backup.sh` more often (change the CronJob `schedule:` — it is cheap, the dumps are small) or introducing real replication, which this deployment does not ship.
+
+### What is NOT backed up
+
+`backup.sh` and the CronJob cover exactly two things: the **Postgres** dump, the **Mongo** dump, and — only when `MINIO_ENDPOINT` is set — an `mc mirror` of the MinIO buckets. Everything below is outside that, and some of it is unrecoverable rather than merely inconvenient:
+
+- **`.env`, and every generated key.** The largest hole, and the one that is not recoverable by re-provisioning. `deploy/<target>/.env` holds `SECRET_ENCRYPTION_KEY`; `deploy/<target>/certs/` holds the ES256 user-token key, the per-service internal signing keys, the image-registry token keypair and the gateway TLS material; `deploy/<target>/mongodb-keyfile` holds the replica-set key. All are gitignored and none is in the backup.
+  - Lose **`SECRET_ENCRYPTION_KEY`** and every encrypted column stays encrypted forever — stored AI provider keys, IdP client secrets, TOTP secrets and the SAML SP private keys. A restored database is then **partially unreadable** even though the dump was perfect.
+  - Lose the **user-token signing key** and every session ends at once (recoverable — people sign in again).
+  - **Copy `.env`, `certs/` and `mongodb-keyfile` into your secret manager** as part of provisioning, and treat them as part of the backup set. See [Secret Rotation](runbooks/secret-rotation.md).
+- **Prometheus' local TSDB** (`--storage.tsdb.retention.time=7d`). Not backed up and does not need to be *if* the `thanos` bucket is in the MinIO mirror — the sidecar has already uploaded everything older than ~2h. Skip the MinIO mirror and you have no metric history at all after a rebuild.
+- **Loki's log store.** Same shape: chunks + index live in the `loki` MinIO bucket and are covered only by the mirror. `/loki` in the pod is ephemeral scratch.
+- **Grafana** (`/var/lib/grafana`). Not backed up. Datasources are re-provisioned from the `grafana-datasources` ConfigMap, so those come back; **dashboards, users, API keys and annotations created through the UI do not.** Keep dashboards in source control if they matter.
+- **Alertmanager state** (silences + the notification log). Not backed up: after a rebuild every silence is gone and previously-notified alerts re-notify once.
+- **Jaeger traces.** Not backed up — all-in-one, non-durable by design.
+- **Redis.** Deliberately not backed up: it holds BullMQ queues, the durable audit spool, session/step-up state and idempotency keys. Losing it drops **in-flight plugin builds** (BullMQ retries what it still has) and any audit events still in the spool that had not flushed to Mongo.
+- **Plugin build scratch and the buildkit layer cache.** `emptyDir` / a named volume; ephemeral by contract, rebuilt on the next build.
+- **The cluster itself.** No etcd backup, no manifest snapshot. Recovery is re-running the target's `setup.sh` against the restored data, which is the supported path.
+
+**DR drill:** periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the MinIO mirror and a `.env`/`certs/` restore, or you have not tested the parts that fail hardest.
 
 ## Object storage (MinIO)
 

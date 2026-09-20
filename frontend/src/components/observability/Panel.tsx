@@ -3,6 +3,7 @@
 
 import type { ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { formatError } from '@/lib/constants';
 
 interface PanelProps {
   title: string;
@@ -36,12 +37,12 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
     // heights. In span-grid mode `h-full` is a no-op (the parent doesn't
     // constrain height) so existing layouts render unchanged.
     <div className={`${SPAN_CLASS[span]} h-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col`}>
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{title}</h3>
+      <h3 className="text-sm font-semibold text-fg-muted mb-3">{title}</h3>
       <div className="flex-1 min-h-[8rem] flex items-center justify-center">
         {error ? (
           <div className="text-xs text-red-600 dark:text-red-400 text-center px-2">
             <div className="font-medium mb-1">Failed to load</div>
-            <div className="text-fg-muted break-words">{error.message}</div>
+            <div className="text-fg-muted break-words">{formatError(error, 'Something went wrong')}</div>
           </div>
         ) : loading ? (
           <div className="w-full space-y-2">

@@ -24,7 +24,7 @@
  * only guarantees the provisioning eventually happens (or is operator-visible).
  */
 
-import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
 import { authService } from './auth-service.js';
 import { config } from '../config/index.js';
 import { incCounter } from '../observability/metrics.js';
@@ -85,7 +85,7 @@ async function attemptWithRetry(orgId: string, planId: string): Promise<boolean>
         attempt: i,
         of: attempts,
         willRetry: !isLast,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       if (isLast) return false;
       // Linear backoff (base, 2×base, …) — short by design so a healthy billing
@@ -120,7 +120,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
     // raced the original signup, or an earlier attempt already marked it).
     await authService.clearPendingBillingPlan(orgId).catch((err) => {
       logger.warn('Failed to clear pending-billing marker after success (non-fatal)', {
-        orgId, error: err instanceof Error ? err.message : String(err),
+        orgId, error: errorMessage(err),
       });
     });
     logger.info('Billing subscription created for new org', { orgId, planId });
@@ -138,7 +138,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
     // Even the marker write failed (Mongo blip) — surface loudly; the org is now
     // at risk of the silent-developer-tier gap. Still non-fatal to registration.
     logger.error('Billing bootstrap AND pending-marker persistence failed', {
-      orgId, planId, error: err instanceof Error ? err.message : String(err),
+      orgId, planId, error: errorMessage(err),
     });
     incCounter('platform_billing_provision_total', { outcome: 'lost' });
   }
@@ -185,7 +185,7 @@ export async function reconcilePendingBillingSubscriptions(): Promise<BillingRec
       ok = true;
     } catch (error) {
       logger.warn('Billing reconcile attempt failed', {
-        orgId, planId, error: error instanceof Error ? error.message : String(error),
+        orgId, planId, error: errorMessage(error),
       });
     }
 

@@ -16,6 +16,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -44,15 +45,7 @@ jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   verifyCode: (...a: unknown[]) => mockVerifyCode(...a),
   hasActiveTotp: async () => true,
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  withController: (_label: string, fn: Function, map?: Record<string, { status: number; message: string }>) =>
-    async (req: any, res: any) => {
-      try { await fn(req, res); } catch (err) {
-        const mapped = map?.[(err as Error).message];
-        res.status(mapped?.status ?? 500).json({ success: false, message: mapped?.message ?? 'error' });
-      }
-    },
-}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
   issueTokens: jest.fn(),

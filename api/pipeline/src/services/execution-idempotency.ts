@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createEnvRedisClient, createLogger } from '@pipeline-builder/api-core';
+import { createEnvRedisClient, createLogger, errorMessage } from '@pipeline-builder/api-core';
 
 const logger = createLogger('execution-idempotency');
 
@@ -78,7 +78,7 @@ export function createExecutionIdempotencyGuard(
       } catch (err) {
         // Redis hiccup: fail OPEN so a transient outage doesn't reject triggers.
         logger.warn('Execution idempotency claim failed; proceeding without dedup', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
         return true;
       }
@@ -90,7 +90,7 @@ export function createExecutionIdempotencyGuard(
       } catch (err) {
         // TTL is the backstop — a failed release just means the window closes late.
         logger.warn('Execution idempotency release failed; window will expire via TTL', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },

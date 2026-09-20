@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AppError, extractDbError, ErrorCode, isSystemAdmin, userHasPermission, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaReserveDenied, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient, audited } from '@pipeline-builder/api-core';
+import { AppError, extractDbError, ErrorCode, isSystemAdmin, userHasPermission, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaReserveDenied, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient, audited, actorId } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service.js';
 
@@ -45,7 +45,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
       // Template validation (batches all errors in the body)
       try {
-        validatePipelineTemplates(body as unknown as PipelineLike);
+        validatePipelineTemplates(body);
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
@@ -167,7 +167,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // refunded above), so attribute it as an update, matching bulk-create.
         emitPipelineAudit({
           action: inserted ? 'pipeline.create' : 'pipeline.update',
-          actorId: req.user?.sub ?? userId ?? 'system',
+          actorId: actorId({ userId }),
           orgId,
           targetType: 'pipeline',
           targetId: result.id,

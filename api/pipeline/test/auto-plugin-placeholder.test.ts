@@ -41,14 +41,23 @@ describe('auto-created placeholder plugin', () => {
 });
 
 describe('extractPluginNames', () => {
-  it('collects unique stage plugin names from both AI output shapes, ignoring synth', () => {
+  it('collects unique stage step plugin names, ignoring synth', () => {
     expect(extractPluginNames({
       synth: { plugin: { name: 'synth-tool' } },
       stages: [
         { steps: [{ plugin: { name: 'a' } }, { plugin: { name: 'b' } }] },
-        { actions: [{ pluginName: 'b' }, { pluginName: 'c' }] },
+        { steps: [{ plugin: { name: 'b' } }, { plugin: { name: 'c' } }] },
       ],
     })).toEqual(['a', 'b', 'c']);
     expect(extractPluginNames({ synth: { plugin: { name: 'synth-tool' } } })).toEqual([]);
+  });
+
+  it('ignores a stage with no steps (no other output shape is accepted)', () => {
+    expect(extractPluginNames({
+      stages: [
+        { stageName: 'Build' },
+        { steps: [{ plugin: { name: 'a' } }] },
+      ],
+    })).toEqual(['a']);
   });
 });

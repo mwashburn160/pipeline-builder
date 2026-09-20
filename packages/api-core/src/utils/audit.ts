@@ -3,6 +3,7 @@
 
 import type winston from 'winston';
 import { scrubAwsIdentifiers } from './aws-scrub.js';
+import { errorMessage } from './response.js';
 import type { AuditEvent } from '../types/audit-events.js';
 
 /**
@@ -34,7 +35,7 @@ export function emitAudit(
     try {
       logger.warn('Failed to emit audit event', {
         event: audit.event,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     } catch {
       // Logger itself is unrecoverable — give up silently.

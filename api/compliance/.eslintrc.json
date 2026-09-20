@@ -170,7 +170,18 @@
     "no-bitwise": [
       "error"
     ],
-    "@typescript-eslint/member-ordering": "off"
+    "@typescript-eslint/member-ordering": "off",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='drizzle-orm'] > ArrowFunctionExpression[body.type='ObjectExpression']",
+        "message": "Don't hand-roll the 'drizzle-orm' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use drizzleMock({ … }) from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js' (see docs/testing.md)."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='@pipeline-builder/api-core'] > ArrowFunctionExpression[body.type='ObjectExpression']",
+        "message": "Don't hand-roll the '@pipeline-builder/api-core' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts (see docs/testing.md)."
+      }
+    ]
   },
   "overrides": []
 }

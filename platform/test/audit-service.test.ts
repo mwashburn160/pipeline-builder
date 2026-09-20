@@ -83,13 +83,13 @@ describe('auditService.findEvents', () => {
     mockCountDocuments.mockResolvedValue(0);
 
     await auditService.findEvents(
-      { groupId: 'grp-1', impersonatorId: 'sa-1', outcome: 'failure', requestId: 'req-9' },
+      { roleId: 'grp-1', impersonatorId: 'sa-1', outcome: 'failure', requestId: 'req-9' },
       0,
       10,
     );
 
     expect(mockFind).toHaveBeenCalledWith({
-      groupId: 'grp-1',
+      roleId: 'grp-1',
       impersonatorId: 'sa-1',
       outcome: 'failure',
       requestId: 'req-9',

@@ -68,7 +68,7 @@ export default function DefaultsSection({
             disabled={disabled}
             className="h-4 w-4 text-brand focus:ring-blue-500"
           />
-          <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+          <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-fg-muted">
             Configure pipeline-level CodeBuild defaults
           </label>
         </div>
@@ -111,7 +111,7 @@ export default function DefaultsSection({
 
             {/* Docker */}
             <div className="space-y-3">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
                 <Checkbox
                   checked={getMetaValue(defaults.metadata, 'aws:cdk:pipelines:codepipeline:dockerenabledforsynth') === 'true'}
                   onChange={(e) => onMetadataChange(
@@ -121,7 +121,7 @@ export default function DefaultsSection({
                 />
                 Enable Docker for synth step
               </label>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
                 <Checkbox
                   checked={getMetaValue(defaults.metadata, 'aws:cdk:codebuild:buildenvironment:privileged') === 'true'}
                   onChange={(e) => onMetadataChange(
@@ -148,7 +148,7 @@ export default function DefaultsSection({
 
             {/* Operations */}
             <div className="space-y-3">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
                 <Checkbox
                   checked={getMetaValue(defaults.metadata, 'aws:cdk:operations:executionevents') === 'true'}
                   onChange={(e) => onMetadataChange(
@@ -158,7 +158,7 @@ export default function DefaultsSection({
                 />
                 Track pipeline execution events (EventBridge)
               </label>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
                 <Checkbox
                   checked={getMetaValue(defaults.metadata, 'aws:cdk:operations:metrics') === 'true'}
                   onChange={(e) => onMetadataChange(

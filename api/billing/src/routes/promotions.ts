@@ -14,6 +14,7 @@ import {
   getParam,
   validateBody,
   parseQueryString,
+  actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -74,7 +75,7 @@ export function createPromotionRoutes(): Router {
   });
 
   // POST /billing/admin/promotions — mint a promotion.
-  router.post('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.create'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.create'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, PromotionMintSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -100,7 +101,7 @@ export function createPromotionRoutes(): Router {
 
     getAuditClient().record({
       action: 'billing.promotion.create',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: _id,
       details: { promotionId: _id, unit: body.unit, value: body.value, event: body.trigger.event, budgetCents: body.budgetCents },
@@ -132,7 +133,7 @@ export function createPromotionRoutes(): Router {
   }));
 
   // PUT /billing/admin/promotions/:id — edit / activate / revoke.
-  router.put('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.update'), withRoute(async ({ req, res, orgId }) => {
+  router.put('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.update'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -150,7 +151,7 @@ export function createPromotionRoutes(): Router {
 
     getAuditClient().record({
       action: 'billing.promotion.update',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { promotionId: id, ...update },
@@ -160,13 +161,13 @@ export function createPromotionRoutes(): Router {
 
   // DELETE /billing/admin/promotions/:id — soft-revoke (stops future auto-grants;
   // already-granted credits are NOT clawed back).
-  router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.revoke'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
     getAuditClient().record({
       action: 'billing.promotion.revoke',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { promotionId: id },
@@ -177,7 +178,7 @@ export function createPromotionRoutes(): Router {
   // POST /billing/admin/promotions/:id/grant — manual grant to one org. Bypasses
   // trigger-event/eligibility matching (admin intent) but still honors budget,
   // per-org idempotency, and the provider realizability invariant.
-  router.post('/admin/promotions/:id/grant', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.grant'), withRoute(async ({ req, res }) => {
+  router.post('/admin/promotions/:id/grant', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.grant'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionGrantSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -198,7 +199,7 @@ export function createPromotionRoutes(): Router {
 
     getAuditClient().record({
       action: 'billing.promotion.grant',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       orgId: targetOrgId,
       targetId: id,
       details: { promotionId: id, targetOrgId, granted: result.granted, cents: result.cents, reason: result.reason },
@@ -210,7 +211,7 @@ export function createPromotionRoutes(): Router {
   // POST /billing/admin/promotions/:id/activate — grant across the EXISTING
   // eligible base now (phase 2b). Idempotent per org; budget-bounded (skips are
   // logged). Use /preview first to project reach/spend.
-  router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.activate'), withRoute(async ({ req, res }) => {
+  router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.activate'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
@@ -219,7 +220,7 @@ export function createPromotionRoutes(): Router {
     const result = await batchEvaluatePromotion(promo);
     getAuditClient().record({
       action: 'billing.promotion.activate',
-      actorId: req.user?.sub ?? 'system',
+      actorId: actorId({ userId }),
       // Fleet-wide batch action — not scoped to one org; use the system sentinel.
       orgId: 'system',
       targetId: id,

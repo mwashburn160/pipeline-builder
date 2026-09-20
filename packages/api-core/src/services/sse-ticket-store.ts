@@ -5,6 +5,7 @@ import crypto from 'crypto';
 
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
+import { errorMessage } from '../utils/response.js';
 
 const logger = createLogger('sse-ticket-store');
 
@@ -72,7 +73,7 @@ function newTicketId(): string {
 }
 
 function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorMessage(err);
 }
 
 /** In-memory backend — single-process fallback when Redis isn't configured. */

@@ -21,7 +21,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useQuery } from '@/hooks/useQuery';
 import { queries } from '@/lib/api-cache';
 import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse } from '@/lib/api/domains/reporting';
+import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse, ReportRetention } from '@/lib/api/domains/reporting';
 import type {
   TimelineEntry, DurationStat, StageBottleneck, StageFailure, ActionFailure, ErrorEntry,
   PluginSummary, PluginDistribution, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginVersion,
@@ -31,19 +31,8 @@ import type {
 
 /** Fallback caps applied until (or if) the org's effective retention can't be
  *  read (mirrors the backend env defaults). */
-export const DEFAULT_EVENT_RETENTION_DAYS = 30;
-export const DEFAULT_DORA_RETENTION_DAYS = 180;
-
-export interface ReportRetention {
-  /** Max selectable window (days) for standard event routes (Pipelines/Plugins). */
-  eventMax: number;
-  /** Max selectable window (days) for DORA routes. */
-  doraMax: number;
-  /** Standard-event retention horizon in days (`-1` = unlimited). */
-  eventDays: number;
-  /** DORA-source retention horizon in days (`-1` = unlimited). */
-  doraDays: number;
-}
+const DEFAULT_EVENT_RETENTION_DAYS = 30;
+const DEFAULT_DORA_RETENTION_DAYS = 180;
 
 /**
  * The per-tab effective date-range cap, read from `GET /reports/retention` —
@@ -56,10 +45,10 @@ export interface ReportRetention {
 export function useReportRetention(): ReportRetention {
   const { data } = useFetch(async (signal) => (await api.getReportRetention({ signal })) ?? null, []);
   return useMemo(() => ({
-    eventMax: data?.eventMaxRangeDays ?? DEFAULT_EVENT_RETENTION_DAYS,
-    doraMax: data?.doraMaxRangeDays ?? DEFAULT_DORA_RETENTION_DAYS,
-    eventDays: data?.eventRetentionDays ?? DEFAULT_EVENT_RETENTION_DAYS,
-    doraDays: data?.doraRetentionDays ?? DEFAULT_DORA_RETENTION_DAYS,
+    eventRetentionDays: data?.eventRetentionDays ?? DEFAULT_EVENT_RETENTION_DAYS,
+    doraRetentionDays: data?.doraRetentionDays ?? DEFAULT_DORA_RETENTION_DAYS,
+    eventMaxRangeDays: data?.eventMaxRangeDays ?? DEFAULT_EVENT_RETENTION_DAYS,
+    doraMaxRangeDays: data?.doraMaxRangeDays ?? DEFAULT_DORA_RETENTION_DAYS,
   }), [data]);
 }
 
@@ -153,7 +142,7 @@ function useTabStatus(slices: SliceStatus[]): TabDataStatus {
   const refetchers = slices.map((s) => s.refetch);
   // The individual refetches are stable, so this is too — which matters: tabs
   // report it up through an effect keyed on its identity.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the dep list IS the slice refetchers array — dynamic by construction
   const refetch = useCallback(() => { refetchers.forEach((r) => r()); }, refetchers);
   return { loading, error: failed ? formatError(failed, 'Failed to load report data') : null, refetch };
 }

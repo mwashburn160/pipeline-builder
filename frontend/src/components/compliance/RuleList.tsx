@@ -122,7 +122,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     {
       id: 'target',
       header: 'Target',
-      render: (rule) => <StatusPill className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{rule.target}</StatusPill>,
+      render: (rule) => <StatusPill className="bg-gray-100 dark:bg-gray-700 text-fg-muted">{rule.target}</StatusPill>,
     },
     {
       id: 'severity',
