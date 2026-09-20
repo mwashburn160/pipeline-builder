@@ -419,7 +419,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.10'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.11'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -452,7 +452,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:4.1.10'
+    image: 'ghcr.io/mwashburn160/platform:4.1.11'
     container_name: platform
     restart: always
     stop_grace_period: 10s
@@ -761,7 +761,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:4.1.7'
+    image: 'ghcr.io/mwashburn160/message:4.1.8'
     container_name: message
     restart: always
     stop_grace_period: 10s
@@ -827,7 +827,7 @@ services:
           memory: 192M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:4.1.7'
+    image: 'ghcr.io/mwashburn160/compliance:4.1.8'
     container_name: compliance
     restart: always
     stop_grace_period: 10s
@@ -860,7 +860,7 @@ services:
           memory: 256M
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:4.1.7'
+    image: 'ghcr.io/mwashburn160/quota:4.1.8'
     container_name: quota
     restart: always
     stop_grace_period: 10s
@@ -999,7 +999,7 @@ services:
           memory: 192M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.1.7'
+    image: 'ghcr.io/mwashburn160/billing:4.1.8'
     container_name: billing
     restart: always
     stop_grace_period: 10s
