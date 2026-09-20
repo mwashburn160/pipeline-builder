@@ -35,7 +35,7 @@ export function PipelineOverview({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'Executions', value: totalExec },
-          { label: 'Success Rate', value: successRate === '—' ? '—' : `${successRate}%` },
+          { label: 'Success rate', value: successRate === '—' ? '—' : `${successRate}%` },
           { label: 'Failures', value: totalFail },
           { label: 'Pipelines', value: executions.length },
         ].map((s) => (
@@ -43,7 +43,7 @@ export function PipelineOverview({
         ))}
       </div>
       <Card>
-        <SectionHeading>Execution Timeline</SectionHeading>
+        <SectionHeading>Execution timeline</SectionHeading>
         {timeline.length > 0 ? (
           <div className="space-y-1.5">
             {timeline.map((entry) => (
@@ -61,7 +61,7 @@ export function PipelineOverview({
       </Card>
       {timeline.length > 0 && (
         <Card>
-          <SectionHeading>Success Rate Trend</SectionHeading>
+          <SectionHeading>Success rate trend</SectionHeading>
           <div className="space-y-1.5">
             {timeline.map((entry) => {
               const pct = Math.round(entry.success_pct);

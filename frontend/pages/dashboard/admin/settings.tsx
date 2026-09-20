@@ -174,12 +174,12 @@ export default function PlatformSettingsPage() {
           {/* Settings table — env var, value, and a short hint each. */}
           <Card className="overflow-hidden">
             <h2 className="text-base font-semibold text-fg mb-3">Configuration</h2>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-default">
               {rows.map((row) => {
                 const Icon = row.icon;
                 return (
                   <li key={row.envVar} className="py-3 flex items-start gap-3">
-                    <div className="flex-shrink-0 w-9 h-9 rounded-md bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                    <div className="flex-shrink-0 w-9 h-9 rounded-md bg-surface-muted flex items-center justify-center">
                       <Icon className="w-4 h-4 text-fg-muted" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -191,7 +191,7 @@ export default function PlatformSettingsPage() {
                         </div>
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-baseline gap-2 text-xs text-fg-muted">
-                        <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{row.envVar}</code>
+                        <code className="bg-surface-muted px-1.5 py-0.5 rounded">{row.envVar}</code>
                         <span>{row.hint}</span>
                       </div>
                     </div>

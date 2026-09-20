@@ -257,7 +257,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   // Template-only fields (name / category / access / inputs), injected into the
   // FormBuilderTab's first step alongside the pipeline config.
   const templateMetaSlot = (
-    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+    <div className="mt-4 pt-4 border-t border-default space-y-4">
       <h3 className="text-sm font-medium text-fg-muted">Template details</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -283,7 +283,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       </div>
 
       {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+      <div className="pt-2 border-t border-default">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-fg-muted">Inputs (parameters)</span>
           <Button type="button" variant="secondary" size="xs" onClick={addInput} disabled={loading}>
@@ -298,7 +298,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
         ) : (
           <div className="space-y-2">
             {inputs.map((row, i) => (
-              <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-2">
+              <div key={i} className="rounded-lg border border-default p-2 space-y-2">
                 <div className="flex items-center gap-2">
                   <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={loading} className="text-sm" />
                   <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={loading} className="text-sm" />
@@ -327,14 +327,14 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   );
 
   const jsonPreview = showPreview && previewJson !== null ? (
-    <div className="border-t border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
+    <div className="border-t border-default">
+      <div className="flex items-center justify-between px-6 py-2 bg-surface-muted">
         <span className="text-sm font-medium text-fg-muted">Edit JSON <span className="font-normal text-fg-subtle">— edit the template `props` directly, then Apply</span></span>
         <div className="flex items-center gap-3">
           <button
             onClick={handleApplyJson}
             disabled={loading}
-            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium transition-colors disabled:opacity-50"
+            className="text-brand hover:text-brand-strong text-sm font-medium transition-colors disabled:opacity-50"
           >
             Apply to form
           </button>
@@ -346,7 +346,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
           </button>
         </div>
       </div>
-      <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900">
+      <div className="px-6 py-3 bg-canvas">
         <Textarea
           value={previewJson}
           onChange={(e) => { setPreviewJson(e.target.value); setJsonError(null); setJsonApplied(false); }}
@@ -399,7 +399,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
 
   return (
     <Modal
-      title="Edit Template"
+      title="Edit template"
       onClose={onClose}
       maxWidth="max-w-4xl"
       tall
@@ -417,14 +417,14 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
         <>
           {/* System Information (collapsible, read-only) */}
           <div className="mb-4">
-            <CollapsibleSection title="System Information" hasContent={true}>
+            <CollapsibleSection title="System information" hasContent={true}>
               <div className="mt-3 grid grid-cols-2 gap-4">
                 <ReadonlyField label="ID" value={t.id} valueClassName="font-mono" />
                 <ReadonlyField label="Org ID" value={t.orgId} />
-                <ReadonlyField label="Created By" value={t.createdBy} />
-                <ReadonlyField label="Created At" value={formatDateTime(t.createdAt)} />
-                <ReadonlyField label="Updated By" value={t.updatedBy} />
-                <ReadonlyField label="Updated At" value={formatDateTime(t.updatedAt)} />
+                <ReadonlyField label="Created by" value={t.createdBy} />
+                <ReadonlyField label="Created at" value={formatDateTime(t.createdAt)} />
+                <ReadonlyField label="Updated by" value={t.updatedBy} />
+                <ReadonlyField label="Updated at" value={formatDateTime(t.updatedAt)} />
               </div>
             </CollapsibleSection>
           </div>

@@ -27,7 +27,7 @@ describe('PluginVersions (isolation)', () => {
 
   it('renders the version table with data (no stale banner when all have defaults)', () => {
     render(<PluginVersions loading={false} pluginVersions={[withDefault]} />);
-    expect(screen.getByText('Plugin Versions')).toBeInTheDocument();
+    expect(screen.getByText('Plugin versions')).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
     expect(screen.queryByText(/without a default version/i)).not.toBeInTheDocument();
   });

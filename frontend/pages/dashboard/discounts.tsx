@@ -38,7 +38,7 @@ import type { Discount } from '@/types';
  * back to a "not enabled" empty state instead of an error banner.
  */
 export default function DiscountsPage() {
-  // System-admin gate comes from page-access.ts (a "Billing Admin" sub-route).
+  // System-admin gate comes from page-access.ts (a "Billing admin" sub-route).
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   // Discount open in the detail drawer — `?id=` so it's deep-linkable.
   const [detailId, setDetailId] = useDetailParam();
@@ -164,7 +164,7 @@ export default function DiscountsPage() {
     },
     {
       id: 'targetOrg',
-      header: 'Target Org',
+      header: 'Target org',
       cellClassName: 'text-sm text-fg-muted',
       render: (d) => (
         d.targetOrgId
@@ -182,7 +182,7 @@ export default function DiscountsPage() {
     },
     {
       id: 'redeemBy',
-      header: 'Redeem By',
+      header: 'Redeem by',
       cellClassName: 'text-sm text-fg-muted',
       render: (d) => d.redeemBy
         ? <RelativeTime value={d.redeemBy} />
@@ -307,7 +307,7 @@ export default function DiscountsPage() {
       {/* Issued token */}
       {issuedToken && (
         <Modal
-          title="Redeemable Code"
+          title="Redeemable code"
           onClose={() => setIssuedToken(null)}
           footer={
             <div className="flex items-center justify-end">
@@ -320,7 +320,7 @@ export default function DiscountsPage() {
             anyone who has it can redeem it, so share it carefully. It is shown once here.
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 min-w-0 break-all rounded-md bg-gray-100 dark:bg-gray-800 px-3 py-2 text-xs font-mono text-gray-800 dark:text-gray-200">
+            <code className="flex-1 min-w-0 break-all rounded-md bg-surface-muted px-3 py-2 text-xs font-mono text-gray-800 dark:text-gray-200">
               {issuedToken}
             </code>
             <CopyButton text={issuedToken} />
@@ -363,7 +363,7 @@ export default function DiscountsPage() {
       {/* Revoke */}
       {del.target && (
         <DeleteConfirmModal
-          title="Revoke Discount"
+          title="Revoke discount"
           itemName={del.target.alias || formatDiscount(del.target)}
           loading={del.loading}
           onConfirm={del.confirm}

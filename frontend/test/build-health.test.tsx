@@ -32,7 +32,7 @@ describe('BuildHealthPanel', () => {
 
   it('renders per-stage rows, success rates, and the totals line', () => {
     render(<BuildHealthPanel loading={false} buildHealth={sample} pipelineSelected />);
-    expect(screen.getByText('Build Health')).toBeInTheDocument();
+    expect(screen.getByText('Build health')).toBeInTheDocument();
     expect(screen.getByText('Build')).toBeInTheDocument();
     expect(screen.getByText('Deploy')).toBeInTheDocument();
     // Per-stage success rate pills.

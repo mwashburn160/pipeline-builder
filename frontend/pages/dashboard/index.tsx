@@ -161,10 +161,10 @@ export default function DashboardPage() {
       // Prefer the actual pipeline total (includes never-run pipelines); fall
       // back to the count that appear in the executions report only until it loads.
       { label: 'Pipelines', value: String(pipelineCount ?? executions.length), icon: GitBranch, color: 'text-brand' },
-      { label: 'Total Executions', value: String(totalExec), icon: BarChart3, color: 'text-indigo-500 dark:text-indigo-400' },
-      { label: 'Failed Executions', value: String(totalFailed), icon: XCircle, color: totalFailed > 0 ? 'text-danger' : 'text-fg-subtle' },
-      { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-success' : successRate !== null && successRate >= 70 ? 'text-warning' : 'text-danger' },
-      { label: 'Active Plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500 dark:text-purple-400' },
+      { label: 'Total executions', value: String(totalExec), icon: BarChart3, color: 'text-indigo-500 dark:text-indigo-400' },
+      { label: 'Failed executions', value: String(totalFailed), icon: XCircle, color: totalFailed > 0 ? 'text-danger' : 'text-fg-subtle' },
+      { label: 'Success rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-success' : successRate !== null && successRate >= 70 ? 'text-warning' : 'text-danger' },
+      { label: 'Active plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500 dark:text-purple-400' },
     ];
   }, [executions, pluginSummary, pipelineCount]);
 
@@ -265,7 +265,7 @@ export default function DashboardPage() {
         {/* ─── Primary action: generate a pipeline from Git ─── */}
         <motion.div variants={stagger.item} className="card mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-info-border">
           <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
+            <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-brand flex items-center justify-center">
               <GitBranch className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1 min-w-0">

@@ -12,7 +12,7 @@ export const aiGenerationTopic: HelpTopic = {
   sections: [
     {
       id: 'overview',
-      title: 'AI-Powered Generation',
+      title: 'AI-powered generation',
       blocks: [
         {
           type: 'text',
@@ -45,7 +45,7 @@ export const aiGenerationTopic: HelpTopic = {
     },
     {
       id: 'generate-pipeline',
-      title: 'Generate a Pipeline',
+      title: 'Generate a pipeline',
       blocks: [
         {
           type: 'text',
@@ -79,7 +79,7 @@ export const aiGenerationTopic: HelpTopic = {
     },
     {
       id: 'generate-plugin',
-      title: 'Generate a Plugin',
+      title: 'Generate a plugin',
       blocks: [
         {
           type: 'text',
@@ -88,7 +88,7 @@ export const aiGenerationTopic: HelpTopic = {
         {
           type: 'list',
           items: [
-            'From the Plugins page, click "Create Plugin" and select the "AI Builder" tab.',
+            'From the Plugins page, click "Create plugin" and select the "AI Builder" tab.',
             'Describe the build environment and commands you need.',
             'The AI generates both the plugin-spec.yaml and Dockerfile.',
             'Review, edit if needed, then deploy the generated plugin.',

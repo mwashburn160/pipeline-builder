@@ -52,7 +52,7 @@ export function PluginVersions({ loading, pluginVersions }: PluginVersionsProps)
       )}
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <SectionHeading>Plugin Versions</SectionHeading>
+          <SectionHeading>Plugin versions</SectionHeading>
           <ExportCSVButton data={pluginVersions.map(v => ({ name: v.name, versions: v.version_count, latest: v.latest_version, has_default: v.has_default }))} filename="plugin-versions" />
         </div>
         <DataTable

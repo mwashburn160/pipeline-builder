@@ -173,16 +173,16 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           <ErrorAlert message={error} />
 
           {testResult && (
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm text-blue-800 dark:text-blue-300 font-mono">
+            <div className="rounded-lg bg-info-bg px-3 py-2 text-sm text-blue-800 dark:text-blue-300 font-mono">
               {testResult}
             </div>
           )}
 
-          <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
+          <div className="rounded-lg bg-surface-muted px-3 py-2 text-sm">
             <div className="font-medium text-fg-muted mb-1">Current binding</div>
             <div className="text-fg-muted">
               {configured
-                ? <>Configured · keyId <code className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currentKeyId}</code></>
+                ? <>Configured · keyId <code className="text-xs bg-surface-muted px-1.5 py-0.5 rounded">{currentKeyId}</code></>
                 : <em>Not configured — org uses the shared SECRET_ENCRYPTION_KEY master.</em>}
             </div>
           </div>

@@ -56,10 +56,10 @@ interface SubscriptionManagerProps {
   readOnly?: boolean;
 }
 
-/** Sub-view, carried in `?subs=` so "Browse Catalog" is linkable and survives Back. */
+/** Sub-view, carried in `?subs=` so "Browse catalog" is linkable and survives Back. */
 const SUB_TABS = [
-  { id: 'subscriptions', label: 'My Subscriptions' },
-  { id: 'catalog', label: 'Browse Catalog' },
+  { id: 'subscriptions', label: 'My subscriptions' },
+  { id: 'catalog', label: 'Browse catalog' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['id'];
 const SUB_TAB_IDS: readonly SubTab[] = SUB_TABS.map((t) => t.id);
@@ -240,7 +240,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <BookOpen className="h-5 w-5 text-brand" />
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Published Rules & Subscriptions</h2>
+        <h2 className="text-lg font-semibold text-fg">Published rules & Subscriptions</h2>
       </div>
       {/* The tab bar stays mounted through a load, so switching views never
           blanks the whole section. */}
@@ -253,10 +253,10 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
       ) : tab === 'subscriptions' && (
         <>
           {!readOnly && selectedIds.size > 0 && (
-            <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <span className="text-sm text-blue-700 dark:text-blue-300">{selectedIds.size} selected</span>
-              <Button variant="success" size="xs" onClick={() => handleBulkToggle(true)}>Activate All</Button>
-              <Button variant="secondary" size="xs" onClick={() => handleBulkToggle(false)}>Deactivate All</Button>
+            <div className="flex items-center gap-2 p-2 bg-info-bg rounded-lg">
+              <span className="text-sm text-info-strong">{selectedIds.size} selected</span>
+              <Button variant="success" size="xs" onClick={() => handleBulkToggle(true)}>Activate all</Button>
+              <Button variant="secondary" size="xs" onClick={() => handleBulkToggle(false)}>Deactivate all</Button>
             </div>
           )}
           {subscriptions.length === 0 ? (
@@ -269,7 +269,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
           ) : (
             <div className="space-y-2">
               {subscriptions.map(sub => (
-                <div key={sub.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                <div key={sub.id} className="rounded-lg border border-default bg-surface">
                   <div className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-3">
                       {!readOnly && (
@@ -279,7 +279,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         />
                       )}
                       <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">{sub.rule?.name || sub.ruleId}</div>
+                        <div className="text-sm font-medium text-fg">{sub.rule?.name || sub.ruleId}</div>
                         {sub.rule?.description && (
                           <div className="text-xs text-fg-muted truncate max-w-md">{sub.rule.description}</div>
                         )}
@@ -329,7 +329,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                     </div>
                   </div>
                   {previewId === sub.ruleId && previewResult && (
-                    <div className="mx-3 mb-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm">
+                    <div className="mx-3 mb-3 p-3 rounded-lg bg-surface-muted text-sm">
                       <div className="flex items-center gap-3 mb-1">
                         <span className="flex items-center gap-1 text-xs">
                           {previewResult.passed ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-danger" />}
@@ -406,7 +406,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               value={catalogTarget}
               onChange={(e) => setCatalogTarget(e.target.value as RuleTarget | '')}
               aria-label="Filter catalog by target"
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
+              className="rounded-lg border border-default bg-surface px-3 py-1.5 text-sm"
             >
               <option value="">All targets</option>
               <option value="plugin">Plugin</option>
@@ -416,7 +416,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               value={catalogSeverity}
               onChange={(e) => setCatalogSeverity(e.target.value as RuleSeverity | '')}
               aria-label="Filter catalog by severity"
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
+              className="rounded-lg border border-default bg-surface px-3 py-1.5 text-sm"
             >
               <option value="">All severities</option>
               <option value="critical">Critical</option>
@@ -436,14 +436,14 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                 // instead of sending the user on a 403 round-trip.
                 const locked = setMeta !== null && !setGates[setMeta.feature].entitled;
                 return (
-                  <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-default bg-surface">
                     <div className="flex items-center gap-3">
                       <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+                        <div className="text-sm font-medium text-fg">{rule.name}</div>
                         {rule.description && <div className="text-xs text-fg-muted truncate max-w-md">{rule.description}</div>}
                       </div>
                       <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
-                      <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
+                      <span className="text-xs bg-surface-muted text-fg-muted rounded-full px-2 py-0.5">{rule.target}</span>
                       {setMeta && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5">
                           <Lock className="h-3 w-3" aria-hidden="true" /> {setMeta.label}

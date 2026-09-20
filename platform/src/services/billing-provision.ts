@@ -57,7 +57,14 @@ async function postSubscription(orgId: string, planId: string): Promise<void> {
   const res = await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
     headers: {
       'x-org-id': orgId,
-      'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
+      // `billing:manage` is claimed EXPLICITLY: `POST /billing/subscriptions` is a
+      // user-facing route behind `requirePermission('billing:manage')`, and a bare
+      // service token is least-privilege `role: 'member'` carrying NO permission
+      // claims — so without this it 403s every time and the paid-signup intent only
+      // ever lands in the pending marker. Same least-priv capability-claim pattern
+      // the plugin service uses for `plugins:write`; the route's admin-assurance
+      // gate is `machines: 'allow'`, so a service principal clears it.
+      'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member', permissions: ['billing:manage'] }),
     },
   });
   if (!res) throw new Error('Billing service unreachable');

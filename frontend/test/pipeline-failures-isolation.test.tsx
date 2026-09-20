@@ -30,11 +30,11 @@ describe('PipelineFailures (isolation)', () => {
 
   it('renders stage, action and error sections with data', () => {
     render(<PipelineFailures loading={false} stageFailures={[stage]} actionFailures={[action]} errors={[error]} />);
-    expect(screen.getByText('Stage Failures')).toBeInTheDocument();
+    expect(screen.getByText('Stage failures')).toBeInTheDocument();
     expect(screen.getByText('deploy')).toBeInTheDocument();
-    expect(screen.getByText('Action Failures')).toBeInTheDocument();
+    expect(screen.getByText('Action failures')).toBeInTheDocument();
     expect(screen.getByText('terraform-apply')).toBeInTheDocument();
-    expect(screen.getByText('Top Errors')).toBeInTheDocument();
+    expect(screen.getByText('Top errors')).toBeInTheDocument();
     expect(screen.getByText('timeout waiting for lock')).toBeInTheDocument();
   });
 });

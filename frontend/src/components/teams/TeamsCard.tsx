@@ -155,7 +155,7 @@ export function TeamsCard({
           )}
         </div>
       ) : (
-        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+        <ul className="divide-y divide-default">
           {teams.map((t) => (
             <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
               <span className="font-medium text-fg truncate">{t.orgName}</span>
@@ -196,11 +196,11 @@ export function TeamsCard({
       )}
 
       {canOrgSettings && deletedTeams.length > 0 && (
-        <section aria-labelledby="deleted-teams-heading" className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+        <section aria-labelledby="deleted-teams-heading" className="mt-4 pt-3 border-t border-default">
           <h3 id="deleted-teams-heading" className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-1">
             Recently deleted teams
           </h3>
-          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ul className="divide-y divide-default">
             {deletedTeams.map((t) => (
               <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0">
@@ -284,7 +284,7 @@ function TeamRowMenu({ team, exporting, onExport, onDelete }: {
   }, [open]);
 
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
-  const item = 'w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors';
+  const item = 'w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-muted/60 transition-colors';
 
   return (
     <div ref={ref} className="relative">
@@ -292,8 +292,8 @@ function TeamRowMenu({ team, exporting, onExport, onDelete }: {
         <MoreHorizontal className="w-4 h-4" />
       </IconButton>
       {open && (
-        <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-48 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left">
-          <button type="button" role="menuitem" onClick={run(onExport)} disabled={exporting} className={`${item} text-gray-700 dark:text-gray-200 disabled:opacity-60`}>
+        <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-48 py-1 bg-surface border border-default rounded-xl shadow-xl text-left">
+          <button type="button" role="menuitem" onClick={run(onExport)} disabled={exporting} className={`${item} text-fg disabled:opacity-60`}>
             <Download className="w-3.5 h-3.5 text-fg-subtle" /> {exporting ? 'Exporting…' : 'Export data'}
           </button>
           <div className="my-1 border-t border-gray-100 dark:border-gray-700" />

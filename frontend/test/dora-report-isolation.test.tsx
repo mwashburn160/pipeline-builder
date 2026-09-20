@@ -96,7 +96,7 @@ describe('DoraReport — headline fallback + retention truncation', () => {
     // The scope controls + heading stay; the metric cards do not render.
     expect(screen.getByText('DORA Metrics')).toBeInTheDocument();
     expect(screen.getByText(/No deploy-attributed environments in this window/i)).toBeInTheDocument();
-    expect(screen.queryByText('Deployment Frequency')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployment frequency')).not.toBeInTheDocument();
   });
 
   it('shows a truncation banner + Extend history CTA when the window was floored past the requested from', () => {

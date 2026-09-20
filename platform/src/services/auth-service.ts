@@ -189,6 +189,7 @@ class AuthService {
           pendingBillingSince: { $ifNull: ['$pendingBillingSince', '$$NOW'] },
         },
       }],
+      { updatePipeline: true },
     );
   }
 

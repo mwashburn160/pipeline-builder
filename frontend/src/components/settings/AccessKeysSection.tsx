@@ -234,7 +234,7 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
           }}
         >
           <p>
-            <strong className="text-gray-800 dark:text-gray-100">{pendingRevoke.name}</strong> stops working within
+            <strong className="text-fg">{pendingRevoke.name}</strong> stops working within
             five minutes. Anything using it — CI jobs, scripts, the CLI — starts failing until it&apos;s replaced.
           </p>
           <p className="text-red-600 dark:text-red-400">This cannot be undone; issue a new key instead.</p>

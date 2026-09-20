@@ -56,7 +56,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
 
   return (
     <div className="border-b border-gray-100 last:border-0 dark:border-gray-800">
-      <div className="flex items-stretch gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+      <div className="flex items-stretch gap-2 hover:bg-surface-muted">
         <span className={`w-0.5 shrink-0 ${RAIL[level]}`} aria-hidden />
 
         <button
@@ -80,7 +80,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
           {level !== 'unknown' && (
             <span className={`mr-2 uppercase ${LEVEL_TEXT[level]}`}>{level}</span>
           )}
-          {source && <span className="mr-2 text-blue-600 dark:text-blue-400">{source}</span>}
+          {source && <span className="mr-2 text-brand">{source}</span>}
           {showOrg && entry.labels.orgId && (
             <span className="mr-2 text-purple-600 dark:text-purple-400">{entry.labels.orgId}</span>
           )}

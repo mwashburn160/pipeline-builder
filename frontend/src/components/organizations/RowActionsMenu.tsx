@@ -79,7 +79,7 @@ export function RowActionsMenu({
 
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
 
-  const itemClass = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors';
+  const itemClass = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-muted/60 transition-colors';
 
   return (
     <>
@@ -98,7 +98,7 @@ export function RowActionsMenu({
           role="menu"
           onKeyDown={onMenuKeyDown}
           style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 50 }}
-          className="w-56 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left"
+          className="w-56 py-1 bg-surface border border-default rounded-xl shadow-xl text-left"
         >
           {canKms && (
             <button type="button" role="menuitem" onClick={run(onKms)} className={itemClass}>

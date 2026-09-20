@@ -343,26 +343,26 @@ export default function RegistryPage() {
             title="Keyboard shortcuts (?)"
             className="text-xs text-fg-muted hover:text-fg"
           >
-            <kbd className="px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded font-mono">?</kbd>
+            <kbd className="px-1.5 py-0.5 border border-default rounded font-mono">?</kbd>
           </button>
           <HealthBadge state={health} />
         </div>
       }
       mainClassName="!px-0"
     >
-      <div className="flex flex-col h-[calc(100dvh-80px)] border-t border-gray-200 dark:border-gray-700">
+      <div className="flex flex-col h-[calc(100dvh-80px)] border-t border-default">
         {/* Narrow viewports drill DOWN one pane at a time (repos → tags →
             manifest) instead of squeezing three fixed columns into ~390px. This
             bar is the way back up; the panes themselves hide below. */}
         {narrowViewport && mobilePane !== 'repo' && (
-          <div className="px-4 py-2 text-xs flex items-center gap-2 border-b border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-2 text-xs flex items-center gap-2 border-b border-default">
             <button
               // `setQuery` deletes a key on null — an empty string would leave
               // `?repo=` behind and keep the pane "selected".
               onClick={() => setQuery(mobilePane === 'manifest'
                 ? { tag: null, platform: null }
                 : { repo: null, tag: null, platform: null })}
-              className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+              className="inline-flex items-center gap-1 text-brand hover:underline"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
               {mobilePane === 'manifest' ? 'Tags' : 'Repositories'}

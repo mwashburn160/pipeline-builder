@@ -55,7 +55,7 @@ export default function VerifyEmailPage() {
 
   return (
     <>
-      <Head><title>Verify Email - Pipeline Builder</title></Head>
+      <Head><title>Verify email - Pipeline Builder</title></Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">

@@ -29,10 +29,10 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-muted/30 transition-colors"
       >
-        <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex-shrink-0">
-          <Icon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <div className="p-1.5 rounded-lg bg-info-bg flex-shrink-0">
+          <Icon className="w-4 h-4 text-brand" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-fg">
@@ -62,7 +62,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
             transition={{ duration: 0.25, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 pt-1 border-t border-gray-200 dark:border-gray-700">
+            <div className="px-4 pb-4 pt-1 border-t border-default">
               {/* Generated topics can repeat a section id (e.g. two `overview`
                   sections), so the index disambiguates the key. */}
               {topic.sections.map((section, i) => (

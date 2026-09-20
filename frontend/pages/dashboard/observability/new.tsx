@@ -62,7 +62,7 @@ export default function NewDashboardPage() {
 
   return (
     <DashboardLayout title="New dashboard" subtitle="Create an empty dashboard, then add panels in the editor.">
-      <div className="max-w-xl rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+      <div className="max-w-xl rounded-lg border border-default bg-surface p-5 space-y-4">
         <div>
           <label className="block text-xs font-medium text-fg-muted mb-1">Name <span className="text-danger">*</span></label>
           <Input

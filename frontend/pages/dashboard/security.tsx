@@ -322,7 +322,7 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
           </Select>
         </FormField>
         <Button onClick={() => void generate()} loading={generating} readOnly={readOnly}>
-          {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
+          {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate token</>}
         </Button>
       </div>
 

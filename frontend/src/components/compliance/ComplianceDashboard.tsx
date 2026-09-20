@@ -375,7 +375,7 @@ function Overview({ stats, onGoToRules }: OverviewProps) {
 
   // Stat cards double as filters: results toggle the log filter, rules jumps tabs.
   const statCards = [
-    { key: 'rules', icon: Shield, label: 'Active Rules', value: stats.rules, color: 'blue', result: null as string | null, onClick: onGoToRules },
+    { key: 'rules', icon: Shield, label: 'Active rules', value: stats.rules, color: 'blue', result: null as string | null, onClick: onGoToRules },
     { key: 'pass', icon: CheckCircle, label: 'Passed', value: stats.pass, color: 'green', result: 'pass', onClick: () => onResultChange(auditResult === 'pass' ? '' : 'pass') },
     { key: 'warn', icon: AlertTriangle, label: 'Warnings', value: stats.warn, color: 'yellow', result: 'warn', onClick: () => onResultChange(auditResult === 'warn' ? '' : 'warn') },
     { key: 'block', icon: XCircle, label: 'Blocked', value: stats.block, color: 'red', result: 'block', onClick: () => onResultChange(auditResult === 'block' ? '' : 'block') },

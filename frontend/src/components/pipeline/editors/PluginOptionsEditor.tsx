@@ -17,7 +17,7 @@ interface PluginOptionsEditorProps {
   disabled?: boolean;
   /** Validation error message for the plugin name field. */
   error?: string;
-  /** Display label prefix (e.g. "Plugin", "Step Plugin"). */
+  /** Display label prefix (e.g. "Plugin", "Step plugin"). */
   label?: string;
 }
 
@@ -103,7 +103,7 @@ export default function PluginOptionsEditor({
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="label">Access Modifier</label>
+              <label className="label">Access modifier</label>
               <Select
                 value={value.filter.visibility}
                 onChange={(e) => updateFilter({ visibility: e.target.value })}
@@ -115,7 +115,7 @@ export default function PluginOptionsEditor({
               </Select>
             </div>
             <div>
-              <label className="label">Is Default</label>
+              <label className="label">Is default</label>
               <Select
                 value={value.filter.isDefault}
                 onChange={(e) => updateFilter({ isDefault: e.target.value })}
@@ -127,7 +127,7 @@ export default function PluginOptionsEditor({
               </Select>
             </div>
             <div>
-              <label className="label">Is Active</label>
+              <label className="label">Is active</label>
               <Select
                 value={value.filter.isActive}
                 onChange={(e) => updateFilter({ isActive: e.target.value })}
@@ -141,7 +141,7 @@ export default function PluginOptionsEditor({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Filter Name</label>
+              <label className="label">Filter name</label>
               <Input
                 type="text"
                 value={value.filter.name}

@@ -35,7 +35,7 @@ const SEVERITY_STYLES: Record<string, { bg: string; text: string; chip: string }
     chip: 'bg-yellow-500 text-white',
   },
   info: {
-    bg: 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20',
+    bg: 'border-blue-300 dark:border-blue-800 bg-info-bg',
     text: 'text-blue-800 dark:text-blue-200',
     chip: 'bg-blue-500 text-white',
   },
@@ -188,7 +188,7 @@ export default function AlertsPage() {
                             {severityOf(a).toUpperCase()}
                           </span>
                           {suppressed && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-fg-muted">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-surface-muted text-fg-muted">
                               <BellOff className="w-3 h-3" /> silenced
                             </span>
                           )}
@@ -235,7 +235,7 @@ export default function AlertsPage() {
               </h3>
               <div className="space-y-1">
                 {activeSilences.map((s) => (
-                  <div key={s.id} className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs flex items-center justify-between gap-3">
+                  <div key={s.id} className="rounded border border-default bg-surface px-3 py-2 text-xs flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="font-mono text-fg-muted truncate">
                         {s.matchers.map(m => `${m.name}="${m.value}"`).join(', ')}

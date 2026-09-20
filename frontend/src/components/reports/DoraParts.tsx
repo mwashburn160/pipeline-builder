@@ -149,7 +149,7 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
     (hotCount > 0 ? `, ${hotCount} period${hotCount === 1 ? '' : 's'} with elevated change-failure (${CFR_ELEVATED_PCT}%+).` : '.');
   return (
     <Card>
-      <SectionHeading>Deployment Trend</SectionHeading>
+      <SectionHeading>Deployment trend</SectionHeading>
       <div className="flex items-end gap-1 h-16" role="img" aria-label={summary}>
         {points.map((p) => {
           const h = Math.max((p.deployments / max) * 100, p.deployments > 0 ? SPARKLINE_MIN_BAR_PCT : SPARKLINE_ZERO_BAR_PCT);
@@ -200,9 +200,9 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
 
 /** Sample values for the blurred DORA teaser shown to non-entitled users. */
 const SAMPLE_DORA_CARDS: { label: string; value: string; sub: string; level: DoraLevel }[] = [
-  { label: 'Deployment Frequency', value: '8', sub: 'deploys · 0.27/day', level: 'high' },
+  { label: 'Deployment frequency', value: '8', sub: 'deploys · 0.27/day', level: 'high' },
   { label: 'Lead time', value: '5m 30s', sub: 'median commit→deploy · 8 measured', level: 'elite' },
-  { label: 'Change Failure Rate', value: '25%', sub: '2/8 deploys failed', level: 'medium' },
+  { label: 'Change failure rate', value: '25%', sub: '2/8 deploys failed', level: 'medium' },
   { label: 'Time to Restore (MTTR)', value: '1h 2m', sub: '2/2 incidents restored', level: 'high' },
 ];
 

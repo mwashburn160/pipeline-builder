@@ -84,7 +84,7 @@ describe('CreateOrganizationFlow — eligible parents', () => {
     expect(screen.queryByText('Tier')).not.toBeInTheDocument();
     fireEvent.focus(screen.getByRole('combobox', { name: 'Parent organization' }));
     fireEvent.click(await screen.findByRole('option', { name: /acme enterprise/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Create Team' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create team' }));
     await waitFor(() => expect(createOrganization).toHaveBeenCalledWith({ name: 'platform', parentOrgId: 'r-ent' }));
   });
 });

@@ -139,7 +139,7 @@ function MoveOrganizationDialog({ org, onClose, onMoved }: {
       >
         <div className="space-y-4 text-sm">
           <ErrorAlert message={error} onDismiss={() => setError(null)} />
-          <ul className="list-disc pl-5 space-y-1 text-gray-600 dark:text-gray-300">
+          <ul className="list-disc pl-5 space-y-1 text-fg-muted">
             <li>A team can move to another top-level organization on the Team or Enterprise plan, or become top-level itself.</li>
             <li>A top-level organization can be nested only if it has no teams of its own — teams are one level deep.</li>
             <li>A team takes its new parent&apos;s tier and shares its seats, quotas and billing.</li>

@@ -71,7 +71,7 @@ export default function StepEditor({
 
   return (
     <div className="space-y-3">
-      <FormField label="Step Position">
+      <FormField label="Step position">
         <Select
           value={step.position}
           onChange={(e) => updatePosition(e.target.value as 'pre' | 'post')}
@@ -93,7 +93,7 @@ export default function StepEditor({
             min={1}
           />
         </FormField>
-        <FormField label="Failure Behavior" hint="Overrides plugin default">
+        <FormField label="Failure behavior" hint="Overrides plugin default">
           <Select
             value={step.failureBehavior}
             onChange={(e) => onChange({ ...step, failureBehavior: e.target.value as 'fail' | 'warn' | 'ignore' })}
@@ -111,16 +111,16 @@ export default function StepEditor({
         onChange={updatePlugin}
         disabled={disabled}
         error={errors[`${errorPrefix}.plugin.name`]}
-        label="Step Plugin"
+        label="Step plugin"
       />
 
-      <CollapsibleSection title="Step Metadata" hasContent={step.metadata.length > 0}>
+      <CollapsibleSection title="Step metadata" hasContent={step.metadata.length > 0}>
         <div className="mt-3">
           <MetadataEditor value={step.metadata} onChange={updateMetadata} disabled={disabled} />
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Step Network" hasContent={step.networkType !== 'none'}>
+      <CollapsibleSection title="Step network" hasContent={step.networkType !== 'none'}>
         <div className="mt-3">
           <NetworkConfigEditor
             networkType={step.networkType}
@@ -132,7 +132,7 @@ export default function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Install Commands" hasContent={step.installCommands.commands.length > 0}>
+      <CollapsibleSection title="Install commands" hasContent={step.installCommands.commands.length > 0}>
         <div className="mt-3 space-y-2">
           <FormField label="Position">
             <Select
@@ -154,7 +154,7 @@ export default function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Build Commands" hasContent={step.buildCommands.commands.length > 0}>
+      <CollapsibleSection title="Build commands" hasContent={step.buildCommands.commands.length > 0}>
         <div className="mt-3 space-y-2">
           <FormField label="Position">
             <Select
@@ -176,7 +176,7 @@ export default function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Environment Variables" hasContent={step.env.length > 0}>
+      <CollapsibleSection title="Environment variables" hasContent={step.env.length > 0}>
         <div className="mt-3">
           <EnvEditor value={step.env} onChange={updateEnv} disabled={disabled} />
         </div>
@@ -184,7 +184,7 @@ export default function StepEditor({
 
       <CollapsibleSection title="Inputs" hasContent={!!step.inputArtifact || step.additionalInputArtifacts.length > 0}>
         <div className="mt-3 space-y-3">
-          <FormField label="Primary Input Artifact" hint="Artifact key from a previous step (type or select)">
+          <FormField label="Primary input artifact" hint="Artifact key from a previous step (type or select)">
             <ArtifactKeyCombobox
               value={step.inputArtifact}
               onChange={updateInputArtifact}
@@ -195,7 +195,7 @@ export default function StepEditor({
           </FormField>
 
           <div>
-            <label className="label">Additional Input Artifacts</label>
+            <label className="label">Additional input artifacts</label>
             <div className="space-y-2">
               {step.additionalInputArtifacts.map((entry, idx) => (
                 <div key={inputIds[idx]} className="flex gap-2 items-center">
@@ -229,7 +229,7 @@ export default function StepEditor({
               type="button"
               onClick={addAdditionalInput}
               disabled={disabled}
-              className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+              className="mt-2 text-sm text-brand hover:text-brand-strong transition-colors"
             >
               + Add Additional Input
             </button>

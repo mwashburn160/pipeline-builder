@@ -207,7 +207,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ShieldOff className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Exemptions</h2>
+          <h2 className="text-lg font-semibold text-fg">Exemptions</h2>
         </div>
         <div className="flex gap-2">
           <FilterSelect
@@ -259,7 +259,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       />
 
       {showForm && (
-        <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 space-y-3">
+        <div className="p-4 rounded-lg border border-info-border bg-info-bg space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Input aria-label="Rule ID" placeholder="Rule ID" value={form.ruleId} onChange={e => setForm(f => ({ ...f, ruleId: e.target.value }))} />
             <Select value={form.entityType} onChange={e => setForm(f => ({ ...f, entityType: e.target.value as 'plugin' | 'pipeline' }))}>
@@ -267,7 +267,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
               <option value="pipeline">Pipeline</option>
             </Select>
             <Input aria-label="Entity ID" placeholder="Entity ID" value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} />
-            <Input aria-label="Entity Name (optional)" placeholder="Entity Name (optional)" value={form.entityName} onChange={e => setForm(f => ({ ...f, entityName: e.target.value }))} />
+            <Input aria-label="Entity name (optional)" placeholder="Entity name (optional)" value={form.entityName} onChange={e => setForm(f => ({ ...f, entityName: e.target.value }))} />
           </div>
           <Textarea aria-label="Reason for exemption" placeholder="Reason for exemption..." value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={2} />
           <div className="flex gap-2">
@@ -293,12 +293,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           {exemptions.map((ex: ComplianceExemption) => {
             const style = STATUS_STYLES[ex.status];
             return (
-              <div key={ex.id} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <div key={ex.id} className="p-3 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>{ex.status}</span>
                     <div>
-                      <div className="text-sm text-gray-900 dark:text-white">{ex.entityName || ex.entityId}</div>
+                      <div className="text-sm text-fg">{ex.entityName || ex.entityId}</div>
                       <div className="text-xs text-fg-muted">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
                     </div>
                     {ex.expiresAt && (

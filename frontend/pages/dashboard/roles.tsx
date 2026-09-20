@@ -336,7 +336,7 @@ export default function RolesPage() {
                           type="button"
                           onClick={() => togglePermsExpanded(r.id)}
                           aria-expanded={expanded}
-                          className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+                          className="text-xs font-medium text-brand hover:underline shrink-0"
                         >
                           {expanded ? 'Hide' : 'Show all'}
                         </button>
@@ -412,7 +412,7 @@ export default function RolesPage() {
             <ModalFooter
               onCancel={() => setAddToRole(null)}
               onConfirm={handleAdd}
-              confirmLabel="Add Member"
+              confirmLabel="Add member"
               loading={addForm.loading}
               confirmDisabled={!addEmail.trim()}
             />
@@ -556,7 +556,7 @@ export default function RolesPage() {
 
       {deleteTarget && (
         <DeleteConfirmModal
-          title="Delete Role"
+          title="Delete role"
           itemName={deleteTarget.name}
           loading={del.loading}
           onConfirm={handleDeleteRole}

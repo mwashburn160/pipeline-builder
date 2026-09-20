@@ -33,13 +33,13 @@ export function AddMemberModal({
   if (!open) return null;
   return (
     <Modal
-      title="Add Member"
+      title="Add member"
       onClose={onClose}
       footer={
         <ModalFooter
           onCancel={onClose}
           onConfirm={onSubmit}
-          confirmLabel="Add Member"
+          confirmLabel="Add member"
           loading={form.loading}
           confirmDisabled={!email.trim()}
         />
@@ -58,9 +58,9 @@ export function AddMemberModal({
       {teamRoster.length > 0 && (
         <div className="mt-4">
           <p className="text-xs font-medium text-fg-muted mb-1.5">Also add to teams (optional)</p>
-          <div className="space-y-0.5 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-1">
+          <div className="space-y-0.5 max-h-40 overflow-y-auto border border-default rounded p-1">
             {teamRoster.map((t) => (
-              <label key={t.orgId} className="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
+              <label key={t.orgId} className="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-surface-muted cursor-pointer">
                 <Checkbox
                   checked={selectedTeams.has(t.orgId)}
                   onChange={() => onToggleTeam(t.orgId)}

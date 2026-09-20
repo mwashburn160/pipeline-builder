@@ -35,7 +35,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
     <>
       {buildTimeline.length > 0 && (
         <Card>
-          <SectionHeading>Build Success Rate</SectionHeading>
+          <SectionHeading>Build success rate</SectionHeading>
           <div className="space-y-1.5">
             {buildTimeline.map((entry) => (
               <StackedTimelineBar key={entry.period} period={entry.period} succeeded={entry.succeeded} failed={entry.failed} />
@@ -47,7 +47,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
       <div className={`grid grid-cols-1 ${showFailures ? 'lg:grid-cols-2' : ''} gap-6`}>
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <SectionHeading>Build Duration</SectionHeading>
+            <SectionHeading>Build duration</SectionHeading>
             <ExportCSVButton data={buildDurations.map(d => ({ plugin: d.plugin_name, avg_ms: d.avg_ms, max_ms: d.max_ms, builds: d.builds }))} filename="build-duration" />
           </div>
           {buildDurations.length > 0 ? (
@@ -64,7 +64,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
         {showFailures && (
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <SectionHeading>Recent Build Failures</SectionHeading>
+            <SectionHeading>Recent build failures</SectionHeading>
             <ExportCSVButton data={buildFailures.map(f => ({ plugin: f.plugin_name, error_message: f.error_message, occurrences: f.occurrences, last_seen: f.last_seen }))} filename="build-failures" />
           </div>
           {buildFailures.length > 0 ? (

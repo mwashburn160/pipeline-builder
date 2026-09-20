@@ -172,7 +172,7 @@ export function OrgSsoSettings({
         <SuccessAlert message={form.success} />
 
         {config && !wizard && (
-          <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
+          <div className="rounded-lg bg-surface-muted px-3 py-2 text-sm">
             <div className="font-medium text-fg-muted mb-1">Current config</div>
             <div className="text-fg-muted">
               Protocol: <code className="text-xs">{config.protocol}</code> ·
@@ -358,7 +358,7 @@ function OidcCard({ children }: { children: ReactNode }) {
   return (
     <SectionCard
       icon={ShieldCheck}
-      title="Single Sign-On (OpenID Connect)"
+      title="Single sign-on (OpenID Connect)"
       description="Let members sign in through your OpenID Connect identity provider. The client secret is encrypted at rest and never shown after saving."
     >
       {children}

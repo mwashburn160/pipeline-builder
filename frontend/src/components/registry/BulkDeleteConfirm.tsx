@@ -161,7 +161,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
               onChange={(e) => setConfirmPhrase(e.target.value)}
               placeholder={expectedPhrase}
               aria-label={`Type ${expectedPhrase} to confirm bulk delete`}
-              className="w-full px-3 py-1.5 text-sm font-mono border border-red-400 dark:border-red-600 rounded-md bg-white dark:bg-gray-800 text-fg"
+              className="w-full px-3 py-1.5 text-sm font-mono border border-red-400 dark:border-red-600 rounded-md bg-surface text-fg"
               autoFocus
             />
           </div>

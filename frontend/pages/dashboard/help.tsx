@@ -97,8 +97,8 @@ export default function HelpPage() {
             <div className="space-y-3">
               {results.length === 0 ? (
                 <Card className="text-center py-12">
-                  <Search className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />
-                  <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                  <Search className="w-8 h-8 mx-auto text-fg-subtle" />
+                  <p className="mt-3 text-sm text-fg-muted">
                     Nothing matches <span className="font-medium">&quot;{query}&quot;</span>.
                   </p>
                   <p className="mt-1 text-xs text-fg-muted">

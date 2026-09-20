@@ -334,8 +334,8 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 onClick={() => setIsAnnouncement(false)}
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   !isAnnouncement
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                    ? 'bg-info-bg border-info-border text-info-strong'
+                    : 'border-default text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 Message
@@ -345,7 +345,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   isAnnouncement
                     ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
-                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'border-default text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 Announcement
@@ -364,8 +364,8 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                   onClick={() => pickRecent(r.value)}
                   className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                     recipientOrgId.toLowerCase() === r.value.toLowerCase()
-                      ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'bg-info-bg border-info-border text-info-strong'
+                      : 'border-default text-fg-muted hover:bg-surface-muted'
                   }`}
                   title={`Message ${r.label}`}
                 >
@@ -431,7 +431,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
               a send the server refuses — and this compose posts to the
               contact-support route, which decides the recipient itself. */}
           {!canWrite && (
-            <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-sm bg-surface-muted rounded-lg px-3 py-2">
               <span className="text-fg-muted">To:</span>
               {/* Show the alias's local-part, as every other support surface does
                   (the datalist below, the inbox sender label) — printing the raw
@@ -484,7 +484,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50"
               >
                 <Paperclip className="w-4 h-4" />
                 {uploading ? 'Uploading…' : 'Attach files'}
@@ -494,7 +494,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                   {attachments.map((a) => (
                     <li
                       key={a.id}
-                      className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1"
+                      className="flex items-center gap-2 text-xs bg-surface-muted rounded px-2 py-1"
                     >
                       <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
                       <span className="truncate flex-1 text-fg-muted">{a.filename}</span>

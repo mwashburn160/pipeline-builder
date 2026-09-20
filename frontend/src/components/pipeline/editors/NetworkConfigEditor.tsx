@@ -58,7 +58,7 @@ export default function NetworkConfigEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="label">Network Type</label>
+        <label className="label">Network type</label>
         <Select
           value={networkType}
           onChange={(e) => onTypeChange(e.target.value as NetworkType)}
@@ -72,7 +72,7 @@ export default function NetworkConfigEditor({
       </div>
 
       {networkType === 'subnetIds' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
             <label className="label">VPC ID *</label>
             <Input
@@ -92,7 +92,7 @@ export default function NetworkConfigEditor({
             addLabel="+ Add Subnet"
           />
           <StringArrayEditor
-            label="Security Group IDs"
+            label="Security group IDs"
             value={network.securityGroupIds}
             onChange={(securityGroupIds) => update({ securityGroupIds })}
             placeholder="sg-..."
@@ -103,7 +103,7 @@ export default function NetworkConfigEditor({
       )}
 
       {networkType === 'vpcId' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
             <label className="label">VPC ID *</label>
             <Input
@@ -115,7 +115,7 @@ export default function NetworkConfigEditor({
             />
           </div>
           <div>
-            <label className="label">Subnet Type</label>
+            <label className="label">Subnet type</label>
             <Select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
@@ -128,7 +128,7 @@ export default function NetworkConfigEditor({
             </Select>
           </div>
           <StringArrayEditor
-            label="Availability Zones"
+            label="Availability zones"
             value={network.availabilityZones}
             onChange={(availabilityZones) => update({ availabilityZones })}
             placeholder="us-east-1a"
@@ -136,7 +136,7 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="label">Subnet Group Name</label>
+            <label className="label">Subnet group name</label>
             <Input
               type="text"
               value={network.subnetGroupName}
@@ -145,7 +145,7 @@ export default function NetworkConfigEditor({
             />
           </div>
           <StringArrayEditor
-            label="Security Group IDs"
+            label="Security group IDs"
             value={network.securityGroupIds}
             onChange={(securityGroupIds) => update({ securityGroupIds })}
             placeholder="sg-..."
@@ -156,7 +156,7 @@ export default function NetworkConfigEditor({
       )}
 
       {networkType === 'vpcLookup' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
             <label className="label">Tags *</label>
             <div className="space-y-2">
@@ -218,7 +218,7 @@ export default function NetworkConfigEditor({
             />
           </div>
           <div>
-            <label className="label">Subnet Type</label>
+            <label className="label">Subnet type</label>
             <Select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
@@ -231,7 +231,7 @@ export default function NetworkConfigEditor({
             </Select>
           </div>
           <StringArrayEditor
-            label="Availability Zones"
+            label="Availability zones"
             value={network.availabilityZones}
             onChange={(availabilityZones) => update({ availabilityZones })}
             placeholder="us-east-1a"
@@ -239,7 +239,7 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="label">Subnet Group Name</label>
+            <label className="label">Subnet group name</label>
             <Input
               type="text"
               value={network.subnetGroupName}
@@ -248,7 +248,7 @@ export default function NetworkConfigEditor({
             />
           </div>
           <StringArrayEditor
-            label="Security Group IDs"
+            label="Security group IDs"
             value={network.securityGroupIds}
             onChange={(securityGroupIds) => update({ securityGroupIds })}
             placeholder="sg-..."

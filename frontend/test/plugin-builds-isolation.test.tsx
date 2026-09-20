@@ -31,10 +31,10 @@ describe('PluginBuilds (isolation)', () => {
 
   it('renders the success-rate timeline, duration table and failure cards with data', () => {
     render(<PluginBuilds loading={false} buildTimeline={[timeline]} buildDurations={[duration]} buildFailures={[failure]} />);
-    expect(screen.getByText('Build Success Rate')).toBeInTheDocument();
-    expect(screen.getByText('Build Duration')).toBeInTheDocument();
+    expect(screen.getByText('Build success rate')).toBeInTheDocument();
+    expect(screen.getByText('Build duration')).toBeInTheDocument();
     expect(screen.getByText('my-plugin')).toBeInTheDocument();
-    expect(screen.getByText('Recent Build Failures')).toBeInTheDocument();
+    expect(screen.getByText('Recent build failures')).toBeInTheDocument();
     expect(screen.getByText('flaky-plugin')).toBeInTheDocument();
     expect(screen.getByText('npm install failed')).toBeInTheDocument();
   });

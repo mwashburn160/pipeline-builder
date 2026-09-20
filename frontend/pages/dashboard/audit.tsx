@@ -193,7 +193,7 @@ export default function AuditPage() {
 
   return (
     <DashboardLayout
-      title="Audit Log"
+      title="Audit log"
       subtitle="System-wide action history"
       titleExtra={isSuperAdmin ? <Badge color="red">System Admin</Badge> : <Badge color="purple">Org Admin</Badge>}
     >
@@ -426,7 +426,7 @@ export default function AuditPage() {
 
       <div className="mt-4 text-xs text-fg-muted">
         For richer query-builder views, use the{' '}
-        <Link href="/dashboard/observability/audit-activity" className="action-link">Audit Activity dashboard</Link>.
+        <Link href="/dashboard/observability/audit-activity" className="action-link">Audit activity dashboard</Link>.
       </div>
 
       {selected && (

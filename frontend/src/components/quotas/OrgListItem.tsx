@@ -38,8 +38,8 @@ export function OrgListItem({
       aria-current={selected ? 'true' : undefined}
       className={`flex items-center gap-3 w-full text-left px-4 py-3 border-l-2 transition-colors ${
         selected
-          ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500'
-          : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
+          ? 'bg-info-bg border-brand'
+          : 'border-transparent hover:bg-surface-muted'
       }`}
     >
       <span

@@ -33,7 +33,7 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
   return (
     <Card className="mt-6">
       <div className="flex items-center justify-between mb-3">
-        <SectionHeading>Build Health</SectionHeading>
+        <SectionHeading>Build health</SectionHeading>
         {buildHealth && buildHealth.totals.runs > 0 && (
           <span className="text-xs text-fg-subtle tabular-nums">
             {buildHealth.totals.runs} stage {buildHealth.totals.runs === 1 ? 'run' : 'runs'} &middot; {buildHealth.totals.failureRate}% failed

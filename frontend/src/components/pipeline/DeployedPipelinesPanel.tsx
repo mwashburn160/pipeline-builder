@@ -90,14 +90,14 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
       <Disclosure
         open={open}
         onToggle={setOpen}
-        className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-        summaryClassName="cursor-pointer list-none px-4 py-3 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-        bodyClassName="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700"
+        className="mb-4 rounded-lg border border-default bg-surface"
+        summaryClassName="cursor-pointer list-none px-4 py-3 flex items-center gap-2 text-sm font-medium text-fg hover:bg-surface-muted rounded-lg"
+        bodyClassName="px-4 pb-4 pt-2 border-t border-default"
         title={
           <>
             <Cloud className="w-4 h-4 text-brand" />
             <span>Deployed pipelines</span>
-            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-2xs font-semibold rounded-full bg-gray-100 dark:bg-gray-800 text-fg-muted">{rows.length}</span>}
+            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-2xs font-semibold rounded-full bg-surface-muted text-fg-muted">{rows.length}</span>}
             {/* Always-visible purpose hint so the collapsed panel isn't a mystery. */}
             <span className="ml-2 text-xs font-normal text-fg-subtle hidden sm:inline">pipelines registered to a live deploy target</span>
             {open && (
@@ -135,7 +135,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           }}
         >
           {rows.length > 0 && (
-            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            <ul className="divide-y divide-default">
               {rows.map((row) => (
                 <li key={`${row.id}:${row.pipelineId}`} className="py-2 flex items-center justify-between text-sm gap-2">
                   <div className="flex-1 min-w-0">
@@ -182,7 +182,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
               <button
                 onClick={() => setConfirmTarget(null)}
                 disabled={!!removing}
-                className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="px-4 py-1.5 text-sm border border-default rounded-md text-fg-muted hover:bg-surface-muted"
               >
                 Cancel
               </button>

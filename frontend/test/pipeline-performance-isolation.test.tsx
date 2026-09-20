@@ -34,9 +34,9 @@ describe('PipelinePerformance (isolation)', () => {
 
   it('renders execution, duration and bottleneck sections with data', () => {
     render(<PipelinePerformance loading={false} executions={[execRow]} durations={[duration]} bottlenecks={[bottleneck]} />);
-    expect(screen.getByText('Pipeline Executions')).toBeInTheDocument();
-    expect(screen.getByText('Pipeline Duration')).toBeInTheDocument();
-    expect(screen.getByText('Stage Bottlenecks')).toBeInTheDocument();
+    expect(screen.getByText('Pipeline executions')).toBeInTheDocument();
+    expect(screen.getByText('Pipeline duration')).toBeInTheDocument();
+    expect(screen.getByText('Stage bottlenecks')).toBeInTheDocument();
     expect(screen.getByText('build')).toBeInTheDocument();
   });
 });

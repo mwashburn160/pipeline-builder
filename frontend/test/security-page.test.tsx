@@ -264,7 +264,7 @@ describe('the nav says what is there', () => {
     const security = items.find((i) => i.href === '/dashboard/security');
     expect(security?.title).toBe('Security');
     // The settings entry covers profile AND organization, and says so.
-    expect(items.find((i) => i.href === '/dashboard/settings')?.title).toBe('Profile & Organization');
+    expect(items.find((i) => i.href === '/dashboard/settings')?.title).toBe('Profile & organization');
   });
 
   it('no longer advertises the pages that moved', () => {

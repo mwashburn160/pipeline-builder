@@ -36,13 +36,13 @@ export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: Si
         <div className="absolute inset-0 bg-black/30" />
         <aside
           ref={panelRef}
-          className="absolute top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
+          className="absolute top-0 right-0 h-full w-full max-w-2xl bg-surface shadow-2xl flex flex-col"
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-3">
+          <div className="px-5 py-4 border-b border-default flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-mono text-fg break-all">{title}</h2>
               {subtitle && <div className="mt-1 text-xs text-fg-muted flex items-center gap-2 flex-wrap">{subtitle}</div>}

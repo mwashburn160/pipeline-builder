@@ -206,7 +206,7 @@ export function DashboardLayout({
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-40 lg:hidden"
+                className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
                 onClick={closeMobile}
               />
               <motion.div
@@ -239,11 +239,16 @@ export function DashboardLayout({
               banner rides under the header instead of both pinning to top:0
               and overlapping on scroll. */}
           <div className="sticky top-0 z-30">
-          <header className="bg-surface/80 backdrop-blur-md border-b border-default shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-            <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center gap-2">
-              {/* min-w-0 + flex-1 let the org pill and title shrink (truncate)
-                  on a phone rather than push the right-hand controls off-screen. */}
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          {/* GLOBAL bar: which org you are in, and the three things reachable
+              from every page (search, messages, Ask). The page's own identity —
+              title, description, actions — is NOT here; it moved into the page
+              header below, where a title can be a real 24px heading instead of
+              a truncated line competing with the org pill for width. */}
+          <header className="bg-surface/90 backdrop-blur-sm border-b border-default">
+            <div className="px-4 sm:px-6 lg:px-8 h-12 flex justify-between items-center gap-2">
+              {/* min-w-0 + flex-1 let the org pill shrink (truncate) on a phone
+                  rather than push the right-hand controls off-screen. */}
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <button
                   onClick={toggleMobile}
                   className="lg:hidden shrink-0 p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
@@ -254,28 +259,27 @@ export function DashboardLayout({
                 {/* Organization / team context — top-left anchor, visible on
                     every page. Becomes an interactive switcher at 2+ orgs. */}
                 <OrgSwitcher variant="header" className="min-w-0 shrink" />
-                <div className="hidden sm:block h-8 w-px bg-gray-200 dark:bg-gray-700" aria-hidden />
-                <div className="min-w-0">
-                  {breadcrumbs && <Breadcrumb items={breadcrumbs} />}
-                  <div className="flex items-center gap-3 min-w-0">
-                    <h1 className="h1 truncate">{title}</h1>
-                    {titleExtra}
-                  </div>
-                  {subtitle && (
-                    <p className="mt-0.5 text-xs text-fg-muted truncate">
-                      {subtitle}
-                    </p>
-                  )}
-                </div>
               </div>
-              <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-                {/* Search / command palette (⌘K) — icon button; the shortcut
-                    lives in the tooltip rather than a hard-to-see kbd chip. */}
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                {/* Search / command palette (⌘K). On a wide screen it reads as
+                    a search FIELD — the thing people look for when they want to
+                    jump somewhere — and says its own shortcut; the bare icon was
+                    discoverable only by hovering it. Below `sm` it falls back to
+                    the icon, where a 256px pill would not fit. */}
+                <button
+                  onClick={() => cmdkRef.current?.()}
+                  aria-label="Search and commands"
+                  className="hidden sm:flex items-center gap-2 w-56 lg:w-64 px-2.5 py-1.5 rounded-lg border border-default bg-surface-muted text-fg-subtle hover:text-fg-muted hover:border-brand/40 transition-colors"
+                >
+                  <Search className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span className="flex-1 text-left text-sm">Search…</span>
+                  <kbd className="shrink-0 rounded border border-default bg-surface px-1.5 py-0.5 text-2xs font-medium text-fg-subtle">⌘K</kbd>
+                </button>
                 <button
                   onClick={() => cmdkRef.current?.()}
                   aria-label="Open command palette"
                   title="Search & commands (⌘K)"
-                  className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
+                  className="sm:hidden p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -314,7 +318,6 @@ export function DashboardLayout({
                 ) : (
                   <FeatureLockedAction flag="ai_generation" label="Ask" icon={Sparkles} iconOnly />
                 )}
-                {actions}
               </div>
             </div>
           </header>
@@ -329,6 +332,28 @@ export function DashboardLayout({
           <QuotaBanner />
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
+            {/* PAGE HEADER. One block, rendered for every route from the props
+                pages already pass: breadcrumbs, the h1 (+ any status chip), the
+                one-line description, and the page's primary actions on the
+                right. Pages keep passing `title`/`subtitle`/`actions` exactly as
+                before — the change is where those land. */}
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                {breadcrumbs && <div className="mb-1.5"><Breadcrumb items={breadcrumbs} /></div>}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <h1 className="h1 truncate">{title}</h1>
+                  {titleExtra}
+                </div>
+                {subtitle && (
+                  <p className="mt-1 text-sm text-fg-muted">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+              {actions && (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+              )}
+            </div>
             <ErrorBoundary resetKey={router.asPath}>
               {children}
             </ErrorBoundary>

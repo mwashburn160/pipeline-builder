@@ -23,7 +23,7 @@ export const gettingStartedTopic: HelpTopic = {
     },
     {
       id: 'five-ways',
-      title: 'Five Ways to Create a Pipeline',
+      title: 'Five ways to create a pipeline',
       blocks: [
         {
           type: 'table',
@@ -40,7 +40,7 @@ export const gettingStartedTopic: HelpTopic = {
     },
     {
       id: 'quickstart-dashboard',
-      title: 'Create a Pipeline from the Dashboard',
+      title: 'Create a pipeline from the dashboard',
       blocks: [
         {
           type: 'text',

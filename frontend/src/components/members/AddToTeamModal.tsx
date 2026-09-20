@@ -32,7 +32,7 @@ export function AddToTeamModal({
         <ModalFooter
           onCancel={onClose}
           onConfirm={onSubmit}
-          confirmLabel="Add Member"
+          confirmLabel="Add member"
           loading={form.loading}
           confirmDisabled={!email.trim()}
         />

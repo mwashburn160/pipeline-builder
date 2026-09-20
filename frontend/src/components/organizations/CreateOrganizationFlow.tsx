@@ -100,13 +100,13 @@ function CreateOrganizationModal({ onClose, onCreated }: {
 
   return (
     <Modal
-      title={createAsSubOrg ? 'Create Team' : 'Create Organization'}
+      title={createAsSubOrg ? 'Create team' : 'Create Organization'}
       onClose={onClose}
       footer={
         <ModalFooter
           onCancel={onClose}
           onConfirm={handleCreateOrg}
-          confirmLabel={createAsSubOrg ? 'Create Team' : 'Create Organization'}
+          confirmLabel={createAsSubOrg ? 'Create team' : 'Create Organization'}
           loading={createForm.loading}
           confirmDisabled={!newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
         />

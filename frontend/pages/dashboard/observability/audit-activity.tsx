@@ -31,7 +31,7 @@ import { formatError } from '@/lib/constants';
 
 /** Name of the seeded dashboard we redirect to. Matches the seeder in
  * platform/src/services/dashboard-seeder.ts. */
-const TARGET_DASHBOARD_NAME = 'Audit Activity';
+const TARGET_DASHBOARD_NAME = 'Audit activity';
 
 export default function AuditActivityRedirect() {
   // Admin-only (declared in page-access), matching the audit-log viewer at
@@ -71,7 +71,7 @@ export default function AuditActivityRedirect() {
   if (!ready) return <LoadingPage />;
   if (error) {
     return (
-      <DashboardLayout title="Audit Activity" subtitle="">
+      <DashboardLayout title="Audit activity" subtitle="">
         <RetryError message={formatError(error)} onRetry={refetch} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>

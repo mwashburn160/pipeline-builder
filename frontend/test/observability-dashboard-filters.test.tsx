@@ -37,7 +37,7 @@ jest.mock('@/lib/api', () => ({
       data: {
         dashboard: {
           id: 'd1', orgId: 'system', createdBy: 'system', createdAt: '', updatedBy: '', updatedAt: '',
-          name: 'Audit Activity', description: null, layoutJson: {}, visibility: 'public',
+          name: 'Audit activity', description: null, layoutJson: {}, visibility: 'public',
           panels: [{
             id: 'p1', dashboardId: 'd1', queryKey: 'audit_recent_events', vizKind: 'table',
             title: 'Recent events', span: 12, groupBy: null, format: null, position: 0,

@@ -153,7 +153,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         disabled={disabled}
         errors={validationErrors}
       >
-        <CollapsibleSection title="Global Metadata" hasContent={state.global.length > 0}>
+        <CollapsibleSection title="Global metadata" hasContent={state.global.length > 0}>
           <div className="mt-3">
             <MetadataEditor
               value={state.global}
@@ -163,7 +163,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Pipeline Variables" hasContent={state.vars.length > 0}>
+        <CollapsibleSection title="Pipeline variables" hasContent={state.vars.length > 0}>
           <div className="mt-3">
             <p className="text-xs text-fg-muted mb-2">
               Key-value variables exposed to <code>{'{{ pipeline.vars.* }}'}</code> templates in

@@ -31,8 +31,8 @@ export function SegmentedFilter<V extends string>({ options, value, onChange, ar
             onClick={() => onChange(o.value)}
             aria-pressed={active}
             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${active
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              ? 'bg-brand text-white border-brand'
+              : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
           >
             {o.label}{o.count !== undefined ? ` (${o.count})` : ''}
           </button>

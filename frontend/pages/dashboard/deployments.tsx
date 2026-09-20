@@ -420,7 +420,7 @@ export default function DeploymentsPage() {
             title: 'No deployed pipelines yet',
             description: (
               <>
-                Pipelines register here when <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono text-[0.85em]">pipeline-manager pipeline deploy</code> succeeds, or you register one manually. Once registered, we flag <strong className="font-semibold">drift</strong> — when a pipeline&apos;s config changes or is deleted after deployment — so you can reconcile.
+                Pipelines register here when <code className="px-1 py-0.5 rounded bg-surface-muted font-mono text-[0.85em]">pipeline-manager pipeline deploy</code> succeeds, or you register one manually. Once registered, we flag <strong className="font-semibold">drift</strong> — when a pipeline&apos;s config changes or is deleted after deployment — so you can reconcile.
               </>
             ),
             action: canWrite ? <Button onClick={openRegister}>Register deployment</Button> : undefined,

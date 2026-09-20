@@ -63,7 +63,7 @@ export function ManageRolesModal({
       ) : roles.length === 0 ? (
         <p className="text-sm text-fg-subtle italic">No roles exist in this organization yet.</p>
       ) : (
-        <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+        <div className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
           {roles.map((r) => (
             <label key={r.id} className="flex items-start gap-2 p-2.5 text-sm cursor-pointer">
               <Checkbox

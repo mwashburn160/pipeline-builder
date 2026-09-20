@@ -309,7 +309,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         </FormField>
 
         {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
-        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+        <div className="pt-2 border-t border-default">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-fg-muted">Inputs (parameters)</span>
             <div className="flex items-center gap-3">
@@ -329,7 +329,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
           ) : (
             <div className="space-y-2">
               {inputs.map((row, i) => (
-                <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-2">
+                <div key={i} className="rounded-lg border border-default p-2 space-y-2">
                   <div className="flex items-center gap-2">
                     <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={saving} className="text-sm" />
                     <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={saving} className="text-sm" />

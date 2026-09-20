@@ -105,7 +105,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       header: 'Name',
       render: (rule) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+          <div className="text-sm font-medium text-fg">{rule.name}</div>
           {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
           {rule.inherited && (
             <div className="mt-1">
@@ -115,7 +115,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           {rule.tags?.length > 0 && (
             <div className="flex gap-1 mt-1">
               {rule.tags.slice(0, 3).map(tag => (
-                <span key={tag} className="text-2xs bg-gray-100 dark:bg-gray-700 text-fg-muted rounded px-1.5 py-0.5">{tag}</span>
+                <span key={tag} className="text-2xs bg-surface-muted text-fg-muted rounded px-1.5 py-0.5">{tag}</span>
               ))}
               {rule.tags.length > 3 && <span className="text-2xs text-fg-subtle">+{rule.tags.length - 3}</span>}
             </div>
@@ -126,7 +126,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     {
       id: 'target',
       header: 'Target',
-      render: (rule) => <StatusPill className="bg-gray-100 dark:bg-gray-700 text-fg-muted">{rule.target}</StatusPill>,
+      render: (rule) => <StatusPill className="bg-surface-muted text-fg-muted">{rule.target}</StatusPill>,
     },
     {
       id: 'severity',
@@ -164,7 +164,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       id: 'status',
       header: 'Status',
       render: (rule) => (
-        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-fg-muted'}>
+        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-surface-muted text-fg-muted'}>
           {rule.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),
@@ -241,7 +241,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-brand" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-semibold text-fg">
             Compliance Rules ({total})
           </h2>
         </div>

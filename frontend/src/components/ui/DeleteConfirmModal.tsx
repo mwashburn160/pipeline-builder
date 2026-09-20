@@ -4,7 +4,7 @@ import { Modal } from './Modal';
 
 /** Props for the DeleteConfirmModal component. */
 interface DeleteConfirmModalProps {
-  /** Dialog heading (e.g. "Delete Pipeline") */
+  /** Dialog heading (e.g. "Delete pipeline") */
   title: string;
   /** Name of the item being deleted, shown in bold in the confirmation message */
   itemName: string;
@@ -56,7 +56,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
       )}
     >
       <p className="text-sm text-fg-muted mb-1">
-        Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?
+        Are you sure you want to delete <strong className="text-fg">{itemName}</strong>?
       </p>
       <p className="text-sm text-red-600 dark:text-red-400">This action cannot be undone.</p>
     </Modal>

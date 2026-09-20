@@ -139,7 +139,7 @@ export default function OrgDetailPage() {
       title={org ? org.name : 'Organization'}
       subtitle="System-admin org detail"
       breadcrumbs={[
-        { label: 'All Organizations', href: '/dashboard/organizations' },
+        { label: 'All organizations', href: '/dashboard/organizations' },
         { label: org ? org.name : 'Organization' },
       ]}
       titleExtra={<Badge color="red">System Admin</Badge>}

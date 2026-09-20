@@ -50,7 +50,7 @@ export default function SynthSection({
     synth.metadata.length > 0 || synth.networkType !== 'none';
 
   return (
-    <CollapsibleSection title="Synthesis Configuration" defaultOpen={true} hasContent={hasContent}>
+    <CollapsibleSection title="Synthesis configuration" defaultOpen={true} hasContent={hasContent}>
       <div className="mt-3 space-y-4">
         <SourceTypeEditor
           sourceType={synth.sourceType}
@@ -67,7 +67,7 @@ export default function SynthSection({
           errors={errors}
         />
 
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="border-t border-default pt-4">
           <PluginOptionsEditor
             value={synth.plugin}
             onChange={onPluginChange}
@@ -77,7 +77,7 @@ export default function SynthSection({
           />
         </div>
 
-        <CollapsibleSection title="Synth Metadata" hasContent={synth.metadata.length > 0}>
+        <CollapsibleSection title="Synth metadata" hasContent={synth.metadata.length > 0}>
           <div className="mt-3">
             <MetadataEditor
               value={synth.metadata}
@@ -87,7 +87,7 @@ export default function SynthSection({
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Synth Network" hasContent={synth.networkType !== 'none'}>
+        <CollapsibleSection title="Synth network" hasContent={synth.networkType !== 'none'}>
           <div className="mt-3">
             <NetworkConfigEditor
               networkType={synth.networkType}

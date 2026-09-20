@@ -302,7 +302,7 @@ export default function PluginsPage() {
     ? 'Get started by creating your first plugin.'
     : 'No private plugins available for your organization.';
   const emptyAction = canWrite
-    ? <Button onClick={() => setCreateInitialTab('ai')}>Create Plugin</Button>
+    ? <Button onClick={() => setCreateInitialTab('ai')}>Create plugin</Button>
     : undefined;
 
   return (
@@ -359,24 +359,24 @@ export default function PluginsPage() {
             <>
               <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
               <FilterSelect aria-label="Filter by compute" value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)}>
-                <option value="all">All Compute</option>
+                <option value="all">All compute</option>
                 <option value="SMALL">SMALL</option>
                 <option value="MEDIUM">MEDIUM</option>
                 <option value="LARGE">LARGE</option>
                 <option value="X2_LARGE">X2_LARGE</option>
               </FilterSelect>
               <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
-                <option value="all">All Status</option>
+                <option value="all">All status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </FilterSelect>
               <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
-                <option value="all">All Plugins</option>
+                <option value="all">All plugins</option>
                 <option value="default">Default only</option>
               </FilterSelect>
               {canViewPublic && (
                 <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
-                  <option value="all">All Visibility</option>
+                  <option value="all">All visibility</option>
                   <option value="public">Public</option>
                   {/* The ladder has THREE rungs — omitting `org` made every
                       org-shared row invisible under both other filter values. */}
@@ -487,12 +487,12 @@ export default function PluginsPage() {
       )}
 
       {del.target && (
-        <DeleteConfirmModal title="Delete Plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
+        <DeleteConfirmModal title="Delete plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
       {showBulkDelete && (
         <DeleteConfirmModal
-          title="Delete Plugins"
+          title="Delete plugins"
           itemName={`${selectedIds.size} plugin${selectedIds.size > 1 ? 's' : ''}`}
           loading={bulkLoading}
           onConfirm={handleBulkDelete}

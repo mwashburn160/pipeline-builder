@@ -128,9 +128,9 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     { id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted capitalize', render: (s) => s.target },
     {
       id: 'cron',
-      header: 'Cron Expression',
+      header: 'Cron expression',
       render: (s) => (
-        <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-800 dark:text-gray-200">{s.cronExpression}</code>
+        <code className="text-sm bg-surface-muted px-2 py-0.5 rounded text-gray-800 dark:text-gray-200">{s.cronExpression}</code>
       ),
     },
     {
@@ -150,8 +150,8 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
         </button>
       ),
     },
-    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.lastRunAt) },
-    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.nextRunAt) },
+    { id: 'lastRun', header: 'Last run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.lastRunAt) },
+    { id: 'nextRun', header: 'Next run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.nextRunAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -175,7 +175,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalendarClock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Schedules</h2>
+          <h2 className="text-lg font-semibold text-fg">Scan schedules</h2>
         </div>
         {!readOnly && (
           <Button onClick={openCreate}>
@@ -186,9 +186,9 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
 
       {/* Inline form */}
       {showForm && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        <div className="rounded-lg border border-default bg-surface p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+            <h3 className="text-sm font-semibold text-fg">
               {editingId ? 'Edit Schedule' : 'Create Schedule'}
             </h3>
             <button onClick={closeForm} aria-label="Close" className="p-1 rounded-lg text-fg-subtle hover:text-fg">
@@ -209,7 +209,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
               </FilterSelect>
             </div>
             <div className="flex-[2]">
-              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-fg-muted mb-1">Cron Expression</label>
+              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-fg-muted mb-1">Cron expression</label>
               <Input
                 id="scan-schedule-cron"
                 type="text"

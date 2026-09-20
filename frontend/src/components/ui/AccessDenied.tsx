@@ -32,13 +32,13 @@ export function AccessDenied({ denial }: { denial: AccessDenial }) {
     : 'Ask an owner or admin of your organization to grant it, then reload this page.';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
       <div
         data-testid="access-denied"
         role="alert"
         className="max-w-md w-full rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm dark:border-gray-700 dark:bg-gray-900"
       >
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-muted">
           <ShieldOff className="h-7 w-7 text-fg-subtle" aria-hidden="true" />
         </div>
         <h1 className="mt-4 text-lg font-semibold text-fg">

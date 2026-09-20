@@ -197,7 +197,7 @@ export function usePluginColumns({
     },
     {
       id: 'failureBehavior',
-      header: 'On Failure',
+      header: 'On failure',
       hidden: true,
       cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.failureBehavior || '',
@@ -217,7 +217,7 @@ export function usePluginColumns({
     },
     {
       id: 'createdBy',
-      header: 'Created By',
+      header: 'Created by',
       hidden: true,
       cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdBy,

@@ -214,7 +214,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
 
   return (
     <Modal
-      title="Create Plugin"
+      title="Create plugin"
       onClose={onClose}
       maxWidth="max-w-2xl"
       tall
@@ -245,8 +245,8 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
           {/* Build progress log — shown once the upload has been queued
               (requestId set) and SSE events start arriving. */}
           {requestId && events.length > 0 && (
-            <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-48 overflow-y-auto">
-              <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
+            <div className="mb-4 rounded-lg border border-default bg-canvas p-3 max-h-48 overflow-y-auto">
+              <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
               {events.map((event, i) => (
                 <div key={i} className={`text-xs font-mono py-0.5 ${
                   event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
@@ -257,7 +257,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                 </div>
               ))}
               {isBuilding && (
-                <div className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400">
+                <div className="flex items-center gap-2 mt-1 text-xs text-brand">
                   <LoadingSpinner size="sm" /> Building...
                 </div>
               )}
@@ -269,12 +269,12 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
           {!requestId && (
             <div className="space-y-4">
               <div>
-                <label className="label">Plugin File (.zip or .tar.gz)</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
+                <label className="label">Plugin file (.zip or .tar.gz)</label>
+                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-default border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
                   <div className="space-y-1 text-center">
                     <Upload className="mx-auto h-12 w-12 text-fg-subtle" />
                     <div className="flex text-sm text-fg-muted">
-                      <label htmlFor={fileInputId} className="relative cursor-pointer rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                      <label htmlFor={fileInputId} className="relative cursor-pointer rounded-md font-medium text-brand hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                         <span>Select a file</span>
                         <input id={fileInputId} name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={uploadDisabled} />
                       </label>

@@ -27,6 +27,8 @@ const mockListPending = jest.fn<(...a: unknown[]) => Promise<Array<{ orgId: stri
 
 const mockIncCounter = jest.fn();
 
+const mockServiceAuthHeader = jest.fn<(...a: unknown[]) => string>(() => 'Bearer service-token');
+
 // Mutable billing config so a single suite can flip `enabled` per-test.
 const billingConfig = {
   enabled: true,
@@ -42,7 +44,7 @@ const billingConfig = {
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: (...a: unknown[]) => mockCreateSafeClient(...(a as [])),
-  getServiceAuthHeader: () => 'Bearer service-token',
+  getServiceAuthHeader: (...a: unknown[]) => mockServiceAuthHeader(...a),
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
@@ -102,6 +104,13 @@ describe('provisionBillingSubscription (paid-signup)', () => {
     // POST carries the requested plan + a monthly interval.
     expect((mockPost.mock.calls[0] as any)[0]).toBe('/billing/subscriptions');
     expect((mockPost.mock.calls[0] as any)[1]).toMatchObject({ planId: 'pro', interval: 'monthly' });
+    // The service token MUST claim `billing:manage`. The target route is behind
+    // `requirePermission('billing:manage')` and a bare service token is
+    // least-privilege `role: 'member'` with no permission claims — drop this and
+    // every provisioning POST 403s.
+    expect(mockServiceAuthHeader).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceName: 'platform', role: 'member', permissions: ['billing:manage'] }),
+    );
     // No pending marker on success; success counter emitted.
     expect(mockSetPending).not.toHaveBeenCalled();
     expect(mockIncCounter).toHaveBeenCalledWith('platform_billing_provision_total', { outcome: 'success' });

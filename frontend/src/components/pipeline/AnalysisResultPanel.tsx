@@ -77,7 +77,7 @@ export function AnalysisResultPanel({ analysis }: { analysis: RepoAnalysisData }
 /** Which referenced plugins already existed, and which are being auto-created. */
 export function PluginStatusPanel({ status }: { status: PluginCreationStatus }) {
   return (
-    <Panel icon={Plug} heading={<span className="text-sm font-medium text-fg-muted">Plugin Status</span>}>
+    <Panel icon={Plug} heading={<span className="text-sm font-medium text-fg-muted">Plugin status</span>}>
       <div className="space-y-2">
         {status.existing.length > 0 && (
           <div className="flex flex-wrap gap-2">

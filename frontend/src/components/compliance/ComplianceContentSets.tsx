@@ -101,17 +101,17 @@ function LockedCard({ set, standardHeld }: { set: ContentSet; standardHeld: bool
     <Card className="relative flex flex-col overflow-hidden">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-info-bg text-brand">
             <Lock className="w-4 h-4" aria-hidden="true" />
           </span>
           <h4 className="text-base font-semibold text-fg">{meta.label}</h4>
         </div>
-        <span className="text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-fg-muted px-2 py-0.5 whitespace-nowrap">
+        <span className="text-xs font-medium rounded-full bg-surface-muted text-fg-muted px-2 py-0.5 whitespace-nowrap">
           Add-on
         </span>
       </div>
       <p className="text-sm text-fg-muted mt-2">{meta.description}</p>
-      <ul className="mt-3 space-y-1 text-sm text-gray-500 dark:text-gray-500 flex-1">
+      <ul className="mt-3 space-y-1 text-sm text-fg-subtle flex-1">
         {set.contents.map((c) => (
           <li key={c} className="flex items-start gap-1.5">
             <Lock className="w-3 h-3 mt-1 shrink-0 text-fg-subtle" aria-hidden="true" />
@@ -144,7 +144,7 @@ export default function ComplianceContentSets() {
   return (
     <section aria-label="Curated compliance content sets" className="space-y-3">
       <div>
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">Curated content sets</h3>
+        <h3 className="text-base font-semibold text-fg">Curated content sets</h3>
         <p className="text-sm text-fg-muted">
           Pre-built compliance rule libraries you can subscribe to. Authoring your own rules stays free.
         </p>

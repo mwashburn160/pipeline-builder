@@ -25,26 +25,26 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
     <>
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <SectionHeading>Stage Failures</SectionHeading>
+          <SectionHeading>Stage failures</SectionHeading>
           <ExportCSVButton data={stageFailures.map(s => ({ stage: s.stage_name, failures: s.failures, total: s.total, failure_pct: s.failure_pct }))} filename="stage-failures" />
         </div>
         {stageFailures.length > 0 ? (
-          <div className="space-y-2.5">{stageFailures.slice(0, MAX_LIST_ROWS).map((s) => (<div key={s.stage_name}><div className="flex justify-between text-sm mb-1"><span className="text-fg truncate">{s.stage_name}</span><span className="text-xs text-fg-subtle tabular-nums ml-2 shrink-0">{s.failure_pct}%</span></div><div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(s.failure_pct, 100)}%` }} /></div></div>))}</div>
+          <div className="space-y-2.5">{stageFailures.slice(0, MAX_LIST_ROWS).map((s) => (<div key={s.stage_name}><div className="flex justify-between text-sm mb-1"><span className="text-fg truncate">{s.stage_name}</span><span className="text-xs text-fg-subtle tabular-nums ml-2 shrink-0">{s.failure_pct}%</span></div><div className="h-1 bg-surface-muted rounded-full overflow-hidden"><div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(s.failure_pct, 100)}%` }} /></div></div>))}</div>
         ) : <ReportEmpty text="No stage failures" />}
       </Card>
       {actionFailures.length > 0 && (
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <SectionHeading>Action Failures</SectionHeading>
+            <SectionHeading>Action failures</SectionHeading>
             <ExportCSVButton data={actionFailures.map(a => ({ action: a.action_name, failures: a.failures, total: a.total, failure_pct: a.failure_pct }))} filename="action-failures" />
           </div>
-          <div className="space-y-2.5">{actionFailures.slice(0, MAX_LIST_ROWS).map((a) => (<div key={a.action_name}><div className="flex justify-between text-sm mb-1"><span className="text-fg truncate font-mono text-xs">{a.action_name}</span><span className="text-xs text-fg-subtle tabular-nums ml-2 shrink-0">{a.failures}/{a.total} ({a.failure_pct}%)</span></div><div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} /></div></div>))}</div>
+          <div className="space-y-2.5">{actionFailures.slice(0, MAX_LIST_ROWS).map((a) => (<div key={a.action_name}><div className="flex justify-between text-sm mb-1"><span className="text-fg truncate font-mono text-xs">{a.action_name}</span><span className="text-xs text-fg-subtle tabular-nums ml-2 shrink-0">{a.failures}/{a.total} ({a.failure_pct}%)</span></div><div className="h-1 bg-surface-muted rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} /></div></div>))}</div>
         </Card>
       )}
       {showErrors && (
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <SectionHeading>Top Errors</SectionHeading>
+          <SectionHeading>Top errors</SectionHeading>
           <ExportCSVButton data={errors.map(e => ({ pattern: e.error_pattern, occurrences: e.occurrences, pipelines: e.affected_pipelines, last_seen: e.last_seen }))} filename="pipeline-errors" />
         </div>
         {errors.length > 0 ? (

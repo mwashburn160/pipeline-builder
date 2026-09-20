@@ -69,9 +69,9 @@ export default function OrgSsoSettingsPage() {
 
   return (
     <DashboardLayout
-      title="Single Sign-On"
+      title="Single sign-on"
       subtitle="Configure your organization's identity provider"
-      titleExtra={<ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+      titleExtra={<ShieldCheck className="w-5 h-5 text-brand" />}
     >
       <div className="space-y-6">
         {/* Every control here is a write the backend's read-only guard rejects

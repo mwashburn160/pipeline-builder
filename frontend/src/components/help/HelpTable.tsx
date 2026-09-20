@@ -17,7 +17,7 @@ export function HelpTable({ headers, rows }: HelpTableProps) {
   }));
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+    <div className="overflow-x-auto rounded-lg border border-default">
       <DataTable
         data={rows}
         columns={columns}

@@ -196,14 +196,14 @@ export default function CreatePipelineModal({
         const message = envelope.error ?? envelope.message ?? 'Compliance check failed';
         setComplianceResult({
           passed: false, blocked: false, rulesEvaluated: 0, rulesSkipped: 0,
-          violations: [{ ruleId: 'error', ruleName: 'Compliance Check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message }],
+          violations: [{ ruleId: 'error', ruleName: 'Compliance check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message }],
           warnings: [], exemptionsApplied: [],
         });
       }
     } catch {
       setComplianceResult({
         passed: false, blocked: false, rulesEvaluated: 0, rulesSkipped: 0,
-        violations: [{ ruleId: 'error', ruleName: 'Compliance Check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message: 'Failed to run compliance check' }],
+        violations: [{ ruleId: 'error', ruleName: 'Compliance check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message: 'Failed to run compliance check' }],
         warnings: [], exemptionsApplied: [],
       });
     } finally {
@@ -219,7 +219,7 @@ export default function CreatePipelineModal({
   const isLastStep = currentStep === WIZARD_STEPS.length - 1;
 
   const accessSlot = (
-    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+    <div className="mt-4 pt-4 border-t border-default">
       <label htmlFor="create-pipeline-visibility" className="block text-sm font-medium text-fg-muted mb-3">Visibility</label>
       <VisibilitySelect
         id="create-pipeline-visibility"
@@ -251,8 +251,8 @@ export default function CreatePipelineModal({
   );
 
   const jsonPreview = showPreview && previewJson ? (
-    <div className="border-t border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
+    <div className="border-t border-default">
+      <div className="flex items-center justify-between px-6 py-2 bg-surface-muted">
         <span className="text-sm font-medium text-fg-muted">JSON Preview</span>
         <button
           onClick={() => setShowPreview(false)}
@@ -261,7 +261,7 @@ export default function CreatePipelineModal({
           Close
         </button>
       </div>
-      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-canvas">
         {previewJson}
       </pre>
     </div>
@@ -332,7 +332,7 @@ export default function CreatePipelineModal({
 
   return (
     <Modal
-      title="Create Pipeline"
+      title="Create pipeline"
       onClose={onClose}
       maxWidth="max-w-4xl"
       tall
@@ -386,7 +386,7 @@ export default function CreatePipelineModal({
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4" />
-              <span className="text-sm font-medium">Compliance Check ({complianceResult.rulesEvaluated} rules evaluated)</span>
+              <span className="text-sm font-medium">Compliance check ({complianceResult.rulesEvaluated} rules evaluated)</span>
             </div>
             <button onClick={() => setComplianceResult(null)} className="text-xs text-fg-subtle hover:text-fg">Dismiss</button>
           </div>

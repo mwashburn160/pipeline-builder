@@ -20,7 +20,7 @@ import { ConfirmDialog } from '../src/components/ui/ConfirmDialog';
 const renderModal = (props: Partial<React.ComponentProps<typeof Modal>> = {}) => {
   const onClose = jest.fn();
   render(
-    <Modal title="Edit Plugin" onClose={onClose} {...props}>
+    <Modal title="Edit plugin" onClose={onClose} {...props}>
       <input aria-label="Name" defaultValue="x" />
     </Modal>,
   );

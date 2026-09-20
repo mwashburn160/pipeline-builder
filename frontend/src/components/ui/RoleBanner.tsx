@@ -18,8 +18,8 @@ interface RoleBannerProps {
 
 const BANNER_STYLES: Record<string, string> = {
   purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200/60 dark:border-purple-800/60 text-purple-700 dark:text-purple-300',
-  blue: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200/60 dark:border-blue-800/60 text-blue-700 dark:text-blue-300',
-  gray: 'bg-gray-50 dark:bg-gray-800/50 border-gray-200/60 dark:border-gray-700/60 text-fg-muted',
+  blue: 'bg-info-bg border-info-border text-info-strong',
+  gray: 'bg-surface-muted border-gray-200/60 dark:border-gray-700/60 text-fg-muted',
 };
 
 const SIZE_CLASSES: Record<NonNullable<RoleBannerProps['size']>, { container: string; text: string }> = {

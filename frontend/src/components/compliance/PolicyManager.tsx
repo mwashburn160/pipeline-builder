@@ -95,7 +95,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       header: 'Name',
       render: (policy) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-white">{policy.name}</div>
+          <div className="text-sm font-medium text-fg">{policy.name}</div>
           {policy.description && <div className="text-xs text-fg-muted truncate max-w-xs">{policy.description}</div>}
         </>
       ),
@@ -105,7 +105,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       id: 'status',
       header: 'Status',
       render: (policy) => (
-        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-fg-muted'}>
+        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-surface-muted text-fg-muted'}>
           {policy.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),
@@ -142,7 +142,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-semibold text-fg">
             Compliance Policies ({total})
           </h2>
         </div>

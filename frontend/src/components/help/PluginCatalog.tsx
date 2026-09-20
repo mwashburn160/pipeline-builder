@@ -55,7 +55,7 @@ export function PluginCatalog() {
           aria-label="Filter by category"
           className="sm:w-48"
         >
-          <option value="">All Categories</option>
+          <option value="">All categories</option>
           {PLUGIN_CATEGORIES.map((cat) => (
             <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
           ))}
@@ -68,7 +68,7 @@ export function PluginCatalog() {
       </p>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-default">
         <DataTable
           data={filtered}
           columns={CATALOG_COLUMNS}

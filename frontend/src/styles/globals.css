@@ -38,6 +38,25 @@
                .h1 .h2 .h3      page / section / card titles (components layer)
 
    Chart data colours are deliberately NOT tokenised.
+
+   SHAPE AND DEPTH (the 2026 flattening). The app used to read as glass: a
+   translucent card over a two-colour radial wash, gradient button fills, and a
+   30px brand-tinted drop shadow under every panel. Three things replace it, and
+   they are expressed as REMAPPED TAILWIND SCALES rather than new class names, so
+   the whole app inherits them without a per-component edit:
+
+     - Corners: `--radius-*` below tightens Tailwind's own scale (a card's
+       `rounded-2xl` is 12px, not 16px). One corner language, and `rounded-lg`
+       (8px controls) is unchanged, so the two sizes now relate.
+     - Depth: `--shadow-*` below is a hairline set. Elevation now means BORDER
+       first, shadow second; only genuinely floating layers (modal, dropdown,
+       toast) carry a visible one, via `--pb-shadow-md`/`-lg`.
+     - Focus: `--pb-ring` is the single focus colour, always drawn on
+       `:focus-visible` for buttons and links (a mouse click no longer paints a
+       ring) and on `:focus` for text fields, where typing IS the focus cue.
+
+   `--pb-shadow` stays defined (SectionCard reads it directly) and now equals the
+   hairline `--pb-shadow-sm`.
 */
 @theme inline {
   --color-canvas: var(--pb-bg);
@@ -74,6 +93,26 @@
 
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
+
+  /* Corner scale, tightened. Controls stay at 8px (`rounded-lg`), containers
+     drop from 16→12px (`rounded-2xl`) and the big marketing corners from
+     24→16px, so a button inside a card no longer looks rounder than the card.
+     Remapping the scale is what makes this land on the ~400 existing
+     `rounded-*` call sites at once. */
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 1rem;
+
+  /* Depth scale, flattened. `shadow-sm`/`shadow-md` are hairlines that read as
+     a crisp edge rather than a glow; `shadow-lg`/`shadow-xl` stay visible
+     because only overlays (dropdown, popover, toast, drawer) use them. */
+  --shadow-xs: 0 1px 1px rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 1px 3px rgb(15 23 42 / 0.08), 0 1px 2px rgb(15 23 42 / 0.04);
+  --shadow-lg: 0 8px 24px rgb(15 23 42 / 0.10), 0 2px 6px rgb(15 23 42 / 0.06);
+  --shadow-xl: 0 16px 40px rgb(15 23 42 / 0.14), 0 4px 10px rgb(15 23 42 / 0.06);
 }
 
 /* Neutral border colour. A dedicated utility (rather than a theme colour) so
@@ -116,7 +155,19 @@
     --pb-accent: #efb64c;
     --pb-success: #1f9d6d;
     --pb-danger: #e24b4b;
-    --pb-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+
+    /* Elevation, in three steps. `--pb-shadow` is the hairline every resting
+       panel gets (and the name SectionCard reads); `-md` is for a layer that
+       floats over content it must stay readable against (dropdown, popover,
+       toast); `-lg` is for a modal over a dimmed page. */
+    --pb-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --pb-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.06);
+    --pb-shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.16), 0 4px 10px rgba(15, 23, 42, 0.06);
+    --pb-shadow: var(--pb-shadow-sm);
+
+    /* The one focus colour. Buttons/links draw it on :focus-visible, text
+       fields on :focus — see the `.btn` and `.input` rules. */
+    --pb-ring: color-mix(in srgb, var(--pb-brand) 55%, transparent 45%);
 
     --pb-success-fg: #15803d;
     --pb-success-fg-strong: #166534;
@@ -154,7 +205,16 @@
     --pb-accent: #f5c85c;
     --pb-success: #22c58b;
     --pb-danger: #f07171;
-    --pb-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+
+    /* Dark surfaces separate by value, not by shadow, so the resting hairline
+       is nearly invisible on purpose; the floating steps stay strong enough to
+       read against a near-black canvas. */
+    --pb-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --pb-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --pb-shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.45);
+    --pb-shadow: var(--pb-shadow-sm);
+
+    --pb-ring: color-mix(in srgb, var(--pb-brand) 65%, transparent 35%);
 
     --pb-success-fg: #4ade80;
     --pb-success-fg-strong: #86efac;
@@ -177,10 +237,12 @@
   body {
     font-family: var(--pb-font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
     color: var(--pb-text);
-    background:
-      radial-gradient(1200px 600px at 10% -10%, rgba(239, 182, 76, 0.18), transparent 60%),
-      radial-gradient(900px 500px at 90% 0%, rgba(15, 111, 255, 0.14), transparent 55%),
-      var(--pb-bg);
+    /* FLAT CANVAS. This was two large radial gradients (amber at 10% -10%, blue
+       at 90% 0%) behind every screen, which tinted the top of every table and
+       card and made the app read as decorated rather than dense. The wash it
+       existed for belongs to the marketing pages, so it moved there under its
+       own name: `.marketing-canvas` in the components layer. */
+    background-color: var(--pb-bg);
     text-rendering: optimizeLegibility;
   }
 
@@ -229,119 +291,125 @@
     animation: pb-tooltip-in 100ms ease-out both;
   }
 
-  /* ---- Card ---- */
+  /* The decorative wash the body background used to carry, now scoped to the
+     marketing surfaces that want it (landing, register, invite-accept). Applied
+     to the page's own root element, so the signed-in app stays flat. */
+  .marketing-canvas {
+    background:
+      radial-gradient(1100px 560px at 12% -12%, color-mix(in srgb, var(--pb-accent) 14%, transparent), transparent 62%),
+      radial-gradient(880px 480px at 88% 0%, color-mix(in srgb, var(--pb-brand) 12%, transparent), transparent 58%),
+      var(--pb-bg);
+  }
+
+  /* ---- Card ----
+     Opaque, hairline-bordered, 12px corners. The old card was
+     `color-mix(surface 85%, transparent)` + `backdrop-blur-md` + a 30px shadow:
+     text sat on whatever was behind it (costing contrast) and every list of
+     cards read as a stack of panes. Border-first elevation fixes both. */
   .card {
-    background-color: color-mix(in srgb, var(--pb-surface) 85%, transparent);
+    background-color: var(--pb-surface);
     border: 1px solid var(--pb-border);
-    box-shadow: var(--pb-shadow);
-    @apply backdrop-blur-md rounded-2xl p-6 transition-all duration-200;
+    box-shadow: var(--pb-shadow-sm);
+    @apply rounded-2xl p-5 transition-colors duration-150;
   }
 
   /* ---- Buttons ---- */
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium
-           rounded-xl transition-all duration-150
-           focus:outline-none focus:ring-2 focus:ring-offset-2
-           focus:ring-offset-canvas
+    @apply inline-flex items-center justify-center px-3.5 py-2 text-sm font-medium
+           rounded-lg transition-colors duration-150
+           focus:outline-none focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)]
+           focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
            disabled:opacity-50 disabled:pointer-events-none;
   }
 
-  .btn:active {
-    transform: translateY(1px) scale(0.99);
-  }
-
-  /* -- Color variants -- */
+  /* -- Color variants --
+     Solid fills. Each was a `linear-gradient(180deg, …)` plus a 22–26px
+     coloured glow, which is what dated the whole app: eleven buttons on a
+     settings page each threw their own shadow. Pressing now darkens the fill
+     (`:active`) instead of nudging the button down a pixel. */
 
   .btn-primary {
-    background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-brand) 92%, #fff 8%), var(--pb-brand-strong));
+    background-color: var(--pb-brand);
     color: #fff;
-    box-shadow: 0 12px 26px rgba(15, 111, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-brand hover:brightness-105;
+    @apply hover:bg-brand-strong active:brightness-95;
   }
 
   .btn-secondary {
-    background-color: var(--pb-surface-muted);
+    background-color: var(--pb-surface);
     color: var(--pb-text);
     border: 1px solid var(--pb-border);
-    @apply hover:brightness-105 focus:ring-brand;
+    @apply hover:bg-surface-muted active:brightness-[0.97];
   }
 
   .btn-danger {
-    background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-danger) 90%, #fff 10%), var(--pb-danger));
+    background-color: var(--pb-danger);
     color: #fff;
-    box-shadow: 0 10px 22px rgba(226, 75, 75, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-danger hover:brightness-105;
+    @apply hover:brightness-95 active:brightness-90;
   }
 
   .btn-success {
-    background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-success) 90%, #fff 10%), var(--pb-success));
+    background-color: var(--pb-success);
     color: #fff;
-    box-shadow: 0 10px 22px rgba(31, 157, 109, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-success hover:brightness-105;
+    @apply hover:brightness-95 active:brightness-90;
   }
 
   /* Indigo "experimental" accent — dry-run / preview-impact / scan-trigger
      actions (FlaskConical/BarChart3/Scan). No brand token exists for indigo, so
-     use a fixed indigo mirroring the .btn-primary structure. */
+     use a fixed indigo; same flat treatment as .btn-primary. */
   .btn-indigo {
-    background-image: linear-gradient(180deg, color-mix(in srgb, #4f46e5 92%, #fff 8%), #4338ca);
+    background-color: #4f46e5;
     color: #fff;
-    box-shadow: 0 10px 22px rgba(79, 70, 229, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:#4f46e5] hover:brightness-105;
+    @apply hover:bg-[color:#4338ca] active:brightness-95;
   }
 
   /* Solid purple accent — the compliance "policy" actions (New/Update Policy)
-     use purple; fixed hex mirroring .btn-primary since there's no purple token. */
+     use purple; fixed hex since there's no purple token. */
   .btn-purple {
-    background-image: linear-gradient(180deg, color-mix(in srgb, #7c3aed 92%, #fff 8%), #6d28d9);
+    background-color: #7c3aed;
     color: #fff;
-    box-shadow: 0 10px 22px rgba(124, 58, 237, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:#7c3aed] hover:brightness-105;
+    @apply hover:bg-[color:#6d28d9] active:brightness-95;
   }
 
   /* Solid orange accent — destructive-adjacent "promote/overwrite/exempt"
      actions that read stronger than a neutral button but aren't red/danger. */
   .btn-orange {
-    background-image: linear-gradient(180deg, color-mix(in srgb, #ea580c 92%, #fff 8%), #c2410c);
+    background-color: #ea580c;
     color: #fff;
-    box-shadow: 0 10px 22px rgba(234, 88, 12, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:#ea580c] hover:brightness-105;
+    @apply hover:bg-[color:#c2410c] active:brightness-95;
   }
 
   /* Text-link button: strips the .btn box so an inline action reads as a link
-     while staying a real <button> (keyboard + disabled semantics). Defaults to
-     the accent blue; pass a `text-*`/size utility via className to recolor
-     (utilities win over the applied default) — e.g. an amber jump-link. */
+     while staying a real <button> (keyboard + disabled semantics). Rides the
+     brand token rather than a raw blue, so it matches every other link. */
   .btn-link {
-    @apply px-0 py-0 rounded-none font-medium text-blue-600 dark:text-blue-400
-           hover:text-blue-800 dark:hover:text-blue-300 hover:underline underline-offset-2
-           focus:ring-0 focus:ring-offset-0 focus-visible:underline;
-    background-image: none;
+    color: var(--pb-brand);
+    @apply px-0 py-0 rounded-none font-medium
+           hover:text-brand-strong hover:underline underline-offset-2
+           focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:underline;
+    background-color: transparent;
     box-shadow: none;
   }
 
   .btn-ghost {
-    @apply bg-transparent hover:bg-surface-muted
-           focus:ring-brand;
+    @apply bg-transparent hover:bg-surface-muted hover:text-fg;
     color: var(--pb-text-muted);
   }
 
   .btn-danger-outline {
-    color: var(--pb-danger);
+    color: var(--pb-danger-fg);
     border: 1px solid color-mix(in srgb, var(--pb-danger) 40%, var(--pb-border) 60%);
     background-color: transparent;
-    @apply hover:bg-[color:color-mix(in_srgb,var(--pb-danger)_8%,transparent_92%)]
-           focus:ring-danger;
+    @apply hover:bg-danger-bg;
   }
 
-  /* Bordered muted pill (the old CopyButton look): transparent bg, muted
-     text, thin border, softer `rounded-lg` corners than the base `.btn`. */
+  /* Bordered neutral button — the quiet sibling of `.btn-secondary` for
+     inline/table actions (copy, download, reveal). */
   .btn-outline {
     color: var(--pb-text-muted);
     border: 1px solid var(--pb-border);
     background-color: transparent;
-    @apply rounded-lg hover:bg-surface-muted
-           focus:ring-brand;
+    @apply hover:bg-surface-muted hover:text-fg;
   }
 
   /* -- Size variants -- */
@@ -355,7 +423,7 @@
   }
 
   .btn-lg {
-    @apply px-6 py-3 text-base;
+    @apply px-5 py-2.5 text-base;
   }
 
   /* -- Width variants -- */
@@ -364,33 +432,36 @@
     @apply w-full justify-center;
   }
 
-  /* ---- Inputs ---- */
+  /* ---- Inputs ----
+     Opaque fill and an 8px corner, matching the buttons they sit beside. The
+     ring is drawn on `:focus` (not `:focus-visible`): a text field is focused
+     precisely so it can be typed into, and the cue has to be there whether the
+     caret arrived by click or by Tab. */
   .input {
-    background-color: color-mix(in srgb, var(--pb-surface) 92%, transparent);
+    background-color: var(--pb-surface);
     border: 1px solid var(--pb-border);
     color: var(--pb-text);
-    @apply block w-full px-3 py-2 text-sm rounded-xl placeholder:text-fg-subtle
-           shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/35
-           focus:border-brand;
+    @apply block w-full px-3 py-2 text-sm rounded-lg placeholder:text-fg-subtle
+           transition-colors duration-150
+           focus:outline-none focus:border-brand
+           focus:ring-2 focus:ring-[color:var(--pb-ring)] focus:ring-offset-0;
   }
 
   .input-lg {
-    @apply text-base py-3;
+    @apply text-base py-2.5;
   }
 
   .input-error {
-    border-color: color-mix(in srgb, var(--pb-danger) 55%, var(--pb-border) 45%);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pb-danger) 20%, transparent 80%);
+    border-color: color-mix(in srgb, var(--pb-danger) 60%, var(--pb-border) 40%);
   }
 
   .input-success {
-    border-color: color-mix(in srgb, var(--pb-success) 55%, var(--pb-border) 45%);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pb-success) 20%, transparent 80%);
+    border-color: color-mix(in srgb, var(--pb-success) 60%, var(--pb-border) 40%);
   }
 
   .label {
-    color: var(--pb-text-muted);
-    @apply block text-sm font-medium mb-1;
+    color: var(--pb-text);
+    @apply block text-sm font-medium mb-1.5;
   }
 
   .form-field {
@@ -403,12 +474,12 @@
   }
 
   .form-error {
-    color: color-mix(in srgb, var(--pb-danger) 85%, var(--pb-text) 15%);
+    color: var(--pb-danger-fg);
     @apply text-xs font-medium inline-flex items-center gap-1;
   }
 
   .form-success {
-    color: color-mix(in srgb, var(--pb-success) 85%, var(--pb-text) 15%);
+    color: var(--pb-success-fg);
     @apply text-xs font-medium inline-flex items-center gap-1;
   }
 
@@ -424,25 +495,31 @@
   .modal-panel {
     background-color: var(--pb-surface);
     border: 1px solid var(--pb-border);
-    box-shadow: var(--pb-shadow);
+    /* A modal DOES float — it is the one panel that keeps a real shadow. */
+    box-shadow: var(--pb-shadow-lg);
     @apply rounded-2xl w-full p-6;
   }
 
-  /* ---- Table ---- */
+  /* ---- Table ----
+     Sentence-case column labels (the `uppercase tracking-wider` head was the
+     other half of the dated look, and it made two-word headers hard to scan),
+     a neutral head instead of an amber-tinted one, 4-unit horizontal padding,
+     and NO zebra striping: hairline row dividers plus a hover tint read as a
+     grid without painting every other row. */
   .data-table {
     background-color: var(--pb-surface);
     border: 1px solid var(--pb-border);
-    box-shadow: var(--pb-shadow);
+    box-shadow: var(--pb-shadow-sm);
     @apply rounded-2xl overflow-x-auto;
   }
 
   .data-table thead {
-    background-color: color-mix(in srgb, var(--pb-surface) 88%, var(--pb-accent) 12%);
+    background-color: var(--pb-surface-muted);
   }
 
   .data-table th {
     color: var(--pb-text-muted);
-    @apply px-6 py-3 text-left text-xs font-medium uppercase tracking-wider;
+    @apply px-4 py-2.5 text-left text-xs font-semibold;
   }
 
   .data-table tbody {
@@ -450,100 +527,97 @@
   }
 
   .data-table td {
-    @apply px-6 py-4 whitespace-nowrap;
+    @apply px-4 py-3 whitespace-nowrap;
   }
 
   .data-table tbody tr {
-    @apply transition-colors hover:bg-surface-muted;
-  }
-
-  .data-table-row:nth-child(odd) {
-    background-color: color-mix(in srgb, var(--pb-surface) 92%, var(--pb-surface-muted) 8%);
+    @apply transition-colors;
   }
 
   .data-table-row:hover {
-    background-color: color-mix(in srgb, var(--pb-brand) 6%, var(--pb-surface) 94%);
+    background-color: color-mix(in srgb, var(--pb-brand) 5%, var(--pb-surface) 95%);
   }
 
   .data-table-row:focus-within {
-    outline: 2px solid color-mix(in srgb, var(--pb-brand) 45%, transparent 55%);
+    outline: 2px solid var(--pb-ring);
     outline-offset: -2px;
   }
 
-  /* ---- Filter bar ---- */
+  /* ---- Filter bar ----
+     Opaque and flush with the cards below it. `mb-6` stays baked in: every
+     call site relies on it for the gap to the list it filters. */
   .filter-bar {
-    background-color: color-mix(in srgb, var(--pb-surface) 85%, transparent);
+    background-color: var(--pb-surface);
     border: 1px solid var(--pb-border);
-    box-shadow: var(--pb-shadow);
-    @apply mb-6 backdrop-blur-md rounded-2xl p-4;
-  }
-
-  .filter-input {
-    background-color: color-mix(in srgb, var(--pb-surface) 92%, transparent);
-    border: 1px solid var(--pb-border);
-    color: var(--pb-text);
-    @apply block w-full pl-10 pr-3 py-1.5 text-sm rounded-xl
-           placeholder:text-fg-subtle
-           focus:outline-none focus:ring-2 focus:ring-brand/35
-           focus:border-brand;
-  }
-
-  .filter-select {
-    background-color: color-mix(in srgb, var(--pb-surface) 92%, transparent);
-    border: 1px solid var(--pb-border);
-    color: var(--pb-text);
-    @apply block px-3 py-1.5 text-sm rounded-xl
-           focus:outline-none focus:ring-2 focus:ring-brand/35
-           focus:border-brand;
-  }
-
-  /* ---- Alert banners ---- */
-  .alert-error {
-    background-color: color-mix(in srgb, var(--pb-danger) 10%, var(--pb-surface) 90%);
-    border: 1px solid color-mix(in srgb, var(--pb-danger) 35%, var(--pb-border) 65%);
+    box-shadow: var(--pb-shadow-sm);
     @apply mb-6 rounded-2xl p-4;
   }
 
+  .filter-input {
+    background-color: var(--pb-surface);
+    border: 1px solid var(--pb-border);
+    color: var(--pb-text);
+    @apply block w-full pl-10 pr-3 py-1.5 text-sm rounded-lg
+           placeholder:text-fg-subtle transition-colors duration-150
+           focus:outline-none focus:border-brand
+           focus:ring-2 focus:ring-[color:var(--pb-ring)];
+  }
+
+  .filter-select {
+    background-color: var(--pb-surface);
+    border: 1px solid var(--pb-border);
+    color: var(--pb-text);
+    @apply block px-3 py-1.5 text-sm rounded-lg transition-colors duration-150
+           focus:outline-none focus:border-brand
+           focus:ring-2 focus:ring-[color:var(--pb-ring)];
+  }
+
+  /* ---- Alert banners ----
+     All four now ride the status tokens (`--pb-{s}-bg/-border/-fg`) that the
+     rest of the app uses for tinted surfaces, instead of each hand-mixing its
+     own percentage against `--pb-surface` — which is how `alert-info` ended up
+     on a hard-coded #3b82f6 and `alert-warning` on the amber brand accent. */
+  .alert-error {
+    background-color: var(--pb-danger-bg);
+    border: 1px solid var(--pb-danger-border);
+    @apply mb-6 rounded-xl p-4;
+  }
+
   .alert-error p {
-    color: color-mix(in srgb, var(--pb-danger) 85%, var(--pb-text) 15%);
+    color: var(--pb-danger-fg-strong);
     @apply text-sm font-medium;
   }
 
   .alert-success {
-    background-color: color-mix(in srgb, var(--pb-success) 12%, var(--pb-surface) 88%);
-    border: 1px solid color-mix(in srgb, var(--pb-success) 35%, var(--pb-border) 65%);
-    @apply mb-6 rounded-2xl p-4;
+    background-color: var(--pb-success-bg);
+    border: 1px solid var(--pb-success-border);
+    @apply mb-6 rounded-xl p-4;
   }
 
   .alert-success p {
-    color: color-mix(in srgb, var(--pb-success) 85%, var(--pb-text) 15%);
+    color: var(--pb-success-fg-strong);
     @apply text-sm font-medium;
   }
 
   .alert-warning {
-    background-color: color-mix(in srgb, var(--pb-accent) 14%, var(--pb-surface) 86%);
-    border: 1px solid color-mix(in srgb, var(--pb-accent) 40%, var(--pb-border) 60%);
-    @apply mb-6 rounded-2xl p-4;
+    background-color: var(--pb-warning-bg);
+    border: 1px solid var(--pb-warning-border);
+    @apply mb-6 rounded-xl p-4;
   }
 
-  /* Amber is inherently light, so weight the text heavily toward --pb-text
-     for legible contrast on the tinted background (unlike error/success which
-     can lean on their saturated base colors). */
   .alert-warning p {
-    color: color-mix(in srgb, var(--pb-accent) 45%, var(--pb-text) 55%);
+    color: var(--pb-warning-fg-strong);
     @apply text-sm font-medium;
   }
 
-  /* Info (blue) — no saturated token exists, so mix a fixed blue against the
-     theme surface/text so it reads correctly in both light and dark. */
   .alert-info {
-    background-color: color-mix(in srgb, #3b82f6 12%, var(--pb-surface) 88%);
-    border: 1px solid color-mix(in srgb, #3b82f6 35%, var(--pb-border) 65%);
-    @apply mb-6 rounded-2xl p-4;
+    background-color: var(--pb-info-bg);
+    border: 1px solid var(--pb-info-border);
+    @apply mb-6 rounded-xl p-4;
   }
 
   .alert-info p {
-    color: color-mix(in srgb, #3b82f6 70%, var(--pb-text) 30%);
+    color: var(--pb-info-fg-strong);
     @apply text-sm font-medium;
   }
 
@@ -555,14 +629,16 @@
   }
 
   .sidebar-nav-item {
-    @apply flex items-center gap-3 px-3 py-2 text-sm font-medium
-           rounded-xl mx-2 transition-colors;
+    @apply flex items-center gap-2.5 px-3 py-1.5 text-sm font-medium
+           rounded-lg mx-2 transition-colors;
   }
 
+  /* One active treatment: a tinted well plus brand-coloured label. The inset
+     1px ring that used to outline it as well made the rail look like a column
+     of buttons; the 2px indicator bar (drawn by Sidebar.tsx) is the signal. */
   .sidebar-nav-item-active {
-    background-color: color-mix(in srgb, var(--pb-brand) 14%, var(--pb-surface) 86%);
+    background-color: color-mix(in srgb, var(--pb-brand) 10%, var(--pb-surface) 90%);
     color: var(--pb-brand-strong);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pb-brand) 40%, transparent 60%);
   }
 
   .sidebar-nav-item-default {
@@ -571,12 +647,17 @@
   }
 
   .sidebar-section-label {
-    color: var(--pb-text-muted);
-    @apply text-2xs font-semibold uppercase tracking-wider px-4 mb-1 mt-5;
+    color: var(--pb-text-subtle);
+    @apply text-2xs font-semibold uppercase tracking-[0.08em] px-4 mb-1 mt-5;
   }
 
+  /* ---- Inline text actions ----
+     Brand token, not a raw blue/`dark:` pair — the old `text-blue-600
+     dark:text-blue-400` was the last place a link colour was decided outside
+     the token set. */
   .action-link {
-    @apply text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors;
+    color: var(--pb-brand);
+    @apply text-sm font-medium hover:text-brand-strong transition-colors;
   }
 
   .action-link-muted {
@@ -610,25 +691,37 @@
   /* ---- Headings ----
      Page title (.h1, rendered once by DashboardLayout), section/card titles
      (.h2) and sub-section / card titles (.h3). Apply to the heading element
-     that matches the document outline; the class only sets the visual size. */
-  .h1,
-  .h2,
-  .h3 {
-    font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
-    letter-spacing: -0.01em;
-    @apply text-fg;
-  }
+     that matches the document outline; the class only sets the visual size.
 
+     The page title keeps the serif — it is the app's one editorial note, and at
+     24px it finally reads as a title rather than as slightly-large body text.
+     Section and card titles switch to the SANS: a 16px serif heading inside a
+     dense card competed with the data in it, and the two weights of the same
+     serif were doing hierarchy work that size and colour do better. */
   .h1 {
-    @apply text-xl font-bold;
+    font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
+    letter-spacing: -0.015em;
+    @apply text-fg text-2xl font-semibold;
   }
 
   .h2 {
-    @apply text-lg font-semibold;
+    font-family: var(--pb-font-sans), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.005em;
+    @apply text-fg text-base font-semibold;
   }
 
   .h3 {
-    @apply text-sm font-semibold;
+    font-family: var(--pb-font-sans), ui-sans-serif, system-ui, sans-serif;
+    @apply text-fg text-sm font-semibold;
+  }
+
+  /* ---- Micro label ----
+     The 11px uppercase caption used for stat-tile labels and group headings.
+     A class, so the letter-spacing that makes uppercase legible at 11px is
+     decided once instead of at each call site. */
+  .micro-label {
+    color: var(--pb-text-subtle);
+    @apply text-2xs font-semibold uppercase tracking-[0.08em];
   }
 
 }

@@ -277,7 +277,7 @@ export default function InvitationsPage() {
     },
     {
       id: 'invitedBy',
-      header: 'Invited By',
+      header: 'Invited by',
       cellClassName: 'text-sm text-fg-muted',
       render: (inv) => <>{inv.inviterName || inv.invitedBy || 'Unknown'}</>,
     },
@@ -358,7 +358,7 @@ export default function InvitationsPage() {
             onChange={(e) => list.updateFilter('status', e.target.value)}
             aria-label="Filter by status"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">All statuses</option>
             <option value="pending">Pending</option>
             <option value="accepted">Accepted</option>
             <option value="expired">Expired</option>
@@ -369,7 +369,7 @@ export default function InvitationsPage() {
             onChange={(e) => list.updateFilter('invitationType', e.target.value)}
             aria-label="Filter by invitation type"
           >
-            <option value="all">All Types</option>
+            <option value="all">All types</option>
             <option value="email">Email</option>
             <option value="oauth">OAuth</option>
           </FilterSelect>
@@ -378,7 +378,7 @@ export default function InvitationsPage() {
             onChange={(e) => list.updateFilter('role', e.target.value)}
             aria-label="Filter by role"
           >
-            <option value="all">All Roles</option>
+            <option value="all">All roles</option>
             <option value="member">Member</option>
             <option value="admin">Admin</option>
           </FilterSelect>
@@ -413,7 +413,7 @@ export default function InvitationsPage() {
       {/* Bulk-revoke confirmation */}
       {pendingBulkRevoke && (
         <DeleteConfirmModal
-          title="Revoke Invitations"
+          title="Revoke invitations"
           itemName={`${selectedIds.size} invitation${selectedIds.size === 1 ? '' : 's'}`}
           loading={bulkRevokeLoading}
           onConfirm={handleBulkRevoke}
@@ -424,7 +424,7 @@ export default function InvitationsPage() {
       {/* Revoke confirmation */}
       {revokeTarget && (
         <DeleteConfirmModal
-          title="Revoke Invitation"
+          title="Revoke invitation"
           itemName={revokeTarget.email}
           loading={revokeLoading}
           onConfirm={handleRevoke}
@@ -497,10 +497,10 @@ export default function InvitationsPage() {
               </div>
             </div>
             <div>
-              <label className="label">Invitation Type</label>
+              <label className="label">Invitation type</label>
               <Select value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading}>
                 <option value="any">Any (Email or OAuth)</option>
-                <option value="email">Email Only</option>
+                <option value="email">Email only</option>
                 <option value="oauth">OAuth Only</option>
               </Select>
             </div>

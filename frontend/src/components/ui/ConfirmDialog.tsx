@@ -73,7 +73,7 @@ export function ConfirmDialog({
         </div>
       )}
     >
-      <div className="text-sm text-gray-600 dark:text-gray-300 space-y-2">{children}</div>
+      <div className="text-sm text-fg-muted space-y-2">{children}</div>
     </Modal>
   );
 }

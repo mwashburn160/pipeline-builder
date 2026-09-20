@@ -247,7 +247,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
         </p>
 
         {/* What it costs — this dialog is the confirmation as well as the gate. */}
-        {details && <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">{details}</div>}
+        {details && <div className="space-y-2 text-sm text-fg-muted">{details}</div>}
 
         {!factors ? (
           <p className="flex items-center gap-2 text-xs text-fg-muted">

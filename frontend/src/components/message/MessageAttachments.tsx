@@ -82,7 +82,7 @@ function AttachmentItem({ att }: { att: MessageAttachment }) {
   };
 
   return (
-    <div ref={rowRef} className="border border-gray-200 dark:border-gray-700 rounded-lg p-2 max-w-xs">
+    <div ref={rowRef} className="border border-default rounded-lg p-2 max-w-xs">
       {isImage && previewUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={previewUrl} alt={att.filename} loading="lazy" className="max-h-48 rounded mb-1 object-contain" />

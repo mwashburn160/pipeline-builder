@@ -37,22 +37,22 @@ const illustrationColors: Record<IllustrationType, { bg: string; icon: string; r
   pipelines: {
     bg: 'bg-info-bg',
     icon: 'text-info',
-    ring: 'ring-4 ring-info-border/50',
+    ring: 'ring-1 ring-info-border/50',
   },
   plugins: {
     bg: 'bg-purple-50 dark:bg-purple-900/20',
     icon: 'text-purple-400 dark:text-purple-500',
-    ring: 'ring-4 ring-purple-100/50 dark:ring-purple-900/30',
+    ring: 'ring-1 ring-purple-100/50 dark:ring-purple-900/30',
   },
   messages: {
     bg: 'bg-success-bg',
     icon: 'text-success',
-    ring: 'ring-4 ring-success-border/50',
+    ring: 'ring-1 ring-success-border/50',
   },
   search: {
     bg: 'bg-warning-bg',
     icon: 'text-warning',
-    ring: 'ring-4 ring-warning-border/50',
+    ring: 'ring-1 ring-warning-border/50',
   },
 };
 
@@ -81,7 +81,7 @@ export function EmptyState({
     return (
       <div className={`text-center py-8 px-4 ${className}`}>
         {Icon && (
-          <div className={`mx-auto w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center mb-3`}>
+          <div className={`mx-auto w-9 h-9 rounded-lg ${colors.bg} flex items-center justify-center mb-3`}>
             <Icon className={`w-5 h-5 ${colors.icon}`} aria-hidden="true" />
           </div>
         )}
@@ -97,22 +97,16 @@ export function EmptyState({
   // every list in the app. The reduced-motion block in globals.css collapses it
   // like every other animation there.
   return (
-    <div className={`empty-state-reveal relative text-center py-16 overflow-hidden ${className}`}>
-      <div className="pointer-events-none absolute inset-0 -z-10">
-        <div
-          className="absolute -top-10 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full opacity-70 blur-3xl"
-          style={{ background: 'radial-gradient(circle, rgba(15,111,255,0.25) 0%, rgba(15,111,255,0) 70%)' }}
-        />
-        <div
-          className="absolute bottom-0 left-1/4 h-32 w-32 -translate-x-1/2 rounded-full opacity-60 blur-3xl"
-          style={{ background: 'radial-gradient(circle, rgba(239,182,76,0.3) 0%, rgba(239,182,76,0) 70%)' }}
-        />
-      </div>
+    // No decorative blobs. Two blurred radial gradients used to sit behind the
+    // glyph (a blue one above, an amber one bottom-left); they were the loudest
+    // thing on an otherwise empty screen, and in dark mode they read as smudges.
+    // The state is now type-led: glyph, title, one line, one action.
+    <div className={`empty-state-reveal text-center py-14 ${className}`}>
       {Icon && (
         <div
-          className={`empty-state-glyph mx-auto w-20 h-20 rounded-full ${colors.bg} ${colors.ring} flex items-center justify-center mb-5 transition-colors`}
+          className={`empty-state-glyph mx-auto w-12 h-12 rounded-xl ${colors.bg} ${colors.ring} flex items-center justify-center mb-4 transition-colors`}
         >
-          <Icon className={`w-9 h-9 ${colors.icon}`} aria-hidden="true" />
+          <Icon className={`w-6 h-6 ${colors.icon}`} aria-hidden="true" />
         </div>
       )}
       <h3 className="text-base font-semibold text-fg">{title}</h3>

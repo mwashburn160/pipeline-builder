@@ -35,7 +35,7 @@ export interface UseDeleteResult<T> {
  * <button onClick={() => del.open(pipeline)}>Delete</button>
  * {del.target && (
  *   <DeleteConfirmModal
- *     title="Delete Pipeline"
+ *     title="Delete pipeline"
  *     itemName={del.target.pipelineName}
  *     loading={del.loading}
  *     onConfirm={del.confirm}

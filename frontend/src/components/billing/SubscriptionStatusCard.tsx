@@ -65,7 +65,7 @@ export function SubscriptionStatusCard({
         </div>
       )}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="h2">Current Subscription</h2>
+        <h2 className="h2">Current subscription</h2>
         {/* Standing access to the hosted portal to manage the payment method /
             invoices — not just reachable after a purchase throws a 402. */}
         {canChangePlan && (
@@ -91,11 +91,11 @@ export function SubscriptionStatusCard({
           </p>
         </div>
         <div>
-          <p className="text-sm text-fg-muted">Billing Period</p>
+          <p className="text-sm text-fg-muted">Billing period</p>
           <p className="text-sm text-fg capitalize">{subscription.interval}</p>
         </div>
         <div>
-          <p className="text-sm text-fg-muted">Next Billing Date</p>
+          <p className="text-sm text-fg-muted">Next billing date</p>
           <p className="text-sm text-fg">{formatDateLong(subscription.currentPeriodEnd)}</p>
         </div>
       </div>

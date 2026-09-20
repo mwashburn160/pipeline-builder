@@ -38,7 +38,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
   const error = read.error ? formatError(read.error) : null;
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
+    <div className="rounded-lg border border-default px-3 py-2 text-sm">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between text-left font-medium text-fg-muted"
@@ -69,7 +69,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
                       {' '}by{' '}<code>{e.actorEmail || e.actorId}</code>
                       {source && <> · <code>{source}</code></>}
                     </span>
-                    <span className="text-gray-500 dark:text-gray-500 whitespace-nowrap">
+                    <span className="text-fg-subtle whitespace-nowrap">
                       <RelativeTime value={e.createdAt} />
                     </span>
                   </li>

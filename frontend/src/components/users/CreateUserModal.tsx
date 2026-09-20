@@ -48,7 +48,7 @@ export function CreateUserModal({
   if (!open) return null;
   return (
     <Modal
-      title="Add User"
+      title="Add user"
       onClose={() => !form.loading && onClose()}
       maxWidth="max-w-md"
       footer={
@@ -130,7 +130,7 @@ export function CreateUserModal({
             <label className="label">
               Roles <span className="text-fg-subtle font-normal">({selectedRoleIds.size} selected)</span>
             </label>
-            <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+            <div className="max-h-48 overflow-y-auto border border-default rounded-lg divide-y divide-default">
               {orgRoles.map((g) => (
                 <label key={g.id} className="flex items-center gap-2 p-2.5 text-sm cursor-pointer">
                   <Checkbox

@@ -14,7 +14,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
   if (items.length <= 1) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm overflow-hidden">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs overflow-hidden">
       {items.map((item, i) => {
         const isLast = i === items.length - 1;
         const key = item.href || item.label;

@@ -45,7 +45,7 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
 
   return (
     <div>
-      <label className="label">Environment Variables</label>
+      <label className="label">Environment variables</label>
       <div className="space-y-2">
         {value.map((entry, idx) => (
           <div key={ids[idx]} className="flex items-center space-x-2">

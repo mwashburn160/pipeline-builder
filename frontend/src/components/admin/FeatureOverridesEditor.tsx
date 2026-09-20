@@ -79,7 +79,7 @@ export function FeatureOverridesEditor({
   }, [userId, state, onSaved]);
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
+    <div className="rounded-lg border border-default px-3 py-2 text-sm">
       <div className="font-medium text-fg-muted mb-2">Feature overrides</div>
       <p className="text-xs text-fg-muted mb-2">
         Each flag inherits from the user&apos;s org tier by default. Override only

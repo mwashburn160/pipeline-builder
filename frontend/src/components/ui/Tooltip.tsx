@@ -117,7 +117,7 @@ export function Tooltip({ content, children, delay = 300, multiline = false, cla
           role="tooltip"
           className={`tooltip-bubble absolute z-50 pointer-events-none px-2.5 py-1.5 text-xs font-medium rounded-lg
             ${multiline ? 'whitespace-normal break-words max-w-xs' : 'whitespace-nowrap'}
-            bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900
+            bg-fg text-canvas
             shadow-lg ${sideClasses.tooltip}`}
         >
           {content}

@@ -27,7 +27,7 @@ export function LoadingSpinner({ size = 'md', className = '', label = 'Loading' 
   return (
     <svg
       {...(label === null ? { 'aria-hidden': true } : { role: 'status', 'aria-label': label })}
-      className={`animate-spin text-blue-600 dark:text-blue-400 ${sizeClasses[size]} ${className}`}
+      className={`animate-spin text-brand ${sizeClasses[size]} ${className}`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -47,7 +47,7 @@ interface LoadingPageProps {
 /** Full-screen centered loading state with a large spinner and message text. */
 export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen flex items-center justify-center bg-canvas">
       <div className="text-center">
         <LoadingSpinner size="lg" className="mx-auto mb-4" />
         <p className="text-fg-muted">{message}</p>

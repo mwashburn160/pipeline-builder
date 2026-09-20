@@ -87,7 +87,7 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
                   <Link
                     key={name}
                     href={`/dashboard/plugins?q=${encodeURIComponent(name)}`}
-                    className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted font-mono hover:bg-blue-50 hover:text-brand dark:hover:bg-blue-900/30 transition-colors"
+                    className="px-2 py-0.5 rounded-full text-xs bg-surface-muted text-fg-muted font-mono hover:bg-blue-50 hover:text-brand dark:hover:bg-blue-900/30 transition-colors"
                     title={`View ${name} in the plugin catalog`}
                   >
                     {name}

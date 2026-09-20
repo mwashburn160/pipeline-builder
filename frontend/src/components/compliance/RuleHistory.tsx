@@ -9,7 +9,7 @@ import { formatDateTime } from '@/lib/format';
 
 const CHANGE_STYLES: Record<string, { bg: string; text: string }> = {
   created: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
-  updated: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400' },
+  updated: { bg: 'bg-info-bg', text: 'text-info-strong' },
   deleted: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
   restored: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400' },
 };
@@ -57,13 +57,13 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
       <div className="flex items-center gap-3">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors"
           aria-label="Go back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <History className="h-5 w-5 text-brand" />
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-lg font-semibold text-fg">
           History: {ruleName}
         </h2>
       </div>
@@ -86,7 +86,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
           {history.map(entry => {
             const style = CHANGE_STYLES[entry.changeType] || CHANGE_STYLES.updated;
             return (
-              <div key={entry.id} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <div key={entry.id} className="p-4 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>
@@ -101,8 +101,8 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
                   </span>
                 </div>
                 {entry.previousState && Object.keys(entry.previousState).length > 0 && (
-                  <div className="mt-2 p-2 rounded bg-gray-50 dark:bg-gray-800 text-xs font-mono text-fg-muted overflow-x-auto">
-                    <div className="text-gray-500 dark:text-gray-500 mb-1">Previous state:</div>
+                  <div className="mt-2 p-2 rounded bg-surface-muted text-xs font-mono text-fg-muted overflow-x-auto">
+                    <div className="text-fg-subtle mb-1">Previous state:</div>
                     {Object.entries(entry.previousState).map(([key, val]) => (
                       <div key={key}>
                         <span className="text-fg-subtle">{key}:</span> {JSON.stringify(val)}

@@ -50,7 +50,7 @@ const BILLING_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'plans', label: 'Plans' },
   { id: 'addons', label: 'Add-ons' },
-  { id: 'history', label: 'Billing History' },
+  { id: 'history', label: 'Billing history' },
 ] as const;
 type BillingTab = (typeof BILLING_TABS)[number]['id'];
 

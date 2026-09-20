@@ -91,7 +91,7 @@ export function EligibleParentPicker({
     return (
       <div className="space-y-1">
         <span className="block text-xs font-medium text-fg-muted">{label}</span>
-        <div className="flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm">
+        <div className="flex items-center gap-2 rounded-lg border border-default px-3 py-1.5 text-sm">
           <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
           <span className="truncate flex-1">{value.name}</span>
           <span className="text-xs text-fg-subtle capitalize">{value.tier}</span>
@@ -127,7 +127,7 @@ export function EligibleParentPicker({
         {...box.inputAriaProps}
       />
       {box.open && (
-        <div role="listbox" id={box.listboxId} aria-label="Eligible parent organizations" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
+        <div role="listbox" id={box.listboxId} aria-label="Eligible parent organizations" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-surface border border-default rounded-xl shadow-lg text-sm">
           {loading ? (
             <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>
           ) : error ? (
@@ -146,7 +146,7 @@ export function EligibleParentPicker({
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => box.setActiveIndex(i)}
               onClick={() => select(o)}
-              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-fg ${i === box.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-fg ${i === box.activeIndex ? 'bg-info-bg' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
             >
               <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
               <span className="truncate flex-1">{o.name}</span>

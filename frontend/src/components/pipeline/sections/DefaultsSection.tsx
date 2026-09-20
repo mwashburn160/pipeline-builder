@@ -58,7 +58,7 @@ export default function DefaultsSection({
   );
 
   return (
-    <CollapsibleSection title="Pipeline Defaults" hasContent={hasContent}>
+    <CollapsibleSection title="Pipeline defaults" hasContent={hasContent}>
       <div className="mt-3 space-y-4">
         <div className="flex items-center">
           <Checkbox
@@ -66,7 +66,7 @@ export default function DefaultsSection({
             checked={defaults.enabled}
             onChange={(e) => onEnabledChange(e.target.checked)}
             disabled={disabled}
-            className="h-4 w-4 text-brand focus:ring-blue-500"
+            className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]"
           />
           <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-fg-muted">
             Configure pipeline-level CodeBuild defaults
@@ -74,7 +74,7 @@ export default function DefaultsSection({
         </div>
 
         {defaults.enabled && (
-          <div className="space-y-4 pl-4 border-l-2 border-blue-200 dark:border-blue-800">
+          <div className="space-y-4 pl-4 border-l-2 border-info-border">
             <CollapsibleSection title="Network" hasContent={defaults.networkType !== 'none'}>
               <div className="mt-3">
                 <NetworkConfigEditor
@@ -87,7 +87,7 @@ export default function DefaultsSection({
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection title="Security Groups" hasContent={defaults.securityGroupType !== 'none'}>
+            <CollapsibleSection title="Security groups" hasContent={defaults.securityGroupType !== 'none'}>
               <div className="mt-3">
                 <SecurityGroupEditor
                   securityGroupType={defaults.securityGroupType}

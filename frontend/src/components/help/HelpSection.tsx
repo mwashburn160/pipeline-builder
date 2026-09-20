@@ -59,9 +59,9 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     case 'note':
       return (
-        <div className="flex gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-          <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-          <p className="text-sm text-blue-700 dark:text-blue-300 leading-relaxed">{block.content}</p>
+        <div className="flex gap-3 p-3 rounded-lg bg-info-bg border border-info-border">
+          <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-brand" />
+          <p className="text-sm text-info-strong leading-relaxed">{block.content}</p>
         </div>
       );
 

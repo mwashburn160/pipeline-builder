@@ -19,7 +19,7 @@ export function FeatureDisabledCard({ icon: Icon, title, children }: FeatureDisa
   return (
     <Card className="flex flex-col items-center text-center py-14">
       {Icon && (
-        <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
+        <div className="w-16 h-16 rounded-2xl bg-surface-muted/50 flex items-center justify-center">
           <Icon className="w-9 h-9 text-fg-subtle" />
         </div>
       )}

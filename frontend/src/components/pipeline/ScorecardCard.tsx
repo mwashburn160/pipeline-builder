@@ -99,7 +99,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
               </div>
             </div>
           </div>
-          <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
+          <div className="pt-2 border-t border-default space-y-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-fg-muted">Compliance</span>
               <span className="text-xs text-fg-muted">

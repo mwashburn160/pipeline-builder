@@ -129,7 +129,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
         <div className="mb-3">
           <label
             htmlFor="propsFile"
-            className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50"
+            className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-default rounded-xl cursor-pointer hover:border-brand transition-colors bg-gray-50/50 dark:bg-gray-800/50"
           >
             <div className="text-center">
               <Upload className="mx-auto h-8 w-8 text-fg-subtle" />
@@ -150,10 +150,10 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+            <div className="w-full border-t border-default" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white dark:bg-gray-900 text-fg-muted">or paste JSON</span>
+            <span className="px-2 bg-surface text-fg-muted">or paste JSON</span>
           </div>
         </div>
 

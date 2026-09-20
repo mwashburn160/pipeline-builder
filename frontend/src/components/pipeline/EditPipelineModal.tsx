@@ -219,7 +219,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const isLastStep = currentStep === WIZARD_STEPS.length - 1;
 
   const accessStatusSlot = (
-    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+    <div className="mt-4 pt-4 border-t border-default">
       <h3 className="text-sm font-medium text-fg-muted mb-3">Access & Status</h3>
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
@@ -251,11 +251,11 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       </div>
       <div className="flex items-center space-x-6">
         <div className="flex items-center">
-          <Checkbox id="editPipelineIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
+          <Checkbox id="editPipelineIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
           <label htmlFor="editPipelineIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
         </div>
         <div className="flex items-center">
-          <Checkbox id="editPipelineIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
+          <Checkbox id="editPipelineIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
           <label htmlFor="editPipelineIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
         </div>
       </div>
@@ -263,14 +263,14 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   );
 
   const jsonPreview = showPreview && previewJson !== null ? (
-    <div className="border-t border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
+    <div className="border-t border-default">
+      <div className="flex items-center justify-between px-6 py-2 bg-surface-muted">
         <span className="text-sm font-medium text-fg-muted">Edit JSON <span className="font-normal text-fg-subtle">— edit the pipeline `props` directly, then Apply</span></span>
         <div className="flex items-center gap-3">
           <button
             onClick={handleApplyJson}
             disabled={loading}
-            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium transition-colors disabled:opacity-50"
+            className="text-brand hover:text-brand-strong text-sm font-medium transition-colors disabled:opacity-50"
           >
             Apply to form
           </button>
@@ -282,7 +282,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
           </button>
         </div>
       </div>
-      <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900">
+      <div className="px-6 py-3 bg-canvas">
         <Textarea
           value={previewJson}
           onChange={(e) => { setPreviewJson(e.target.value); setJsonError(null); setJsonApplied(false); }}
@@ -335,7 +335,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
   return (
     <Modal
-      title="Edit Pipeline"
+      title="Edit pipeline"
       onClose={onClose}
       maxWidth="max-w-4xl"
       tall
@@ -356,16 +356,16 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
         <>
           {/* System Information (collapsible, read-only) */}
           <div className="mb-4">
-            <CollapsibleSection title="System Information" hasContent={true}>
+            <CollapsibleSection title="System information" hasContent={true}>
               <div className="mt-3 grid grid-cols-2 gap-4">
                 <ReadonlyField label="ID" value={p.id} valueClassName="font-mono" />
                 <ReadonlyField label="Org ID" value={p.orgId} />
                 <ReadonlyField label="Project" value={p.project} />
                 <ReadonlyField label="Organization" value={p.organization} />
-                <ReadonlyField label="Created By" value={p.createdBy} />
-                <ReadonlyField label="Created At" value={formatDateTime(p.createdAt)} />
-                <ReadonlyField label="Updated By" value={p.updatedBy} />
-                <ReadonlyField label="Updated At" value={formatDateTime(p.updatedAt)} />
+                <ReadonlyField label="Created by" value={p.createdBy} />
+                <ReadonlyField label="Created at" value={formatDateTime(p.createdAt)} />
+                <ReadonlyField label="Updated by" value={p.updatedBy} />
+                <ReadonlyField label="Updated at" value={formatDateTime(p.updatedAt)} />
               </div>
             </CollapsibleSection>
           </div>

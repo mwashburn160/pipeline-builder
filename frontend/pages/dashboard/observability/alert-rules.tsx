@@ -147,7 +147,7 @@ export default function AlertRulesPage() {
       {error && <RetryError message={formatError(error, 'Failed to load alert rules')} onRetry={refetch} className="mb-4" />}
 
       {loading && !data ? (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+        <div className="rounded-lg border border-default bg-surface divide-y divide-default">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="px-4 py-3 flex items-center gap-3">
               <div className="w-5 h-5 skeleton rounded" />
@@ -168,10 +168,10 @@ export default function AlertRulesPage() {
         />
       ) : (
         <>
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+        <div className="rounded-lg border border-default bg-surface divide-y divide-default">
           {rules.map((r) => (
             <div key={r.id} className="px-4 py-3 flex items-center gap-3">
-              <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <Activity className="w-5 h-5 text-brand shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-fg">{r.name}</span>

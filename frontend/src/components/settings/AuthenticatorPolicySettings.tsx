@@ -204,7 +204,7 @@ export function AuthenticatorPolicySettings({ orgId, readOnly }: { orgId: string
                     type="button"
                     disabled={readOnly || list.includes(m.aaguid)}
                     onClick={() => add(m.aaguid)}
-                    className="rounded-full border border-default px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                    className="rounded-full border border-default px-2 py-0.5 hover:bg-surface-muted disabled:opacity-50"
                     title={m.aaguid}
                   >
                     {m.model ?? 'Unknown model'} · {m.count}

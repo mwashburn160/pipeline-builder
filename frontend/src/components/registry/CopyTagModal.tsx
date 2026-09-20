@@ -146,7 +146,7 @@ export function CopyTagModal({
   };
 
   return (
-    <Modal title="Copy Tag" onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Copy tag" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-4">
         <div>
           <div className="text-xs font-medium text-fg-muted mb-1">Source</div>
@@ -162,7 +162,7 @@ export function CopyTagModal({
             onChange={(e) => setTargetRepo(e.target.value)}
             list="copy-target-suggestions"
             placeholder="e.g. system/foo"
-            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-fg"
+            className="w-full px-3 py-1.5 text-sm font-mono border border-default rounded-md bg-surface text-fg"
             autoFocus
           />
           <datalist id="copy-target-suggestions">
@@ -178,7 +178,7 @@ export function CopyTagModal({
             value={targetRef}
             onChange={(e) => setTargetRef(e.target.value)}
             placeholder={sourceRef}
-            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-fg"
+            className="w-full px-3 py-1.5 text-sm font-mono border border-default rounded-md bg-surface text-fg"
           />
           <div className="text-xs text-fg-muted mt-1">Leave blank to keep <code>{sourceRef}</code>.</div>
         </div>
@@ -211,7 +211,7 @@ export function CopyTagModal({
                 onChange={(e) => setConfirmPhrase(e.target.value)}
                 placeholder={PROMOTE_CONFIRM_PHRASE}
                 aria-label={`Type ${PROMOTE_CONFIRM_PHRASE} to confirm promotion`}
-                className="w-full px-3 py-1.5 text-sm font-mono border border-yellow-400 dark:border-yellow-600 rounded-md bg-white dark:bg-gray-800 text-fg"
+                className="w-full px-3 py-1.5 text-sm font-mono border border-yellow-400 dark:border-yellow-600 rounded-md bg-surface text-fg"
               />
             </div>
           </div>
@@ -240,7 +240,7 @@ export function CopyTagModal({
         {/* Share-link affordance — copy a URL that re-opens this modal
             pre-filled, so the operator can hand the action off to a
             teammate without having to re-find the source tag. */}
-        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2 text-xs text-fg-muted">
+        <div className="pt-2 border-t border-default flex items-center gap-2 text-xs text-fg-muted">
           <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">Need someone else to do this? Copy a share link.</span>
           <CopyButton text={shareLink} />

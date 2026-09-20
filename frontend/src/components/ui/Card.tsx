@@ -9,7 +9,8 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * Thin wrapper over the `.card` CSS layer (glassy surface + border + padding).
+ * Thin wrapper over the `.card` CSS layer (opaque surface + hairline border +
+ * padding).
  * Just `<div className="card …">` — use it so callers stop hand-typing the
  * class string. Extra `className` is appended, and any div props pass through.
  */

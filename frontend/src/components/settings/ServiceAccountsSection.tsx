@@ -339,7 +339,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
           details: (
             <p>
               It will hold{' '}
-              <strong className="text-gray-800 dark:text-gray-100">
+              <strong className="text-fg">
                 {action.roleNames.length > 0 ? action.roleNames.join(', ') : 'no roles at all'}
               </strong>
               . Every key it holds acts with that set from then on — except keys issued with a single capability.
@@ -352,7 +352,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
           action: `Delete ${action.name}`,
           details: (
             <p>
-              <strong className="text-gray-800 dark:text-gray-100">{action.name}</strong> and all{' '}
+              <strong className="text-fg">{action.name}</strong> and all{' '}
               {action.keyCount} of its keys are deleted. Anything authenticating as it stops working
               within five minutes.
             </p>
@@ -666,7 +666,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
           }}
         >
           <p>
-            <strong className="text-gray-800 dark:text-gray-100">{pendingKeyRevoke.keyName}</strong> stops working
+            <strong className="text-fg">{pendingKeyRevoke.keyName}</strong> stops working
             within five minutes. Issue a replacement key first if the automation must keep running.
           </p>
         </ConfirmDialog>

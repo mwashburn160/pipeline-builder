@@ -48,7 +48,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
 
   return (
     <Modal
-      title="Mint Discount"
+      title="Mint discount"
       onClose={onClose}
       footer={
         <ModalFooter

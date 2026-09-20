@@ -231,7 +231,7 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
             </p>
           ) : (
             <p>
-              <strong className="text-gray-800 dark:text-gray-100">{session.userAgent ?? 'That client'}</strong>{' '}
+              <strong className="text-fg">{session.userAgent ?? 'That client'}</strong>{' '}
               is signed out and has to sign in again.
             </p>
           )}

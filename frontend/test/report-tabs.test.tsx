@@ -127,7 +127,7 @@ describe('sysadmin-only reports', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
     await waitFor(() => expect(scoped.getStageFailures).toHaveBeenCalled());
     expect(scoped.getExecutionErrors).not.toHaveBeenCalled();
-    expect(screen.queryByText('Top Errors')).not.toBeInTheDocument();
+    expect(screen.queryByText('Top errors')).not.toBeInTheDocument();
   });
 });
 

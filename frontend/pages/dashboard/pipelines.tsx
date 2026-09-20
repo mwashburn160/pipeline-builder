@@ -143,7 +143,7 @@ export default function PipelinesPage() {
   const [editPipeline, setEditPipeline] = useState<PipelineSummary | null>(null);
   const [showBulkCreate, setShowBulkCreate] = useState(false);
 
-  // Open the create modal when arrived via the sidebar "Create Pipeline"
+  // Open the create modal when arrived via the sidebar "Create pipeline"
   // shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
 
@@ -308,17 +308,17 @@ export default function PipelinesPage() {
             <>
               <FilterInput type="text" aria-label="Filter by project" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="max-w-[160px]" />
               <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
-                <option value="all">All Status</option>
+                <option value="all">All status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </FilterSelect>
               <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
-                <option value="all">All Pipelines</option>
+                <option value="all">All pipelines</option>
                 <option value="default">Default only</option>
               </FilterSelect>
               {canViewPublic && (
                 <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
-                  <option value="all">All Visibility</option>
+                  <option value="all">All visibility</option>
                   <option value="public">Public</option>
                   {/* The ladder has THREE rungs — omitting `org` made every
                       org-shared row invisible under both other filter values. */}
@@ -358,7 +358,7 @@ export default function PipelinesPage() {
             icon: GitBranch,
             title: 'No pipelines yet',
             description: 'Get started by creating your first pipeline, or fork one from the system catalog.',
-            action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create Pipeline</Button> : undefined,
+            action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create pipeline</Button> : undefined,
           }}
         >
           <DataTable
@@ -369,7 +369,7 @@ export default function PipelinesPage() {
               icon: GitBranch,
               title: 'No pipelines yet',
               description: 'Get started by creating your first pipeline, or fork one from the system catalog.',
-              action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create Pipeline</Button> : undefined,
+              action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create pipeline</Button> : undefined,
             }}
             getRowKey={(p) => p.id}
             defaultSortColumn="name"
@@ -400,12 +400,12 @@ export default function PipelinesPage() {
       )}
 
       {del.target && (
-        <DeleteConfirmModal title="Delete Pipeline" itemName={del.target.pipelineName || 'Unnamed Pipeline'} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
+        <DeleteConfirmModal title="Delete pipeline" itemName={del.target.pipelineName || 'Unnamed Pipeline'} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
       {showBulkDelete && (
         <DeleteConfirmModal
-          title="Delete Pipelines"
+          title="Delete pipelines"
           itemName={`${selectedIds.size} pipeline${selectedIds.size > 1 ? 's' : ''}`}
           loading={bulkLoading}
           onConfirm={handleBulkDelete}

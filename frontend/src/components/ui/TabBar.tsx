@@ -86,10 +86,12 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
     // Same missing-focus-ring problem as IconButton: tabs were keyboard
     // reachable but gave no visible focus. `rounded-sm` keeps the ring
     // tight to the label without disturbing the underline.
-    `py-2.5 px-1 border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+    // Brand tokens, not a raw blue: the selected tab is the same colour as every
+    // other "this is current" signal in the app (sidebar row, focus ring).
+    `py-2.5 px-1 border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
       active
-        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-        : 'border-transparent text-fg-muted hover:text-fg hover:border-gray-300 dark:hover:border-gray-600'
+        ? 'border-brand text-brand'
+        : 'border-transparent text-fg-muted hover:text-fg hover:border-default'
     }${disabled ? ' opacity-50 cursor-not-allowed' : ''}`;
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -111,7 +113,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
 
   if (isNav) {
     return (
-      <div className={`border-b border-gray-200 dark:border-gray-700 mb-6 ${className}`}>
+      <div className={`border-b border-default mb-6 ${className}`}>
         <nav className="-mb-px flex space-x-6" aria-label={ariaLabel}>
           {items.map((item) => {
             const active = item.id === activeId;
@@ -133,7 +135,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
   }
 
   return (
-    <div className={`border-b border-gray-200 dark:border-gray-700 mb-6 ${className}`}>
+    <div className={`border-b border-default mb-6 ${className}`}>
       <div role="tablist" aria-label={ariaLabel} aria-orientation="horizontal" className="-mb-px flex space-x-6" onKeyDown={onKeyDown}>
         {items.map((item) => {
           const active = item.id === activeId;

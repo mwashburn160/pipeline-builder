@@ -25,8 +25,8 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
           <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents)}</dd>
         </div>
       ))}
-      <div className="flex items-center justify-between gap-3 text-xs border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 font-medium">
-        <dt className="text-gray-600 dark:text-gray-300">Total ({breakdown.interval})</dt>
+      <div className="flex items-center justify-between gap-3 text-xs border-t border-default pt-1 mt-1 font-medium">
+        <dt className="text-fg-muted">Total ({breakdown.interval})</dt>
         <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
       </div>
       {breakdown.creditRemainingCents > 0 && (
@@ -88,7 +88,7 @@ export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }:
 
   return (
     <Modal
-      title="Apply Discount to Organization"
+      title="Apply discount to organization"
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-2">

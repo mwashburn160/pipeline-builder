@@ -28,7 +28,7 @@ export default function RoleSection({
   return (
     <CollapsibleSection title="IAM Role" hasContent={role.type !== 'none'}>
       <div className="mt-3 space-y-3">
-        <FormField label="Role Type">
+        <FormField label="Role type">
           <Select
             value={role.type}
             onChange={(e) => onTypeChange(e.target.value as FormBuilderState['role']['type'])}
@@ -36,14 +36,14 @@ export default function RoleSection({
           >
             <option value="none">None</option>
             <option value="roleArn">Role ARN</option>
-            <option value="roleName">Role Name</option>
+            <option value="roleName">Role name</option>
             <option value="codeBuildDefault">CodeBuild Default</option>
             <option value="oidc">OIDC (GitHub Actions, GitLab CI, etc.)</option>
           </Select>
         </FormField>
 
         {role.type === 'roleArn' && (
-          <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+          <div className="space-y-3 pl-4 border-l-2 border-default">
             <FormField label="Role ARN *" error={errors['role.roleArn']}>
               <Input
                 type="text"
@@ -59,7 +59,7 @@ export default function RoleSection({
                 checked={role.mutable}
                 onChange={(e) => onMutableChange(e.target.checked)}
                 disabled={disabled}
-                className="h-4 w-4 text-brand focus:ring-blue-500"
+                className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]"
               />
               <label htmlFor="roleArnMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
             </div>
@@ -67,8 +67,8 @@ export default function RoleSection({
         )}
 
         {role.type === 'roleName' && (
-          <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <FormField label="Role Name *" error={errors['role.roleName']}>
+          <div className="space-y-3 pl-4 border-l-2 border-default">
+            <FormField label="Role name *" error={errors['role.roleName']}>
               <Input
                 type="text"
                 value={role.roleName}
@@ -83,7 +83,7 @@ export default function RoleSection({
                 checked={role.mutable}
                 onChange={(e) => onMutableChange(e.target.checked)}
                 disabled={disabled}
-                className="h-4 w-4 text-brand focus:ring-blue-500"
+                className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]"
               />
               <label htmlFor="roleNameMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
             </div>
@@ -91,8 +91,8 @@ export default function RoleSection({
         )}
 
         {role.type === 'codeBuildDefault' && (
-          <div className="pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <FormField label="Role Name (optional)">
+          <div className="pl-4 border-l-2 border-default">
+            <FormField label="Role name (optional)">
               <Input
                 type="text"
                 value={role.roleName}
@@ -105,7 +105,7 @@ export default function RoleSection({
         )}
 
         {role.type === 'oidc' && (
-          <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+          <div className="space-y-3 pl-4 border-l-2 border-default">
             <p className="text-xs text-fg-muted">
               Create a role trusted by an OIDC identity provider (e.g. GitHub Actions, GitLab CI).
               Provide either an existing provider ARN or an issuer URL to create a new one.
@@ -143,7 +143,7 @@ export default function RoleSection({
               />
             </FormField>
 
-            <FormField label="Trust Policy Conditions (key=value, one per line)">
+            <FormField label="Trust policy conditions (key=value, one per line)">
               <Textarea
                 value={role.oidcConditions}
                 onChange={(e) => onFieldChange('oidcConditions', e.target.value)}
@@ -154,7 +154,7 @@ export default function RoleSection({
               />
             </FormField>
 
-            <FormField label="Role Name (optional)">
+            <FormField label="Role name (optional)">
               <Input
                 type="text"
                 value={role.roleName}

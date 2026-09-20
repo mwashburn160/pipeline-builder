@@ -746,7 +746,7 @@ bash bin/init-platform.sh minikube    # Minikube
 # Non-interactive
 export PLATFORM_BASE_URL=https://pipeline.example.com
 export PLATFORM_IDENTIFIER=admin@internal
-export PLATFORM_PASSWORD=SecurePassword123!
+export PLATFORM_PASSWORD='<a strong secret you generate>'
 bash bin/init-platform.sh ec2
 
 # Non-interactive with prebuilt images
@@ -783,7 +783,7 @@ sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-b
 |----------|---------|-------------|
 | `PLATFORM_BASE_URL` | auto-detected | Platform API URL (skips CloudFormation lookup when set) |
 | `PLATFORM_IDENTIFIER` | `admin@internal` | Admin email |
-| `PLATFORM_PASSWORD` | `SecurePassword123!` | Admin password |
+| `PLATFORM_PASSWORD` | `Pipeline-Builder-Dev-2026!` (local targets only) | Admin password. The dev default is REFUSED on `ec2`/`eks` — set a strong secret there. |
 | `PLUGIN_BUILD_STRATEGY` | `build_image` | `build_image` or `prebuilt` |
 | `PLUGIN_CATEGORY` | all | Comma-separated categories (e.g., `language,security`) |
 | `PARALLEL_JOBS` | 4 (1 for prebuilt) | Upload concurrency. Passed through to `load-plugins.sh`. Override with `--parallel N` on CLI. |

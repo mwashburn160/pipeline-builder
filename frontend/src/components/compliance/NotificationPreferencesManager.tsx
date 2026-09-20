@@ -148,7 +148,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       </fieldset>
 
       {/* Email */}
-      <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div className="space-y-2 border-t border-default pt-4">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} disabled={readOnly} />
           <strong>Email</strong> notifications
@@ -161,9 +161,9 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
           {members.length === 0 ? (
             <p className="text-xs text-fg-muted">No members to choose from.</p>
           ) : (
-            <div className={`max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded divide-y divide-gray-100 dark:divide-gray-800 ${(!emailEnabled || readOnly) ? 'opacity-60 pointer-events-none' : ''}`}>
+            <div className={`max-h-48 overflow-y-auto border border-default rounded divide-y divide-default ${(!emailEnabled || readOnly) ? 'opacity-60 pointer-events-none' : ''}`}>
               {members.map((m) => (
-                <label key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                <label key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-surface-muted">
                   <Checkbox
                     checked={selectedUserIds.has(m.id)}
                     onChange={() => toggleUser(m.id)}
@@ -183,7 +183,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       </div>
 
       {/* Webhook */}
-      <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div className="space-y-2 border-t border-default pt-4">
         <div>
           <label className={labelClass}>Webhook URL</label>
           <Input
@@ -210,7 +210,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       </div>
 
       {/* Digest cadence */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div className="border-t border-default pt-4">
         <label className={labelClass}>Delivery cadence</label>
         <Select
           value={digestMode}

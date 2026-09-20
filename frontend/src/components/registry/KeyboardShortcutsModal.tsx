@@ -35,7 +35,7 @@ const REGISTRY_SHORTCUTS: Shortcut[] = [
 export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps) {
   return (
     <Modal title="Keyboard shortcuts" onClose={onClose} maxWidth="max-w-md">
-      <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+      <ul className="divide-y divide-default">
         {REGISTRY_SHORTCUTS.map((s) => (
           <li key={s.keys.join('+')} className="flex items-center justify-between py-2">
             <span className="text-sm text-fg-muted">{s.description}</span>
@@ -43,7 +43,7 @@ export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps)
               {s.keys.map((k) => (
                 <kbd
                   key={k}
-                  className="px-2 py-0.5 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                  className="px-2 py-0.5 text-xs font-mono border border-default rounded bg-surface-muted text-fg"
                 >
                   {k}
                 </kbd>

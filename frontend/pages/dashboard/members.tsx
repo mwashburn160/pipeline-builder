@@ -512,12 +512,12 @@ export default function MembersPage() {
           right={
             <div className="flex gap-2">
               <FilterSelect value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} aria-label="Filter by status">
-                <option value="all">All Statuses</option>
+                <option value="all">All statuses</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </FilterSelect>
               <FilterSelect value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} aria-label="Filter by role">
-                <option value="all">All Roles</option>
+                <option value="all">All roles</option>
                 <option value="member">Members</option>
                 <option value="admin">Admins</option>
               </FilterSelect>
@@ -656,7 +656,7 @@ export default function MembersPage() {
       {/* Remove confirmation */}
       {removeMember.target && (
         <DeleteConfirmModal
-          title="Remove Member"
+          title="Remove member"
           itemName={removeMember.target.username}
           loading={removeMember.loading}
           onConfirm={removeMember.confirm}

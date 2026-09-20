@@ -61,7 +61,7 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
       <HelpAccordionTopic key={`${topic.id}:${query}`} topic={topic} defaultOpen={defaultOpen} bare />
 
       {sections.length > 0 && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/30 px-4 py-3">
+        <div className="border-t border-default bg-gray-50/70 dark:bg-gray-800/30 px-4 py-3">
           <p className="text-2xs font-semibold uppercase tracking-wider text-fg-muted">
             {sectionCount} matching {sectionCount === 1 ? 'section' : 'sections'}
             <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-subtle">

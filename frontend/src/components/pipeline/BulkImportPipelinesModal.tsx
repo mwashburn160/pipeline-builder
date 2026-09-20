@@ -114,7 +114,7 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
           <ErrorAlert message={error} />
         )}
         {result && (
-          <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+          <div className="rounded-lg bg-surface-muted border border-default p-3 space-y-2">
             <div className="flex flex-wrap gap-2">
               <Badge color="green">{result.created} created</Badge>
               {result.updated > 0 && <Badge color="blue">{result.updated} updated</Badge>}

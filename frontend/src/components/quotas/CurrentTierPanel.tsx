@@ -40,7 +40,7 @@ export function CurrentTierPanel({
         <div className="flex items-center gap-3">
           <span
             className={`flex items-center justify-center w-11 h-11 rounded-xl flex-shrink-0 ${
-              isUnlimited ? 'bg-slate-100 dark:bg-slate-800' : 'bg-gray-50 dark:bg-gray-800'
+              isUnlimited ? 'bg-slate-100 dark:bg-slate-800' : 'bg-surface-muted'
             }`}
             aria-hidden="true"
           >

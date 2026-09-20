@@ -64,7 +64,7 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
                   <th className="py-2 font-medium">Joined</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y divide-gray-100 dark:divide-gray-800 ${loading ? 'opacity-60' : ''}`}>
+              <tbody className={`divide-y divide-default ${loading ? 'opacity-60' : ''}`}>
                 {members.map((m) => (
                   <tr key={m._id}>
                     <td className="py-2 pr-4">

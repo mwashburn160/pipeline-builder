@@ -100,7 +100,7 @@ export default function DownloadsPage() {
           transition={{ duration: 0.3, delay: 0.1 }}
           className="card"
         >
-          <h3 className="text-base font-semibold text-fg mb-4">Quick Start</h3>
+          <h3 className="text-base font-semibold text-fg mb-4">Quick start</h3>
           <div className="space-y-3">
             <div className="flex items-start gap-3">
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info-bg text-xs font-bold text-info shrink-0 mt-0.5">

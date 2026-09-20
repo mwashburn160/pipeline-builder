@@ -68,7 +68,7 @@ export default function PluginNameCombobox({
           {...inputAriaProps}
         />
         {open && !disabled && (
-          <div role="listbox" id={listboxId} aria-label="Plugins" className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
+          <div role="listbox" id={listboxId} aria-label="Plugins" className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-surface border border-default rounded-xl shadow-lg text-sm">
             {isLoading ? (
               <div className="px-3 py-2 text-fg-muted">Loading plugins...</div>
             ) : groups.length === 0 ? (
@@ -80,7 +80,7 @@ export default function PluginNameCombobox({
                 let flatIndex = -1;
                 return groups.map((group) => (
                   <div key={group.category}>
-                    <div className="px-3 py-1 text-xs font-semibold text-fg-muted bg-gray-50 dark:bg-gray-900 sticky top-0">
+                    <div className="px-3 py-1 text-xs font-semibold text-fg-muted bg-canvas sticky top-0">
                       {group.category}
                     </div>
                     {group.plugins.map((plugin) => {
@@ -97,7 +97,7 @@ export default function PluginNameCombobox({
                           onMouseDown={(e) => e.preventDefault()}
                           onMouseEnter={() => setActiveIndex(i)}
                           onClick={() => handleSelect(plugin)}
-                          className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                          className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors ${i === activeIndex ? 'bg-info-bg' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                         >
                           <div className="flex justify-between items-center">
                             <span className="truncate font-medium">{plugin.name}</span>

@@ -293,7 +293,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
           action={`Remove the passkey “${pendingRemove.name}”`}
           details={(
             <p>
-              <strong className="text-gray-800 dark:text-gray-100">{pendingRemove.name}</strong> can no longer be used to
+              <strong className="text-fg">{pendingRemove.name}</strong> can no longer be used to
               sign in or to confirm sensitive actions. The credential on the device itself is not deleted — remove it there
               too if you no longer want it.
             </p>

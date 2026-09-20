@@ -178,7 +178,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           <ErrorAlert message={error} />
 
           {existing && (
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
+            <div className="rounded-lg bg-surface-muted px-3 py-2 text-sm">
               <div className="font-medium text-fg-muted mb-1">Current config</div>
               <div className="text-fg-muted">
                 Provider: <code className="text-xs">{existing.provider}</code> ·

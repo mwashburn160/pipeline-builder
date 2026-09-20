@@ -58,7 +58,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
 
   return (
     <Modal
-      title="Edit Discount"
+      title="Edit discount"
       onClose={onClose}
       footer={
         <ModalFooter
@@ -117,8 +117,8 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
                 aria-pressed={editTiers.includes(tier)}
                 disabled={editForm.loading}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${editTiers.includes(tier)
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
               >
                 {tier}
               </button>

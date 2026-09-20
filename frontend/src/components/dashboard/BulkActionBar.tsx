@@ -102,7 +102,7 @@ function VisibleBulkActionBar({ count, busy, onActivate, onDelete, onClear }: Bu
   const ref = useRef<HTMLDivElement>(null);
   useRaiseToastsAbove(ref);
   return (
-    <div ref={ref} className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
+    <div ref={ref} className="fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-default shadow-lg">
       <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
         <span className="text-sm font-medium text-fg-muted">
           {count} selected

@@ -1890,7 +1890,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (confirm modal + api.resetOrgQuota); systemAdmin + step-up, the latter replayed by the global step-up resume.',
   },
-  'platform POST /users': { category: 'sysadmin-console', why: '"Add User" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
+  'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org:kms\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
   ...group('platform', [

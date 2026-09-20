@@ -94,7 +94,7 @@ export function FailedJobsTable({
   if (pagination.total === 0 && !loading) {
     return (
       <Card className="p-8 text-center">
-        <Inbox className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+        <Inbox className="w-8 h-8 text-fg-subtle mx-auto mb-2" />
         <p className="text-sm text-fg-muted">No {title.toLowerCase()} found.</p>
       </Card>
     );
@@ -121,8 +121,8 @@ export function FailedJobsTable({
               aria-pressed={categoryFilter === null}
               className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                 categoryFilter === null
-                  ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                  : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                  ? 'border-info-border bg-info-bg text-info-strong'
+                  : 'border-default text-fg-muted hover:bg-surface-muted'
               }`}
             >
               All
@@ -138,7 +138,7 @@ export function FailedJobsTable({
                     ? cat === 'permanent'
                       ? 'border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
                       : 'border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
-                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'border-default text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 {cat}
@@ -151,21 +151,21 @@ export function FailedJobsTable({
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800/50">
+              <tr className="bg-surface-muted">
                 <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Job ID</th>
                 <SortHeader label="Plugin" field="pluginName" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {showCategory && (
                   <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Category</th>
                 )}
                 <SortHeader label="Attempts" field="attemptsMade" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Failed At" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Failed at" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Error" field="error" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {onAction && (
                   <th scope="col" className="px-4 py-2.5 text-right font-medium text-fg-muted">Actions</th>
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-default">
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-fg-muted">
@@ -174,7 +174,7 @@ export function FailedJobsTable({
                 </tr>
               )}
               {sorted.map((job) => (
-                <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                <tr key={job.id} className="hover:bg-surface-muted/30 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-xs text-fg-muted whitespace-nowrap">
                     {job.id?.slice(0, 12)}
                   </td>

@@ -237,7 +237,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         <p>Saving with an empty metadata field wipes every metadata entry this plugin already has.</p>
       </ConfirmDialog>
     )}
-    <Modal title="Edit Plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer} dirty={dirty}>
+    <Modal title="Edit plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer} dirty={dirty}>
       <ErrorAlert message={error} />
       <SuccessAlert message={success} />
 
@@ -248,28 +248,28 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       ) : (
         <div className="space-y-4">
           {/* Read-only Fields */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">System Information (Read-only)</h3>
+          <div className="border-b border-default pb-4">
+            <h3 className="text-sm font-medium text-fg-muted mb-3">System information (read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
               <ReadonlyField label="ID" value={p.id} valueClassName="font-mono" />
               <ReadonlyField label="Org ID" value={p.orgId} />
-              <ReadonlyField label="Created By" value={p.createdBy} />
-              <ReadonlyField label="Created At" value={formatDateTime(p.createdAt)} />
-              <ReadonlyField label="Updated By" value={p.updatedBy} />
-              <ReadonlyField label="Updated At" value={formatDateTime(p.updatedAt)} />
+              <ReadonlyField label="Created by" value={p.createdBy} />
+              <ReadonlyField label="Created at" value={formatDateTime(p.createdAt)} />
+              <ReadonlyField label="Updated by" value={p.updatedBy} />
+              <ReadonlyField label="Updated at" value={formatDateTime(p.updatedAt)} />
               <ReadonlyField label="Image URI" value={p.uri} className="col-span-2" valueClassName="font-mono break-all" />
               {p.dockerfile && (
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-fg-muted mb-1">Dockerfile</label>
-                  <pre className="text-xs text-fg-muted bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
+                  <pre className="text-xs text-fg-muted bg-surface-muted px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
                 </div>
               )}
             </div>
           </div>
 
           {/* Core Information */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Core Information</h3>
+          <div className="border-b border-default pb-4">
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Core information</h3>
             <FormField label="Name" className="mb-3">
               <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={loading} />
             </FormField>
@@ -285,17 +285,17 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           </div>
 
           {/* Plugin Configuration */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Plugin Configuration</h3>
+          <div className="border-b border-default pb-4">
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Plugin configuration</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Plugin Type">
+              <FormField label="Plugin type">
                 <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={loading}>
                   <option value="CodeBuildStep">CodeBuildStep</option>
                   <option value="ShellStep">ShellStep</option>
                   <option value="ManualApprovalStep">ManualApprovalStep</option>
                 </Select>
               </FormField>
-              <FormField label="Compute Type">
+              <FormField label="Compute type">
                 <Select value={computeType} onChange={(e) => setComputeType(e.target.value)} disabled={loading}>
                   <option value="SMALL">SMALL</option>
                   <option value="MEDIUM">MEDIUM</option>
@@ -304,14 +304,14 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
                 </Select>
               </FormField>
             </div>
-            <FormField label="Primary Output Directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
+            <FormField label="Primary output directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
               <Input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} disabled={loading} placeholder="e.g. cdk.out, dist, build" />
             </FormField>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Timeout (minutes)" hint="Build timeout — blank = CodeBuild default (60 min)">
                 <Input type="number" value={timeout} onChange={(e) => setPluginTimeout(e.target.value)} disabled={loading} placeholder="60" min={1} />
               </FormField>
-              <FormField label="Failure Behavior" hint="What happens when this step fails">
+              <FormField label="Failure behavior" hint="What happens when this step fails">
                 <Select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value as 'fail' | 'warn' | 'ignore')} disabled={loading}>
                   <option value="fail">Fail (stop pipeline)</option>
                   <option value="warn">Warn (log warning, continue)</option>
@@ -328,15 +328,15 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           </div>
 
           {/* Build Configuration */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Build Configuration</h3>
-            <FormField label="Environment Variables (JSON)" className="mb-3">
+          <div className="border-b border-default pb-4">
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Build configuration</h3>
+            <FormField label="Environment variables (JSON)" className="mb-3">
               <Textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
             </FormField>
-            <FormField label="Build Args (JSON)" hint="Docker build args; templatable via {{ pipeline.vars.* }}" className="mb-3">
+            <FormField label="Build args (JSON)" hint="Docker build args; templatable via {{ pipeline.vars.* }}" className="mb-3">
               <Textarea value={buildArgs} onChange={(e) => setBuildArgs(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"APP_ENV": "{{ pipeline.vars.env }}"}' />
             </FormField>
-            <FormField label="Install Commands (one per line)" className="mb-3">
+            <FormField label="Install commands (one per line)" className="mb-3">
               <Textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
             </FormField>
             <FormField label="Commands (one per line)" className="mb-3">
@@ -369,11 +369,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
+                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
                 <label htmlFor="editIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
               </div>
               <div className="flex items-center">
-                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
+                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
                 <label htmlFor="editIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
               </div>
             </div>

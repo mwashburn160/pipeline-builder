@@ -89,11 +89,13 @@ export function Sidebar({
 
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>
-      {/* Brand */}
-      <div className={`border-b border-default ${collapsed ? 'px-2 py-5' : 'px-4 py-5'}`}>
+      {/* Brand row. The collapse control lives here rather than in the footer:
+          it belongs with the rail it resizes, and moving it up returned a row of
+          vertical space to the nav — which is what the footer was spending it on. */}
+      <div className={`flex h-12 items-center border-b border-default ${collapsed ? 'justify-center px-2' : 'gap-2 px-4'}`}>
         <Link
           href="/"
-          className="text-lg font-semibold text-brand hover:text-brand-strong transition-colors tracking-tight"
+          className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-fg hover:text-brand transition-colors"
         >
           {collapsed ? (
             <Tooltip content="Pipeline Builder">
@@ -103,6 +105,17 @@ export function Sidebar({
             'Pipeline Builder'
           )}
         </Link>
+        {onToggleCollapsed && !collapsed && (
+          <Tooltip content="Collapse sidebar">
+            <button
+              onClick={onToggleCollapsed}
+              className="shrink-0 rounded-lg p-1.5 text-fg-subtle hover:bg-surface-muted hover:text-fg transition-colors"
+              aria-label="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </Tooltip>
+        )}
       </div>
 
       {/* Navigation */}
@@ -116,7 +129,7 @@ export function Sidebar({
                 <Link
                   href={href}
                   aria-label={label}
-                  className={`flex-1 inline-flex items-center justify-center h-8 rounded-lg ${color} text-white hover:opacity-90 transition-opacity`}
+                  className={`flex-1 inline-flex h-8 items-center justify-center rounded-lg text-sm transition-colors ${color}`}
                 >
                   <Icon className="h-4 w-4" />
                 </Link>
@@ -151,7 +164,7 @@ export function Sidebar({
                       {/* Count of hidden items so a collapsed section reads as
                           "collapsed", not "empty/missing". */}
                       {isSectionCollapsed && (
-                        <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-fg-muted">
+                        <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-semibold rounded-full bg-surface-muted text-fg-muted">
                           {visibleItems.length}
                         </span>
                       )}
@@ -178,7 +191,7 @@ export function Sidebar({
                     className={`sidebar-nav-item relative ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''} ${locked ? 'opacity-60' : ''}`}
                   >
                     {active && (
-                      <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-brand/80" />
+                      <span aria-hidden className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full bg-brand" />
                     )}
                     <Icon className="w-[18px] h-[18px] flex-shrink-0" aria-hidden="true" />
                     {/* Icon-only rail: the tooltip is hover-only (and describes,
@@ -225,76 +238,60 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="border-t border-default p-4 space-y-3">
-        {/* Collapse toggle (desktop only) */}
-        {onToggleCollapsed && (
-          <button
-            onClick={onToggleCollapsed}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-            {!collapsed && <span className="text-xs">Collapse</span>}
-          </button>
-        )}
-
-        {/* User info (the org/team switcher moved up under the brand). */}
-        {!collapsed && (
-          <div className="space-y-2">
-            <div className="px-1">
-              <p className="text-sm font-medium text-fg truncate">
-                {user.username}
-              </p>
+      {/* Footer — who you are signed in as, and the two session controls.
+          One row at rest: the avatar carries the identity, the icon buttons
+          carry the actions, and neither needs a full-width labelled button. */}
+      <div className="border-t border-default p-3">
+        <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
+          {!collapsed && (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {/* Initials from whatever the token actually carries: `username`
+                  is typed as required but arrives from a JWT, and a session
+                  without one must still render a rail, not a blank page. */}
+              <span
+                aria-hidden
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface-muted text-2xs font-semibold uppercase text-fg-muted"
+              >
+                {(user.username || user.email || '?').slice(0, 2)}
+              </span>
+              <p className="min-w-0 truncate text-sm font-medium text-fg">{user.username}</p>
             </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className={`flex items-center ${collapsed ? 'flex-col' : ''} gap-2`}>
-          {collapsed ? (
-            <>
-              <Tooltip content={isDark ? 'Light mode' : 'Dark mode'}>
-                <button
-                  onClick={onToggleDark}
-                  className="p-2 rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
-                  aria-label="Toggle dark mode"
-                >
-                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                </button>
-              </Tooltip>
-              <Tooltip content="Log out">
-                <button
-                  onClick={onLogout}
-                  className="p-2 rounded-lg text-fg-muted hover:bg-danger-bg hover:text-danger transition-colors"
-                  aria-label="Log out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </Tooltip>
-            </>
-          ) : (
-            <>
+          )}
+          <Tooltip content={isDark ? 'Light mode' : 'Dark mode'}>
+            <button
+              onClick={onToggleDark}
+              className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-muted hover:text-fg transition-colors"
+              aria-label="Toggle dark mode"
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Log out">
+            <button
+              onClick={onLogout}
+              className="rounded-lg p-1.5 text-fg-muted hover:bg-danger-bg hover:text-danger transition-colors"
+              aria-label="Log out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          {/* Expanding from the icon-only rail: the brand row has no space for
+              a control when it is 64px wide, so the toggle lives here in that
+              mode only. */}
+          {onToggleCollapsed && collapsed && (
+            <Tooltip content="Expand sidebar">
               <button
-                onClick={onToggleDark}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
-                aria-label="Toggle dark mode"
+                onClick={onToggleCollapsed}
+                className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-muted hover:text-fg transition-colors"
+                aria-label="Expand sidebar"
               >
-                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                <span className="text-xs">{isDark ? 'Light' : 'Dark'}</span>
+                <PanelLeftOpen className="h-4 w-4" />
               </button>
-              <button
-                onClick={onLogout}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-danger-bg hover:text-danger transition-colors"
-                aria-label="Log out"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="text-xs">Log out</span>
-              </button>
-            </>
+            </Tooltip>
           )}
         </div>
       </div>
+
     </div>
   );
 }

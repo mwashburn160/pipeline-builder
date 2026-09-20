@@ -23,11 +23,11 @@ export const pipelinesTopic: HelpTopic = {
     },
     {
       id: 'create-dashboard',
-      title: 'Create via Dashboard',
+      title: 'Create via dashboard',
       blocks: [
         {
           type: 'text',
-          content: 'From the Pipelines page, click "Create Pipeline" and choose one of two tabs:',
+          content: 'From the Pipelines page, click "Create pipeline" and choose one of two tabs:',
         },
         {
           type: 'list',

@@ -192,7 +192,7 @@ echo "=== Registering admin user ==="
 # the dev defaults when unset. Export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD to
 # override (always set them on a non-docker/production target).
 PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
-PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
+PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-Pipeline-Builder-Dev-2026!}"
 # A non-docker target reaching this with the well-known dev password would ship an
 # internet-facing platform with a public credential — refuse (matches
 # common.sh:prompt_credentials, which rejects the dev default off-local). The
@@ -200,7 +200,7 @@ PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
 # this only trips a manual REMOTE run (ec2/eks) that forgot to set one — fail
 # fast rather than register a public admin. docker AND minikube are local dev
 # targets (deploy/local/*), so the default dev password is allowed there.
-if [ "$TARGET" != docker ] && [ "$TARGET" != minikube ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; then
+if [ "$TARGET" != docker ] && [ "$TARGET" != minikube ] && [ "$PLATFORM_PASSWORD" = 'Pipeline-Builder-Dev-2026!' ]; then
   echo "  ERROR: refusing to register the admin with the DEFAULT dev password on target '$TARGET'." >&2
   echo "         Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret and re-run." >&2
   exit 1

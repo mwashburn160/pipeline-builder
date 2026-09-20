@@ -14,7 +14,7 @@ type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { ref
  * (`checked`, `onChange`, `disabled`, `aria-*`, …).
  */
 export function Checkbox({ className = '', ...props }: CheckboxProps) {
-  const classes = ['rounded border-gray-300 dark:border-gray-600', className]
+  const classes = ['rounded border-default', className]
     .filter(Boolean).join(' ');
   return <input type="checkbox" className={classes} {...props} />;
 }

@@ -72,7 +72,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
   const extraTagCount = Math.max(0, tagCount - MAX_TAGS_TO_PREVIEW);
 
   return (
-    <Modal title="Delete Repository" onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Delete repository" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
         <div className="text-sm text-fg-muted">
           {isEmpty

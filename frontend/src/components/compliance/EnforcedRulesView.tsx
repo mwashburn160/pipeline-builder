@@ -51,7 +51,7 @@ export default function EnforcedRulesView() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-success" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All Enforced Rules ({rules.length})</h2>
+          <h2 className="text-lg font-semibold text-fg">All enforced rules ({rules.length})</h2>
         </div>
         <FilterSelect
           value={targetFilter}
@@ -79,13 +79,13 @@ export default function EnforcedRulesView() {
         <div className="space-y-6">
           {orgRules.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-fg-muted mb-2">Org Rules ({orgRules.length})</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">Org rules ({orgRules.length})</h3>
               <RuleTable rules={orgRules} />
             </div>
           )}
           {subscribedRules.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-fg-muted mb-2">Subscribed Rules ({subscribedRules.length})</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">Subscribed rules ({subscribedRules.length})</h3>
               <RuleTable rules={subscribedRules} />
             </div>
           )}
@@ -101,7 +101,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
     header: 'Name',
     render: (rule) => (
       <>
-        <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+        <div className="text-sm font-medium text-fg">{rule.name}</div>
         {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
         {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} withReason /></div>}
       </>
@@ -110,7 +110,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
   {
     id: 'target',
     header: 'Target',
-    render: (rule) => <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>,
+    render: (rule) => <span className="text-xs bg-surface-muted text-fg-muted rounded-full px-2 py-0.5">{rule.target}</span>,
   },
   {
     id: 'severity',
@@ -133,7 +133,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
 
 function RuleTable({ rules }: { rules: ComplianceRule[] }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+    <div className="overflow-x-auto rounded-lg border border-default">
       <DataTable
         data={rules}
         columns={ENFORCED_RULE_COLUMNS}

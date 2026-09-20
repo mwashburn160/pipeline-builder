@@ -100,10 +100,10 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             role="button"
             tabIndex={0}
             aria-current={isSelected ? 'true' : undefined}
-            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset ${
+            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-inset ${
               isSelected
-                ? 'bg-blue-50 dark:bg-blue-900/20'
-                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                ? 'bg-info-bg'
+                : 'hover:bg-surface-muted'
             }`}
             onClick={() => onSelect(msg)}
             onKeyDown={(e) => {
@@ -115,7 +115,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
               className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${
                 isAnnouncement
                   ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                  : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                  : 'bg-info-bg text-info-strong'
               }`}
             >
               {isAnnouncement ? (
@@ -148,7 +148,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                   {msg.recipientUserId && (
                     <span
-                      className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-info-bg text-info-strong"
                       title="Direct message — targeted at a specific user"
                     >
                       <User className="w-2.5 h-2.5" />
@@ -196,7 +196,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
           <button
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="w-full text-center text-xs font-medium py-2 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full text-center text-xs font-medium py-2 rounded-lg text-brand hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>

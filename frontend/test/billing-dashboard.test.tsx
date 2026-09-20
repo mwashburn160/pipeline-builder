@@ -48,8 +48,8 @@ describe('BillingDashboard', () => {
     getBillingSummary.mockResolvedValue(summary(1));
     render(<BillingDashboard />);
     expect(await screen.findByText('Amounts billed')).toBeInTheDocument();
-    expect(screen.getByText('Total Billed')).toBeInTheDocument();
-    expect(screen.getByText('Net Billed')).toBeInTheDocument();
+    expect(screen.getByText('Total billed')).toBeInTheDocument();
+    expect(screen.getByText('Net billed')).toBeInTheDocument();
     // Net total $68.00 surfaces on a stat card.
     expect(screen.getAllByText('$68.00').length).toBeGreaterThan(0);
     expect(screen.getByText('Invoices')).toBeInTheDocument();

@@ -15,18 +15,18 @@ import { formatError } from '@/lib/constants';
 
 const OPERATORS: { value: RuleOperator; label: string }[] = [
   { value: 'eq', label: 'Equals' },
-  { value: 'neq', label: 'Not Equals' },
+  { value: 'neq', label: 'Not equals' },
   { value: 'contains', label: 'Contains' },
-  { value: 'notContains', label: 'Not Contains' },
+  { value: 'notContains', label: 'Not contains' },
   { value: 'regex', label: 'Regex' },
   { value: 'gt', label: '>' },
   { value: 'gte', label: '>=' },
   { value: 'lt', label: '<' },
   { value: 'lte', label: '<=' },
-  { value: 'in', label: 'In List' },
-  { value: 'notIn', label: 'Not In List' },
+  { value: 'in', label: 'In list' },
+  { value: 'notIn', label: 'Not in list' },
   { value: 'exists', label: 'Exists' },
-  { value: 'notExists', label: 'Not Exists' },
+  { value: 'notExists', label: 'Not exists' },
   { value: 'countGt', label: 'Count >' },
   { value: 'countLt', label: 'Count <' },
   { value: 'lengthGt', label: 'Length >' },
@@ -270,17 +270,17 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <button onClick={onCancel} aria-label="Back to rules" className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <button onClick={onCancel} aria-label="Back to rules" className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-lg font-semibold text-fg">
           {isEdit ? 'Edit Rule' : 'Create Rule'}
         </h2>
       </div>
 
       <ErrorAlert message={error} />
 
-      <div className="space-y-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <div className="space-y-4 p-4 rounded-lg border border-default bg-surface">
         {/* Basic info */}
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -333,11 +333,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Date range & notification */}
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label htmlFor="rule-effective-from" className="block text-xs font-medium text-fg-muted mb-1">Effective From</label>
+            <label htmlFor="rule-effective-from" className="block text-xs font-medium text-fg-muted mb-1">Effective from</label>
             <Input id="rule-effective-from" type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} />
           </div>
           <div>
-            <label htmlFor="rule-effective-until" className="block text-xs font-medium text-fg-muted mb-1">Effective Until</label>
+            <label htmlFor="rule-effective-until" className="block text-xs font-medium text-fg-muted mb-1">Effective until</label>
             <Input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} />
           </div>
           <div className="flex items-end pb-2">
@@ -355,7 +355,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         </div>
 
         {/* Rule mode toggle */}
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="border-t border-default pt-4">
           <div className="flex items-center gap-4 mb-3">
             <label className="text-sm font-medium text-fg-muted">Rule Mode:</label>
             <label className="flex items-center gap-1.5 text-sm">
@@ -391,7 +391,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <label className="text-xs font-medium text-fg-muted">Match:</label>
-                <Select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm">
+                <Select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-default bg-surface px-2 py-1 text-sm">
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
                 </Select>
@@ -403,7 +403,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 <div className="text-center py-4 text-sm text-fg-subtle">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
               )}
               {form.conditions.map((cond, idx) => (
-                <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
+                <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-surface-muted">
                   <Input
                     value={cond.field}
                     onChange={e => updateCondition(idx, { field: e.target.value })}
@@ -415,7 +415,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                     value={cond.operator}
                     onChange={e => updateCondition(idx, { operator: e.target.value as RuleOperator })}
                     aria-label={`Condition ${idx + 1} operator`}
-                    className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm"
+                    className="rounded border border-default bg-white dark:bg-gray-700 px-2 py-1.5 text-sm"
                   >
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </Select>
@@ -438,7 +438,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         </div>
 
         {/* Dry-run validation */}
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="border-t border-default pt-4">
           <div className="flex items-center gap-2 mb-2">
             <FlaskConical className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span className="text-sm font-medium text-fg-muted">Dry-Run Validation</span>
@@ -456,7 +456,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </Button>
           </div>
           {dryRunResult && (
-            <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm">
+            <div className="mt-2 p-3 rounded-lg bg-surface-muted text-sm">
               <div className="flex items-center gap-4 mb-2">
                 <span className="flex items-center gap-1">
                   {dryRunResult.passed ? <CheckCircle className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-danger" />}
@@ -490,11 +490,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
 
         {/* Impact preview — how many existing org entities the (saved) rule would fail */}
         {isEdit && (
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div className="border-t border-default pt-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                <span className="text-sm font-medium text-fg-muted">Impact Preview</span>
+                <span className="text-sm font-medium text-fg-muted">Impact preview</span>
               </div>
               <Button variant="indigo" size="sm" onClick={handlePreviewImpact} disabled={impactLoading} className="gap-1.5">
                 {impactLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}

@@ -202,7 +202,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         return <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>;
       },
     },
-    { id: 'entity', header: 'Entity', cellClassName: 'text-sm text-gray-900 dark:text-white', render: (entry) => entry.entityName || entry.entityId || '-' },
+    { id: 'entity', header: 'Entity', cellClassName: 'text-sm text-fg', render: (entry) => entry.entityName || entry.entityId || '-' },
     { id: 'target', header: 'Target', cellClassName: 'text-xs text-fg-muted', render: (entry) => entry.target },
     { id: 'rules', header: 'Rules', cellClassName: 'text-sm text-fg-muted', render: (entry) => entry.ruleCount },
     { id: 'violations', header: 'Violations', cellClassName: 'text-sm text-fg-muted', render: (entry) => entry.violations?.length || 0 },
@@ -235,7 +235,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         <IconButton tone="default" onClick={onBack} aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </IconButton>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Details</h2>
+        <h2 className="text-lg font-semibold text-fg">Scan details</h2>
         {!readOnly && scan.status === 'running' && (
           <Button
             variant="danger"
@@ -250,7 +250,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
       </div>
 
       {/* Scan summary card */}
-      <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <div className="p-4 rounded-lg border border-default bg-surface">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <div className="text-xs text-fg-muted mb-1">Status</div>
@@ -261,12 +261,12 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
           </div>
           <div>
             <div className="text-xs text-fg-muted mb-1">Target</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">{scan.target}</div>
+            <div className="text-sm font-medium text-fg">{scan.target}</div>
           </div>
           <div>
             <div className="text-xs text-fg-muted mb-1">Progress</div>
             <div className="flex items-center gap-2">
-              <div className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-20 h-2 bg-surface-muted rounded-full overflow-hidden">
                 <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${progress}%` }} />
               </div>
               <span className="text-xs text-fg-muted">{scan.processedEntities}/{scan.totalEntities}</span>
@@ -277,7 +277,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
             <div className="text-xs text-fg-muted">{formatDateTime(scan.createdAt)}</div>
           </div>
         </div>
-        <div className="flex gap-6 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+        <div className="flex gap-6 mt-4 pt-3 border-t border-default">
           <div className="flex items-center gap-1.5">
             <CheckCircle className="h-4 w-4 text-success" />
             <span className="text-sm font-medium text-success">{scan.passCount} passed</span>
@@ -295,7 +295,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
 
       {/* Entity results */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Entity Results ({auditPagination.total})</h3>
+        <h3 className="text-sm font-semibold text-fg mb-3">Entity results ({auditPagination.total})</h3>
         {auditEntries.length === 0 ? (
           <div className="text-center py-6 text-fg-muted text-sm">No audit entries for this scan.</div>
         ) : (
@@ -322,7 +322,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
 
       {exemptTarget && (
         <Modal
-          title="Request Exemption"
+          title="Request exemption"
           onClose={() => setExemptTarget(null)}
           footer={
             <div className="flex justify-end gap-2">
@@ -342,13 +342,13 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-fg-muted mb-1">Entity</label>
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white truncate" title={exemptTarget.entityName || exemptTarget.entityId}>
+                <div className="rounded-lg border border-default bg-surface-muted px-3 py-2 text-sm text-fg truncate" title={exemptTarget.entityName || exemptTarget.entityId}>
                   {exemptTarget.entityName || exemptTarget.entityId}
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Entity Type</label>
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white capitalize">
+                <label className="block text-xs font-medium text-fg-muted mb-1">Entity type</label>
+                <div className="rounded-lg border border-default bg-surface-muted px-3 py-2 text-sm text-fg capitalize">
                   {exemptTarget.entityType}
                 </div>
               </div>
@@ -401,7 +401,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
             </div>
           }
         >
-          <p className="text-sm text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-fg-muted">
             Cancel this running scan? Entities not yet processed will be skipped. The scan record is kept and marked cancelled.
           </p>
         </Modal>

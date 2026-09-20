@@ -79,7 +79,7 @@ function NavBar() {
       {mobileOpen && (
         <div className="sm:hidden border-t border-default bg-surface px-6 py-4 space-y-3">
           <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Sign in</a>
-          <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get Started</Link>
+          <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get started</Link>
         </div>
       )}
     </nav>
@@ -1090,7 +1090,10 @@ function TerminalBlock({ title, code }: { title: string; code: string }) {
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen">
+    // `marketing-canvas` carries the two-tone radial wash. It used to sit on
+    // `body`, which tinted the top of every table and card in the signed-in app;
+    // it belongs to this page, so it lives here now.
+    <div className="min-h-screen marketing-canvas">
       <NavBar />
       <Hero />
       <Strengths />

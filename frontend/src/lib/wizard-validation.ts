@@ -5,8 +5,8 @@ import { FormBuilderState } from '@/types/form-types';
 import { validateFormState } from '@/types/props-validation';
 
 export const WIZARD_STEPS = [
-  { label: 'Pipeline Configuration', shortLabel: 'Pipeline' },
-  { label: 'Synth Configuration', shortLabel: 'Synth' },
+  { label: 'Pipeline configuration', shortLabel: 'Pipeline' },
+  { label: 'Synth configuration', shortLabel: 'Synth' },
   { label: 'Stages', shortLabel: 'Stages' },
 ] as const;
 

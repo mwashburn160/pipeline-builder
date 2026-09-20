@@ -51,7 +51,7 @@ interface TierRow { tier: string; waiting: number; active: number; completed: nu
 // signal (the "muted-common / loud-exception" pattern used across the tables).
 function tierCount(n: number, tone?: 'red' | 'amber') {
   const cls = n === 0
-    ? 'text-gray-300 dark:text-gray-600'
+    ? 'text-fg-subtle'
     : tone === 'red' ? 'text-red-600 dark:text-red-400 font-medium'
       : tone === 'amber' ? 'text-amber-600 dark:text-amber-400 font-medium'
         : 'text-fg';
@@ -88,7 +88,7 @@ interface QueueStatCard {
 
 function queueHealth(status: QueueStatus | null): { label: string; color: string; badgeColor: 'gray' | 'red' | 'yellow' | 'blue' | 'green' } {
   if (!status) return { label: 'Loading', color: 'bg-gray-400', badgeColor: 'gray' };
-  if (status.failed > 0) return { label: 'Failures Detected', color: 'bg-red-500', badgeColor: 'red' };
+  if (status.failed > 0) return { label: 'Failures detected', color: 'bg-red-500', badgeColor: 'red' };
   if (status.waiting > 5) return { label: 'Backlogged', color: 'bg-yellow-500', badgeColor: 'yellow' };
   if (status.active > 0) return { label: 'Processing', color: 'bg-blue-500', badgeColor: 'blue' };
   return { label: 'Idle', color: 'bg-green-500', badgeColor: 'green' };
@@ -302,7 +302,7 @@ export default function BuildQueuePage() {
               <button
                 type="button"
                 onClick={() => setShowBreakdown(true)}
-                className="shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                className="shrink-0 text-xs font-medium text-brand hover:underline"
               >
                 Show full breakdown
               </button>

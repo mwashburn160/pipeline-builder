@@ -167,7 +167,7 @@ export const pluginsTopic: HelpTopic = {
         {
           type: 'list',
           items: [
-            'Dashboard — Use the Plugins page and click "Create Plugin". The AI Builder tab lets you describe your plugin in plain language.',
+            'Dashboard — Use the Plugins page and click "Create plugin". The AI Builder tab lets you describe your plugin in plain language.',
             'CLI — Upload a plugin ZIP: pipeline-manager plugin upload --file ./my-plugin.zip --organization my-org --name my-plugin --version 1.0.0',
             'REST API — POST /api/plugins with a multipart form containing the plugin ZIP.',
           ],

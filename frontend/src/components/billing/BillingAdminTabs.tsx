@@ -6,7 +6,7 @@ import { TabBar } from '@/components/ui/TabBar';
 /**
  * Segmented tabs linking the three platform billing-admin views — fleet billing
  * Overview, Discounts, and Promotions. They used to be three separate sidebar
- * items; now they're one "Billing Admin" entry with these tabs to switch between
+ * items; now they're one "Billing admin" entry with these tabs to switch between
  * them. Thin wrapper over the shared `TabBar` primitive (link/navigation mode),
  * mirroring the Builds queue/triage consolidation.
  */

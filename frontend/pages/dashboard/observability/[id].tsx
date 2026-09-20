@@ -341,15 +341,15 @@ export default function DashboardPage() {
           other deep-link helper) so they aren't confused by a partially-
           populated log panel. */}
       {hasFilter && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-xs">
-          <span className="text-blue-700 dark:text-blue-300 font-medium">Filtered by:</span>
-          {urlFilters.event && <span className="font-mono text-blue-700 dark:text-blue-300">event={urlFilters.event}</span>}
-          {urlFilters.actor && <span className="font-mono text-blue-700 dark:text-blue-300">actor={urlFilters.actor}</span>}
-          {urlFilters.requestId && <span className="font-mono text-blue-700 dark:text-blue-300">requestId={urlFilters.requestId}</span>}
+        <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-info-border bg-info-bg text-xs">
+          <span className="text-info-strong font-medium">Filtered by:</span>
+          {urlFilters.event && <span className="font-mono text-info-strong">event={urlFilters.event}</span>}
+          {urlFilters.actor && <span className="font-mono text-info-strong">actor={urlFilters.actor}</span>}
+          {urlFilters.requestId && <span className="font-mono text-info-strong">requestId={urlFilters.requestId}</span>}
           <Button
             variant="link"
             onClick={() => applyLogFilters({})}
-            className="ml-auto text-blue-700 dark:text-blue-300"
+            className="ml-auto text-info-strong"
           >
             Clear
           </Button>

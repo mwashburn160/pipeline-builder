@@ -96,7 +96,7 @@ export function StatCard(props: StatCardProps) {
     return (
       <div className={[TILE, 'w-full', className].filter(Boolean).join(' ')} {...wrapperProps}>
         <div className="flex items-start justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">{label}</p>
+          <p className="micro-label">{label}</p>
           {badge}
         </div>
         <p className="mt-1.5 text-2xl font-bold tabular-nums text-fg">{value}</p>

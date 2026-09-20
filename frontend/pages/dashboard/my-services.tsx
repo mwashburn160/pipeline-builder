@@ -54,7 +54,7 @@ const TABS = ['pipelines', 'plugins'] as const;
 type Tab = typeof TABS[number];
 
 /**
- * "My Services" — the developer-portal personal catalog view. Lists the
+ * "My services" — the developer-portal personal catalog view. Lists the
  * pipelines and plugins the current user OWNS (ownerId = their user id), across
  * the org's catalog, so a developer can find "their stuff" without hunting each
  * feature page. Ownership is the catalog metadata every pipeline/plugin now
@@ -152,7 +152,7 @@ export default function MyServicesPage() {
       id: 'name',
       header: 'Pipeline',
       render: (p) => (
-        <Link href={`/dashboard/pipelines/${p.id}`} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+        <Link href={`/dashboard/pipelines/${p.id}`} className="text-brand hover:underline font-medium">
           {p.pipelineName || p.project}
         </Link>
       ),
@@ -169,7 +169,7 @@ export default function MyServicesPage() {
       id: 'name',
       header: 'Plugin',
       render: (p) => (
-        <Link href={`/dashboard/plugins?q=${encodeURIComponent(p.name)}`} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+        <Link href={`/dashboard/plugins?q=${encodeURIComponent(p.name)}`} className="text-brand hover:underline font-medium">
           {p.name}
         </Link>
       ),
@@ -206,7 +206,7 @@ export default function MyServicesPage() {
 
   return (
     <DashboardLayout
-      title="My Services"
+      title="My services"
       subtitle="Pipelines and plugins you own across the catalog"
       actions={
         <div className="flex items-center gap-2">

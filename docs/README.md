@@ -120,7 +120,7 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 | Field | Value |
 |---|---|
 | Identifier | `admin@internal` |
-| Password | `SecurePassword123!` |
+| Password | `Pipeline-Builder-Dev-2026!` |
 
 `init-platform.sh` is non-interactive: it reads `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` from the environment and falls back to the defaults above when unset — on **every** target. **On any non-local or production target, export real `PLATFORM_IDENTIFIER` / `PLATFORM_PASSWORD` before running** — otherwise the admin is created with this trivial dev password. Change the password from the dashboard immediately after first login on anything reachable beyond your laptop.
 
@@ -264,7 +264,7 @@ Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-o
 | Env var | Default (used if unset) |
 |---|---|
 | `PLATFORM_IDENTIFIER` | `admin@internal` |
-| `PLATFORM_PASSWORD` | `SecurePassword123!` |
+| `PLATFORM_PASSWORD` | `Pipeline-Builder-Dev-2026!` |
 
 The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`eks`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
 

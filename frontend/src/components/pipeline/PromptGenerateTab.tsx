@@ -51,12 +51,12 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
   const stages = asGeneratedStages(props.stages);
 
   return (
-    <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+    <div className="rounded-xl bg-surface-muted border border-default">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-surface-muted rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
           <Plug className="w-4 h-4 text-fg-muted" />
@@ -65,14 +65,14 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
         <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
-        <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+        <div className="px-4 pb-4 border-t border-default space-y-4">
           <div className="pt-3">
             <PluginNameCombobox
               value={synth?.plugin?.name ?? ''}
               onChange={(name) => onPluginChange('synth', name, null)}
               onSelectPlugin={(plugin) => onPluginChange('synth', plugin.name, plugin)}
               disabled={disabled}
-              label="Synth Plugin"
+              label="Synth plugin"
             />
           </div>
           {stages.map((stage, si) => (
@@ -267,13 +267,13 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             minute isn't silent to a screen reader; the JSON preview itself stays
             un-announced (it would read out the whole config as it streams). */}
         {generating && !previewJson && (
-          <div role="status" className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
+          <div role="status" className="rounded-xl bg-info-bg border border-info-border p-4 flex items-center gap-3">
             <LoadingSpinner size="sm" label={null} />
             <div>
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
                 Generating pipeline configuration...
               </p>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+              <p className="text-xs text-brand mt-1">
                 {stageCount > 0
                   ? `Building pipeline — ${stageCount} stage${stageCount > 1 ? 's' : ''} generated so far`
                   : 'AI is building your pipeline — this may take a minute with local models'}
@@ -324,9 +324,9 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
         {previewJson && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated Configuration</label>
+              <label className="label">Generated configuration</label>
               {generating ? (
-                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                <span className="text-xs text-brand font-medium flex items-center gap-1">
                   <LoadingSpinner size="sm" /> Streaming...
                 </span>
               ) : (

@@ -320,7 +320,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                 className={
                   m.role === 'user'
                     ? 'max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white'
-                    : 'max-w-[95%] rounded-2xl px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100'
+                    : 'max-w-[95%] rounded-2xl px-3 py-2 text-sm bg-surface-muted text-fg'
                 }
                 style={m.role === 'user' ? { background: 'var(--pb-brand)' } : undefined}
               >
@@ -329,10 +329,10 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   {m.pending && <span className="inline-block w-2 h-4 ml-0.5 align-text-bottom animate-pulse bg-current opacity-60" />}
                 </div>
                 {m.sources && m.sources.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1">
+                  <div className="mt-2 pt-2 border-t border-default space-y-1">
                     <p className="text-2xs uppercase tracking-wide text-fg-muted">Sources</p>
                     {m.sources.map((s) => (
-                      <div key={s.id} className="text-xs text-gray-600 dark:text-gray-300">
+                      <div key={s.id} className="text-xs text-fg-muted">
                         {s.title ?? s.id}
                       </div>
                     ))}
@@ -348,7 +348,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   const allowed = can(meta.permission);
                   return (
                     <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
-                      <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+                      <div className="flex items-center gap-2 text-sm font-medium text-fg">
                         <Icon className="w-4 h-4" style={{ color: 'var(--pb-brand)' }} /> {meta.label}
                       </div>
                       {m.proposal.description && (

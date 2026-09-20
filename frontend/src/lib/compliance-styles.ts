@@ -26,10 +26,10 @@ export const SEVERITY_BADGE: Record<RuleSeverity, string> = {
 /** Scan status badge with icon, color, and background classes. */
 export const SCAN_STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
   pending: { icon: Clock, color: 'text-warning', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
-  running: { icon: Loader2, color: 'text-brand', bg: 'bg-blue-100 dark:bg-blue-900/30' },
+  running: { icon: Loader2, color: 'text-brand', bg: 'bg-info-bg' },
   completed: { icon: CheckCircle, color: 'text-success', bg: 'bg-green-100 dark:bg-green-900/30' },
   failed: { icon: XCircle, color: 'text-danger', bg: 'bg-red-100 dark:bg-red-900/30' },
-  cancelled: { icon: Square, color: 'text-fg-muted', bg: 'bg-gray-100 dark:bg-gray-700' },
+  cancelled: { icon: Square, color: 'text-fg-muted', bg: 'bg-surface-muted' },
 };
 
 /** Exemption status badge classes. */
@@ -37,7 +37,7 @@ export const EXEMPTION_STATUS_STYLES: Record<ExemptionStatus, { bg: string; text
   pending: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400' },
   approved: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
   rejected: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
-  expired: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-fg-muted' },
+  expired: { bg: 'bg-surface-muted', text: 'text-fg-muted' },
 };
 
 /** Compliance check result badge classes (pass/warn/block). */

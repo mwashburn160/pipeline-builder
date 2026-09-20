@@ -60,7 +60,7 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 }
 
 export default function PromotionsPage() {
-  // System-admin gate comes from page-access.ts (a "Billing Admin" sub-route).
+  // System-admin gate comes from page-access.ts (a "Billing admin" sub-route).
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   // Promotion open in the detail drawer — `?id=` so it's deep-linkable.
   const [detailId, setDetailId] = useDetailParam();
@@ -290,7 +290,7 @@ export default function PromotionsPage() {
             <div className="flex justify-between text-xs text-fg-muted">
               <span>{formatCents(p.spentCents)}</span><span>{formatCents(p.budgetCents)}</span>
             </div>
-            <div className="mt-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+            <div className="mt-1 h-1.5 rounded-full bg-surface-muted overflow-hidden">
               <div className="h-full bg-blue-500" style={{ width: `${pct}%` }} />
             </div>
           </div>
@@ -410,7 +410,7 @@ export default function PromotionsPage() {
                   <button key={t} type="button" onClick={() => toggleTier(t)} aria-pressed={tiers.includes(t)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${tiers.includes(t)
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>
+                      : 'bg-surface text-fg-muted border-default'}`}>
                     {t}
                   </button>
                 ))}
@@ -469,7 +469,7 @@ export default function PromotionsPage() {
           }
         >
           <div className="space-y-3">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
+            <p className="text-sm text-fg-muted">
               This immediately grants <strong>{activateTarget.name}</strong> to every currently-eligible
               organization, spending from its campaign budget
               {' '}(<span className="font-mono">{formatCents(activateTarget.spentCents)} / {formatCents(activateTarget.budgetCents)}</span> used).
@@ -489,7 +489,7 @@ export default function PromotionsPage() {
       {/* Revoke confirmation */}
       {revokeTarget && (
         <DeleteConfirmModal
-          title="Revoke Promotion"
+          title="Revoke promotion"
           itemName={revokeTarget.name}
           loading={revokeLoading}
           onConfirm={confirmRevoke}

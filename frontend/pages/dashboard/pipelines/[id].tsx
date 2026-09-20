@@ -445,7 +445,7 @@ export default function PipelineDetailPage() {
                   <dt className="text-fg-muted">Keywords</dt>
                   <dd className="flex flex-wrap gap-1">
                     {pipeline.keywords.map((k, i) => (
-                      <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted">{k}</span>
+                      <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-surface-muted text-fg-muted">{k}</span>
                     ))}
                   </dd>
                 </div>
@@ -494,7 +494,7 @@ export default function PipelineDetailPage() {
                   </div>
                 )}
                 {executions && executions.length > 0 && (
-                  <div className="pt-2 mt-1 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
+                  <div className="pt-2 mt-1 border-t border-default space-y-1.5">
                     {executions.slice(0, 3).map((ex) => (
                       <div key={ex.execution_id} className="flex items-center justify-between">
                         <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
@@ -580,7 +580,7 @@ export default function PipelineDetailPage() {
             </div>
           )}
         >
-          <p className="text-sm text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-fg-muted">
             Stop the in-progress execution <code className="text-xs">{cancelTarget}</code>? In-progress
             stages will be halted. This cannot be undone.
           </p>
@@ -589,7 +589,7 @@ export default function PipelineDetailPage() {
 
       {showDelete && pipeline && (
         <DeleteConfirmModal
-          title="Delete Pipeline"
+          title="Delete pipeline"
           itemName={pipeline.pipelineName || 'Unnamed Pipeline'}
           loading={deleting}
           onConfirm={confirmDelete}

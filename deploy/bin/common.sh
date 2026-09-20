@@ -532,7 +532,7 @@ prompt_credentials() {
         # Local-only convenience fallback so `init-platform.sh docker` can
         # still be hit-enter through. Never shown in the prompt, never
         # accepted on non-local targets.
-        PLATFORM_PASSWORD="SecurePassword123!"
+        PLATFORM_PASSWORD="Pipeline-Builder-Dev-2026!"
       else
         echo "ERROR: password required on target=${DEPLOY_TARGET}" >&2
         return 1

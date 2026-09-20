@@ -96,7 +96,7 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
   };
 
   return (
-    <Modal title="Delete Tag" onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Delete tag" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
         <div className="text-sm text-fg-muted">
           You are about to delete the manifest pointed to by:

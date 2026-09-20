@@ -36,7 +36,7 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
     // grid mode where react-grid-layout positions panels with fixed pixel
     // heights. In span-grid mode `h-full` is a no-op (the parent doesn't
     // constrain height) so existing layouts render unchanged.
-    <div className={`${SPAN_CLASS[span]} h-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col`}>
+    <div className={`${SPAN_CLASS[span]} h-full rounded-lg border border-default bg-surface p-4 flex flex-col`}>
       <h3 className="text-sm font-semibold text-fg-muted mb-3">{title}</h3>
       <div className="flex-1 min-h-[8rem] flex items-center justify-center">
         {error ? (

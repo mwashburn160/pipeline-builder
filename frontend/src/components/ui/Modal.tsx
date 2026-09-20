@@ -101,10 +101,10 @@ export function Modal({
         aria-labelledby={titleId}
       >
         {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-default">
           <div className="flex items-center gap-2 min-w-0">
             {titleIcon}
-            <h2 id={titleId} className="text-lg font-medium text-fg truncate">{title}</h2>
+            <h2 id={titleId} className="h2 text-lg truncate">{title}</h2>
           </div>
           <button onClick={requestClose} aria-label="Close dialog" className="text-fg-subtle hover:text-fg transition-colors ml-3 shrink-0">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,7 +126,7 @@ export function Modal({
 
         {/* Footer */}
         {footer && (
-          <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+          <div className="border-t border-default px-6 py-4 bg-surface-muted rounded-b-2xl">
             {footer}
           </div>
         )}

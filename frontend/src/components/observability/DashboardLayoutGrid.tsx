@@ -147,7 +147,7 @@ export default function DashboardLayoutGrid(props: {
           key={panel.id}
           className={readOnly
             ? 'overflow-hidden'
-            : 'rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 overflow-hidden'}
+            : 'rounded-lg border border-default bg-surface p-3 overflow-hidden'}
         >
           {renderPanel(panel, i)}
         </div>

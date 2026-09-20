@@ -110,8 +110,8 @@ describe('ReportsPage — DORA section', () => {
     render(<ReportsPage />);
     await goToDora();
 
-    expect(await screen.findByText('Deployment Frequency')).toBeInTheDocument();
-    expect(screen.getByText('Change Failure Rate')).toBeInTheDocument();
+    expect(await screen.findByText('Deployment frequency')).toBeInTheDocument();
+    expect(screen.getByText('Change failure rate')).toBeInTheDocument();
     expect(screen.getByText('Time to Restore (MTTR)')).toBeInTheDocument();
     // Lead time is measured (no proxy/approximation copy).
     expect(screen.getAllByText(/Lead time/).length).toBeGreaterThanOrEqual(1);
@@ -135,7 +135,7 @@ describe('ReportsPage — DORA section', () => {
     render(<ReportsPage />);
     await goToDora();
 
-    await screen.findByText('Deployment Frequency');
+    await screen.findByText('Deployment frequency');
     // The headline (production) lead-time (elite) + CFR (medium) bands surface as
     // pills. Deployment frequency + MTTR carry no level band in the new shape.
     expect(screen.getByText('Elite')).toBeInTheDocument();
@@ -148,7 +148,7 @@ describe('ReportsPage — DORA section', () => {
     render(<ReportsPage />);
     await goToDora();
 
-    await screen.findByText('Deployment Frequency');
+    await screen.findByText('Deployment frequency');
     // Window renders as "Jun … – Jul …, 2026" (locale/TZ-formatted — assert the
     // year-bearing end of the range to stay timezone-robust in CI).
     expect(screen.getByText(/–\s*Jul \d{1,2}, 2026/)).toBeInTheDocument();
@@ -253,7 +253,7 @@ describe('ReportsPage — DORA section', () => {
     await goToDora();
 
     // Section heading + the role="img" summary conveyed to assistive tech.
-    await screen.findByText('Deployment Trend');
+    await screen.findByText('Deployment trend');
     const chart = screen.getByRole('img', { name: /deployment trend over 2 periods/i });
     expect(chart).toBeInTheDocument();
     // The visually-hidden per-period data table mirrors the bars.
@@ -267,7 +267,7 @@ describe('ReportsPage — DORA section', () => {
 
     render(<ReportsPage />);
     await goToDora();
-    await screen.findByText('Deployment Frequency');
+    await screen.findByText('Deployment frequency');
 
     // Both environments surface as pivot pills (production headline + staging).
     expect(screen.getByTitle(/Pivot the headline to production/i)).toBeInTheDocument();
@@ -277,7 +277,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockClear();
     fireEvent.click(stagingPill);
     // Clicking a pill commits the env → the DORA fetch re-scopes to it.
-    await screen.findByText('Deployment Frequency');
+    await screen.findByText('Deployment frequency');
     expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'staging' }), expect.anything());
   });
 
@@ -290,7 +290,7 @@ describe('ReportsPage — DORA section', () => {
     render(<ReportsPage />);
     await goToDora();
 
-    await screen.findByText('Deployment Frequency');
+    await screen.findByText('Deployment frequency');
     expect(screen.getByText(/Deployment-scoped · prod/)).toBeInTheDocument();
   });
 
@@ -310,7 +310,7 @@ describe('ReportsPage — DORA section', () => {
     expect(screen.getByLabelText(/filter dora by environment/i)).toBeInTheDocument();
     // Explicit empty state; the metric cards do NOT render.
     expect(screen.getByText(/No DORA data for this scope/i)).toBeInTheDocument();
-    expect(screen.queryByText('Deployment Frequency')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployment frequency')).not.toBeInTheDocument();
   });
 
   it('debounces the environment filter — typing does not fire a request per keystroke (commits on blur)', async () => {

@@ -341,13 +341,17 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
     await authService.setPendingBillingPlan('org-42', 'pro');
 
     expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
-    const [filter, update] = mockOrgUpdateOne.mock.calls[0] as any;
+    const [filter, update, options] = mockOrgUpdateOne.mock.calls[0] as any;
     expect(filter).toEqual({ _id: 'org-42' });
     // Aggregation-pipeline update: sets planId and keeps the original `since`
     // (only fills it when absent) so retries don't reset the marker age.
     expect(Array.isArray(update)).toBe(true);
     expect(update[0].$set.pendingBillingPlanId).toBe('pro');
     expect(update[0].$set.pendingBillingSince).toEqual({ $ifNull: ['$pendingBillingSince', '$$NOW'] });
+    // Mongoose 9 REJECTS an array update unless `updatePipeline` is set, so the
+    // option is part of the contract, not a detail — without it every marker
+    // write throws and the paid-signup intent is lost outright.
+    expect(options).toEqual({ updatePipeline: true });
   });
 
   it('clearPendingBillingPlan unsets both marker fields', async () => {

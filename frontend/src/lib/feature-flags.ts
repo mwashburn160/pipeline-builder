@@ -83,13 +83,13 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
 ];
 
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
-  priority_support: { label: 'Priority Support', description: 'Faster response times and dedicated support channels' },
+  priority_support: { label: 'Priority support', description: 'Faster response times and dedicated support channels' },
   ai_generation: { label: 'AI Generation', description: 'AI-powered pipeline and plugin generation' },
-  bulk_operations: { label: 'Bulk Operations', description: 'Batch create, update, and delete for pipelines and plugins' },
-  custom_integrations: { label: 'Custom Integrations', description: 'Connect to external services and custom webhook endpoints' },
+  bulk_operations: { label: 'Bulk operations', description: 'Batch create, update, and delete for pipelines and plugins' },
+  custom_integrations: { label: 'Custom integrations', description: 'Connect to external services and custom webhook endpoints' },
   sso: { label: 'SSO / IdP', description: 'Single sign-on and external identity-provider configurations' },
   advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
-  team_usage_analytics: { label: 'Team Usage Analytics', description: 'Per-team usage breakdown across the org → team subtree' },
+  team_usage_analytics: { label: 'Team usage analytics', description: 'Per-team usage breakdown across the org → team subtree' },
   compliance_standard: { label: 'Standard Compliance', description: 'Curated CI/CD best-practice compliance rule library' },
   compliance_advanced: { label: 'Advanced Compliance', description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)' },
 };

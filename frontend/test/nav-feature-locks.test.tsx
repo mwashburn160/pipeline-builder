@@ -74,7 +74,7 @@ describe('Sidebar — an entitlement locks a row, it never deletes it', () => {
   it('drops the off-plan wording once the org holds the entitlement', () => {
     features = ['sso'];
     render(<Sidebar {...sidebarProps} />);
-    expect(screen.getByRole('link', { name: /single sign-on/i })).toHaveAccessibleName('Single Sign-On');
+    expect(screen.getByRole('link', { name: /single sign-on/i })).toHaveAccessibleName('Single sign-on');
   });
 
   it('still hides it from a viewer without org:idp — a permission is not an upsell', () => {
@@ -109,7 +109,7 @@ describe('Command palette — locked entries stay findable and legible', () => {
   it('reads plainly once the entitlement is held', () => {
     features = ['sso'];
     const list = openPalette();
-    expect(within(list).getByRole('option', { name: 'Go to Single Sign-On' })).toBeInTheDocument();
+    expect(within(list).getByRole('option', { name: 'Go to Single sign-on' })).toBeInTheDocument();
     expect(within(list).queryByRole('option', { name: /not on your plan/i })).not.toBeInTheDocument();
   });
 

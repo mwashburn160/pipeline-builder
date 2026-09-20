@@ -27,7 +27,7 @@ export function HelpTopicGroup({ category, topics, openFirst = false }: HelpTopi
           {topics.length} {topics.length === 1 ? 'topic' : 'topics'}
         </span>
       </h2>
-      <Card className="p-0 overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
+      <Card className="p-0 overflow-hidden divide-y divide-default">
         {topics.map((topic, i) => (
           <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={openFirst && i === 0} bare />
         ))}

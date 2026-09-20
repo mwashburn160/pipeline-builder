@@ -138,7 +138,7 @@ export function usePipelineColumns({
     },
     {
       id: 'createdBy',
-      header: 'Created By',
+      header: 'Created by',
       hidden: true,
       cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdBy,

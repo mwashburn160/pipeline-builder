@@ -21,7 +21,7 @@ const PRESETS: ReadonlyArray<{ key: RangeKey; label: string }> = [
  */
 export function RangePicker({ value, onChange }: RangePickerProps) {
   return (
-    <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+    <div className="inline-flex rounded-md border border-default overflow-hidden">
       {PRESETS.map((p, i) => {
         const active = p.key === value;
         return (
@@ -29,10 +29,10 @@ export function RangePicker({ value, onChange }: RangePickerProps) {
             key={p.key}
             type="button"
             onClick={() => onChange(p.key)}
-            className={`px-3 py-1.5 text-xs font-medium ${i > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''} ${
+            className={`px-3 py-1.5 text-xs font-medium ${i > 0 ? 'border-l border-default' : ''} ${
               active
-                ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-gray-900 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                ? 'bg-brand text-white'
+                : 'bg-surface text-fg-muted hover:bg-surface-muted'
             }`}
             aria-pressed={active}
           >

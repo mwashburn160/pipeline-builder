@@ -105,7 +105,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
     ns.length > NAMESPACE_TRUNCATE_AT ? `${ns.slice(0, NAMESPACE_TRUNCATE_AT - 1)}…` : ns;
 
   return (
-    <div ref={containerRef} className="h-full border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+    <div ref={containerRef} className="h-full border-r border-default bg-surface">
       <ResourceList<RegistryRepoGroup>
         variant="inline"
         className="h-full"
@@ -134,10 +134,10 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
         // when non-empty, we drive the grouped namespace layout below.
       >
         {filteredGroups.length > 0 && filteredGroups.map((g) => (
-          <div key={g.namespace} className="border-b border-gray-100 dark:border-gray-800">
+          <div key={g.namespace} className="border-b border-default">
             <button
               onClick={() => toggleGroup(g.namespace)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-fg-muted hover:bg-surface-muted"
             >
               {isOpen(g.namespace)
                 ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
@@ -158,8 +158,8 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                     key={r.name}
                     className={`group/repo relative flex items-center ${
                       selectedRepo === r.name
-                        ? 'bg-blue-50 dark:bg-blue-900/30'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                        ? 'bg-info-bg'
+                        : 'hover:bg-surface-muted'
                     }`}
                   >
                     <button
@@ -167,7 +167,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                       onClick={() => onSelect(r.name)}
                       className={`flex-1 min-w-0 text-left px-3 py-1.5 pl-8 pr-8 text-sm truncate ${
                         selectedRepo === r.name
-                          ? 'text-blue-700 dark:text-blue-300 font-medium'
+                          ? 'text-info-strong font-medium'
                           : 'text-fg-muted'
                       }`}
                       title={r.name}

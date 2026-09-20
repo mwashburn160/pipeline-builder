@@ -86,8 +86,8 @@ export function ManifestDetail({
   const effectiveTab = kind.kind === 'unknown' ? 'json' : tab;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-      <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-full bg-surface">
+      <div className="p-3 border-b border-default">
         <div className="text-sm font-medium text-fg font-mono truncate">
           {breadcrumbs.map((seg, i) => (
             <span key={i}>
@@ -127,7 +127,7 @@ export function ManifestDetail({
           <WarningAlert className="m-3" message={<>{kind.reason}. Showing raw JSON.</>} />
         )}
         {effectiveTab === 'json' && (
-          <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-gray-50 dark:bg-gray-800 text-fg border border-gray-200 dark:border-gray-700 rounded">
+          <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-surface-muted text-fg border border-default rounded">
             {/* The raw manifest body embeds config `Env`/history that can carry an
                 AWS account id; redact before rendering the JSON. */}
             {JSON.stringify(redactDetails(kind.manifest.body), null, 2)}
@@ -201,7 +201,7 @@ function IndexSummary({
           <li key={p.digest}>
             <button
               onClick={() => onSelectPlatform?.(label)}
-              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded"
+              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-muted rounded"
             >
               <span className="font-mono text-sm text-fg">{label}</span>
               <span className="ml-auto text-xs text-fg-muted font-mono truncate">
@@ -306,7 +306,7 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
     <Disclosure
       open={isOpen}
       onToggle={setManualOpen}
-      className="mx-3 mb-3 border border-gray-200 dark:border-gray-700 rounded text-sm"
+      className="mx-3 mb-3 border border-default rounded text-sm"
       summaryClassName="px-3 py-2 cursor-pointer list-none text-fg-muted font-medium flex items-center gap-2"
       bodyClassName="px-3 pb-3"
       title={

@@ -89,7 +89,7 @@ export function TagTable({
   const repoHasNoTags = tags === null || tags.length === 0;
   const bulkBar = selected.size > 0 ? (
     <div className="ml-auto flex items-center gap-3 text-sm">
-      <span className="text-blue-700 dark:text-blue-300 font-medium">
+      <span className="text-info-strong font-medium">
         {selected.size} selected
       </span>
       <Button variant="link" onClick={clearSelection} className="text-xs">
@@ -105,7 +105,7 @@ export function TagTable({
   return (
     <ResourceList<string>
       variant="inline"
-      className="h-full bg-white dark:bg-gray-900"
+      className="h-full bg-surface"
       loading={loading}
       error={error}
       onRefresh={onRefresh}
@@ -142,7 +142,7 @@ export function TagTable({
     >
       {(visible.length > 0 || loading) && (
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+          <thead className="bg-surface-muted sticky top-0 z-10">
             <tr>
               {/* Wider checkbox column — gives the input a comfortable hit
                   target separate from the tag name beside it. */}
@@ -178,8 +178,8 @@ export function TagTable({
               return (
                 <tr
                   key={tag}
-                  className={`border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                    selectedTag === tag ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                  className={`border-t border-default hover:bg-surface-muted ${
+                    selectedTag === tag ? 'bg-info-bg' : ''
                   }`}
                 >
                   <td className="pl-4 pr-2 py-2">
@@ -193,7 +193,7 @@ export function TagTable({
                   <td className="px-3 py-2">
                     <button
                       onClick={() => onSelect(tag)}
-                      className="text-left text-blue-600 dark:text-blue-400 hover:underline font-mono text-xs"
+                      className="text-left text-brand hover:underline font-mono text-xs"
                     >
                       {tag}
                     </button>
@@ -220,7 +220,7 @@ export function TagTable({
                       onClick={() => onCopy(tag)}
                       title="Copy or promote this tag to another repo"
                       aria-label={`Copy ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-brand-strong hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       <span>Copy</span>

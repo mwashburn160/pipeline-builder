@@ -33,7 +33,7 @@ export function SpValues({ orgId, protocol }: { orgId: string; protocol: IdpProt
   if (loading || !sp) return <LoadingSpinner />;
 
   return (
-    <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 p-3 space-y-3" data-testid="sp-values">
+    <div className="rounded-lg bg-surface-muted p-3 space-y-3" data-testid="sp-values">
       <p className="text-sm font-medium text-fg-muted">Give these to your identity provider</p>
       {protocol === 'oidc' ? (
         <CopyRow
@@ -44,8 +44,8 @@ export function SpValues({ orgId, protocol }: { orgId: string; protocol: IdpProt
       ) : (
         <>
           <CopyRow label="Service provider entity ID (Audience)" value={sp.entityId} />
-          <CopyRow label="Assertion Consumer Service (ACS) URL" value={sp.acsUrl} hint="Bind it to HTTP-POST." />
-          <CopyRow label="Single Logout (SLO) URL" value={sp.sloUrl} hint="Accepts HTTP-Redirect and HTTP-POST. LogoutRequests must be signed." />
+          <CopyRow label="Assertion consumer service (ACS) URL" value={sp.acsUrl} hint="Bind it to HTTP-POST." />
+          <CopyRow label="Single logout (SLO) URL" value={sp.sloUrl} hint="Accepts HTTP-Redirect and HTTP-POST. LogoutRequests must be signed." />
           <CopyRow
             label="SP metadata URL"
             value={sp.metadataUrl}

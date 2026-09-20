@@ -279,7 +279,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
 
 describe('AddonGrid — combo "pair to save" nudge', () => {
   const tuaBundle = {
-    id: 'bundle-tua', name: 'Team Usage Analytics', description: 'Per-team usage.',
+    id: 'bundle-tua', name: 'Team usage analytics', description: 'Per-team usage.',
     grants: {}, features: ['team_usage_analytics'], prices: { monthly: 3000, annual: 30000 },
     stackable: false, availableForTiers: [],
   } as unknown as Bundle;

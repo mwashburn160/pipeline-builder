@@ -80,7 +80,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose }: {
             <p className="text-xs font-medium text-fg-muted mb-1">Keywords</p>
             <div className="flex flex-wrap gap-1">
               {plugin.keywords.map((k: string, i: number) => (
-                <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted">{k}</span>
+                <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-surface-muted text-fg-muted">{k}</span>
               ))}
             </div>
           </div>

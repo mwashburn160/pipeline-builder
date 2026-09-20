@@ -211,12 +211,12 @@ export default function InboxPage() {
               <InboxIcon className="w-5 h-5 text-fg-muted" />
               <h3 className="text-base font-semibold text-fg">{items.length} action item{items.length === 1 ? '' : 's'}</h3>
             </div>
-            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            <ul className="divide-y divide-default">
               {items.map((item) => {
                 const Icon = item.icon;
                 return (
                   <li key={item.id}>
-                    <Link href={item.href} className="flex items-start gap-3 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-2 px-2 rounded-lg transition-colors">
+                    <Link href={item.href} className="flex items-start gap-3 py-3 hover:bg-surface-muted/40 -mx-2 px-2 rounded-lg transition-colors">
                       <span role="img" aria-label={`${item.severity} priority`} className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${SEVERITY_DOT[item.severity]}`} />
                       <Icon className="w-4 h-4 mt-0.5 text-fg-subtle shrink-0" />
                       <span className="min-w-0">

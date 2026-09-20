@@ -308,7 +308,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-default bg-surface">
         <IconButton
           onClick={onBack}
           aria-label="Back"
@@ -330,7 +330,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             </h2>
             {rootMessage.recipientUserId && (
               <span
-                className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0"
+                className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-info-bg text-info-strong flex-shrink-0"
                 title="Direct message — targeted at a specific user"
               >
                 <User className="w-2.5 h-2.5" />
@@ -360,7 +360,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
           thread.map((msg) => {
@@ -386,8 +386,8 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                 <div
                   className={`max-w-[75%] rounded-xl px-4 py-2.5 ${
                     isMine
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-800 text-fg'
+                      ? 'bg-brand text-white'
+                      : 'bg-surface-muted text-fg'
                   } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
                 >
                   <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-fg-muted'}`}>
@@ -462,12 +462,12 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       </div>
 
       {/* Reply input */}
-      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <div className="px-4 py-3 border-t border-default bg-surface">
         {/* Pending reply attachments */}
         {replyAttachments.length > 0 && (
           <ul className="mb-2 space-y-1">
             {replyAttachments.map((a) => (
-              <li key={a.id} className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1">
+              <li key={a.id} className="flex items-center gap-2 text-xs bg-surface-muted rounded px-2 py-1">
                 <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
                 <span className="truncate flex-1 text-fg-muted">{a.filename}</span>
                 <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
@@ -499,7 +499,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             disabled={uploading || !canWrite}
             aria-label="Attach files"
             title={canWrite ? (uploading ? 'Uploading…' : 'Attach files') : NO_WRITE_REASON}
-            className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-surface-muted disabled:opacity-50 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -519,7 +519,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             disabled={!canWrite || !replyContent.trim() || uploading}
             aria-label="Send reply"
             title={canWrite ? undefined : NO_WRITE_REASON}
-            className="p-2.5 rounded-xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="p-2.5 rounded-xl bg-brand text-white hover:bg-brand-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />
           </button>

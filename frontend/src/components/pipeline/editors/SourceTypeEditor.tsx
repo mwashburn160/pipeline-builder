@@ -45,7 +45,7 @@ export default function SourceTypeEditor({
 }: SourceTypeEditorProps) {
   return (
     <div className="space-y-3">
-      <FormField label="Source Type">
+      <FormField label="Source type">
         <Select
           value={sourceType}
           onChange={(e) => onSourceTypeChange(e.target.value as FormBuilderState['synth']['sourceType'])}
@@ -59,8 +59,8 @@ export default function SourceTypeEditor({
       </FormField>
 
       {sourceType === 's3' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <FormField label="Bucket Name *" error={errors['synth.s3.bucketName']}>
+        <div className="space-y-3 pl-4 border-l-2 border-default">
+          <FormField label="Bucket name *" error={errors['synth.s3.bucketName']}>
             <Input
               type="text"
               value={s3.bucketName}
@@ -69,7 +69,7 @@ export default function SourceTypeEditor({
               disabled={disabled}
             />
           </FormField>
-          <FormField label="Object Key">
+          <FormField label="Object key">
             <Input
               type="text"
               value={s3.objectKey}
@@ -86,11 +86,11 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
-              <option value="SCHEDULE">On Schedule</option>
+              <option value="SCHEDULE">On schedule</option>
             </Select>
           </FormField>
           {s3.trigger === 'SCHEDULE' && (
-            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
+            <FormField label="Schedule expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -104,7 +104,7 @@ export default function SourceTypeEditor({
       )}
 
       {sourceType === 'github' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <FormField label="Repository *" error={errors['synth.github.repo']}>
             <Input
               type="text"
@@ -142,11 +142,11 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
-              <option value="SCHEDULE">On Schedule</option>
+              <option value="SCHEDULE">On schedule</option>
             </Select>
           </FormField>
           {github.trigger === 'SCHEDULE' && (
-            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
+            <FormField label="Schedule expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -160,7 +160,7 @@ export default function SourceTypeEditor({
       )}
 
       {sourceType === 'codestar' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <FormField label="Repository *" error={errors['synth.codestar.repo']}>
             <Input
               type="text"
@@ -196,11 +196,11 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
-              <option value="SCHEDULE">On Schedule</option>
+              <option value="SCHEDULE">On schedule</option>
             </Select>
           </FormField>
           {codestar.trigger === 'SCHEDULE' && (
-            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
+            <FormField label="Schedule expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -216,7 +216,7 @@ export default function SourceTypeEditor({
               checked={codestar.codeBuildCloneOutput}
               onChange={(e) => onCodestarChange('codeBuildCloneOutput', e.target.checked)}
               disabled={disabled}
-              className="h-4 w-4 text-brand focus:ring-blue-500"
+              className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]"
             />
             <label htmlFor="codeBuildCloneOutput" className="ml-2 text-sm text-fg-muted">
               CodeBuild Clone Output
@@ -226,8 +226,8 @@ export default function SourceTypeEditor({
       )}
 
       {sourceType === 'codecommit' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <FormField label="Repository Name *" error={errors['synth.codecommit.repositoryName']}>
+        <div className="space-y-3 pl-4 border-l-2 border-default">
+          <FormField label="Repository name *" error={errors['synth.codecommit.repositoryName']}>
             <Input
               type="text"
               value={codecommit.repositoryName}
@@ -253,11 +253,11 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
-              <option value="SCHEDULE">On Schedule</option>
+              <option value="SCHEDULE">On schedule</option>
             </Select>
           </FormField>
           {codecommit.trigger === 'SCHEDULE' && (
-            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
+            <FormField label="Schedule expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"

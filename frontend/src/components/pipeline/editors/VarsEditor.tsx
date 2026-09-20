@@ -48,8 +48,8 @@ export default function VarsEditor({ value, onChange, disabled }: VarsEditorProp
   };
 
   const inputCls =
-    'w-full px-3 py-1.5 border rounded-lg text-sm bg-white dark:bg-gray-800 text-fg ' +
-    'placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors';
+    'w-full px-3 py-1.5 border rounded-lg text-sm bg-surface text-fg ' +
+    'placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-ring)] focus:border-brand transition-colors';
 
   return (
     <div className="space-y-2">
@@ -69,7 +69,7 @@ export default function VarsEditor({ value, onChange, disabled }: VarsEditorProp
         type="button"
         onClick={handleAdd}
         disabled={disabled}
-        className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium disabled:opacity-50"
+        className="text-sm text-brand hover:text-brand-strong font-medium disabled:opacity-50"
       >
         + Add Variable
       </button>
@@ -94,7 +94,7 @@ function VarRow({
     ? 'border-red-400 dark:border-red-500'
     : validation.hasTemplate
       ? 'border-indigo-400 dark:border-indigo-500'
-      : 'border-gray-300 dark:border-gray-600';
+      : 'border-default';
 
   return (
     <div>
@@ -107,7 +107,7 @@ function VarRow({
           placeholder="Name (e.g. orgId)"
           disabled={disabled}
           autoComplete="off"
-          className={`${inputCls} border-gray-300 dark:border-gray-600`}
+          className={`${inputCls} border-default`}
         />
         {entry.type === 'boolean' ? (
           <Select value={entry.value} onChange={(e) => onValueChange(e.target.value)} disabled={disabled} className={`${inputCls} ${valueBorder}`}>
@@ -124,7 +124,7 @@ function VarRow({
             className={`${inputCls} ${valueBorder}`}
           />
         )}
-        <Select value={entry.type} onChange={(e) => onTypeChange(e.target.value)} disabled={disabled} className={`${inputCls} border-gray-300 dark:border-gray-600`}>
+        <Select value={entry.type} onChange={(e) => onTypeChange(e.target.value)} disabled={disabled} className={`${inputCls} border-default`}>
           <option value="string">String</option>
           <option value="number">Number</option>
           <option value="boolean">Boolean</option>

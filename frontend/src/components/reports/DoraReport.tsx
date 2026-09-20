@@ -141,7 +141,7 @@ export function DoraReport({
           {headlineEnv ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <DoraCard
-                label={<>Deployment Frequency <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
+                label={<>Deployment frequency <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={String(headlineEnv.deploymentFrequency.deployments)}
                 sub={<>{headlineEnv.deploymentFrequency.deployments === 1 ? 'deploy' : 'deploys'} &middot; {headlineEnv.deploymentFrequency.perDay.toFixed(2)}/day</>}
                 tooltip={`Successful ${headlineEnv.environment} deploy-stage executions in the window. Per-environment breakdown below.`}
@@ -158,7 +158,7 @@ export function DoraReport({
                 tooltip={'Measured commit→deploy time (from resolved commit timestamps). "unknown" when commit times couldn’t be resolved for the in-window deploys.'}
               />
               <DoraCard
-                label="Change Failure Rate"
+                label="Change failure rate"
                 value={`${headlineEnv.changeFailureRate.rate}%`}
                 sub={
                   <>

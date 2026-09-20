@@ -96,7 +96,7 @@ export default function PipelineConfigSection({
         </FormField>
       )}
 
-      <FormField label="Pipeline Name" hint="Auto-generated when project or organization changes. Can be overridden.">
+      <FormField label="Pipeline name" hint="Auto-generated when project or organization changes. Can be overridden.">
         <Input
           type="text"
           value={pipelineName}

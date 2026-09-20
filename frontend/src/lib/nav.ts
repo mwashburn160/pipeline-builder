@@ -123,9 +123,13 @@ export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; col
   // `requiredPermission` hides the action for users who can't perform the write
   // (and it's read-only-impersonation-aware via `can()` at the render site) —
   // otherwise a read-only member would land on a create modal that then 403s.
-  { href: '/dashboard/pipelines?create=1', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600', requiredPermission: 'pipelines:write' },
-  { href: '/dashboard/plugins?create=1', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500', requiredPermission: 'plugins:write' },
-  { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-green-600' },
+  // `color` carries the full colour treatment, from the token set. ONE action is
+  // accented (creating a pipeline is the thing this product is for); the others
+  // are quiet, so the top of the rail reads as a toolbar rather than as three
+  // competing buttons in blue, amber and green.
+  { href: '/dashboard/pipelines?create=1', label: 'Create pipeline', icon: Plus, color: 'bg-brand text-white hover:bg-brand-strong', requiredPermission: 'pipelines:write' },
+  { href: '/dashboard/plugins?create=1', label: 'Add plugin', icon: Plus, color: 'bg-surface-muted text-fg-muted hover:text-fg', requiredPermission: 'plugins:write' },
+  { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-surface-muted text-fg-muted hover:text-fg' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -144,12 +148,12 @@ export const NAV_SECTIONS: NavSection[] = [
       // Unified action-item queue (failing owned pipelines, pending reviews, unread messages).
       { title: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
       // Developer-portal "my services": the pipelines & plugins this user owns.
-      { title: 'My Services', href: '/dashboard/my-services', icon: Layers },
+      { title: 'My services', href: '/dashboard/my-services', icon: Layers },
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read' },
       // Requests to view an account, and live viewing sessions. NO permission gate
       // on purpose: the person most often asked is the impersonated user, who is
       // usually not an admin. The server filters what each person sees.
-      { title: 'Access Requests', href: '/dashboard/access-requests', icon: KeyRound },
+      { title: 'Access requests', href: '/dashboard/access-requests', icon: KeyRound },
     ],
   },
   {
@@ -176,7 +180,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // moved out of the Platform admin group to sit with the other run views.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
       // The failed-build (DLQ) tab of Builds, by name in ⌘K.
-      { title: 'Build Triage', href: '/dashboard/triage', icon: Wrench, systemAdminOnly: true, paletteOnly: true },
+      { title: 'Build triage', href: '/dashboard/triage', icon: Wrench, systemAdminOnly: true, paletteOnly: true },
       // Application logs (Loki). Rides `observability:read` — already in the
       // member bundle — so logs appear for existing roles with no migration;
       // DOWNLOADING them additionally needs `logs:export`, checked on the page.
@@ -197,8 +201,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // them there too would light up two rows. In ⌘K they're findable by name.
       // All three read GET /observability/* (`observability:read`).
       { title: 'Alerts', href: '/dashboard/observability/alerts', icon: BellRing, requiredPermission: 'observability:read', paletteOnly: true },
-      { title: 'Alert Rules', href: '/dashboard/observability/alert-rules', icon: ListChecks, requiredPermission: 'observability:read', paletteOnly: true },
-      { title: 'Alert Destinations', href: '/dashboard/observability/alert-destinations', icon: Send, requiredPermission: 'observability:read', paletteOnly: true },
+      { title: 'Alert rules', href: '/dashboard/observability/alert-rules', icon: ListChecks, requiredPermission: 'observability:read', paletteOnly: true },
+      { title: 'Alert destinations', href: '/dashboard/observability/alert-destinations', icon: Send, requiredPermission: 'observability:read', paletteOnly: true },
     ],
   },
   {
@@ -206,11 +210,11 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
       // Security audit trail.
-      { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
+      { title: 'Audit log', href: '/dashboard/audit', icon: History, adminOnly: true },
       // Org-wide audit activity charts — same audience as the Audit Log. Its
       // route sits under /observability, so it's palette-only rather than a
       // second Govern row.
-      { title: 'Audit Activity', href: '/dashboard/observability/audit-activity', icon: LineChart, adminOnly: true, paletteOnly: true },
+      { title: 'Audit activity', href: '/dashboard/observability/audit-activity', icon: LineChart, adminOnly: true, paletteOnly: true },
     ],
   },
   {
@@ -246,8 +250,8 @@ export const NAV_SECTIONS: NavSection[] = [
     // org-scoped "Organization" section above so the two scopes aren't confused.
     label: 'Platform',
     items: [
-      { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
-      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
+      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
+      { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
       // Fleet-wide billing admin — a single entry that folds Overview, Discounts,
       // and Promotions into one page with a tab bar (BillingAdminTabs), mirroring
@@ -256,7 +260,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // billing-service gate; Promotions additionally needs BILLING_PROMOTIONS_ENABLED
       // server-side (its own page handles the disabled case).
       {
-        title: 'Billing Admin',
+        title: 'Billing admin',
         href: '/dashboard/admin/billing',
         icon: Landmark,
         systemAdminOnly: true,
@@ -278,11 +282,11 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Settings',
     items: [
-      // "Profile & Organization", not "Profile": the item covers the org tab
+      // "Profile & organization", not "Profile": the item covers the org tab
       // too, and calling the whole settings area "Profile" is what hid passkeys,
       // TOTP and recovery codes behind a word that denies they exist. The
       // credentials moved out to their own entry below.
-      { title: 'Profile & Organization', href: '/dashboard/settings', icon: Settings },
+      { title: 'Profile & organization', href: '/dashboard/settings', icon: Settings },
       // ONE home for sign-in factors, sessions, access keys and the org's
       // service accounts. `extraActivePaths` keeps it highlighted on the old
       // service-accounts address while it forwards (the old /dashboard/tokens
@@ -296,12 +300,12 @@ export const NAV_SECTIONS: NavSection[] = [
       // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
-      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
+      { title: 'Single sign-on', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
       // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
       // config surface, gated on the `advanced_reporting` entitlement (like DORA).
-      { title: 'Incident Reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
+      { title: 'Incident reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
-      { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },
+      { title: 'API catalog', href: '/dashboard/api-catalog', icon: Code },
       { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
     ],

@@ -36,22 +36,22 @@ export default function SecurityGroupEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="label">Security Group Type</label>
+        <label className="label">Security group type</label>
         <Select
           value={securityGroupType}
           onChange={(e) => onTypeChange(e.target.value as SecurityGroupType)}
           disabled={disabled}
         >
           <option value="none">None</option>
-          <option value="securityGroupIds">Security Group IDs</option>
-          <option value="securityGroupLookup">Security Group Lookup</option>
+          <option value="securityGroupIds">Security group IDs</option>
+          <option value="securityGroupLookup">Security group lookup</option>
         </Select>
       </div>
 
       {securityGroupType === 'securityGroupIds' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <StringArrayEditor
-            label="Security Group IDs *"
+            label="Security group IDs *"
             value={securityGroup.securityGroupIds}
             onChange={(securityGroupIds) => update({ securityGroupIds })}
             placeholder="sg-..."
@@ -64,7 +64,7 @@ export default function SecurityGroupEditor({
               checked={securityGroup.mutable}
               onChange={(e) => update({ mutable: e.target.checked })}
               disabled={disabled}
-              className="h-4 w-4 text-brand focus:ring-blue-500"
+              className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]"
             />
             <label htmlFor="sgMutable" className="ml-2 text-sm text-fg-muted">Mutable</label>
           </div>
@@ -72,9 +72,9 @@ export default function SecurityGroupEditor({
       )}
 
       {securityGroupType === 'securityGroupLookup' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+        <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
-            <label className="label">Security Group Name *</label>
+            <label className="label">Security group name *</label>
             <Input
               type="text"
               value={securityGroup.securityGroupName}

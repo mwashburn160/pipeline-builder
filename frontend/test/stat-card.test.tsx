@@ -22,13 +22,13 @@ describe('StatCard', () => {
     render(
       <StatCard
         variant="detailed"
-        label="Deployment Frequency"
+        label="Deployment frequency"
         value="8"
         sub="deploys · 0.27/day"
         badge={<span>Elite</span>}
       />,
     );
-    expect(screen.getByText('Deployment Frequency')).toBeInTheDocument();
+    expect(screen.getByText('Deployment frequency')).toBeInTheDocument();
     expect(screen.getByText('8')).toBeInTheDocument();
     expect(screen.getByText('deploys · 0.27/day')).toBeInTheDocument();
     expect(screen.getByText('Elite')).toBeInTheDocument();

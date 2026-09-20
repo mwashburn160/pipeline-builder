@@ -43,7 +43,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
               <div
                 className={`w-12 sm:w-20 h-0.5 ${
                   index <= currentStep
-                    ? 'bg-blue-500 dark:bg-blue-400'
+                    ? 'bg-brand'
                     : 'bg-gray-300 dark:bg-gray-600'
                 }`}
               />
@@ -60,12 +60,12 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
               <div
                 className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
                   isCurrent
-                    ? 'bg-blue-600 text-white ring-2 ring-blue-200 dark:ring-blue-800'
+                    ? 'bg-brand text-white ring-2 ring-brand/30'
                     : isCompleted && status === 'valid'
                     ? 'bg-green-600 text-white'
                     : status === 'error'
                     ? 'bg-red-500 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-fg-muted'
+                    : 'bg-surface-muted text-fg-muted'
                 } ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 dark:hover:ring-blue-700' : 'cursor-default'}`}
               >
                 {isCompleted && status === 'valid' ? (
@@ -77,7 +77,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
               <span
                 className={`mt-1.5 text-xs font-medium whitespace-nowrap ${
                   isCurrent
-                    ? 'text-blue-600 dark:text-blue-400'
+                    ? 'text-brand'
                     : isCompleted
                     ? 'text-fg-muted'
                     : 'text-fg-muted'

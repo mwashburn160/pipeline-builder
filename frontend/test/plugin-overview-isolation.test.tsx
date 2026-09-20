@@ -32,8 +32,8 @@ describe('PluginOverview (isolation)', () => {
     render(<PluginOverview loading={false} pluginSummary={summary} distribution={distribution} />);
     expect(screen.getByText('Total')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByText('By Plugin Type')).toBeInTheDocument();
-    expect(screen.getByText('By Compute Type')).toBeInTheDocument();
+    expect(screen.getByText('By plugin type')).toBeInTheDocument();
+    expect(screen.getByText('By compute type')).toBeInTheDocument();
     expect(screen.getByText('action')).toBeInTheDocument();
     expect(screen.getByText('lambda')).toBeInTheDocument();
   });

@@ -129,7 +129,7 @@ export function SysadminHome() {
                 <h3 className="text-sm font-semibold text-fg">Multi-tenant posture</h3>
               </div>
               <dl className="space-y-2 text-sm">
-                <div className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5">
+                <div className="flex items-center justify-between rounded-md bg-surface-muted px-2.5 py-1.5">
                   <dt className="text-fg-muted">RLS context</dt>
                   <dd>
                     {summary.rls.contextMode === 'strict'
@@ -139,7 +139,7 @@ export function SysadminHome() {
                         : <Badge color="gray">{summary.rls.contextMode}</Badge>}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-800/50 px-2.5 py-1.5">
+                <div className="flex items-center justify-between rounded-md bg-surface-muted px-2.5 py-1.5">
                   <dt className="text-fg-muted">Per-org KMS</dt>
                   <dd>
                     {summary.encryption.perOrgKmsEnabled
@@ -177,11 +177,11 @@ export function SysadminHome() {
                   No audit events recorded yet.
                 </div>
               ) : (
-                <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                <ul className="divide-y divide-default">
                   {events.map((e) => (
                     <li key={e._id} className="py-1.5 text-sm">
                       <div className="flex items-baseline justify-between gap-2">
-                        <code className="text-xs font-medium text-blue-700 dark:text-blue-300">{e.action}</code>
+                        <code className="text-xs font-medium text-info-strong">{e.action}</code>
                         <span className="text-xs text-fg-muted whitespace-nowrap">
                           <RelativeTime value={e.createdAt} />
                         </span>

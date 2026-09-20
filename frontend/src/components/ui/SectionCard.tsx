@@ -30,8 +30,9 @@ interface SectionCardProps {
  * `flex items-center gap-2` + drifting `h2/h3` headers repeated across settings,
  * incident, api-catalog, notifications, tokens, and roles pages.
  *
- * The title uses the shared `.h2` heading style (serif, like every other
- * heading), at `text-base` so section cards sit below the page title.
+ * The title uses the shared `.h2` heading style — 16px sans, which is what
+ * keeps a card title below the 24px serif page title without competing with the
+ * data inside the card.
  */
 export function SectionCard({
   title, description, icon: Icon, actions, footer, children,
@@ -51,7 +52,7 @@ export function SectionCard({
           )}
           <div className="min-w-0 flex-1">
             {title && (
-              <h2 className="h2 text-base leading-tight">
+              <h2 className="h2 leading-tight">
                 {title}
               </h2>
             )}

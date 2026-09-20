@@ -189,7 +189,7 @@ export function DataTable<T>({
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-default">
               {Array.from({ length: skeletonRows }).map((_, i) => (
                 <SkeletonTableRow key={i} columns={visibleColumns.length} />
               ))}
@@ -230,7 +230,7 @@ export function DataTable<T>({
               aria-label="Toggle column visibility"
               aria-haspopup="menu"
               aria-expanded={showColumnMenu}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:text-fg rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:text-fg rounded-lg hover:bg-surface-muted transition-colors"
             >
               <Columns3 className="w-3.5 h-3.5" />
               Columns
@@ -245,7 +245,7 @@ export function DataTable<T>({
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowColumnMenu(false)} onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }} role="presentation" />
                 <div
-                  className="absolute right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1"
+                  className="absolute right-0 top-full mt-1 z-20 w-48 rounded-lg border border-default bg-surface py-1 shadow-lg"
                   role="menu"
                   aria-label="Toggle column visibility"
                   onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }}
@@ -255,13 +255,13 @@ export function DataTable<T>({
                       key={col.id}
                       role="menuitemcheckbox"
                       aria-checked={!hiddenColumns.has(col.id)}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:bg-surface-muted cursor-pointer"
                     >
                       <input
                         type="checkbox"
                         checked={!hiddenColumns.has(col.id)}
                         onChange={() => toggleColumn(col.id)}
-                        className="rounded border-gray-300 dark:border-gray-600 text-brand focus:ring-brand"
+                        className="rounded border-default text-brand focus:ring-brand"
                       />
                       {col.header}
                     </label>

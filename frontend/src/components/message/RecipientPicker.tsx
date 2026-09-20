@@ -236,7 +236,7 @@ export function RecipientPicker({
           {...team.inputAriaProps}
         />
         {team.open && (
-          <div role="listbox" id={team.listboxId} aria-label="Teams" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
+          <div role="listbox" id={team.listboxId} aria-label="Teams" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-surface border border-default rounded-xl shadow-lg text-sm">
             {teamMatches.length === 0 ? (
               <div className="px-3 py-2 text-fg-muted">
                 {searchingTeams
@@ -258,12 +258,12 @@ export function RecipientPicker({
                   onMouseEnter={() => team.setActiveIndex(i)}
                   onClick={() => handleTeamSelect(opt)}
                   title={opt.title || opt.label}
-                  className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors flex items-center gap-2 ${i === team.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                  className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors flex items-center gap-2 ${i === team.activeIndex ? 'bg-info-bg' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                 >
                   <Users className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
                   <span className="truncate">{opt.label}</span>
                   {opt.isTeam && (
-                    <span className="ml-auto shrink-0 text-2xs font-medium uppercase tracking-wide rounded px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-fg-muted">
+                    <span className="ml-auto shrink-0 text-2xs font-medium uppercase tracking-wide rounded px-1.5 py-0.5 bg-surface-muted text-fg-muted">
                       Team
                     </span>
                   )}
@@ -302,7 +302,7 @@ export function RecipientPicker({
             )}
           </div>
           {user.open && (
-            <div role="listbox" id={user.listboxId} aria-label="Members" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
+            <div role="listbox" id={user.listboxId} aria-label="Members" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-surface border border-default rounded-xl shadow-lg text-sm">
               {loadingMembers ? (
                 <div className="px-3 py-2 text-fg-muted" role="status">Searching members…</div>
               ) : members.length === 0 ? (
@@ -321,7 +321,7 @@ export function RecipientPicker({
                     onMouseDown={(e) => e.preventDefault()}
                     onMouseEnter={() => user.setActiveIndex(i)}
                     onClick={() => handleUserSelect(m)}
-                    className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors flex items-center gap-2 ${i === user.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                    className={`w-full text-left px-3 py-1.5 cursor-pointer text-fg transition-colors flex items-center gap-2 ${i === user.activeIndex ? 'bg-info-bg' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                   >
                     <User className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
                     <span className="truncate font-medium">{m.username}</span>
@@ -332,7 +332,7 @@ export function RecipientPicker({
             </div>
           )}
           {recipientUserId && (
-            <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+            <p className="mt-1 text-xs text-brand">
               Only <span className="font-medium">{userText || 'the selected user'}</span> will see this message.
             </p>
           )}

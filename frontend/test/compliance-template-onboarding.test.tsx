@@ -49,6 +49,6 @@ it('applies selected templates when writable', async () => {
   const apply = await selectTemplate();
   await waitFor(() => expect(apply).toBeEnabled());
   fireEvent.click(apply);
-  expect(await screen.findByText('Templates Applied')).toBeInTheDocument();
+  expect(await screen.findByText('Templates applied')).toBeInTheDocument();
   expect(applyRuleTemplates).toHaveBeenCalledWith(['t1']);
 });

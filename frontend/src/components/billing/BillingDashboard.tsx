@@ -155,11 +155,11 @@ export function BillingDashboard() {
       {rangeToolbar}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard label="Total Billed" value={money(t.grossBilledCents)} />
+        <StatCard label="Total billed" value={money(t.grossBilledCents)} />
         <StatCard label="Discounts" value={money(t.discountsCents)} />
-        <StatCard label="Usage Credits" value={money(t.creditsCents)} />
-        <StatCard label="Net Billed" value={money(t.netBilledCents)} />
-        <StatCard label="Amount Paid" value={money(t.amountPaidCents)} />
+        <StatCard label="Usage credits" value={money(t.creditsCents)} />
+        <StatCard label="Net billed" value={money(t.netBilledCents)} />
+        <StatCard label="Amount paid" value={money(t.amountPaidCents)} />
       </div>
 
       {summary.timeline.length > 0 && (

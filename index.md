@@ -223,7 +223,7 @@ cd ./. && ./deploy/bin/init-platform.sh docker   # 2. register admin + load plug
 
 > **Minikube:** `cd deploy/local/minikube && ./bin/setup.sh` (use target `minikube` for init). On an ~8-core laptop run **`LEAN=1 ./bin/setup.sh`** — the full stack **+ the Istio mesh** exceeds 8 vCPU, so LEAN omits the optional observability/admin services and uses single replicas. More disk: **`DISK_SIZE=60g ./bin/setup.sh`** (default 30g, create-time only). Clean restart: `minikube delete --profile=pipeline-builder`. Data lives on the VM disk (survives `stop/start`, wiped by `delete`), not the host `data/` folder.
 
-Then open **https://localhost:8443** (default admin `admin@internal` / `SecurePassword123!` — change it immediately on anything beyond your laptop).
+Then open **https://localhost:8443** (default admin `admin@internal` / `Pipeline-Builder-Dev-2026!` — change it immediately on anything beyond your laptop).
 
 From there:
 

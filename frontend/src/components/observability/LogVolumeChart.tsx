@@ -67,7 +67,7 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
   const total = buckets.reduce((sum, b) => sum + b.total, 0);
 
   if (loading && buckets.length === 0) {
-    return <div className="h-24 animate-pulse rounded bg-gray-100 dark:bg-gray-800" aria-hidden />;
+    return <div className="h-24 animate-pulse rounded bg-surface-muted" aria-hidden />;
   }
   if (buckets.length === 0) {
     return (
@@ -83,7 +83,7 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between text-xs text-fg-muted">
-        <span><span className="font-medium text-gray-700 dark:text-gray-200">{total.toLocaleString()}</span> lines</span>
+        <span><span className="font-medium text-fg">{total.toLocaleString()}</span> lines</span>
         <div className="flex items-center gap-3">
           {LEVEL_ORDER.map((level) => (
             <span key={level} className="flex items-center gap-1">

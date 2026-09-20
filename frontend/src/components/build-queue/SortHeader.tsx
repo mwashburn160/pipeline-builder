@@ -17,7 +17,7 @@ export function SortHeader({ label, field, sortBy, sortDir, onSort }: SortHeader
   const active = sortBy === field;
   return (
     <th scope="col"
-      className="px-4 py-2.5 text-left font-medium text-fg-muted cursor-pointer select-none hover:text-fg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      className="px-4 py-2.5 text-left font-medium text-fg-muted cursor-pointer select-none hover:text-fg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)]"
       onClick={() => onSort(field)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(field); } }}
       role="button"

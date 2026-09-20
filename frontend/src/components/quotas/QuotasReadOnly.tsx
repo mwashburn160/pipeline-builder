@@ -125,7 +125,7 @@ export function QuotasReadOnly({
         )}
         {/* One pooling explanation, one wording — see `poolingExplanation`. */}
         {activeOrgIsTeam && (
-          <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
+          <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4">
             <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{POOLING_TITLE}</h3>
             <p className="text-sm text-blue-800 dark:text-blue-200">
               This is a team. {poolingExplanation('team', orgData?.pool?.rootOrgName || undefined)}{' '}
@@ -134,7 +134,7 @@ export function QuotasReadOnly({
           </div>
         )}
         {activeOrgHasTeams && !activeOrgIsTeam && (
-          <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
+          <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4">
             <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{POOLING_TITLE}</h3>
             <p className="text-sm text-blue-800 dark:text-blue-200">
               {poolingExplanation('root', orgData?.name, orgData?.pool ? orgData.pool.orgCount - 1 : undefined)}

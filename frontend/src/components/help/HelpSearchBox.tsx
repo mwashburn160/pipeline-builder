@@ -47,12 +47,12 @@ export function HelpSearchBox({ query, onQueryChange, inputRef, topicCount, resu
             type="button"
             onClick={() => setAndFocus('')}
             aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-fg-subtle hover:text-fg hover:bg-surface-muted"
           >
             <X className="w-4 h-4" />
           </button>
         ) : (
-          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:inline-block text-2xs font-mono text-fg-subtle border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5">
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:inline-block text-2xs font-mono text-fg-subtle border border-default rounded px-1.5 py-0.5">
             /
           </kbd>
         )}
@@ -77,7 +77,7 @@ export function HelpSearchBox({ query, onQueryChange, inputRef, topicCount, resu
                 key={s}
                 type="button"
                 onClick={() => setAndFocus(s)}
-                className="text-2xs px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="text-2xs px-2 py-0.5 rounded-full border border-default text-fg-muted hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
               >
                 {s}
               </button>

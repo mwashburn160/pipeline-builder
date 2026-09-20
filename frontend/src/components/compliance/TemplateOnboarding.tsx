@@ -78,7 +78,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
 
   if (result) {
     return (
-      <Callout variant="success" icon={Check} title="Templates Applied">
+      <Callout variant="success" icon={Check} title="Templates applied">
         {result.created} rule{result.created !== 1 ? 's' : ''} created
         {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}
       </Callout>
@@ -90,7 +90,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-warning" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Starter Rule Templates</h2>
+          <h2 className="text-lg font-semibold text-fg">Starter rule templates</h2>
         </div>
         <Button
           onClick={handleApply}
@@ -121,14 +121,14 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
               onClick={() => toggleTemplate(t.id)}
               className={`text-left p-4 rounded-lg border-2 transition-colors ${
                 selected
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600'
+                  ? 'border-blue-500 bg-info-bg'
+                  : 'border-default bg-surface hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">{t.name}</span>
+                    <span className="text-sm font-medium text-fg">{t.name}</span>
                     <Badge color={CATEGORY_COLORS[t.category] ?? 'gray'}>{t.category}</Badge>
                   </div>
                   <p className="text-xs text-fg-muted">{t.description}</p>
@@ -137,7 +137,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
                     <Badge color="gray">{t.severity}</Badge>
                   </div>
                 </div>
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'}`}>
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? 'bg-brand border-brand' : 'border-default'}`}>
                   {selected && <Check className="h-3 w-3 text-white" />}
                 </div>
               </div>

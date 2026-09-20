@@ -311,8 +311,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
           </div>
         )}
         {events.length > 0 && (
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-64 overflow-y-auto">
-            <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
+          <div className="rounded-lg border border-default bg-canvas p-3 max-h-64 overflow-y-auto">
+            <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
             {events.map((event, i) => (
               <div key={i} className={`text-xs font-mono py-0.5 ${
                 event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
@@ -321,7 +321,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
               }`}>{event.message}</div>
             ))}
             {isBuilding && (
-              <div className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400"><LoadingSpinner size="sm" /> Building Docker image...</div>
+              <div className="flex items-center gap-2 mt-1 text-xs text-brand"><LoadingSpinner size="sm" /> Building Docker image...</div>
             )}
           </div>
         )}
@@ -334,7 +334,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   return (
     <div className="space-y-4">
       {/* Mode toggle */}
-      <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-0.5 bg-gray-50 dark:bg-gray-800">
+      <div className="inline-flex rounded-lg border border-default p-0.5 bg-surface-muted">
         {(['create', 'edit'] as Mode[]).map((m) => (
           <button
             key={m}
@@ -455,7 +455,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
             </div>
           )}
 
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex items-center justify-between">
+          <div className="border-t border-default pt-4 flex items-center justify-between">
             <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
               <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
             </FormField>
@@ -466,7 +466,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
               </Button>
             ) : (
               <Button onClick={handleCreate} disabled={disabled || isWorking}>
-                {saving ? <><LoadingSpinner size="sm" className="mr-2" />Queueing build…</> : <><Rocket className="w-4 h-4 mr-2" />Create Plugin</>}
+                {saving ? <><LoadingSpinner size="sm" className="mr-2" />Queueing build…</> : <><Rocket className="w-4 h-4 mr-2" />Create plugin</>}
               </Button>
             )}
           </div>

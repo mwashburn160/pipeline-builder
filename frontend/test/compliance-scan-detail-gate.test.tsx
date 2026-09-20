@@ -59,7 +59,7 @@ it('hides Cancel scan for a read-only viewer', async () => {
   render(<ScanDetail scanId="scan-1" onBack={jest.fn()} readOnly />);
 
   // The detail itself still renders — reading a scan is `compliance:read`.
-  await screen.findByText('Scan Details');
+  await screen.findByText('Scan details');
   expect(screen.queryByRole('button', { name: /cancel scan/i })).not.toBeInTheDocument();
   expect(cancelScan).not.toHaveBeenCalled();
 });

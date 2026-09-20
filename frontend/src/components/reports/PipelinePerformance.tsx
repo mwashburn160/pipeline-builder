@@ -56,7 +56,7 @@ export function PipelinePerformance({ loading, executions, durations, bottleneck
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <SectionHeading>Pipeline Executions</SectionHeading>
+            <SectionHeading>Pipeline executions</SectionHeading>
             <ExportCSVButton data={executions.map(p => ({ pipeline: p.pipeline_name || p.project, total: p.total, passed: p.succeeded, failed: p.failed, canceled: p.canceled }))} filename="pipeline-executions" />
           </div>
           {executions.length > 0 ? (
@@ -65,7 +65,7 @@ export function PipelinePerformance({ loading, executions, durations, bottleneck
         </Card>
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <SectionHeading>Pipeline Duration</SectionHeading>
+            <SectionHeading>Pipeline duration</SectionHeading>
             <ExportCSVButton data={durations.map(d => ({ pipeline: d.pipeline_name || d.project, avg_ms: d.avg_ms, min_ms: d.min_ms, max_ms: d.max_ms, p95_ms: d.p95_ms, executions: d.executions }))} filename="pipeline-duration" />
           </div>
           {durations.length > 0 ? (
@@ -75,7 +75,7 @@ export function PipelinePerformance({ loading, executions, durations, bottleneck
       </div>
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <SectionHeading>Stage Bottlenecks</SectionHeading>
+          <SectionHeading>Stage bottlenecks</SectionHeading>
           <ExportCSVButton data={bottlenecks.map(b => ({ stage: b.stage_name, pipeline: b.pipeline_name || '', avg_ms: b.avg_ms, max_ms: b.max_ms }))} filename="stage-bottlenecks" />
         </div>
         {bottlenecks.length > 0 ? (

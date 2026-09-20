@@ -38,9 +38,9 @@ export const TEMPLATE_PAGE_SIZE = 24;
 
 /** Badge tint per visibility rung — widest reach is the most prominent. */
 const VISIBILITY_BADGE: Record<string, string> = {
-  private: 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300',
+  private: 'bg-surface-muted/50 text-fg-muted',
   org: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300',
-  public: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300',
+  public: 'bg-info-bg text-blue-800 dark:text-blue-300',
 };
 
 /** Hover text spelling out who each rung actually reaches. */
@@ -318,7 +318,7 @@ export default function TemplatesPage() {
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold text-fg">{t.name}</h3>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-2xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
+                    <span className="text-2xs px-2 py-0.5 rounded bg-surface-muted/50 text-fg-muted">{t.category}</span>
                     <span
                       className={`text-2xs px-2 py-0.5 rounded ${VISIBILITY_BADGE[t.visibility] ?? VISIBILITY_BADGE.private}`}
                       title={VISIBILITY_TITLE[t.visibility] ?? VISIBILITY_TITLE.private}
@@ -385,7 +385,7 @@ export default function TemplatesPage() {
             </div>
 
             {(selected.inputs?.length ?? 0) > 0 && (
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-4">
+              <div className="pt-2 border-t border-default space-y-4">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Template inputs</h4>
                 {selected.inputs.map((inp) => (
                   <div key={inp.name}>

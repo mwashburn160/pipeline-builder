@@ -435,7 +435,7 @@ export default function UsersPage() {
 
   return (
     <DashboardLayout
-      title="All Users"
+      title="All users"
       subtitle="System-wide user administration"
       actions={
         <Button onClick={openCreate} className="inline-flex items-center gap-1">
@@ -459,13 +459,13 @@ export default function UsersPage() {
           right={
             <div className="flex flex-wrap items-center gap-2">
               <FilterSelect value={list.filters.organizationId} onChange={(e) => list.updateFilter('organizationId', e.target.value)} aria-label="Filter by organization">
-                <option value="all">All Organizations</option>
+                <option value="all">All organizations</option>
                 {orgOptions.map((o) => (
                   <option key={o.id} value={o.id}>{o.name}</option>
                 ))}
               </FilterSelect>
               <FilterSelect value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} aria-label="Filter by role">
-                <option value="all">All Roles</option>
+                <option value="all">All roles</option>
                 <option value="member">Members</option>
                 <option value="admin">Admins</option>
               </FilterSelect>

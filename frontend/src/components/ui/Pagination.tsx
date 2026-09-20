@@ -113,10 +113,10 @@ function PageButton({
       disabled={disabled}
       className={`inline-flex items-center justify-center min-w-[32px] h-8 px-1.5 text-sm rounded-md transition-colors ${
         active
-          ? 'bg-blue-600 text-white font-semibold'
+          ? 'bg-brand text-white font-semibold'
           : disabled
-            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+            ? 'text-fg-subtle cursor-not-allowed'
+            : 'text-fg-muted hover:bg-surface-muted'
       }`}
       {...props}
     >

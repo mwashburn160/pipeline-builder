@@ -69,7 +69,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
               onChange={(name) => onPluginChange('synth', name, null)}
               onSelectPlugin={(plugin) => onPluginChange('synth', plugin.name, plugin)}
               disabled={disabled}
-              label="Synth Plugin"
+              label="Synth plugin"
             />
           </div>
 
@@ -183,7 +183,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       <div className="space-y-4">
         {/* Git URL Input */}
         <div>
-          <label className="label">Git Repository URL</label>
+          <label className="label">Git repository URL</label>
           <Input
             type="text"
             value={gitUrl}
@@ -301,7 +301,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {previewJson && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated Configuration</label>
+              <label className="label">Generated configuration</label>
               {generating ? (
                 <span className="text-xs text-info font-medium flex items-center gap-1">
                   <LoadingSpinner size="sm" /> Streaming...

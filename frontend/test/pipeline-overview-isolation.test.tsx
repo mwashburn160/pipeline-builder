@@ -39,10 +39,10 @@ describe('PipelineOverview (isolation)', () => {
   it('renders summary stats + the execution timeline with data', () => {
     render(<PipelineOverview {...baseProps} loading={false} executions={[execRow]} timeline={[timelineRow]} />);
     expect(screen.getByText('Executions')).toBeInTheDocument();
-    expect(screen.getByText('Success Rate')).toBeInTheDocument();
+    expect(screen.getByText('Success rate')).toBeInTheDocument();
     expect(screen.getByText('80.0%')).toBeInTheDocument();
-    expect(screen.getByText('Execution Timeline')).toBeInTheDocument();
-    expect(screen.getByText('Success Rate Trend')).toBeInTheDocument();
+    expect(screen.getByText('Execution timeline')).toBeInTheDocument();
+    expect(screen.getByText('Success rate trend')).toBeInTheDocument();
   });
 
   it('does not render any DORA controls (they live on the DORA tab now)', () => {

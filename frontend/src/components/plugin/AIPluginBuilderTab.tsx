@@ -212,8 +212,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
       {/* Build progress log */}
       {requestId && events.length > 0 && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-48 overflow-y-auto">
-          <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
+        <div className="rounded-lg border border-default bg-canvas p-3 max-h-48 overflow-y-auto">
+          <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
           {events.map((event, i) => (
             <div key={i} className={`text-xs font-mono py-0.5 ${
               event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
@@ -224,7 +224,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
             </div>
           ))}
           {isBuilding && (
-            <div role="status" className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400">
+            <div role="status" className="flex items-center gap-2 mt-1 text-xs text-brand">
               <LoadingSpinner size="sm" label={null} /> Building Docker image...
             </div>
           )}
@@ -236,7 +236,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="label">Generating...</label>
-            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+            <span className="text-xs text-brand font-medium flex items-center gap-1">
               <LoadingSpinner size="sm" /> Streaming...
             </span>
           </div>
@@ -258,7 +258,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           {/* Plugin Config Preview */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated Plugin Configuration</label>
+              <label className="label">Generated plugin configuration</label>
               <span className="text-xs text-green-600 dark:text-green-400 font-medium">
                 Ready to deploy
               </span>
@@ -277,7 +277,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           </div>
 
           {/* Access Level + Deploy */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div className="border-t border-default pt-4">
             <div className="flex items-center justify-between">
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />

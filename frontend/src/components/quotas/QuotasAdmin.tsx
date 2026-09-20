@@ -119,7 +119,7 @@ export function QuotasAdmin({
   };
   const titleExtra = !loading && orgData ? (
     <div className="hidden sm:flex items-center gap-2">
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-bg text-blue-800 dark:text-blue-300 font-mono">
         {orgData.orgId}
       </span>
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(editTier)}`}>
@@ -127,7 +127,7 @@ export function QuotasAdmin({
         {tierPresets[editTier].label}
       </span>
       {orgData.pool && (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-fg-muted">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-muted text-fg-muted">
           {orgData.pool.isRoot ? `Pool root · ${orgData.pool.orgCount - 1} team${orgData.pool.orgCount - 1 !== 1 ? 's' : ''}` : 'Team'}
         </span>
       )}
@@ -169,8 +169,8 @@ export function QuotasAdmin({
       <div className="flex min-h-[calc(100vh-theme(spacing.16))]">
         {/* Internal org sidebar (sysadmin only) */}
         {isSuperAdmin && (
-          <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="w-64 min-w-[16rem] border-r border-default bg-surface flex flex-col">
+            <div className="p-4 border-b border-default">
               <p className="text-xs font-semibold uppercase tracking-wider text-fg-subtle mb-3">
                 Organizations
               </p>
@@ -284,7 +284,7 @@ export function QuotasAdmin({
             )}
 
             {!loading && pooledTeam && (
-              <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4" role="note">
+              <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4" role="note">
                 <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
                   {POOLING_TITLE}
                 </h3>
@@ -346,7 +346,7 @@ export function QuotasAdmin({
                         onClick={() => isSuperAdmin && handleTierChange(tier)}
                         className={`relative card text-left transition-all ${
                           isSelected
-                            ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-blue-300 dark:border-blue-600'
+                            ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-info-border'
                             : isSuperAdmin
                               ? 'hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer'
                               : 'opacity-60'
@@ -432,7 +432,7 @@ export function QuotasAdmin({
             />
           }
         >
-          <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+          <div className="space-y-3 text-sm text-fg-muted">
             <p>
               This zeroes every usage counter for{' '}
               <span className="font-medium text-fg">{orgData.name}</span>{' '}

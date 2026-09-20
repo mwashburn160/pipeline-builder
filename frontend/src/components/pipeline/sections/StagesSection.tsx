@@ -49,7 +49,7 @@ export default function StagesSection({
     <CollapsibleSection title={`Pipeline Stages (${stages.length})`} hasContent={stages.length > 0}>
       <div className="mt-3 space-y-4">
         {stages.map((stage, stageIdx) => (
-          <div key={stage.id} className="border border-gray-300 dark:border-gray-600 rounded-xl p-4">
+          <div key={stage.id} className="border border-default rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">Stage {stageIdx + 1}</h4>
               <button
@@ -64,7 +64,7 @@ export default function StagesSection({
 
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
-                <FormField label="Stage Name *" error={errors[`stages.${stageIdx}.stageName`]}>
+                <FormField label="Stage name *" error={errors[`stages.${stageIdx}.stageName`]}>
                   <Input
                     type="text"
                     value={stage.stageName}
@@ -116,7 +116,7 @@ export default function StagesSection({
               <div className="space-y-3">
                 <h5 className="text-sm font-medium text-fg-muted">Steps ({stage.steps.length})</h5>
                 {stage.steps.map((step, stepIdx) => (
-                  <div key={step.id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
+                  <div key={step.id} className="border border-default rounded-xl p-3 bg-surface-muted">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-medium text-fg-muted">Step {stepIdx + 1}</span>
                       <button
@@ -144,7 +144,7 @@ export default function StagesSection({
                 type="button"
                 onClick={() => onAddStep(stageIdx)}
                 disabled={disabled}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                className="text-sm text-brand hover:text-brand-strong transition-colors"
               >
                 + Add Step
               </button>
@@ -156,7 +156,7 @@ export default function StagesSection({
           type="button"
           onClick={onAddStage}
           disabled={disabled}
-          className="w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-sm text-fg-muted hover:border-blue-400 dark:hover:border-blue-500 hover:text-brand transition-colors"
+          className="w-full py-2 border-2 border-dashed border-default rounded-xl text-sm text-fg-muted hover:border-brand hover:text-brand transition-colors"
         >
           + Add Stage
         </button>

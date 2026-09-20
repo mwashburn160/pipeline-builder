@@ -71,7 +71,7 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
  * fall back to a "not enabled" empty state rather than an error banner.
  */
 export default function BillingAdminPage() {
-  // System-admin gate comes from the "Billing Admin" nav entry (page-access.ts).
+  // System-admin gate comes from the "Billing admin" nav entry (page-access.ts).
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   const toast = useToast();
 
@@ -245,7 +245,7 @@ export default function BillingAdminPage() {
     },
     {
       id: 'periodEnd',
-      header: 'Period End',
+      header: 'Period end',
       cellClassName: 'text-sm text-fg-muted',
       sortValue: (s) => s.currentPeriodEnd ? new Date(s.currentPeriodEnd) : null,
       render: (s) => <RelativeTime value={s.currentPeriodEnd} />,
@@ -276,7 +276,7 @@ export default function BillingAdminPage() {
 
   return (
     <DashboardLayout
-      title="Billing Admin"
+      title="Billing admin"
       subtitle="Fleet-wide subscriptions, platform finance, and ledger ops"
       titleExtra={<Badge color="red">System Admin</Badge>}
     >
@@ -285,7 +285,7 @@ export default function BillingAdminPage() {
 
       {notEnabled ? (
         <Card className="flex flex-col items-center text-center py-14">
-          <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-surface-muted/50 flex items-center justify-center">
             <ShieldAlert className="w-9 h-9 text-fg-subtle" />
           </div>
           <h3 className="mt-4 text-base font-semibold text-fg">Billing is not enabled</h3>
@@ -361,7 +361,7 @@ export default function BillingAdminPage() {
                     aria-pressed={String(list.filters.status) === value}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${String(list.filters.status) === value
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                      : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
                   >
                     {value === 'all' ? 'All' : value}
                   </button>
@@ -388,7 +388,7 @@ export default function BillingAdminPage() {
       {/* Edit subscription */}
       {editSub && (
         <Modal
-          title="Override Subscription"
+          title="Override subscription"
           onClose={() => setEditSub(null)}
           footer={
             <ModalFooter
@@ -478,9 +478,9 @@ export default function BillingAdminPage() {
 /** A single labelled figure in the platform-finance stat row. */
 function SummaryStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 px-3 py-2.5">
+    <div className="rounded-lg border border-default bg-white/60 dark:bg-gray-800/40 px-3 py-2.5">
       <div className="text-2xs font-medium text-fg-muted">{label}</div>
-      <div className={`mt-0.5 text-sm font-semibold ${accent ? 'text-blue-600 dark:text-blue-400' : 'text-fg'}`}>{value}</div>
+      <div className={`mt-0.5 text-sm font-semibold ${accent ? 'text-brand' : 'text-fg'}`}>{value}</div>
     </div>
   );
 }

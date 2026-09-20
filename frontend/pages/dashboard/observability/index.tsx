@@ -68,7 +68,7 @@ export default function ObservabilityIndexPage() {
     'Plugin Builds': BarChart3,
     'Queue Health': ListChecks,
     'Registry Activity': Boxes,
-    'Audit Activity': Activity,
+    'Audit activity': Activity,
   };
 
   const visibilityIcon = (v: Dashboard['visibility']): LucideIcon => {
@@ -85,7 +85,7 @@ export default function ObservabilityIndexPage() {
         // Only surface the create entry point to users who can actually create a
         // dashboard (the destination already disables its Create button, but a
         // read-only/no-write user shouldn't be led to a dead end). Mirrors the
-        // Pipelines page hiding "Create Pipeline" when !canWrite.
+        // Pipelines page hiding "Create pipeline" when !canWrite.
         canCreateDashboard ? (
           <Link
             href="/dashboard/observability/new"

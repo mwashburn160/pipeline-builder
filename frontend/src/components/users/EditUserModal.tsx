@@ -178,7 +178,7 @@ export function EditUserModal({
             "Save Changes" button below; this just prevents an Enter keypress
             from reloading the page. */}
         <form onSubmit={(e) => e.preventDefault()}>
-          <label className="label">New Password (leave blank to keep current)</label>
+          <label className="label">New password (leave blank to keep current)</label>
           <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
           <Input type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={locked} />
         </form>

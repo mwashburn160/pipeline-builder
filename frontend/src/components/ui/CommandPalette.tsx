@@ -77,7 +77,7 @@ export function CommandPalette({
     // Quick actions first — these are the primary "start something" flows
     // (the `?create=1` query opens the target page's create modal on arrival),
     // sourced from the same QUICK_ACTIONS the sidebar's action row uses. Putting
-    // them at the top means a user can fire "Create Pipeline" without leaving
+    // them at the top means a user can fire "Create pipeline" without leaving
     // the keyboard, and they stay reachable when the sidebar is collapsed.
     const actionItems: CommandItem[] = QUICK_ACTIONS
       // Permitted AND not a write blocked by read-only impersonation (nav.ts intent).
@@ -323,7 +323,7 @@ export function CommandPalette({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[60] bg-gray-900/60 backdrop-blur-sm flex items-start justify-center pt-[20vh]"
+        className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-start justify-center pt-[20vh]"
         onClick={() => setOpen(false)}
       >
         <motion.div

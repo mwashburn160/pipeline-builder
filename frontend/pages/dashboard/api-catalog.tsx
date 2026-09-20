@@ -38,7 +38,7 @@ const SERVICES: ServiceRow[] = [
  */
 const SERVICE_COLUMNS: Column<ServiceRow>[] = [
   { id: 'name', header: 'Service', cellClassName: 'font-medium text-fg whitespace-nowrap align-top', render: (svc) => svc.name },
-  { id: 'purpose', header: 'Purpose', cellClassName: 'text-gray-600 dark:text-gray-300 align-top', render: (svc) => svc.purpose },
+  { id: 'purpose', header: 'Purpose', cellClassName: 'text-fg-muted align-top', render: (svc) => svc.purpose },
   {
     id: 'routes',
     header: 'Gateway routes',
@@ -56,7 +56,7 @@ export default function ApiCatalogPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="API Catalog" subtitle="Services, their gateway routes, and how to call them">
+    <DashboardLayout title="API catalog" subtitle="Services, their gateway routes, and how to call them">
       <div className="space-y-6">
         <SectionCard icon={KeyRound} title="Authentication">
           <p className="text-sm text-fg-muted">

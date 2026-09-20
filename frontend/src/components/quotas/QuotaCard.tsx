@@ -68,7 +68,7 @@ export function QuotaCard({
         </span>
       </div>
 
-      <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
+      <div className="h-1.5 bg-surface-muted rounded-full overflow-hidden mb-3">
         <div
           className={`h-full rounded-full transition-all duration-700 ease-out ${barStyles[color]}`}
           style={{ width: `${percentage}%` }}
@@ -76,7 +76,7 @@ export function QuotaCard({
       </div>
 
       <div className="flex justify-between text-xs text-fg-muted">
-        <span className="font-medium text-gray-600 dark:text-gray-300">
+        <span className="font-medium text-fg-muted">
           {quota.unlimited ? 'No limit' : `${fmtNum(quota.remaining)} remaining`}
         </span>
         <span>Resets {daysUntil(quota.resetAt)}</span>
@@ -85,7 +85,7 @@ export function QuotaCard({
       {!quota.unlimited && <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} />}
 
       {canManage && (
-        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="mt-4 pt-4 border-t border-default">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
               Edit limit
@@ -97,7 +97,7 @@ export function QuotaCard({
               className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
                 isUnlimited
                   ? 'border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-                  : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
+                  : 'border-default text-fg-muted hover:bg-surface-muted'
               }`}
             >
               {isUnlimited ? '✓ Unlimited' : '∞ Set unlimited'}

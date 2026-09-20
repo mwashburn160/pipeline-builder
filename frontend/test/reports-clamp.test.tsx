@@ -131,7 +131,7 @@ describe('ReportsPage — consolidated empty state per tab', () => {
     expect(await screen.findByRole('heading', { name: /No deploy data yet/i })).toBeInTheDocument();
     expect(screen.getByText(/setup-events --with-dora/i)).toBeInTheDocument();
     // ...and NOT the four stacked panel empties / metric cards.
-    expect(screen.queryByText('Deployment Frequency')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployment frequency')).not.toBeInTheDocument();
     expect(screen.queryByText(/No deploy-attributed environments/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Select a pipeline/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/No stage activity/i)).not.toBeInTheDocument();

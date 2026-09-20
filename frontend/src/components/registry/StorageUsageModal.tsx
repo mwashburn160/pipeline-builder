@@ -93,14 +93,14 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
         )}
 
         {storageResult && !storageError && (
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+          <div className="rounded-lg border border-default bg-surface-muted p-3">
             <div className="flex items-baseline justify-between mb-3">
               <code className="font-mono text-sm text-gray-800 dark:text-gray-200">{storageResult.prefix}</code>
               <button
                 type="button"
                 onClick={() => void handleStorageUsage({ force: true })}
                 disabled={storageLoading}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                className="text-xs text-brand hover:underline disabled:opacity-50"
                 title="Bypass the server cache and recompute"
               >
                 Recompute

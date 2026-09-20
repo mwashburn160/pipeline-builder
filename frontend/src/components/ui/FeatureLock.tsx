@@ -102,7 +102,7 @@ export function FeatureLockedAction({ flag, label, icon: Icon, iconOnly = false 
     'data-testid': `feature-locked-${flag}`,
   };
   const className = iconOnly
-    ? 'relative p-1.5 rounded-full text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
+    ? 'relative p-1.5 rounded-full text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors'
     : 'btn btn-secondary opacity-60 hover:opacity-100';
   const body = iconOnly ? (
     <>

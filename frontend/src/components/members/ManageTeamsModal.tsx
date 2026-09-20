@@ -61,7 +61,7 @@ export function ManageTeamsModal({
             return (
               <label
                 key={t.orgId}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm ${isOwner ? 'opacity-60' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer'}`}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm ${isOwner ? 'opacity-60' : 'hover:bg-surface-muted cursor-pointer'}`}
                 title={isOwner ? 'Owner of this team — transfer ownership to remove' : undefined}
               >
                 <Checkbox

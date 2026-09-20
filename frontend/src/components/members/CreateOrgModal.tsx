@@ -29,13 +29,13 @@ export function CreateOrgModal({
   if (!open) return null;
   return (
     <Modal
-      title="Create Team"
+      title="Create team"
       onClose={onClose}
       footer={
         <ModalFooter
           onCancel={onClose}
           onConfirm={onSubmit}
-          confirmLabel="Create Team"
+          confirmLabel="Create team"
           loading={form.loading}
           confirmDisabled={!orgName.trim()}
         />

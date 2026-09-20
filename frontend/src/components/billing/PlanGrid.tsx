@@ -101,7 +101,7 @@ export function PlanGrid({
               ): !selfService ? (                    'Managed in AWS Marketplace'
               ): isCurrent ? (                    'Current Plan'
               ): subscription ? (                    'Switch to this plan'
-              ): (                    'Get Started'
+              ): (                    'Get started'
               )}
             </Button>
           </Card>
