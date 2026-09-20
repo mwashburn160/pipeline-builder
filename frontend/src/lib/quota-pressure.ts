@@ -18,9 +18,15 @@ export interface QuotaPressure {
   label?: string;
 }
 
-// Covers the full backend QuotaType set — `highestPressure` scans every quota
-// on the response, so a partial map would leave the newer kinds unlabelled.
-const TYPE_LABEL: Record<QuotaType, string> = {
+/**
+ * Human label for every quota dimension.
+ *
+ * Covers the full backend QuotaType set — `highestPressure` scans every quota
+ * on the response, and so do the quota service's at-risk endpoints, so a partial
+ * map would leave the newer kinds unlabelled (the sysadmin at-risk banner used
+ * to print the raw `storageBytes` / `idpConfigs` keys for exactly that reason).
+ */
+export const QUOTA_TYPE_LABEL: Record<QuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
@@ -63,7 +69,7 @@ export function highestPressure(response: OrgQuotaResponse | undefined | null): 
     const lvl = pressureLevel(pct);
     if (lvl === 'none') continue;
     if (best.level === 'none' || pct > (best.percent ?? 0)) {
-      best = { level: lvl, type, percent: pct, label: TYPE_LABEL[type] };
+      best = { level: lvl, type, percent: pct, label: QUOTA_TYPE_LABEL[type] };
     }
   }
   return best;

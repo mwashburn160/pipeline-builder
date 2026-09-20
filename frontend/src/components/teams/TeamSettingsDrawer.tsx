@@ -13,9 +13,8 @@ import { RetryError } from '@/components/ui/RetryError';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
-import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
-import { OrgSamlSettings } from '@/components/settings/OrgSamlSettings';
 import { SsoDisconnect } from '@/components/settings/SsoDisconnect';
+import { SsoConnectionFlow } from '@/components/sso/SsoConnectionFlow';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
@@ -124,7 +123,18 @@ function TeamIdentitySection({ team, readOnly, onRenamed }: {
   );
 }
 
-/** The team's own SSO connection (OIDC or SAML), behind the account's `sso` entitlement. */
+/**
+ * The team's own SSO connection, behind the account's `sso` entitlement.
+ *
+ * This is the SAME flow as Settings → Single Sign-On ({@link SsoConnectionFlow}):
+ * the six-step wizard (protocol + preset, SP values to copy into the IdP,
+ * details or SAML metadata import, verified domains, test connection, enable +
+ * "SSO required") and, once configured, the status summary. It used to be the
+ * OIDC and SAML editors STACKED — both at once, though a connection is one
+ * protocol — with no SP values, no metadata import, no test and no way to
+ * require SSO, so what an admin learned on their own org didn't transfer here.
+ * Every write still goes through the IdP routes' strong step-up.
+ */
 function TeamSsoSection({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   // Entitlements pool at the root, so the parent's verdict is the team's.
   const gate = useFeatureGate('sso');
@@ -147,8 +157,7 @@ function TeamSsoSection({ orgId, readOnly }: { orgId: string; readOnly: boolean 
   }
   return (
     <>
-      <OrgSsoSettings orgId={orgId} config={config} readOnly={readOnly} onSaved={setConfig} />
-      <OrgSamlSettings orgId={orgId} config={config} readOnly={readOnly} onSaved={setConfig} />
+      <SsoConnectionFlow orgId={orgId} config={config} readOnly={readOnly} onConfigChange={setConfig} />
       {config && <SsoDisconnect orgId={orgId} config={config} readOnly={readOnly} onDisconnected={() => setConfig(null)} />}
     </>
   );

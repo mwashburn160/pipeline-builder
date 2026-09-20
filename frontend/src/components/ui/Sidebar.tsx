@@ -7,13 +7,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ChevronDown,
+  Lock,
 } from 'lucide-react';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
 import { type User } from '@/types';
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { useFeatures } from '@/hooks/useFeatures';
-import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, type NavItem } from '@/lib/nav';
+import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '@/lib/nav';
 import { Tooltip } from './Tooltip';
 
 /** localStorage key for which nav sections the user has collapsed. */
@@ -80,10 +81,11 @@ export function Sidebar({
       ? currentPath === '/dashboard'
       : currentPath.startsWith(href);
 
+  const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled };
+
   // `paletteOnly` entries are sub-pages of a listed item: ⌘K finds them by
   // name, the sidebar leaves them to their parent's row.
-  const isItemVisible = (item: NavItem) =>
-    !item.paletteOnly && isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), billingEnabled, isFeatureEnabled });
+  const isItemVisible = (item: NavItem) => !item.paletteOnly && isNavItemVisible(item, navCtx);
 
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>
@@ -163,12 +165,17 @@ export function Sidebar({
                 const Icon = item.icon;
                 const active = isActive(item.href)
                   || (item.extraActivePaths?.some((p) => currentPath.startsWith(p)) ?? false);
+                // An entitlement the plan doesn't include never removes the row —
+                // it dims it, marks it with a padlock and says so in the
+                // accessible name. The link still works: the page behind it
+                // renders the FeatureLock upsell in place.
+                const locked = !!navItemLockedFeature(item, navCtx);
 
                 const linkContent = (
                   <Link
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className={`sidebar-nav-item relative ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''}`}
+                    className={`sidebar-nav-item relative ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''} ${locked ? 'opacity-60' : ''}`}
                   >
                     {active && (
                       <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-brand/80" />
@@ -177,6 +184,16 @@ export function Sidebar({
                     {/* Icon-only rail: the tooltip is hover-only (and describes,
                         not names), so the link carries its title as hidden text. */}
                     <span className={collapsed ? 'sr-only' : 'flex-1'}>{item.title}</span>
+                    {/* The padlock is decorative; the sr-only clause is what a
+                        screen reader hears, so "locked" is never colour/icon
+                        alone — in the collapsed rail too, where the label is
+                        already hidden. */}
+                    {locked && (
+                      <>
+                        <Lock className="w-3.5 h-3.5 flex-shrink-0 opacity-80" aria-hidden="true" />
+                        <span className="sr-only"> — not included in your plan</span>
+                      </>
+                    )}
                     {!collapsed && item.title === 'Messages' && unreadCount > 0 && (
                       <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-2xs font-bold text-white bg-red-500 rounded-full">
                         {unreadCount > 99 ? '99+' : unreadCount}
@@ -196,7 +213,7 @@ export function Sidebar({
                 );
 
                 return collapsed ? (
-                  <Tooltip key={item.href} content={item.title}>
+                  <Tooltip key={item.href} content={locked ? `${item.title} — not included in your plan` : item.title}>
                     <span className="relative block">{linkContent}</span>
                   </Tooltip>
                 ) : (

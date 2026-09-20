@@ -4553,6 +4553,55 @@
     ]
   },
   {
+    "method": "DELETE",
+    "path": "/user/mfa-prompt",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.mfa.prompt_restored"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/user/mfa-prompt/decline",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.mfa.prompt_declined"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/user/mfa-prompt/snooze",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "GET",
     "path": "/user/organizations",
     "auth": true,

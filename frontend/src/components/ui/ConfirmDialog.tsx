@@ -28,6 +28,13 @@ interface ConfirmDialogProps {
  * mode, can't show formatted prices, and on some browsers is suppressible — a bad
  * place for "that's $240/yr". Cancel takes initial focus, so a stray Enter never
  * confirms.
+ *
+ * NOT for an action the server STEP-UP gates. Those are one dialog:
+ * `StepUpModal` takes the heading and the "what is lost" copy as `title` +
+ * `details` and collects the factor in the same place. Putting this in front of
+ * it asks the same person the same question twice and teaches them to click
+ * through both without reading either — `test/one-dialog-rule.test.ts` fails the
+ * build when the two are chained for one action.
  */
 export function ConfirmDialog({
   title,

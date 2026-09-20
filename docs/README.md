@@ -354,7 +354,7 @@ A user can belong to several organizations and teams at once and acts within one
 
 System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
 
-**Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (audit log, SSO). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
+**Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (Advanced Reporting, Team Usage Analytics, curated compliance libraries — SSO is a Team-tier feature, not an add-on). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
 
 ### What Each Org Controls
 

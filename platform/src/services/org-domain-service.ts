@@ -54,6 +54,24 @@ export interface DiscoverableOrg {
   autoJoin: DomainJoinMode;
 }
 
+/**
+ * A discoverable org annotated with where THIS user already stands with it.
+ *
+ * Without these two fields the join flow is write-only: a user who filed a
+ * request (`status: 'requested'`) had nowhere to see what became of it, and a
+ * user whose request was approved was still offered a "Request access" button
+ * for an org they had already joined. `requestStatus` is absent when the user
+ * has never asked.
+ */
+export interface DiscoverableOrgForUser extends DiscoverableOrg {
+  /** The caller's outstanding/decided request against this org, if any. An
+   *  'approved' request is only visible here until the membership lands — after
+   *  that `isMember` is what matters. */
+  requestStatus?: 'pending' | 'approved' | 'denied';
+  /** The caller is already an active member (so nothing is left to do). */
+  isMember?: boolean;
+}
+
 class OrgDomainService {
   /** Whether the org's account tier may use domain-based join. Exposed so the
    *  controller can 403 the admin write paths before doing work. */
@@ -322,6 +340,47 @@ class OrgDomainService {
       out.push({ orgId: d.orgId, orgName: org.name, autoJoin: d.autoJoin });
     }
     return out;
+  }
+
+  /**
+   * {@link findDiscoverableOrgsByEmail} annotated with the caller's own standing
+   * against each org — whether they are already a member, and the state of any
+   * join request they filed.
+   *
+   * The discovery read stays exactly as it is (it is the eligibility source of
+   * truth, and `requestOrAutoJoin` re-runs it unannotated); this only adds the
+   * caller-scoped context the UI needs to stop offering "Request access" for an
+   * org whose request is already pending, approved or refused. Both extra reads
+   * are keyed on the caller's OWN user id, so nothing about anyone else leaks.
+   */
+  async findDiscoverableOrgsForUser(user: { _id: Types.ObjectId; email: string }): Promise<DiscoverableOrgForUser[]> {
+    const orgs = await this.findDiscoverableOrgsByEmail(user.email);
+    if (orgs.length === 0) return [];
+    const orgIds = orgs.map((o) => o.orgId);
+
+    const [requests, memberships] = await Promise.all([
+      JoinRequest.find({ userId: user._id, orgId: { $in: orgIds } }).select('orgId status').lean(),
+      // `organizationId` is stored as an ObjectId, so match on the cast ids and
+      // map back through the string spelling the discovery list uses.
+      UserOrganization.find({ userId: user._id, organizationId: { $in: orgIds.map(toOrgId) }, isActive: true })
+        .select('organizationId').lean(),
+    ]);
+
+    // Org ids reach this map from three stores with three spellings (a domain
+    // row's string, a request's string, a membership's ObjectId), so key on one
+    // canonical lowercase hex rather than trusting them to match.
+    const statusByOrg = new Map(requests.map((r) => [String(r.orgId).toLowerCase(), r.status as 'pending' | 'approved' | 'denied']));
+    const memberOrgs = new Set(memberships.map((m) => String(m.organizationId).toLowerCase()));
+
+    return orgs.map((o) => {
+      const key = o.orgId.toLowerCase();
+      const requestStatus = statusByOrg.get(key);
+      return {
+        ...o,
+        ...(requestStatus ? { requestStatus } : {}),
+        ...(memberOrgs.has(key) ? { isMember: true } : {}),
+      };
+    });
   }
 
   /**

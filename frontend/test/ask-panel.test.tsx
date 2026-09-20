@@ -7,7 +7,7 @@
  * bubble, and the composer re-enables when the stream completes.
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { AskPanel } from '../src/components/ask/AskPanel';
 
@@ -24,12 +24,18 @@ jest.mock('@/lib/api-cache', () => ({
   __esModule: true,
   invalidate: { pipelines: () => invalidatePipelines() },
 }));
+// The picker reads the ASK service's own providers (plus the org's saved keys)
+// through the same hook the pipeline / plugin AI tabs use.
+const getAskProviders = jest.fn();
+const getOrgAIConfig = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     askAgentStream: (...a: unknown[]) => askAgentStream(...a),
     createPipeline: (...a: unknown[]) => createPipeline(...a),
     deployGeneratedPlugin: (...a: unknown[]) => deployGeneratedPlugin(...a),
+    getAskProviders: (...a: unknown[]) => getAskProviders(...a),
+    getOrgAIConfig: (...a: unknown[]) => getOrgAIConfig(...a),
   },
 }));
 
@@ -56,11 +62,17 @@ describe('AskPanel', () => {
     jest.clearAllMocks();
     // A viewer holding every write permission, unless a test says otherwise.
     mockAuthGuard({ can: () => true });
+    getAskProviders.mockResolvedValue({
+      data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-x', name: 'Claude X' }, { id: 'claude-y', name: 'Claude Y' }] }] },
+    });
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
   });
 
-  it('shows example prompts in the empty state', () => {
+  it('shows example prompts in the empty state', async () => {
     render(<AskPanel onClose={jest.fn()} />);
     expect(screen.getByText(/in-cluster Alertmanager/i)).toBeInTheDocument();
+    // Settle the provider fetch the picker kicks off on mount.
+    await screen.findByLabelText('Provider');
   });
 
   it('streams a grounded answer: sources up-front, then tokens', async () => {
@@ -232,5 +244,66 @@ describe('AskPanel', () => {
     await waitFor(() => expect(screen.getByText('Proposed pipeline')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Create pipeline/i })).toBeEnabled();
     expect(screen.getByText('Review before creating')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The stream has always taken `provider` / `model` / `apiKey` / `repoToken`;
+ * until now the panel sent none of them, so chat could not use a different
+ * model from the AI tabs and could not look at a private repository at all.
+ */
+describe('AskPanel model + repository controls', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAuthGuard({ can: () => true });
+    getAskProviders.mockResolvedValue({
+      data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-x', name: 'Claude X' }, { id: 'claude-y', name: 'Claude Y' }] }] },
+    });
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
+    askAgentStream.mockReturnValue(gen([{ type: 'token', data: 'ok' }, { type: 'done' }]));
+  });
+
+  it('offers the ask service\'s providers and models', async () => {
+    render(<AskPanel onClose={jest.fn()} />);
+    const provider = await screen.findByLabelText('Provider');
+    expect(within(provider).getByRole('option', { name: /Anthropic/ })).toBeInTheDocument();
+    expect(within(await screen.findByLabelText('Model')).getAllByRole('option').map((o) => o.textContent))
+      .toEqual(['Claude X', 'Claude Y']);
+  });
+
+  it('sends the chosen model with the turn', async () => {
+    render(<AskPanel onClose={jest.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'claude-y' } });
+    ask('which model are you?');
+    await waitFor(() => expect(askAgentStream).toHaveBeenCalledWith(
+      'which model are you?',
+      expect.objectContaining({ provider: 'anthropic', model: 'claude-y' }),
+    ));
+  });
+
+  it('sends a private-repo token when one is supplied, and omits it when not', async () => {
+    render(<AskPanel onClose={jest.fn()} />);
+    await screen.findByLabelText('Provider');
+
+    ask('public repo please');
+    await waitFor(() => expect(askAgentStream).toHaveBeenCalled());
+    expect(askAgentStream.mock.calls[0][1]).not.toHaveProperty('repoToken');
+
+    fireEvent.change(screen.getByLabelText(/Private repository token/i), { target: { value: ' ghp_secret ' } });
+    ask('now analyse my private repo');
+    await waitFor(() => expect(askAgentStream).toHaveBeenCalledTimes(2));
+    // Trimmed, and never echoed into the transcript.
+    expect(askAgentStream.mock.calls[1][1]).toMatchObject({ repoToken: 'ghp_secret' });
+    expect(screen.queryByText(/ghp_secret/)).not.toBeInTheDocument();
+  });
+
+  it('a BYO key is forwarded as `apiKey`, not stored in the message', async () => {
+    render(<AskPanel onClose={jest.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /custom API key|Enter API key/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Leave empty to use server key|Enter API key for this provider/i), {
+      target: { value: 'sk-mine' },
+    });
+    ask('hello');
+    await waitFor(() => expect(askAgentStream).toHaveBeenCalledWith('hello', expect.objectContaining({ apiKey: 'sk-mine' })));
   });
 });

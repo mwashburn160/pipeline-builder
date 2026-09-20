@@ -7,7 +7,12 @@ import { Sparkles, Send, BookOpen, AlertTriangle, GitBranch, Package, LayoutTemp
 import type { LucideIcon } from 'lucide-react';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useAIProviders } from '@/hooks/useAIProviders';
+import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { CodeBlock } from '@/components/ui/CodeBlock';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
@@ -124,6 +129,16 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // for POST /pipelines, `templates:write` for POST /pipeline-templates), so the
   // entitlement that opens this panel is not enough to show its Create action.
   const { can } = useAuthGuard();
+  // The stream has always accepted `provider` / `model` / `apiKey`; only the
+  // pipeline and plugin AI tabs offered the choice. Same hook, same picker, so
+  // the three surfaces stay identical — here the "server" providers are the ask
+  // service's own (`GET /ask/providers`), merged with the org's saved keys and
+  // the rest of the catalog (selectable with a key of your own).
+  const ai = useAIProviders(api.getAskProviders);
+  // Forwarded to the agent's repo-analysis tool, never shown to the model, and
+  // held only for this panel's lifetime — it is what lets "draft me a pipeline
+  // for <private repo>" work at all.
+  const [repoToken, setRepoToken] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -171,7 +186,15 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
 
     try {
       let text = '';
-      for await (const ev of api.askAgentStream(query, { history })) {
+      for await (const ev of api.askAgentStream(query, {
+        history,
+        // Omitted (not sent empty) when the picker hasn't resolved a choice, so
+        // the service keeps its own default.
+        ...(ai.selectedProvider ? { provider: ai.selectedProvider } : {}),
+        ...(ai.selectedModel ? { model: ai.selectedModel } : {}),
+        ...(ai.customApiKey ? { apiKey: ai.customApiKey } : {}),
+        ...(repoToken.trim() ? { repoToken: repoToken.trim() } : {}),
+      })) {
         if (cancelledRef.current) break; // panel closed — stop iterating (aborts the fetch)
         if (ev.type === 'sources') {
           patchLast({ sources: (ev.data as AskSource[]) ?? [] });
@@ -202,7 +225,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, messages]);
+  }, [busy, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken]);
 
   /** Commit a proposal via the normal create API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
@@ -381,6 +404,31 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
+
+        {/* Which model answers, and what it may read. Collapsed by default —
+            the defaults are the ask service's own and work untouched. */}
+        <Disclosure
+          title="Model and repository access"
+          className="group mt-3 border border-default rounded-xl"
+          summaryClassName="cursor-pointer list-none w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-fg-muted hover:text-fg"
+          bodyClassName="px-3 pb-3 pt-1 space-y-3 border-t border-default"
+        >
+          <AiProviderModelPicker ai={ai} disabled={busy} />
+          <FormField
+            label="Private repository token"
+            hint="Sent with this conversation only, so the agent can analyse a private repo you name. It is never shown to the model and is not stored."
+          >
+            <Input
+              type="password"
+              autoComplete="off"
+              value={repoToken}
+              onChange={(e) => setRepoToken(e.target.value)}
+              placeholder="Leave empty for public repositories"
+              className="text-sm"
+              disabled={busy}
+            />
+          </FormField>
+        </Disclosure>
 
         {/* Composer */}
         <form

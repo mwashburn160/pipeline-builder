@@ -60,18 +60,18 @@ async function renderPanel(p: OrgMfaPolicy) {
 
 describe('MfaPolicySettings — who is ready', () => {
   it('states how many members already hold a factor', async () => {
-    await renderPanel(policy({ enrolment: { members: 12, enrolled: 5 } }));
+    await renderPanel(policy({ enrolment: { members: 12, enrolled: 5, declined: 0 } }));
     expect(await screen.findByText(/5 of 12 members have a passkey or an authenticator app/i)).toBeInTheDocument();
     expect(screen.getByText(/7 people would be refused/i)).toBeInTheDocument();
   });
 
   it('says the requirement can be applied immediately when everyone has enrolled', async () => {
-    await renderPanel(policy({ enrolment: { members: 4, enrolled: 4 } }));
+    await renderPanel(policy({ enrolment: { members: 4, enrolled: 4, declined: 0 } }));
     expect(await screen.findByText(/everyone can already sign in with two factors/i)).toBeInTheDocument();
   });
 
   it('uses singular wording for a one-person organization', async () => {
-    await renderPanel(policy({ enrolment: { members: 1, enrolled: 0 } }));
+    await renderPanel(policy({ enrolment: { members: 1, enrolled: 0, declined: 0 } }));
     expect(await screen.findByText(/0 of 1 member has a passkey/i)).toBeInTheDocument();
     expect(screen.getByText(/1 person would be refused/i)).toBeInTheDocument();
   });
@@ -81,8 +81,25 @@ describe('MfaPolicySettings — who is ready', () => {
     expect(screen.queryByText(/would be refused/i)).not.toBeInTheDocument();
   });
 
+  it('separates "hasn\'t got round to it" from "has decided not to"', async () => {
+    // A reminder moves the first group and not the second, so an admin choosing
+    // between sending one and setting a deadline needs both numbers.
+    await renderPanel(policy({ enrolment: { members: 10, enrolled: 3, declined: 2 } }));
+    expect(await screen.findByText(/2 of them have been asked and chose not to be reminded again/i)).toBeInTheDocument();
+  });
+
+  it('uses singular wording for one decliner', async () => {
+    await renderPanel(policy({ enrolment: { members: 10, enrolled: 3, declined: 1 } }));
+    expect(await screen.findByText(/one of them has been asked and chose not to be reminded again/i)).toBeInTheDocument();
+  });
+
+  it('says nothing about declines when there are none — and never names anyone', async () => {
+    await renderPanel(policy({ enrolment: { members: 10, enrolled: 3, declined: 0 } }));
+    expect(screen.queryByText(/chose not to be reminded/i)).not.toBeInTheDocument();
+  });
+
   it('repeats the cost in the confirmation, where the decision is actually made', async () => {
-    await renderPanel(policy({ enrolment: { members: 10, enrolled: 3 } }));
+    await renderPanel(policy({ enrolment: { members: 10, enrolled: 3, declined: 0 } }));
     fireEvent.click(screen.getByRole('switch', { name: /^require two-factor authentication$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 

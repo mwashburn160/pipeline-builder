@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent }
 import { useRouter } from 'next/router';
 import { ChevronsUpDown, Building2, Check, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { clearPluginCache } from '@/hooks/usePlugins';
@@ -47,6 +48,11 @@ interface OrgSwitcherProps {
  */
 export function OrgSwitcher({ className = '', collapsed = false, variant = 'sidebar' }: OrgSwitcherProps = {}) {
   const { user, organizations, switchOrganization } = useAuth();
+  // The active org's hierarchy state comes from the ONE shared source rather
+  // than being re-derived from `activeOrg.parentOrgId` here — the switcher is
+  // the org-context anchor, so it must read the same signal every other
+  // hierarchy surface gates on.
+  const { isChildOrg: activeIsTeam, viaAncestor: activeViaAncestor } = useOrgHierarchy();
   const toast = useToast();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -113,8 +119,18 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // becomes an interactive dropdown once the user belongs to 2+ orgs.
   const canSwitch = organizations.length > 1;
 
-  const activeIsTeam = !!activeOrg?.parentOrgId;
   const activeName = activeOrg?.name || user.organizationName || 'Select org';
+
+  /**
+   * An inherited-authority session is IN a team it is not a member of: no
+   * roster row, no seat, and the role on screen is the parent's authority, not
+   * a membership. The menu already marks the row "via parent"; the anchor must
+   * keep saying so once the switch has happened, or the team reads as one the
+   * viewer belongs to.
+   */
+  const viaAncestorNote = activeViaAncestor
+    ? `Admin access through ${activeOrg?.parentOrgName ?? 'the parent organization'} — you are not a member of this team`
+    : undefined;
 
   const handleSwitch = async (orgId: string) => {
     if (orgId === user.organizationId || switching) return;
@@ -206,8 +222,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           onClick={() => canSwitch && setOpen(!open)}
           // The pill truncates the name on narrow screens, so the full name
           // rides in the accessible name and the hover title.
-          aria-label={canSwitch ? `Switch organization (current: ${activeName})` : `Organization: ${activeName}`}
-          title={activeName}
+          aria-label={`${canSwitch ? `Switch organization (current: ${activeName})` : `Organization: ${activeName}`}${viaAncestorNote ? `. ${viaAncestorNote}` : ''}`}
+          title={viaAncestorNote ? `${activeName} — ${viaAncestorNote}` : activeName}
           aria-haspopup={canSwitch ? 'menu' : undefined}
           aria-expanded={canSwitch ? open : undefined}
           className={`inline-flex items-center gap-2 h-8 px-2 sm:px-3 max-w-full min-w-0 rounded-lg bg-violet-600 text-white shadow-sm transition-opacity ${
@@ -228,7 +244,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   if (collapsed) {
     return (
       <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative flex justify-center ${className}`}>
-        <Tooltip content={canSwitch ? `Organization: ${activeName} — click to switch` : `Organization: ${activeName}`}>
+        <Tooltip content={`${canSwitch ? `Organization: ${activeName} — click to switch` : `Organization: ${activeName}`}${viaAncestorNote ? ` (${viaAncestorNote})` : ''}`}>
           <button
             type="button"
             onClick={() => canSwitch && setOpen(!open)}
@@ -256,7 +272,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       <button
         type="button"
         onClick={() => canSwitch && setOpen(!open)}
-        aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
+        aria-label={`${canSwitch ? 'Switch organization' : `Organization: ${activeName}`}${viaAncestorNote ? `. ${viaAncestorNote}` : ''}`}
         aria-haspopup={canSwitch ? 'menu' : undefined}
         aria-expanded={canSwitch ? open : undefined}
         className={`group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border border-default bg-surface-muted/80 shadow-sm transition-colors ${
@@ -267,8 +283,9 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           {activeIsTeam ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
         </span>
         <span className="flex-1 min-w-0 text-left">
-          <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
+          <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-fg-subtle" title={viaAncestorNote}>
             {activeIsTeam && activeOrg ? teamCaption(activeOrg) : 'Organization'}
+            {viaAncestorNote && <span className="normal-case"> · via parent</span>}
           </span>
           <span className="block text-sm font-semibold text-fg truncate leading-tight">
             {activeName}

@@ -12,11 +12,14 @@
  *   - "SSO required" stays locked until the connection is enabled AND a test has
  *     passed, and switching it goes through the strong step-up;
  *   - the configured-org summary routes Edit / Change / Resume to the right step;
+ *   - SsoConnectionFlow is the ONE wizard ↔ summary shape, mounted by the org
+ *     SSO page and by the team settings drawer alike;
  *   - the SAML landing page hands a `?test=` state back instead of signing in.
  */
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
+import { SsoConnectionFlow } from '../src/components/sso/SsoConnectionFlow';
 import { SsoSetupWizard, resumeStep } from '../src/components/sso/SsoSetupWizard';
 import { SsoStatusSummary } from '../src/components/sso/SsoStatusSummary';
 import { SsoRequiredToggle, ssoRequiredBlocker } from '../src/components/sso/SsoRequiredToggle';
@@ -298,5 +301,73 @@ describe('the configured-org summary', () => {
   it('resumes at the enable step once a test has passed', () => {
     expect(resumeStep({ ...SAML, lastTest: { at: 'x', ok: true, protocol: 'saml' } })).toBe(6);
     expect(resumeStep(SAML)).toBe(5);
+  });
+});
+
+/**
+ * The flow both mounts run — the org SSO page and the team settings drawer.
+ * Before it, a team got the OIDC and SAML editors stacked with no SP values,
+ * no test connection and no "SSO required", so the two surfaces taught
+ * different products for the same job.
+ */
+describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
+  /** What the page/drawer does: own the config, hand saves back in. */
+  function FlowHarness({ initial = null as OrgIdpConfigDto | null }) {
+    const [config, setConfig] = useState<OrgIdpConfigDto | null>(initial);
+    return (
+      <>
+        <SsoConnectionFlow orgId="team-7" config={config} readOnly={false} onConfigChange={setConfig} />
+        <button type="button" onClick={() => setConfig(null)}>disconnect</button>
+      </>
+    );
+  }
+
+  it('opens the wizard while nothing is configured', () => {
+    render(<FlowHarness />);
+    expect(screen.getByText('Set up single sign-on')).toBeInTheDocument();
+    expect(screen.queryByTestId('sso-summary')).not.toBeInTheDocument();
+  });
+
+  it('shows the summary for a configured org, and Edit reopens the wizard at that step', () => {
+    render(<FlowHarness initial={SAML} />);
+    expect(screen.getByTestId('sso-summary')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Change/ }));
+    // Step 4 (domains) — the step the summary's "Change" names.
+    expect(screen.getByText(/Step 4 of 6/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Close/ }));
+    expect(screen.getByTestId('sso-summary')).toBeInTheDocument();
+  });
+
+  it('stays in the wizard at the domains step after the FIRST save', async () => {
+    render(<FlowHarness />);
+    fireEvent.click(screen.getByLabelText(/SAML 2\.0/));
+    fireEvent.click(screen.getByRole('button', { name: /3\s*Identity-provider details/ }));
+    fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: SAML.samlEntityId } });
+    fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), { target: { value: SAML.samlSsoUrl } });
+    fireEvent.change(screen.getByLabelText(/IdP signing|Signing certificate/i), { target: { value: CERT } });
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText(/Step 4 of 6/)).toBeInTheDocument();
+    expect(screen.queryByTestId('sso-summary')).not.toBeInTheDocument();
+  });
+
+  it('returns to step 1 after a disconnect, never to a step only a saved connection has', () => {
+    render(<FlowHarness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /Change/ }));
+    expect(screen.getByText(/Step 4 of 6/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'disconnect' }));
+    expect(screen.getByText(/Step 1 of 6/)).toBeInTheDocument();
+    expect(screen.getByText('Set up single sign-on')).toBeInTheDocument();
+  });
+
+  it('passes the org it was given — a TEAM id — to every call it makes', async () => {
+    render(<FlowHarness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    // A step already behind the current one shows a tick instead of its number.
+    fireEvent.click(screen.getByRole('button', { name: /Service-provider values/ }));
+    await waitFor(() => expect(api.getOwnOrgIdpSpInfo).toHaveBeenCalledWith('team-7', expect.anything()));
   });
 });

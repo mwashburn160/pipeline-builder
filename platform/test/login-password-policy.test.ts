@@ -62,7 +62,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/services/recovery-codes-service.js', () => ({
   verifyRecoveryCode: jest.fn(), hasUnspentRecoveryCodes: async () => false,
 }));
-jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false) }));
+jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false), clearMfaNudgeOnEnrolment: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   verifyCode: (...a: unknown[]) => mockVerifyCode(...a),
   hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),

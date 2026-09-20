@@ -201,12 +201,6 @@ export function organizationsApi(core: ApiCore) {
       );
     },
 
-    /** Org → team subtree: returns `[self, ...descendantOrgIds]` for an org the
-     * caller can access (own org, an ancestor admin, or sysadmin). */
-    getOrganizationDescendants: async (id: string) => {
-      return core.request<ApiResponse<{ orgIds: string[] }>>(`/api/organization/${id}/descendants`);
-    },
-
     /** A bounded, filterable page of an org's members. `search` matches
      *  username/email, `role` narrows the coarse role, and `status`
      *  (active|inactive) narrows the membership active flag — all applied

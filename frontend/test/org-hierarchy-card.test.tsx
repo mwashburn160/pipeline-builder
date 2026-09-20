@@ -9,12 +9,16 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgHierarchyCard } from '../src/components/admin/org-detail/OrgHierarchyCard';
 import { OrgIdentityCard } from '../src/components/admin/org-detail/OrgIdentityCard';
+import { OrgSeatsCard } from '../src/components/admin/org-detail/OrgSeatsCard';
+import { OrgOperationsCard } from '../src/components/admin/org-detail/OrgOperationsCard';
 import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
 
 const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn() } }));
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));
+jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push: jest.fn(), asPath: '/dashboard' }) }));
+jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: jest.fn() }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (
@@ -150,5 +154,44 @@ describe('OrgIdentityCard — cache invalidation', () => {
 
     await waitFor(() => expect(updateOrganizationTier).toHaveBeenCalledWith('org-9', 'team', 'step-up-token'));
     expect(invalidate.organizations).toHaveBeenCalled();
+  });
+});
+
+describe('OrgSeatsCard — pooled at the root', () => {
+  it('shows the pooled usage and the limit editor on an account root', () => {
+    render(<OrgSeatsCard org={base()} seatUsage={{ limit: 25, used: 7 }} onChanged={jest.fn()} />);
+    expect(screen.getByText('7 / 25')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Set limit' })).toBeInTheDocument();
+  });
+
+  it('sends a TEAM to its parent instead of an editor that silently retargets the root', () => {
+    render(
+      <OrgSeatsCard
+        org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })}
+        seatUsage={{ limit: 25, used: 7 }}
+        onChanged={jest.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Set limit' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Acme' })).toHaveAttribute('href', '/dashboard/admin/orgs/root-1');
+  });
+
+  it('blames the seat read, not the hierarchy, when the read fails on a root', () => {
+    render(<OrgSeatsCard org={base()} seatUsage={null} onChanged={jest.fn()} />);
+    expect(screen.getByText(/seat service didn.t respond/i)).toBeInTheDocument();
+    expect(screen.queryByText(/may not be an account root/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('OrgOperationsCard — delete vs. live teams', () => {
+  it('offers the delete on an org with no teams', () => {
+    render(<OrgOperationsCard org={base()} />);
+    expect(screen.getByRole('button', { name: /delete organization/i })).toBeEnabled();
+  });
+
+  it('refuses up front on a root with live teams, and says what to do', () => {
+    render(<OrgOperationsCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }, { orgId: 't2', orgName: 'Payments' }] })} />);
+    expect(screen.getByRole('button', { name: /delete organization/i })).toBeDisabled();
+    expect(screen.getByText(/has 2 teams and can.t be deleted/i)).toBeInTheDocument();
   });
 });

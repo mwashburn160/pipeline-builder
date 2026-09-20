@@ -397,16 +397,36 @@ identical on both.
   org policy — [**SSO required**](#sso-required) — which can only be switched on
   after a [test connection](#test-connection-dry-run) has succeeded, and which
   always exempts the org's **owners** (the break-glass path).
-- **The org must own the email domain.** An org's own IdP can sign any address
-  as verified, so an SSO sign-in is refused unless the email's domain is one the
-  org (or its account root) has verified through DNS. Google (`provider:
-  google`) is the exception: Google owns the addresses it signs. An SSO identity
-  is linked by its subject *and* issuer, so one IdP can't claim another's users.
+- **The org must own the email domain — every provider except Google Workspace.**
+  An org's own IdP can sign any address as verified, so an SSO sign-in is refused
+  (`OIDC_EMAIL_DOMAIN_NOT_VERIFIED`) unless the email's domain is one the org (or
+  its account root) has **verified through DNS**. **Google (`provider: google`)
+  is the single exception**, and the reason is who does the verifying: an
+  `accounts.google.com` identity can only be minted for a domain Google itself
+  has confirmed the customer controls, so the org's DNS proof would restate
+  something Google has already established. Every other IdP — Okta, Entra,
+  Cognito, Auth0, Keycloak, any generic OIDC provider, and all SAML connections —
+  is run by the customer's own admin, who could sign `someone@a-competitor.com`
+  just as easily as their own staff, so the DNS proof is what makes the claim
+  trustworthy.
+  The carve-out is **narrow**: it exempts only the identity-trust check at
+  callback. Domain-based **discovery** ("Continue with single sign-on" from the
+  login page, and the SSO-required lookup) still requires a verified domain for
+  *every* provider, Google included, and [**SSO required**](#sso-required) is
+  refused outright without one (`IDP_SSO_REQUIRED_NO_DOMAIN`). So a Google
+  connection works with no verified domain, but only for sign-ins that start at
+  the org's own SSO URL — verify a domain regardless.
+  An SSO identity is linked by its subject *and* issuer, so one IdP can't claim
+  another's users.
 - **Platform administrators never sign in through an org's SSO**, and SSO never
   links onto a platform administrator's account.
-- **`sso` entitlement.** SSO is a tier/bundle feature. It enforces only when the
-  org's config is `enabled` **and** the org is `sso`-entitled (Team / Enterprise
-  tier, or the `sso` add-on bundle). Entitlements pool at the account root, so a
+- **`sso` entitlement.** SSO is a **tier** feature, included from **Team** up
+  (Team / Enterprise / the billing-off `unlimited` tier). It is **not** sold as
+  an add-on bundle — a lower tier that needs SSO upgrades, because SSO also
+  needs a DNS-verified domain and domain registration is itself a Team+ check
+  (see [Billing Add-on Bundles](billing-bundles.md#the-bundles)). It enforces
+  only when the org's config is `enabled` **and** the org is `sso`-entitled.
+  Entitlements pool at the account root, so a
   team reads its root's entitlement. A disabled or unentitled config is a no-op:
   password login keeps working and the SSO routes refuse — a half-configured or
   downgraded org never locks its users out.
@@ -520,7 +540,9 @@ connection yet:
    can be [imported from the IdP's metadata](#importing-idp-metadata). Saving
    creates the connection **disabled**.
 4. **Domains** — which verified domains it serves (with a link to verify one when
-   there are none).
+   there are none). Unless the provider is **Google Workspace**, sign-ins are
+   refused until at least one domain is verified — see
+   [the domain rule](#per-org-enterprise-sso).
 5. **Test connection** — a [dry run](#test-connection-dry-run).
 6. **Enable** — switch the connection on, and optionally
    [require SSO](#sso-required).
@@ -807,6 +829,14 @@ public URL. A mismatch here is the most common cause of a failed SSO login.
 2. **Authorized redirect URIs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
 3. Copy the Client ID/secret.
 4. Set `provider: google`, `clientId`, `clientSecret` — the discovery URL is well-known (`https://accounts.google.com/.well-known/openid-configuration`), so you don't enter one.
+
+> **Google is the one provider that can sign in without a verified domain.**
+> Google verifies domain ownership itself before it will issue identities for a
+> Workspace domain, so the platform does not ask the org to prove it again. Every
+> other IdP does have to: see [the domain rule](#per-org-enterprise-sso). Verify
+> a domain anyway — without one, this connection is unreachable from the login
+> page's domain-based "Continue with single sign-on", and
+> [SSO required](#sso-required) cannot be switched on.
 
 #### Auth0 (generic-oidc)
 
@@ -1675,6 +1705,44 @@ every member).
   Scoped machine credentials (`reporting:ingest` and friends) are exempt — they
   are not a person's session, and they are already refused by every
   `minAssurance` gate.
+
+### Asking an account with no factor at all
+
+The banner above fires on an **org policy** deadline, so a member of an org that
+does not require MFA was never asked to protect their own account. A second,
+quieter prompt covers them: *"Your account is protected by a password alone"*,
+with a link into passkey enrolment.
+
+There is deliberately **no "enable MFA" setting** behind it, for the person or
+for an admin. Whether an account is protected is *derived* from the factors it
+holds; a boolean beside them could only ever disagree with them, and would
+collide with the org policy's grace deadline and strictest-wins inheritance.
+Enrolling is the enable, and removing the last factor is the disable.
+
+- Shown only when the account holds **no passkey and no confirmed authenticator**,
+  the org-policy banner is **not** already showing (the two never stack), nothing
+  is suppressing it, and the session is not a read-only impersonation — an
+  operator cannot enrol for someone else, and must not answer for them either.
+- **"Not now"** hides it for **7 days**, and **"Don't ask again"** until the
+  person reverses it on **Security → Factors**. Both are stored on the account
+  (`POST /user/mfa-prompt/snooze`, `POST /user/mfa-prompt/decline`,
+  `DELETE /user/mfa-prompt` — own-account, authenticated, no step-up: postponing
+  a question weakens nothing). Server-side rather than in the browser, because a
+  prompt that returns at the next sign-in is what teaches people to dismiss
+  banners unread. The snooze deadline is computed server-side, like the org
+  grace period.
+- **Enrolling clears both**, so removing that factor later prompts the person
+  again instead of leaving a decline to outlive it. `GET /user/profile` also
+  reports the state only while the account has no factor.
+- The decline and its reversal are audited (`user.mfa.prompt_declined`,
+  `user.mfa.prompt_restored`); the snooze is not. An org's admins see the
+  **count** of members who declined next to the enrolment count on the
+  two-factor policy panel — the difference between people who haven't got round
+  to it and people who have decided not to. A count, never a list of names.
+- The **bootstrap administrator** (below) is prompted too — they are exactly who
+  should enrol first — but with no "not now": their session may reach enrolment,
+  sign-out and the setup routes and nothing else, so the prompt says that
+  instead of offering a postponement it could not honour.
 
 ### The bootstrap-administrator exception
 
@@ -2580,6 +2648,6 @@ user's access keys) when a credential must die now.
 
 - [Environment Variables → Authentication](environment-variables.md#authentication) — every `OAUTH_*` and `WEBAUTHN_*` variable.
 - [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
-- [Billing Add-on Bundles](billing-bundles.md) — the `sso` add-on bundle and feature entitlements.
+- [Billing Add-on Bundles](billing-bundles.md) — feature entitlements, and why `sso` is a Team-and-above tier feature rather than an add-on.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions, `user.step-up`, `user.passkey.*`, `user.key.*`, `device.authorize.*`.
 - [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) — issuing personal keys and provisioning the three stored machine credentials.

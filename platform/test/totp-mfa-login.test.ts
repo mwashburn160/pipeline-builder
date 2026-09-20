@@ -71,7 +71,7 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   assertNewPasswordAcceptable: async () => undefined,
   invitationOrgForRegistration: async () => undefined,
 }));
-jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false) }));
+jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false), clearMfaNudgeOnEnrolment: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   verifyCode: (...a: unknown[]) => mockVerifyCode(...a),
   hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),

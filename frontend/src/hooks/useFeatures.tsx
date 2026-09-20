@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 import { useAuth } from './useAuth';
-import { isSystemAdmin } from '@/lib/auth-helpers';
+import { useBillingEnabled } from './useBillingEnabled';
+import { hasPermission, isSystemAdmin } from '@/lib/auth-helpers';
 import api from '@/lib/api';
 import { DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
 
@@ -16,6 +17,13 @@ interface FeaturesContextType {
    *  Surfaced here (rather than each consumer re-deriving it from `useAuth`)
    *  so an entitlement verdict is one hook call — see `useFeatureGate`. */
   isSuperAdmin: boolean;
+  /** The viewer can actually OPEN `/dashboard/billing` — they hold `billing:read`
+   *  AND the billing service runs in this deployment. Surfaced next to the
+   *  entitlement verdict for the same reason `isSuperAdmin` is: a lock has to
+   *  decide between the billing deep link and "ask an owner" in one hook call,
+   *  and a lock that links a developer to a page they can't read replaces the
+   *  upsell with a full-screen AccessDenied. See `useFeatureGate`. */
+  canReachBilling: boolean;
   /** Primary support alias (from the server's SUPPORT_ALIASES) for compose prefill. */
   supportAlias: string;
   /** ALL configured support aliases, for listing every support inbox in the picker. */
@@ -37,6 +45,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   features: [],
   isLoaded: false,
   isSuperAdmin: false,
+  canReachBilling: false,
   supportAlias: DEFAULT_SUPPORT_ALIAS,
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
   deployTarget: 'local',
@@ -51,6 +60,10 @@ const FeaturesContext = createContext<FeaturesContextType>({
  */
 export function FeaturesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // Deployment-level billing switch, from the same memoised `/api/billing/config`
+  // probe the sidebar uses — so "can this viewer act on an upsell?" is answered
+  // once here instead of in every lock.
+  const billingEnabled = useBillingEnabled();
   const [serviceFeatures, setServiceFeatures] = useState<Record<string, boolean>>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
@@ -132,12 +145,15 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       features,
       isLoaded,
       isSuperAdmin: superAdmin,
+      // Both halves matter: the page is permission-gated (`billing:read`) AND
+      // absent when the deployment runs billing off.
+      canReachBilling: billingEnabled && hasPermission(user, 'billing:read'),
       supportAlias,
       supportAliases,
       deployTarget,
       tierPresets,
     };
-  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases, deployTarget, tierPresets]);
+  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets]);
 
   return (
     <FeaturesContext.Provider value={value}>

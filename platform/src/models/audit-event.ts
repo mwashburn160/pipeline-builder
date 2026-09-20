@@ -84,6 +84,15 @@ export const ALL_AUDIT_ACTIONS = [
   // detail on the login, because burning one usually means a lost device — and
   // an attacker who obtained the sheet leaves exactly this trace.
   'user.mfa.recovery_used',
+  // The PASSWORD-ONLY PROMPT (controllers/mfa-nudge.ts): the account was offered
+  // a second factor and said no. `prompt_declined` is a durable decision to stay
+  // on one factor — the org's admins see the COUNT of people who made it, and
+  // this is the only trail that says WHO — and `prompt_restored` is the same
+  // person withdrawing it, without which "declined" would read as permanent.
+  // The 7-day "not now" is deliberately NOT audited: at a row a week per
+  // password-only account it would bury both of these.
+  'user.mfa.prompt_declined',
+  'user.mfa.prompt_restored',
   // Assurance levels and required MFA (#8, helpers/bootstrap-admin.ts +
   // controllers/org-mfa-policy.ts).
   //

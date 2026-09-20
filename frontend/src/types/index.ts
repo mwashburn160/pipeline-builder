@@ -49,6 +49,10 @@ export interface User {
    *  actually requires MFA — absence is the common case, and is what keeps the
    *  banner quiet for everyone else. */
   mfaPolicy?: SessionMfaPolicy;
+  /** Whether this account has asked not to be prompted to protect itself.
+   *  Present ONLY while the account holds no factor and a suppression is
+   *  actually in force — see {@link MfaNudgeState}. */
+  mfaNudge?: MfaNudgeState;
   /** All organizations this user belongs to, with per-org roles */
   organizations?: UserOrgMembership[];
   createdAt?: string;
@@ -68,6 +72,25 @@ export interface AuthFactors {
   /** A CONFIRMED authenticator-app enrolment ⇒ the modal offers "Enter a code". */
   hasTotp: boolean;
   providers: ReauthProvider[];
+}
+
+/**
+ * "Not now" / "don't ask again" for the PASSWORD-ONLY PROMPT — the banner that
+ * asks an account with no second factor to protect itself.
+ *
+ * Deliberately NOT an "MFA enabled" setting: whether the account is protected is
+ * derived from {@link AuthFactors}, and a boolean beside it could only ever
+ * disagree with it. This says one thing — whether we are still asking.
+ *
+ * The profile omits the whole field unless a suppression is in force, and omits
+ * it entirely for an account that holds a factor (there is nothing to ask).
+ */
+export interface MfaNudgeState {
+  /** ISO deadline of a "Not now". Never a past one — an expired snooze is sent
+   *  as nothing at all. */
+  snoozedUntil?: string;
+  /** ISO time the person chose "don't ask again". Reversible from Security. */
+  declinedAt?: string;
 }
 
 /**
@@ -130,7 +153,14 @@ export interface OrgMfaPolicy {
    * the number that makes "14 days" a decision rather than a guess. Present on
    * the policy READ; a write response carries the policy alone.
    */
-  enrolment?: { members: number; enrolled: number };
+  enrolment?: {
+    members: number;
+    enrolled: number;
+    /** Of the members with no factor, how many were prompted and chose "don't
+     *  ask again". A count, never names — the org's audit log carries
+     *  `user.mfa.prompt_declined` for anyone who needs the who. */
+    declined: number;
+  };
 }
 
 /** The account's recovery codes (one set, shared by every second factor),
@@ -399,7 +429,14 @@ export interface OrgQuotaResponse {
    */
   pool?: {
     rootOrgId: string;
-    rootOrgName: string;
+    /**
+     * Display name of `rootOrgId`. The quota service emits `''` when it could
+     * not read the root's row (`pooled-quota.ts`: `root?.name ?? ''`), and the
+     * update / reset-usage responses carry no pool block at all — so this is
+     * genuinely optional and callers must have human copy for its absence.
+     * Never substitute `rootOrgId`: a UUID is not a name.
+     */
+    rootOrgName?: string;
     /** True when this org IS the pool root (false ⇒ a team). */
     isRoot: boolean;
     /** Root + every team in the pool. */

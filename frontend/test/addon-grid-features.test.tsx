@@ -142,9 +142,13 @@ describe('AddonGrid — unsubscribed preview', () => {
     grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
     availableForTiers: ['developer', 'pro', 'team', 'enterprise'],
   } as unknown as Bundle;
+  // A pack sold on Pro alone. Every bundle's tier list is env-overridable
+  // (`BILLING_BUNDLE_<ID>_TIERS`), so a single-tier feature pack is a real
+  // deployment shape even though the shipped Advanced Reporting default is
+  // developer/pro/team.
   const proOnly = {
-    id: 'sso', name: 'SSO / IdP', description: 'SSO + up to 5 IdP configs.',
-    grants: {}, prices: { monthly: 4000, annual: 40000 }, stackable: false,
+    id: 'advanced_reporting', name: 'Advanced Reporting (DORA)', description: 'DORA delivery metrics.',
+    grants: {}, prices: { monthly: 3000, annual: 30000 }, stackable: false,
     availableForTiers: ['pro'],
   } as unknown as Bundle;
 
@@ -171,13 +175,13 @@ describe('AddonGrid — unsubscribed preview', () => {
   it('leads with the packs the cheapest plan can buy', () => {
     render(<AddonGrid {...baseProps} subscribed={false} bundles={[teamOnly, proOnly, anyPlan]} />);
     const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(names).toEqual(['Plugin Pack (+25)', 'SSO / IdP', 'Member Seat']);
+    expect(names).toEqual(['Plugin Pack (+25)', 'Advanced Reporting (DORA)', 'Member Seat']);
   });
 
   it('keeps the catalog order (no tier re-sort) once subscribed', () => {
     render(<AddonGrid {...baseProps} subscribed bundles={[teamOnly, proOnly, anyPlan]} />);
     const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(names).toEqual(['Member Seat', 'SSO / IdP', 'Plugin Pack (+25)']);
+    expect(names).toEqual(['Member Seat', 'Advanced Reporting (DORA)', 'Plugin Pack (+25)']);
     expect(screen.queryByText(/^On /)).not.toBeInTheDocument();
   });
 

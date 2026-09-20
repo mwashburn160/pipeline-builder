@@ -241,6 +241,13 @@ export class Workflow extends Component {
                     run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
                     env: {
                         GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
+                        // The `build` target runs each project's tests, so the DB-backed
+                        // suites are in scope here exactly as in the `test` workflow. The
+                        // gate (platform/test/helpers/integration-gate.ts) FAILS on a
+                        // GitHub Actions runner when this is unset rather than skipping
+                        // silently, so every Actions workflow that compiles or tests must
+                        // set it — otherwise the release path dies on a green-looking hole.
+                        RUN_MONGO_INTEGRATION: 'true',
                     },
                 },
                 {
@@ -256,6 +263,9 @@ export class Workflow extends Component {
                     run: 'pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
                     env: {
                         GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
+                        // Same reason as the build step above: the release gate must run
+                        // the integration tier, not skip it.
+                        RUN_MONGO_INTEGRATION: 'true',
                     },
                 },
                 {

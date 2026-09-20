@@ -12,17 +12,19 @@
  * standard {@link FeatureLock} upsell in place of the editors. The backend
  * independently enforces both the permission (own-org only) and the entitlement.
  *
- * TWO SHAPES, decided by whether a connection exists:
- *   - none yet → the SSO SETUP WIZARD (protocol + preset → SP values → IdP
- *     details / metadata import → verified domains → test connection → enable,
- *     optionally require SSO);
- *   - configured → a STATUS SUMMARY (Edit reopens the wizard at the right step,
- *     Test connection, enable, "SSO required"), then group → role mappings,
- *     SCIM provisioning and Disconnect.
+ * The connection itself is {@link SsoConnectionFlow} — the setup WIZARD until
+ * something is configured, the STATUS SUMMARY after (Edit reopens the wizard at
+ * the right step, Test connection, enable, "SSO required"). The SAME component
+ * runs the team settings drawer, so an admin configuring a TEAM's SSO sees the
+ * flow they already know. Below it: group → role mappings, SCIM provisioning
+ * and Disconnect.
  *
  * The page reads the config ONCE and hands it to every part, so they all
  * describe the same record and a save (or a disconnect) in one is seen by the
- * rest. Every write keeps the IdP routes' strong step-up + assurance gate.
+ * rest. Every write keeps the IdP routes' strong step-up + assurance gate —
+ * which the page now STATES in plain words up front ("each save asks for a
+ * passkey or an authenticator code, because …"), rather than letting the prompt
+ * arrive unannounced mid-save.
  */
 
 import { useEffect, useState } from 'react';
@@ -38,8 +40,7 @@ import { FeatureLock } from '@/components/ui/FeatureLock';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { RetryError } from '@/components/ui/RetryError';
 import { SsoDisconnect } from '@/components/settings/SsoDisconnect';
-import { SsoSetupWizard, type WizardStep } from '@/components/sso/SsoSetupWizard';
-import { SsoStatusSummary } from '@/components/sso/SsoStatusSummary';
+import { SsoConnectionFlow } from '@/components/sso/SsoConnectionFlow';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
 import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
 import api from '@/lib/api';
@@ -62,9 +63,6 @@ export default function OrgSsoSettingsPage() {
   // config locally from the last read.
   const [idpConfig, setIdpConfig] = useState<OrgIdpConfigDto | null>(null);
   useEffect(() => { setIdpConfig(idp.data); }, [idp.data]);
-  // The wizard step being edited, or null for the summary. With no connection
-  // the wizard is always shown.
-  const [editing, setEditing] = useState<WizardStep | null>(null);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -95,31 +93,23 @@ export default function OrgSsoSettingsPage() {
           <LoadingPage />
         ) : (
           <>
-            {!idpConfig || editing !== null ? (
-              <SsoSetupWizard
-                // Remount per entry point so the wizard opens at the chosen step.
-                key={`${editing ?? 'new'}`}
-                orgId={orgId}
-                config={idpConfig}
-                readOnly={isReadOnly}
-                initialStep={editing ?? 1}
-                onSaved={(saved) => {
-                  // The first save creates the connection: stay in the wizard
-                  // (now at the domains step) instead of dropping to the summary.
-                  if (!idpConfig) setEditing(4);
-                  setIdpConfig(saved);
-                }}
-                onDone={idpConfig ? () => setEditing(null) : undefined}
-              />
-            ) : (
-              <SsoStatusSummary
-                orgId={orgId}
-                config={idpConfig}
-                readOnly={isReadOnly}
-                onSaved={setIdpConfig}
-                onEdit={setEditing}
-              />
+            {/* The gate in words. The code calls it "strong step-up" and
+                "assurance"; an admin here needs to know only that saving will
+                ask for a passkey or an authenticator code, and why — otherwise
+                the prompt arrives mid-save and reads as a bug. */}
+            {!isReadOnly && (
+              <Callout variant="neutral">
+                Changing these settings changes how everyone signs in to your organization, so each save asks
+                you to confirm with a <strong>passkey or an authenticator-app code</strong>. A password won&apos;t
+                do here — passwords get phished, and this is the setting an attacker would want most.
+              </Callout>
             )}
+            <SsoConnectionFlow
+              orgId={orgId}
+              config={idpConfig}
+              readOnly={isReadOnly}
+              onConfigChange={setIdpConfig}
+            />
             {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
                 it grants roles, so an org can delegate the login connection and
                 the role policy to different people. The API enforces the same. */}
@@ -143,7 +133,7 @@ export default function OrgSsoSettingsPage() {
                 orgId={orgId}
                 config={idpConfig}
                 readOnly={isReadOnly}
-                onDisconnected={() => { setIdpConfig(null); setEditing(null); }}
+                onDisconnected={() => setIdpConfig(null)}
               />
             )}
           </>

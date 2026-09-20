@@ -52,6 +52,7 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { SecretReveal } from '@/components/ui/SecretReveal';
 import { SecurityPostureStrip } from '@/components/security/SecurityPostureStrip';
 import { AccessKeysSection } from '@/components/settings/AccessKeysSection';
+import { MfaPromptPreference } from '@/components/settings/MfaPromptPreference';
 import { PasskeySection } from '@/components/settings/PasskeySection';
 import { ServiceAccountsSection } from '@/components/settings/ServiceAccountsSection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
@@ -80,7 +81,7 @@ function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
 }
 
 export default function SecurityPage() {
-  const { user, isReady, isReadOnly, can } = useAuthGuard();
+  const { user, isReady, isReadOnly, can, refreshUser } = useAuthGuard();
   const [activeTab, changeTab] = useUrlTab<SecurityTab>(
     'tab', SECURITY_TAB_IDS, 'factors', { hashTabs: SECURITY_HASH_TABS },
   );
@@ -118,6 +119,12 @@ export default function SecurityPage() {
             <Anchor id="password"><PasswordSection readOnly={isReadOnly} /></Anchor>
             <Anchor id="passkeys"><PasskeySection readOnly={isReadOnly} /></Anchor>
             <Anchor id="totp"><TotpSection readOnly={isReadOnly} /></Anchor>
+            {/* Only rendered while a "not now" / "don't ask again" is actually
+                in force, and it is what makes that choice reversible by the
+                person who made it. Last, because it is about the REMINDER, not
+                about a factor — the sections above are the account's real
+                two-factor state, and nothing here changes it. */}
+            <MfaPromptPreference nudge={user.mfaNudge} readOnly={isReadOnly} onChanged={() => refreshUser({ force: true })} />
           </div>
         )}
 

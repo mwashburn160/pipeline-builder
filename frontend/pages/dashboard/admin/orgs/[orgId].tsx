@@ -37,6 +37,7 @@ import { OrgSeatsCard } from '@/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '@/components/admin/org-detail/OrgOperationsCard';
 import { redactString } from '@/lib/redact';
 import api from '@/lib/api';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations';
 
 const ORG_TABS = [
   { id: 'configuration', label: 'Configuration' },
@@ -54,6 +55,23 @@ async function orNull<T>(read: Promise<{ data?: T }>): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * "These figures belong to the parent" — the note the pooled-at-root reads
+ * (seats, entitlements, quotas) owe a team. Reads the org ON SCREEN, so a
+ * sysadmin always sees that org's hierarchy, never their own.
+ */
+function PooledAtParent({ org, what }: { org: OrganizationDetail; what: string }) {
+  return (
+    <p className="text-xs text-fg-muted pt-2">
+      {what} pool at the account root — these are{' '}
+      <Link href={`/dashboard/admin/orgs/${org.parentOrgId}`} className="action-link">
+        {org.parentOrgName ?? 'the parent organization'}
+      </Link>
+      &apos;s, shared with every team.
+    </p>
+  );
 }
 
 export default function OrgDetailPage() {
@@ -232,7 +250,7 @@ export default function OrgDetailPage() {
 
           {activeTab === 'entitlements' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <OrgSeatsCard orgId={org.id} seatUsage={seatsQ.data} onChanged={seatsQ.refetch} />
+              <OrgSeatsCard org={org} seatUsage={seatsQ.data} onChanged={seatsQ.refetch} />
 
               {/* Read-only: the account's (root) pooled feature flags purchased
                   via tier + add-on bundles. */}
@@ -250,6 +268,10 @@ export default function OrgDetailPage() {
                     No add-on feature entitlements. The org has only its tier&apos;s baseline features.
                   </p>
                 )}
+                {/* Both entitlements and quotas resolve to the ROOT. For a team
+                    these are its parent's, not its own — say so on the org being
+                    viewed rather than letting them read as the team's. */}
+                {org.parentOrgId && <PooledAtParent org={org} what="Entitlements" />}
               </Card>
 
               {/* Usage vs limits from the quota service — the source of truth.
@@ -278,6 +300,7 @@ export default function OrgDetailPage() {
                     Quota usage unavailable — the quota service didn&apos;t respond.
                   </p>
                 )}
+                {org.parentOrgId && <PooledAtParent org={org} what="Limits" />}
               </Card>
             </div>
           )}

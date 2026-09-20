@@ -38,6 +38,8 @@ import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
 import { fmtNum } from '@/lib/format';
+import { complianceActionLabel } from '@/lib/compliance-styles';
+import { POOLING_TITLE } from '@/components/quotas/constants';
 import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
 
@@ -69,8 +71,9 @@ export function OrgAdminHome({ organizationId }: Props) {
   const { isEnabled } = useFeatures();
   const billingEnabled = isEnabled('billing');
   // Hierarchy tiles render only where they mean something: a team count when
-  // the org parents teams, a "pooled" note when it IS a team.
-  const { isChildOrg, hasChildOrgs, childOrgCount } = useOrgHierarchy();
+  // the org parents teams, a "pooled" note when it IS a team, and the
+  // inherited-authority note only when the session has no membership here.
+  const { isChildOrg, hasChildOrgs, childOrgCount, parentOrgName, viaAncestor } = useOrgHierarchy();
   const { user } = useAuth();
   const canSeeOrgSecurity = !!organizationId && hasPermission(user, 'org:settings');
   // Every call here is independent and best-effort — a missing answer degrades
@@ -137,9 +140,16 @@ export function OrgAdminHome({ organizationId }: Props) {
             Quota health
           </h3>
           <div className="flex items-center gap-3">
-            {isChildOrg && (
-              <span className="text-xs text-fg-muted">Pooled across the parent organization</span>
-            )}
+            {/* The figures below are the ACCOUNT's pool in BOTH directions — a
+                team draws on its parent's caps, and a parent's usage already
+                includes every team's — so both states say so, rather than
+                leaving a root admin to read them as its own members' numbers.
+                One wording app-wide (see `poolingExplanation`); the full
+                explanation lives on the Quotas and Members pages, where the
+                decision is actually made. */}
+            {isChildOrg || hasChildOrgs ? (
+              <span className="text-xs text-fg-muted">{POOLING_TITLE}</span>
+            ) : null}
             <Link href="/dashboard/quotas" className="action-link text-xs">Manage →</Link>
           </div>
         </div>
@@ -187,6 +197,16 @@ export function OrgAdminHome({ organizationId }: Props) {
             </h3>
             <Link href="/dashboard/members" className="action-link text-xs">Manage members →</Link>
           </div>
+          {/* Inherited authority: this session has NO membership row here, so
+              the roster below does not include the viewer and no seat is spent
+              on them. Stated once, where the member count is, rather than
+              letting the count imply they are on it. */}
+          {viaAncestor && (
+            <p className="mb-3 rounded-md bg-surface-muted px-3 py-2 text-xs text-fg-muted">
+              You administer this team through {parentOrgName ?? 'its parent organization'} — you are not on its
+              roster and use none of its seats.
+            </p>
+          )}
           <div className={`grid ${hasChildOrgs ? 'grid-cols-3' : 'grid-cols-2'} gap-3 text-sm`}>
             <div className="rounded-md bg-surface-muted px-3 py-2">
               <div className="text-xs text-fg-muted">Pending invitations</div>
@@ -239,8 +259,8 @@ export function OrgAdminHome({ organizationId }: Props) {
                   <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-fg truncate">
-                      <code className="text-xs">{e.action}</code>
-                      {e.entityName && <span className="text-fg-muted"> on {e.entityName}</span>}
+                      {complianceActionLabel(e.action, e.target)} blocked
+                      {e.entityName && <span className="text-fg-muted"> — {e.entityName}</span>}
                     </div>
                     <div className="text-xs text-fg-muted">
                       <RelativeTime value={e.createdAt} />
@@ -266,7 +286,18 @@ export function OrgAdminHome({ organizationId }: Props) {
               <CreditCard className="w-4 h-4 text-fg-subtle" />
               Billing
             </h3>
-            <Link href="/dashboard/billing" className="action-link text-xs">Manage plan →</Link>
+            {/* The subscription shown is the ACCOUNT's (billing pools at the
+                root), and a team admin cannot change it — "Manage plan" would
+                lead to controls the backend refuses. Say where the plan is
+                managed and offer the read instead. */}
+            {isChildOrg ? (
+              <span className="text-xs text-fg-muted">
+                Managed at {parentOrgName ?? 'the parent organization'} ·{' '}
+                <Link href="/dashboard/billing" className="action-link">View plan →</Link>
+              </span>
+            ) : (
+              <Link href="/dashboard/billing" className="action-link text-xs">Manage plan →</Link>
+            )}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
             <div className="rounded-md bg-surface-muted px-3 py-2">

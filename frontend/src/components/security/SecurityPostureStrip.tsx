@@ -128,17 +128,32 @@ export function derivePosture({ user, recoveryCodes, activeSessions, sso, canMan
       href: canManageOrg ? ORG_MFA_SETTINGS_HREF : TOTP_ENROLMENT_HREF,
     });
   } else {
-    const graceRunning = !policy.enforced && !!policy.graceUntil;
+    // The three policy fields mean three DIFFERENT things (see platform's
+    // `mfa-policy.ts`): `enforced` is "on AND past any grace — a single-factor
+    // sign-in is refused now"; `graceUntil` is a deadline still running, so the
+    // requirement is announced but not yet biting; and the pair with neither
+    // set is a requirement that is on but not yet enforcing. Saying "Required"
+    // for all three told people they were already locked out when they weren't
+    // — and, worse, would have read the same after the deadline had passed.
+    // `resetGraceUntil` is this ONE person's post-reset enrolment window: the
+    // policy does not refuse them until it ends, whatever the org-wide state.
+    const enforced = policy.enforced;
+    const graceUntil = !enforced && policy.graceUntil ? formatDate(policy.graceUntil) : null;
+    const resetGrace = policy.resetGraceUntil ? formatDate(policy.resetGraceUntil) : null;
     items.push({
       id: 'org-mfa',
       label: 'Org two-factor',
-      value: policy.enforced
-        ? 'Required'
-        : graceRunning ? `Required from ${formatDate(policy.graceUntil)}` : 'Required',
+      value: enforced ? 'Required' : graceUntil ? `Required from ${graceUntil}` : 'Not yet enforced',
       // Required and you have nothing to meet it with is the one real problem.
       tone: hasSecondFactor ? 'good' : 'warn',
       href: hasSecondFactor && canManageOrg ? ORG_MFA_SETTINGS_HREF : PASSKEY_ENROLMENT_HREF,
-      detail: hasSecondFactor ? undefined : 'You have no passkey or authenticator app yet',
+      detail: hasSecondFactor
+        ? undefined
+        : resetGrace
+          ? `Add a passkey or authenticator app by ${resetGrace}`
+          : enforced
+            ? 'You have no passkey or authenticator app yet'
+            : 'Add a passkey or authenticator app before it starts',
     });
   }
 

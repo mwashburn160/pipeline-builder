@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Globe, Check, Trash2, RefreshCw } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
@@ -14,19 +15,41 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
+import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organizations';
 
 /**
- * Admin panel for domain-based org join (P2b): register + DNS-verify email
- * domains, choose how matching signups may join (off / request / auto), and
- * approve or deny pending join requests. Rendered on the org settings page for
- * owners/admins; the backend enforces `org:settings` + tenancy independently.
+ * Admin panel for the org's EMAIL DOMAINS: register + DNS-verify them, choose
+ * how matching signups may join (off / request / auto), and approve or deny
+ * pending join requests. Rendered on the org settings page for owners/admins;
+ * the backend enforces `org:settings` + tenancy independently.
+ *
+ * TWO consumers, not one. It used to be titled "Domain-based join", but SSO
+ * setup sends admins here as well — a non-Google IdP's identities are refused
+ * unless the email's domain is DNS-verified by the org (`assertSsoIdentityTrusted`)
+ * and "require single sign-on" is a hard 409 without one. So the card is named
+ * (and now anchored, {@link DOMAIN_SETTINGS_ANCHOR}) for verification AND join,
+ * and the unentitled upsell names both.
+ *
+ * The "holds `sso` but can't register a domain" branch below is NARROW now that
+ * SSO is a Team-and-above TIER feature with no add-on to buy: a plan can no
+ * longer put `sso` on a sub-Team org. It is still reachable two ways — a
+ * superadmin (issued every entitlement, and `useFeatureGate` honours that
+ * bypass) looking at a Developer/Pro org, and a per-user `sso` force-on
+ * override (`resolveUserFeatures`) on a member of one. Both see an SSO surface
+ * they cannot finish wiring up, which is exactly the loop this text breaks.
  */
 export function DomainJoinSettings({ orgId }: { orgId: string }) {
   const toast = useToast();
+  // Only to EXPLAIN the dead end below — the domain gate is the account tier,
+  // not this entitlement, so it never unlocks the form. (SSO is itself a Team+
+  // tier feature, so the two agree for ordinary members; see the note above for
+  // the superadmin / per-user-override cases where they don't.)
+  const sso = useFeatureGate('sso');
   const [newDomain, setNewDomain] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +90,15 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
     }
   };
 
+  // The anchor wrapper carries `tabIndex={-1}` because `useUrlTab` FOCUSES the
+  // fragment's target: a keyboard user following "Verify a domain" then arrives
+  // at the card instead of at the top of the settings page.
   return (
+    <div id={DOMAIN_SETTINGS_ANCHOR} tabIndex={-1} className="scroll-mt-6 outline-none">
     <SectionCard
       icon={Globe}
-      title="Domain-based join"
-      description={`Let people with a verified company email domain discover and join this organization.${!entitled ? ' Requires the Team or Enterprise tier to enable.' : ''}`}
+      title="Email domains"
+      description={`Prove your organization owns an email domain with a DNS TXT record. A verified domain is what single sign-on serves, and what lets matching signups discover and join this organization.${!entitled ? ' Registering one needs the Team or Enterprise tier.' : ''}`}
     >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
@@ -97,8 +124,19 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
               <Button type="submit" disabled={busy || !newDomain.trim()}>Add</Button>
             </form>
           ) : (
-            <Callout variant="neutral" className="mb-4">
-              Upgrade to the Team or Enterprise tier to register domains for join.
+            <Callout variant="neutral" className="mb-4" title="Registering a domain needs the Team or Enterprise tier">
+              A verified domain unlocks two things: <strong>single sign-on</strong> — an identity provider&apos;s
+              sign-ins are refused for any domain you haven&apos;t verified (Google Workspace is the one exception:
+              Google verifies the domain itself), and &ldquo;require single sign-on&rdquo; cannot be switched on at
+              all — and <strong>domain-based join</strong>, which lets people with a matching
+              company email discover and join this organization.
+              {sso.isLoaded && sso.entitled && (
+                <>
+                  {' '}You hold {sso.label}, but domain registration is gated on the account tier, so an SSO
+                  connection here cannot be completed until the account is on Team or Enterprise.{' '}
+                  <Link href={sso.upsellHref} className="underline">{sso.upsellCta}</Link>.
+                </>
+              )}
             </Callout>
           )}
 
@@ -190,5 +228,6 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
         />
       )}
     </SectionCard>
+    </div>
   );
 }

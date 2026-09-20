@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Sun, Moon, GitBranch, Puzzle } from 'lucide-react';
+import { Search, Sun, Moon, GitBranch, Puzzle, Lock } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
-import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
+import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, navItemLockedFeature } from '@/lib/nav';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
@@ -18,6 +18,10 @@ interface CommandItem {
   icon: LucideIcon;
   section: string;
   keywords?: string;
+  /** The destination is on a higher plan: the row stays selectable (the page
+   *  shows the upsell) but renders muted with a padlock, and its label already
+   *  says so — the icon is never the only signal. */
+  locked?: boolean;
   action: () => void;
 }
 
@@ -92,17 +96,28 @@ export function CommandPalette({
     // the pages the sidebar shows — no separate hand-maintained list to drift.
     // The section label doubles as a search keyword (e.g. "platform" surfaces
     // every admin page) so users can find a page by area, not just name.
+    const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled };
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
-        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), billingEnabled, isFeatureEnabled }))
-        .map((item) => ({
-          id: item.href,
-          label: `Go to ${item.title}`,
-          icon: item.icon,
-          section: 'Navigation',
-          keywords: section.label.toLowerCase(),
-          action: () => navigate(item.href),
-        })),
+        .filter((item) => isNavItemVisible(item, navCtx))
+        .map((item) => {
+          const locked = !!navItemLockedFeature(item, navCtx);
+          return {
+            // Two entries may point at the same page (Members / Teams), so the
+            // href alone is not a unique id — it would collide in the
+            // index map and give one of them the other's keyboard position.
+            id: `nav:${section.label}:${item.title}`,
+            // The "(not on your plan)" clause is part of the LABEL, not a
+            // decoration: focus stays in the input and the row is announced via
+            // aria-activedescendant, which reads exactly this text.
+            label: locked ? `Go to ${item.title} (not on your plan)` : `Go to ${item.title}`,
+            icon: item.icon,
+            section: 'Navigation',
+            keywords: `${section.label.toLowerCase()}${item.keywords ? ` ${item.keywords}` : ''}${locked ? ' locked upgrade plan' : ''}`,
+            locked,
+            action: () => navigate(item.href),
+          };
+        }),
     );
 
     return [
@@ -377,7 +392,8 @@ export function CommandPalette({
                         }`}
                       >
                         <Icon className="w-4 h-4 flex-shrink-0 opacity-60" />
-                        <span className="flex-1 text-left">{item.label}</span>
+                        <span className={`flex-1 text-left ${item.locked ? 'opacity-70' : ''}`}>{item.label}</span>
+                        {item.locked && <Lock className="w-3.5 h-3.5 flex-shrink-0 opacity-70" aria-hidden="true" />}
                       </button>
                     );
                   })}

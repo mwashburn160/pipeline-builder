@@ -89,9 +89,21 @@ export function OrgSecurityCard({ orgId, canReadIdp }: OrgSecurityCardProps) {
             {without === null || !policy.enrolment ? (
               <span className="text-fg-muted">—</span>
             ) : (
-              <span className={without > 0 && policy.requireMfa ? 'text-amber-600 dark:text-amber-400' : undefined}>
-                {without} of {policy.enrolment.members}
-              </span>
+              <>
+                <span className={without > 0 && policy.requireMfa ? 'text-amber-600 dark:text-amber-400' : undefined}>
+                  {without} of {policy.enrolment.members}
+                </span>
+                {/* How many of them were ASKED and said no. Without it, "seven
+                    haven't got round to it" and "three have decided not to"
+                    look identical, and they call for different things. A count
+                    only — who is in the audit log (`user.mfa.prompt_declined`),
+                    which this card does not duplicate. */}
+                {policy.enrolment.declined > 0 && (
+                  <div className="mt-1 text-xs font-normal text-fg-muted">
+                    {policy.enrolment.declined} declined the reminder
+                  </div>
+                )}
+              </>
             )}
           </Row>
           <Row label="Single sign-on">

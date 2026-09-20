@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
+import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
 import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
@@ -65,18 +66,25 @@ export default function QuotasPage() {
   const serverTierPresets = useFeatures().tierPresets;
   const tierPresets = useMemo(() => buildTierPresets(serverTierPresets), [serverTierPresets]);
 
-  // System-admin only: orgs at >= 80% on any quota dimension. Re-read after
-  // edits and usage resets so the banner stays current. Admin diagnostic —
-  // a failure just shows no banner.
+  // The at-risk cut-off, in percent. The API has always taken `threshold` (and
+  // the client has always forwarded it); this page pinned it to the server's 80
+  // default, so "who has ALREADY run out?" — threshold=100 — was unaskable, and
+  // so was widening the early warning. It drives BOTH at-risk reads below, so
+  // the sysadmin banner and an owner's own callout agree on what "at risk" is.
+  const [atRiskThreshold, setAtRiskThreshold] = useState(QUOTA_WARNING_THRESHOLD);
+
+  // System-admin only: orgs at >= the chosen cut-off on any quota dimension.
+  // Re-read after edits and usage resets so the banner stays current. Admin
+  // diagnostic — a failure just shows no banner.
   const atRiskQ = useFetch(async () => {
     if (!isSuperAdmin) return [];
     try {
-      const res = await api.getAtRiskQuotas();
+      const res = await api.getAtRiskQuotas(atRiskThreshold);
       return res.success && res.data ? res.data.atRisk : [];
     } catch {
       return [];
     }
-  }, [isSuperAdmin]);
+  }, [isSuperAdmin, atRiskThreshold]);
   const atRisk = atRiskQ.data ?? [];
   const fetchAtRisk = atRiskQ.refetch;
 
@@ -88,12 +96,12 @@ export default function QuotasPage() {
   const ownAtRiskQ = useFetch(async (): Promise<AtRiskDimension[]> => {
     if (!canViewOwnAtRisk || !user?.organizationId) return [];
     try {
-      const res = await api.getOrgAtRisk(user.organizationId);
+      const res = await api.getOrgAtRisk(user.organizationId, atRiskThreshold);
       return res.success && res.data ? res.data.atRisk : [];
     } catch {
       return [];
     }
-  }, [canViewOwnAtRisk, user?.organizationId]);
+  }, [canViewOwnAtRisk, user?.organizationId, atRiskThreshold]);
   const ownAtRisk = ownAtRiskQ.data ?? [];
 
   // Sysadmin org picker. Page size is capped; a typed term (debounced) re-queries
@@ -148,11 +156,16 @@ export default function QuotasPage() {
 
   function applyOrgData(
     d: OrgQuotaResponse,
-    opts?: { orgId?: string; sidebarName?: string; sidebarSlug?: string },
+    opts?: { orgId?: string; sidebarName?: string; sidebarSlug?: string; keepPool?: OrgQuotaResponse['pool'] },
   ) {
     const name = d.name || opts?.sidebarName || user?.organizationName || d.orgId;
     const slug = d.slug || opts?.sidebarSlug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || d.orgId;
-    const resolved: OrgQuotaResponse = { ...d, name, slug };
+    // The quota service's update / reset-usage responses are built straight from
+    // the org row (`buildOrgQuotaResponse`) and carry NO `pool` block — only the
+    // reads overlay it. Re-applying one verbatim therefore dropped the pooling
+    // banner (and the root's name with it) the moment a sysadmin saved or reset.
+    const pool = d.pool ?? opts?.keepPool;
+    const resolved: OrgQuotaResponse = { ...d, name, slug, ...(pool ? { pool } : {}) };
     setOrgData(resolved);
     setEditValues({
       plugins: resolved.quotas.plugins.limit,
@@ -211,7 +224,7 @@ export default function QuotasPage() {
       // Pass the sidebar identity (as handleResetUsage does) — if the update
       // response omits `name`, the fallback chain would otherwise resolve to the
       // acting sysadmin's own org name while editing a different org.
-      applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug });
+      applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
 
       toast.success('Saved');
     } catch (error) {
@@ -229,7 +242,7 @@ export default function QuotasPage() {
     if (!orgData) return;
     const res = await api.resetOrgQuota(orgData.orgId);
     const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
-    applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug });
+    applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
     toast.success('Usage counters reset');
     fetchAtRisk();
   }
@@ -255,6 +268,8 @@ export default function QuotasPage() {
         activeOrgHasTeams={activeOrgHasTeams}
         canManageBilling={canManageBilling}
         atRisk={ownAtRisk}
+        atRiskThreshold={atRiskThreshold}
+        setAtRiskThreshold={setAtRiskThreshold}
       />
     );
   }
@@ -290,6 +305,8 @@ export default function QuotasPage() {
       selectedOrgId={selectedOrgId}
       orgHealthColors={orgHealthColors}
       atRisk={atRisk}
+      atRiskThreshold={atRiskThreshold}
+      setAtRiskThreshold={setAtRiskThreshold}
       user={user}
       setSearchFilter={setSearchFilter}
       handleSelectOrg={handleSelectOrg}

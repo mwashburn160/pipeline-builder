@@ -54,7 +54,7 @@ export function BillingDashboard() {
 
   // Summary + cost-by-team for the range. useFetch drops a superseded range's
   // late answer, so a rapid range change can't paint stale totals.
-  const { hasChildOrgs } = useOrgHierarchy();
+  const { hasChildOrgs, teamName } = useOrgHierarchy();
   const { data: overview, loading } = useFetch(async (signal) => {
     const [s, alloc] = await Promise.all([
       api.getBillingSummary(range, { signal }).catch(() => null),
@@ -140,7 +140,10 @@ export function BillingDashboard() {
   const maxGross = Math.max(1, ...summary.timeline.map((p) => p.grossCents));
 
   const allocationColumns: Column<AllocationRow>[] = [
-    { id: 'team', header: 'Team', cellClassName: 'text-fg-muted font-mono text-xs', render: (r) => r.orgId },
+    // The allocation rows are ids; the session's org list already names every
+    // live team of this account (a parent admin gets a row per team), so show
+    // the name and keep the id only as the fallback.
+    { id: 'team', header: 'Team', cellClassName: 'text-fg-muted text-xs', render: (r) => teamName(r.orgId) },
     { id: 'units', header: allocation?.driver ?? 'Units', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.driverUnits },
     { id: 'share', header: 'Share', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => `${r.sharePct}%` },
     { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
@@ -205,7 +208,11 @@ export function BillingDashboard() {
         )}
       </Card>
 
-      {hasChildOrgs && allocation && allocation.rows.length > 1 && (
+      {/* Gated on the shared hierarchy signal ALONE. It previously also
+          required `rows.length > 1`, so an account whose teams happened to
+          drive no billable usage in the range lost the breakdown entirely —
+          the answer "the parent carries all of it" is a real answer. */}
+      {hasChildOrgs && allocation && allocation.rows.length > 0 && (
         <Card className="overflow-x-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="h3">Cost by team</h3>

@@ -4,7 +4,7 @@
 import { ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
-import { SQL, eq, and, desc, inArray, isNull } from 'drizzle-orm';
+import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { paginatedList } from './paginated-list.js';
@@ -137,8 +137,42 @@ export class ComplianceRuleService extends CrudService<
     return schema.complianceRule as PgTable;
   }
 
-  protected buildConditions(filter: Partial<ComplianceRuleFilter>, orgId?: string): SQL[] {
-    return buildComplianceRuleConditions(filter, orgId);
+  /**
+   * Visibility for a rule read. Without `parentOrgId` this is exactly the shared
+   * builder's predicate (own rules ∪ the system published catalog).
+   *
+   * With one — a TEAM listing its rules — the view is widened by the parent's
+   * `propagateToChildren` rules: the rules that already BIND the team at
+   * upload/validate time (see {@link findActiveByOrgAndTarget}) but that it
+   * neither owns nor may edit. Listing them is what lets the UI show them as
+   * read-only-with-a-reason instead of leaving a team wondering why a rule it
+   * cannot see is failing its builds.
+   */
+  protected buildConditions(filter: Partial<ComplianceRuleFilter>, orgId?: string, parentOrgId?: string): SQL[] {
+    const conditions = buildComplianceRuleConditions(filter, orgId);
+    if (!orgId || !parentOrgId) return conditions;
+    const child = orgId.toLowerCase();
+    const parent = parentOrgId.toLowerCase();
+    // A self-parent (mis-parented org) or the system org widens nothing.
+    if (parent === child || child === SYSTEM_ORG_ID) return conditions;
+
+    // The shared builder pushes the org-visibility predicate FIRST and every
+    // field filter after it, so widening means OR-ing into that first disjunct
+    // — AND-ing a second org predicate would match nothing. An empty array can
+    // only come from a stubbed builder; there is no disjunct to widen then.
+    if (conditions.length === 0) return conditions;
+    conditions[0] = or(
+      conditions[0],
+      and(
+        eq(schema.complianceRule.orgId, parent),
+        eq(schema.complianceRule.propagateToChildren, true),
+      )!,
+    )!;
+    // A widened read runs under sysadmin tenant context (CrudService.runRead),
+    // which is outside the RLS policy that otherwise hides tombstones — so the
+    // soft-delete filter has to be asserted here rather than assumed.
+    conditions.push(isNull(schema.complianceRule.deletedAt));
+    return conditions;
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {

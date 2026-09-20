@@ -30,9 +30,11 @@ type GrantMap = Partial<Record<keyof QuotaTierLimits, number>>;
 //      (TIER_FEATURES) via FEATURE_METADATA labels — so an advertised base
 //      feature is always one `requireFeature` actually grants for that tier.
 // Only genuinely non-gated marketing copy (support level, dashboards, RBAC) is
-// hand-authored, passed as `perks`. Purchasable feature add-ons (sso,
-// advanced_reporting, …) are NOT listed as base perks here — they are sold as
-// bundles (see loadBundles()).
+// hand-authored, passed as `perks`. Purchasable feature add-ons
+// (advanced_reporting, team_usage_analytics, compliance_*) are NOT listed as
+// base perks here — they are sold as bundles (see loadBundles()). `sso` is the
+// other way round: a TIER feature only (Team+), never a bundle, so it DOES
+// appear as a derived base perk on the tiers that include it.
 
 /** "Up to N plugins" / "Unlimited plugins" from an effective limit (-1 = unlimited). */
 function limitLine(limit: number, singular: string, plural: string): string {
@@ -465,12 +467,23 @@ function loadBundles(): BundleConfig[] {
     b('api_pack', 'API Pack (+100k)', '100,000 additional API calls / period', { apiCalls: 100_000 }, 1999, ALL, 3),
     b('ai_pack', 'AI Pack (+2.5k)', '2,500 additional AI calls / period', { aiCalls: 2500 }, 1999, ALL, 4),
     b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
-    // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
-    // The grant is ADDITIVE on Pro's own idpConfigs baseline, hence "additional".
-    b('sso', 'SSO / IdP', 'Single sign-on + 5 additional IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),
+    // NOTE: `sso` is NOT sold as an add-on. It is a TIER feature from Team up
+    // (TIER_FEATURES.team) and nothing below Team can buy it. The bundle that
+    // used to exist here was $40/mo on Pro only — Pro ($39) + the add-on came to
+    // exactly Team ($79), which already includes SSO *and* teams *and* domain
+    // registration, so it was strictly dominated. It was also functionally
+    // broken below Team: SSO refuses an identity whose email domain the org has
+    // not DNS-verified (`assertSsoIdentityTrusted`, which exempts only
+    // Google-issued identities), and registering a domain to verify is ITSELF a
+    // hard Team/Enterprise tier check (platform `org-domain-service`). So a Pro
+    // buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback
+    // with OIDC_EMAIL_DOMAIN_NOT_VERIFIED, with no way to fix it on Pro. Selling
+    // SSO below Team would mean giving away domain registration too, and that is
+    // the Team differentiator.
+
     // DORA / advanced delivery analytics. INCLUDED in Enterprise (TIER_FEATURES),
     // so the add-on is offered to every other tier (developer/pro/team). Priced
-    // below SSO ($40) — an analytics surface, not the enterprise identity gate.
+    // as an analytics surface, not an enterprise identity gate.
     // Lead time is MEASURED commit → deploy (reporting's deploy events), not a proxy.
     b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, lead time (commit → deploy), change failure rate, MTTR, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
     // Per-team usage breakdown across the org → team subtree. INCLUDED in

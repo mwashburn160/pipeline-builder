@@ -59,15 +59,29 @@ const logger = createLogger('org-mfa-policy');
  * ENROLLED = holds a passkey or a CONFIRMED authenticator enrolment, i.e. what
  * `utils/token.ts` will accept at issuance. Password-only accounts are the ones
  * the deadline will refuse.
+ *
+ * DECLINED is a strict subset of the password-only ones: members who were shown
+ * the prompt to protect their own account and chose "don't ask again"
+ * (`helpers/mfa-nudge.ts`). It is the difference between "seven people haven't
+ * got round to it" and "three of them have decided not to" — the first is a
+ * reminder to send, the second is a conversation to have, and an admin who
+ * turned the requirement on without knowing which would be surprised by who
+ * complained. Counted, never named: this endpoint's job is a number for the
+ * grace-period decision, and the org's audit log already carries
+ * `user.mfa.prompt_declined` with the actor for anyone who needs the who.
+ * Members who declined and then enrolled anyway do not count — enrolment clears
+ * the decline, and the `$in` on the un-enrolled ids is a second guard.
  */
-async function enrolment(orgId: string): Promise<{ members: number; enrolled: number }> {
+async function enrolment(orgId: string): Promise<{ members: number; enrolled: number; declined: number }> {
+  // `User` is already imported statically at the top of this module; only the
+  // three factor collections are pulled in lazily, as before.
   const { UserOrganization, WebAuthnCredential, UserTotp } = await import('../models/index.js');
   const memberships = await UserOrganization
     .find({ organizationId: toOrgId(orgId), isActive: true })
     .select('userId')
     .lean();
   const userIds = memberships.map((m) => m.userId);
-  if (userIds.length === 0) return { members: 0, enrolled: 0 };
+  if (userIds.length === 0) return { members: 0, enrolled: 0, declined: 0 };
 
   const [withPasskey, withTotp] = await Promise.all([
     WebAuthnCredential.distinct('userId', { userId: { $in: userIds } }),
@@ -75,7 +89,11 @@ async function enrolment(orgId: string): Promise<{ members: number; enrolled: nu
   ]);
   // A person with BOTH factors is one person; the union is the count.
   const enrolled = new Set([...withPasskey, ...withTotp].map(String));
-  return { members: userIds.length, enrolled: enrolled.size };
+  const withoutFactor = userIds.filter((id) => !enrolled.has(String(id)));
+  const declined = withoutFactor.length === 0
+    ? 0
+    : await User.countDocuments({ '_id': { $in: withoutFactor }, 'mfaNudge.declinedAt': { $ne: null } });
+  return { members: userIds.length, enrolled: enrolled.size, declined };
 }
 
 /** The wire shape — dates as ISO strings, and the grace deadline spelled out so

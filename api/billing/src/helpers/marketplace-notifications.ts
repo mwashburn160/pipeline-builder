@@ -294,7 +294,7 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
   // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
   // fix) so a marketplace tier upgrade also drops the redundant paid bundle.
   // Mutates the doc's addons in memory (persisted by save below); hybrid bundles
-  // that also grant a quota (e.g. `sso`→idpConfigs) are kept.
+  // that also grant a quota are kept.
   const subscriptionId = subscription._id.toString();
   const pruned = applyTierIncludedAddonPrune(subscription, plan.tier, {
     orgId: subscription.orgId, subscriptionId, source: 'marketplace_plan_change',

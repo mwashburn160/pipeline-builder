@@ -36,6 +36,9 @@ const HANDLERS = [
   'changePassword', 'createAccessKey', 'deleteUser', 'generateToken', 'getPreferences', 'getUser', 'listAccessKeys', 'listTokenHistory',
   'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser',
   'listSessions', 'revokeSession',
+  // The password-only prompt's own-account writes — none of them step-up gated,
+  // which is the property the `/user` assertions below pin.
+  'snoozeMfaPrompt', 'declineMfaPrompt', 'resetMfaPrompt',
   'getMyOrganization', 'createOrganization', 'getOrgAIConfig', 'updateOrgAIConfig', 'getOrganizationById',
   'getOrganizationDescendants', 'getOrganizationNames', 'getOrganizationParent', 'updateOrganization',
   'updateOrganizationIdentity', 'updateOrganizationTier',

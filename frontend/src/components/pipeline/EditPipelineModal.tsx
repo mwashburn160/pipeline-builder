@@ -22,6 +22,9 @@ import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { formatError, formatJSON } from '@/lib/constants';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
+import { useAuth } from '@/hooks/useAuth';
+import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
@@ -48,6 +51,12 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [visibility, setVisibility] = useState<Visibility>(pipeline.visibility);
+  // Catalog owner (person or team). Reassigning it is admin-only server-side, so
+  // a member sees the control read-only rather than having a save silently drop it.
+  // (the list row omits the owner columns — seeded from the full record below)
+  const [owner, setOwner] = useState<CatalogOwner>({});
+  const { user } = useAuth();
+  const canAssignOwner = isOrgAdmin(user) || isSystemAdmin(user);
   const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
     (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
   );
@@ -62,7 +71,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   // The builder owns the bulk of the form, so it reports its own edits; the
   // fields this modal owns are compared here. Together they gate the discard prompt.
   const [formDirty, setFormDirty] = useState(false);
-  const ownFieldsDirty = useIsDirty({ isActive, isDefault, visibility });
+  const ownFieldsDirty = useIsDirty({ isActive, isDefault, visibility, ownerId: owner.ownerId, ownerType: owner.ownerType });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Track mount state so the success-close timer never calls onClose() after the
@@ -99,6 +108,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     setIsActive(fullPipeline.isActive);
     setIsDefault(fullPipeline.isDefault);
     setVisibility(fullPipeline.visibility);
+    setOwner({ ownerId: fullPipeline.ownerId, ownerType: fullPipeline.ownerType });
   }, [fullPipeline]);
 
   // Scroll to top when step changes
@@ -190,6 +200,11 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       isActive,
       isDefault,
       visibility,
+      // Owner is admin-only server-side and non-nullable in the schema, so only
+      // send it when this viewer may set it AND it resolves to a real id.
+      ...(canAssignOwner && owner.ownerId && owner.ownerType
+        ? { ownerId: owner.ownerId, ownerType: owner.ownerType }
+        : {}),
     });
 
     if (response?.success) {
@@ -218,6 +233,21 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
           />
           <p className="text-xs text-fg-subtle mt-1">{visibilityHint(canPublish, 'pipelines:publish')}</p>
         </div>
+        {/* Owner + team access. Renders only for an org that actually parents
+            teams (or a pipeline already team-owned) — see CatalogOwnerFields
+            for why this is ownership, not a cross-org move. */}
+        <CatalogOwnerFields
+          value={owner}
+          onChange={setOwner}
+          visibility={visibility}
+          canAssign={canAssignOwner}
+          personOwnerId={(p?.ownerType === 'user' && p?.ownerId) || p?.createdBy || ''}
+          onShareWithTeams={canPublish ? () => setVisibility('public') : undefined}
+          entityNoun="pipelines"
+          publishPermission="pipelines:publish"
+          idPrefix="editPipeline"
+          disabled={loading}
+        />
       </div>
       <div className="flex items-center space-x-6">
         <div className="flex items-center">

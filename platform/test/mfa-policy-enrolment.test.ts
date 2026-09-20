@@ -21,6 +21,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockMemberships = jest.fn<(...a: unknown[]) => Promise<Array<{ userId: unknown }>>>();
 const mockPasskeyUserIds = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const mockTotpUserIds = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
+const mockDeclinedCount = jest.fn<(...a: unknown[]) => Promise<number>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
@@ -47,7 +48,10 @@ jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { exists: async () => true },
-  User: { find: () => ({ select: () => ({ lean: async () => [] }) }) },
+  User: {
+    find: () => ({ select: () => ({ lean: async () => [] }) }),
+    countDocuments: (...a: unknown[]) => mockDeclinedCount(...a),
+  },
   UserOrganization: {
     find: (...a: unknown[]) => ({ select: () => ({ lean: () => mockMemberships(...a) }) }),
   },
@@ -76,13 +80,14 @@ async function read() {
   const res = makeRes();
   await getMfaPolicy(req(), res, jest.fn() as any);
   expect(res._status).toBe(200);
-  return res._body.data.enrolment as { members: number; enrolled: number };
+  return res._body.data.enrolment as { members: number; enrolled: number; declined: number };
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockPasskeyUserIds.mockResolvedValue([]);
   mockTotpUserIds.mockResolvedValue([]);
+  mockDeclinedCount.mockResolvedValue(0);
 });
 
 describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
@@ -107,7 +112,7 @@ describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
     mockPasskeyUserIds.mockResolvedValue(['u1']);
     mockTotpUserIds.mockResolvedValue(['u2']);
 
-    expect(await read()).toEqual({ members: 3, enrolled: 2 });
+    expect(await read()).toEqual({ members: 3, enrolled: 2, declined: 0 });
   });
 
   it('counts a member with BOTH factors once', async () => {
@@ -116,19 +121,20 @@ describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
     mockTotpUserIds.mockResolvedValue(['u1']);
 
     // Not 2-of-2: only u1 can satisfy the requirement.
-    expect(await read()).toEqual({ members: 2, enrolled: 1 });
+    expect(await read()).toEqual({ members: 2, enrolled: 1, declined: 0 });
   });
 
   it('reports nobody ready when the org is all password-only accounts', async () => {
     mockMemberships.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }]);
-    expect(await read()).toEqual({ members: 2, enrolled: 0 });
+    expect(await read()).toEqual({ members: 2, enrolled: 0, declined: 0 });
   });
 
   it('asks nothing of the factor collections for an org with no members', async () => {
     mockMemberships.mockResolvedValue([]);
-    expect(await read()).toEqual({ members: 0, enrolled: 0 });
+    expect(await read()).toEqual({ members: 0, enrolled: 0, declined: 0 });
     expect(mockPasskeyUserIds).not.toHaveBeenCalled();
     expect(mockTotpUserIds).not.toHaveBeenCalled();
+    expect(mockDeclinedCount).not.toHaveBeenCalled();
   });
 
   it('only counts CONFIRMED authenticator enrolments', async () => {
@@ -148,5 +154,38 @@ describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
     expect(mockTotpUserIds).toHaveBeenCalledWith('userId', expect.objectContaining({
       userId: { $in: ['u1', 'u2'] },
     }));
+  });
+});
+
+/**
+ * The DECLINED count — how many of the password-only members were asked to
+ * protect their own account and chose "don't ask again".
+ *
+ * It is the difference between "seven haven't got round to it" and "three have
+ * decided not to": the first is a reminder to send, the second is a deadline to
+ * set. A count only — the audit log (`user.mfa.prompt_declined`) is where the
+ * names live, on a surface that already gates reading them.
+ */
+describe('GET /organization/:id/mfa-policy — who declined', () => {
+  it('counts the declines among members with NO factor', async () => {
+    mockMemberships.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }]);
+    mockPasskeyUserIds.mockResolvedValue(['u1']);
+    mockDeclinedCount.mockResolvedValue(2);
+
+    expect(await read()).toEqual({ members: 3, enrolled: 1, declined: 2 });
+    // Asked only about the un-enrolled: a decline made before enrolling is
+    // cleared at enrolment, and this `$in` is the second guard on that.
+    expect(mockDeclinedCount).toHaveBeenCalledWith({
+      '_id': { $in: ['u2', 'u3'] },
+      'mfaNudge.declinedAt': { $ne: null },
+    });
+  });
+
+  it('does not ask when everyone has already enrolled', async () => {
+    mockMemberships.mockResolvedValue([{ userId: 'u1' }]);
+    mockPasskeyUserIds.mockResolvedValue(['u1']);
+
+    expect(await read()).toEqual({ members: 1, enrolled: 1, declined: 0 });
+    expect(mockDeclinedCount).not.toHaveBeenCalled();
   });
 });

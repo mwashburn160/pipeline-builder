@@ -16,7 +16,7 @@ const REASON_HINTS: Record<string, string> = {
   invalid_assertion: 'Check the signing certificate(s), the entity ID and that the IdP signs both the response and the assertion, with the SP entity ID as audience.',
   encryption_required: 'This connection requires encrypted assertions, but the IdP sent a plaintext one. Turn encryption on at the IdP (using the SP encryption certificate) or turn the requirement off here.',
   unexpected_encryption: 'The IdP encrypted the assertion but encrypted assertions are off here. Turn "IdP encrypts assertions" on, or turn encryption off at the IdP.',
-  domain_not_verified: 'The email the IdP asserted is on a domain this organization has not verified. Verify the domain (Settings → Organization).',
+  domain_not_verified: 'The email the IdP asserted is on a domain this organization has not verified. Verify the domain (Settings → Organization → Email domains).',
   email_domain_not_allowed: 'The email\'s domain is not among the domains this connection serves.',
   no_email: 'The IdP sent no email address. Map the email attribute (SAML) or grant the email scope (OIDC).',
   invalid_id_token: 'The id_token failed validation — check the client ID and the discovery URL.',

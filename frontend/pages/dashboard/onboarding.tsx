@@ -19,21 +19,39 @@ import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { usePlans } from '@/hooks/usePlans';
 
-/** An org the signed-in user's verified email domain could join. */
-type DomainOrg = { orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' };
+/** An org the signed-in user's verified email domain could join, annotated with
+ *  where this user already stands with it (see `GET /auth/onboarding/domain-orgs`). */
+type DomainOrg = {
+  orgId: string;
+  orgName: string;
+  autoJoin: 'off' | 'request' | 'auto';
+  requestStatus?: 'pending' | 'approved' | 'denied';
+  isMember?: boolean;
+};
 
 /** How long the submit buttons may wait on domain discovery before giving up. */
 const DISCOVERY_TIMEOUT_MS = 6000;
 
 /**
- * First-run onboarding for social-signup (OAuth) users.
+ * First-run onboarding AND the permanent "join an organization" surface.
  *
- * Reached only when the profile carries `needsOnboarding` (set by the backend
- * for brand-new OAuth identities, which never got to name an org or pick a
- * plan). `useAuthGuard({ allowOnboarding: true })` opts this page out of the
- * guard's own onboarding redirect so it doesn't loop. Completing (or skipping)
- * clears the flag server-side; a user who lands here already onboarded is
- * bounced straight to the dashboard.
+ * Two modes, keyed on the profile's `needsOnboarding` flag:
+ *
+ *   - FIRST RUN (`needsOnboarding`) — the social-signup path: name the
+ *     auto-created org, pick a plan, or join a team your email domain matches.
+ *     `useAuthGuard({ allowOnboarding: true })` opts the page out of the guard's
+ *     own onboarding redirect so it doesn't loop.
+ *   - JOIN (already onboarded) — the same domain discovery + join/request flow,
+ *     re-enterable for good.
+ *
+ * The second mode exists because the first used to be the ONLY one: the flag is
+ * cleared permanently by both "Continue" and "Skip for now", and this page is
+ * in no nav or palette, so the entire domain-discovery + join-request feature
+ * became unreachable the instant a user finished (or skipped) onboarding —
+ * while the admin half of it, the approval queue in `DomainJoinSettings`, stayed
+ * live. Worse, a user whose request came back `status: 'requested'` had nowhere
+ * to see what became of it. Landing here already onboarded now shows that state
+ * instead of bouncing to the dashboard.
  */
 export default function OnboardingPage() {
   const router = useRouter();
@@ -61,10 +79,9 @@ export default function OnboardingPage() {
     if (user?.organizationName) setOrgName((prev) => prev || user.organizationName || '');
   }, [user?.organizationName]);
 
-  // Already onboarded (e.g. navigated here directly) — nothing to do.
-  useEffect(() => {
-    if (isReady && user && !user.needsOnboarding) router.replace('/dashboard');
-  }, [isReady, user?.id, user?.needsOnboarding, router]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed on the user id + flag, not the whole user, so a profile refresh does not re-redirect
+  // Already onboarded ⇒ the durable JOIN view rather than a redirect (see the
+  // component docblock): this is the only surface the domain-join flow has.
+  const joinOnly = isReady && !!user && !user.needsOnboarding;
 
   // Discover orgs the user could join by their verified email domain. Fail-soft
   // and optional: an error just means no suggestions.
@@ -105,16 +122,23 @@ export default function OnboardingPage() {
       const res = await api.joinDomainOrg(org.orgId);
       if (res.data?.status === 'requested') {
         setRequestedOrgIds((prev) => new Set(prev).add(org.orgId));
+        // Re-read so the row switches to its server-side state (and stays that
+        // way on a later visit) rather than relying only on local memory.
+        discovery.refetch();
         setJoiningOrgId(null);
         return; // async approval — the user can still set up their own org below
       }
       if (res.data?.status === 'denied') {
-        setError('A previous request to join this organization was declined. Contact an admin, or set up your own organization below.');
+        setError(joinOnly
+          ? 'A previous request to join this organization was declined. Ask one of its admins to invite you directly.'
+          : 'A previous request to join this organization was declined. Contact an admin, or set up your own organization below.');
+        discovery.refetch();
         setJoiningOrgId(null);
         return;
       }
-      // joined or already-member → clear the first-run flag and head in.
-      await api.completeOnboarding({});
+      // Joined (or already a member). A first-run user still owes the backend a
+      // completeOnboarding to clear the flag; an already-onboarded one doesn't.
+      if (!joinOnly) await api.completeOnboarding({});
       await goToDashboard();
     } catch (e) {
       setError(formatError(e));
@@ -147,7 +171,91 @@ export default function OnboardingPage() {
     }
   };
 
+  /**
+   * One discoverable org, in whichever of its four states applies. A row is only
+   * actionable when there is something left to do — an org already joined, or
+   * one whose request is pending or was refused, shows its state instead of a
+   * button that would just re-post the same request (the backend treats a
+   * denial as sticky and refuses to re-open it).
+   */
+  const orgRow = (org: DomainOrg) => {
+    const pending = org.requestStatus === 'pending' || requestedOrgIds.has(org.orgId);
+    return (
+      <div key={org.orgId} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
+        <span className="font-medium text-sm truncate">{org.orgName}</span>
+        {org.isMember ? (
+          <span className="text-xs text-fg-muted shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>You&apos;re a member</span>
+        ) : pending ? (
+          <span className="text-xs text-success shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>
+            Request sent ✓<br /><span className="text-fg-muted">An admin will review it.</span>
+          </span>
+        ) : org.requestStatus === 'denied' ? (
+          <span className="text-xs text-danger shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>
+            Request declined<br /><span className="text-fg-muted">Ask an admin to invite you.</span>
+          </span>
+        ) : (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={joiningOrgId !== null || submitting}
+            onClick={() => void handleJoin(org)}
+          >
+            {joiningOrgId === org.orgId ? '…' : org.autoJoin === 'auto' ? 'Join' : 'Request access'}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   if (!isReady || !user) return <LoadingPage />;
+
+  // -- JOIN mode: the durable surface for an already-onboarded user -----------
+  if (joinOnly) {
+    return (
+      <>
+        <Head><title>Join an organization</title></Head>
+        <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-canvas">
+          <Card className="w-full max-w-lg p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-5 h-5 text-brand" />
+              <h1 className="text-xl font-bold">Join an organization</h1>
+            </div>
+            <p className="text-sm text-fg-muted mb-5">
+              You&apos;re signed in to <span className="font-medium text-fg">{user.organizationName || 'your organization'}</span>.
+              Organizations that have verified your email domain are listed here — along with any request you&apos;ve already sent.
+            </p>
+
+            {error && <div className="mb-4"><ErrorAlert message={error} /></div>}
+
+            {/* The 6s `discoveryTimedOut` fallback exists to un-stick the
+                first-run submit buttons; this view has none, so it waits on the
+                real loading flag rather than claiming "nothing matches" while
+                the answer is still in flight. */}
+            {discovery.loading ? (
+              <p className="text-sm text-fg-muted">Looking for organizations that match your email domain…</p>
+            ) : domainOrgs.length > 0 ? (
+              <div className="space-y-2">{domainOrgs.map(orgRow)}</div>
+            ) : (
+              <div className="rounded-lg border border-default bg-surface-muted p-3 text-xs text-fg-muted space-y-2">
+                <p className="font-medium text-sm text-fg">No organizations match your email address.</p>
+                <p>
+                  Joining this way needs two things: your own email address verified, and an administrator of the
+                  organization having verified your email domain and opened it to joining.
+                </p>
+                <p>If neither applies, ask an administrator there to send you an invitation instead.</p>
+              </div>
+            )}
+
+            <div className="mt-6">
+              <Button type="button" variant="secondary" onClick={() => void router.push('/dashboard')}>
+                Back to dashboard
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </>
+    );
+  }
 
   if (phase === 'install') {
     const planTier = plans.find((p) => p.id === selectedPlan)?.tier;
@@ -190,25 +298,7 @@ export default function OnboardingPage() {
               <p className="text-xs text-fg-muted mb-3">
                 Your email domain matches {domainOrgs.length === 1 ? 'an organization' : 'organizations'} already on Pipeline Builder.
               </p>
-              <div className="space-y-2">
-                {domainOrgs.map((org) => (
-                  <div key={org.orgId} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
-                    <span className="font-medium text-sm truncate">{org.orgName}</span>
-                    {requestedOrgIds.has(org.orgId) ? (
-                      <span className="text-xs text-success shrink-0 text-right">Request sent ✓<br /><span className="text-fg-muted">An admin will review it.</span></span>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={joiningOrgId !== null || submitting}
-                        onClick={() => void handleJoin(org)}
-                      >
-                        {joiningOrgId === org.orgId ? '…' : org.autoJoin === 'auto' ? 'Join' : 'Request access'}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-2">{domainOrgs.map(orgRow)}</div>
               <div className="text-2xs uppercase tracking-wide text-fg-muted mt-4">or set up your own</div>
             </div>
           )}
@@ -257,6 +347,11 @@ export default function OnboardingPage() {
                 Skip for now
               </Button>
             </div>
+            {/* Skipping clears the first-run flag for good, so say where the
+                join flow lives afterwards — it used to simply vanish. */}
+            <p className="text-xs text-fg-subtle mt-3">
+              Skipping is not final: you can come back to this page any time from Help → Join an organization.
+            </p>
           </form>
         </Card>
       </div>

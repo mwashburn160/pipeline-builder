@@ -10,7 +10,9 @@ jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHie
 let mockEnabled = true;
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
-  useFeatures: () => ({ isEnabled: (f: string) => (f === 'team_usage_analytics' ? mockEnabled : true), isLoaded: true, isSuperAdmin: false }),
+  // `canReachBilling` = this viewer can open /dashboard/billing (`billing:read`,
+  // billing enabled). A lock only links there when they can; see feature-lock.test.tsx.
+  useFeatures: () => ({ isEnabled: (f: string) => (f === 'team_usage_analytics' ? mockEnabled : true), isLoaded: true, isSuperAdmin: false, canReachBilling: true }),
 }));
 
 const getTeamUsage = jest.fn();

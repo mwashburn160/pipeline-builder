@@ -39,7 +39,7 @@ import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { consumeMfaChallenge, peekMfaChallenge } from '../services/mfa-challenge.js';
-import { clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
+import { clearMfaNudgeOnEnrolment, clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
 import { verifyRecoveryCode } from '../services/recovery-codes-service.js';
 import {
   TOTP_ALREADY_ENROLLED,
@@ -153,6 +153,9 @@ export const activateTotp = withController('TOTP activate', async (req, res) => 
     details: { stage: 'activated', recoveryCodesMinted: result.recoveryCodes.length },
   });
   await clearResetGraceOnEnrolment(userId);
+  // ...and so does any "not now" / "don't ask again" they gave the
+  // password-only prompt: it was a decision about an account with no factor.
+  await clearMfaNudgeOnEnrolment(userId);
   // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
   // good, even if this authenticator is later removed. Awaited, not
   // fire-and-forget: the very next request may be the one that must no longer be

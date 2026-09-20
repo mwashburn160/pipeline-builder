@@ -89,6 +89,30 @@ describe('OrgSwitcher — inherited (via-parent) teams', () => {
     const item = screen.getByRole('menuitem', { name: /payments/i });
     expect(within(item).getByText('via parent')).toBeInTheDocument();
   });
+
+  it('keeps saying "via parent" on the ACTIVE org anchor, not just in the menu', () => {
+    mockAuth = {
+      user: { organizationId: 'team-y' },
+      organizations: [
+        org({ id: 'acme', name: 'Acme', childOrgCount: 1 }),
+        org({ id: 'team-y', name: 'Payments', role: 'admin', parentOrgId: 'acme', parentOrgName: 'Acme', viaAncestor: true }),
+      ],
+      switchOrganization: jest.fn(),
+    };
+    render(<OrgSwitcher />);
+    expect(screen.getByText('· via parent')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /you are not a member of this team/i })).toBeInTheDocument();
+  });
+
+  it('adds no via-parent marker for a team the user actually belongs to', () => {
+    mockAuth = {
+      user: { organizationId: 'team-y' },
+      organizations: [org({ id: 'team-y', name: 'Payments', parentOrgId: 'acme', parentOrgName: 'Acme' })],
+      switchOrganization: jest.fn(),
+    };
+    render(<OrgSwitcher />);
+    expect(screen.queryByText('· via parent')).not.toBeInTheDocument();
+  });
 });
 
 describe('OrgSwitcher — header pill on narrow screens', () => {

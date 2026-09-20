@@ -8,8 +8,16 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 
-/** Where domains are verified (Settings → Organization). */
-export const DOMAIN_SETTINGS_HREF = '/dashboard/settings?tab=organization';
+/**
+ * The id the "Email domains" card carries on Settings → Organization. It is the
+ * scroll target of every link below: that card is the SIXTH on the tab, so a
+ * link to the tab alone left the admin hunting for it (and the card is named
+ * after joining, not verifying, which is what they were sent for).
+ */
+export const DOMAIN_SETTINGS_ANCHOR = 'email-domains';
+
+/** Where domains are verified (Settings → Organization → Email domains). */
+export const DOMAIN_SETTINGS_HREF = `/dashboard/settings?tab=organization#${DOMAIN_SETTINGS_ANCHOR}`;
 
 /** The org's DNS-verified domains, or `null` when the caller may not list them. */
 export function useVerifiedDomains(orgId: string): { domains: string[] | null; loading: boolean } {
@@ -32,6 +40,16 @@ export function useVerifiedDomains(orgId: string): { domains: string[] | null; l
  * (and the server refuses one anyway): an unverified domain proves nothing, so
  * listing one only ever made the settings claim a restriction that admitted
  * nobody. Selecting none means "every verified domain".
+ *
+ * The empty state states the GOOGLE CARVE-OUT, because otherwise it reads as a
+ * flat "nothing works until you verify" and a Google Workspace admin who signs
+ * in fine concludes the warning is a bug. `assertSsoIdentityTrusted` exempts the
+ * `accounts.google.com` issuer alone — Google, not the org's admin, decides
+ * which domains it will issue identities for, so the DNS proof would restate
+ * what Google already established. Every other IdP is run by the customer and
+ * could sign any address, so it must prove the domain. The exemption covers
+ * only that check: domain-based discovery on the sign-in page and "require
+ * single sign-on" still need a verified domain from every provider.
  */
 export function VerifiedDomainPicker({
   orgId,
@@ -62,8 +80,12 @@ export function VerifiedDomainPicker({
     return (
       <Callout variant="warning" title="No verified domains yet">
         Single sign-on only serves email domains your organization has proven it owns.{' '}
-        <Link href={DOMAIN_SETTINGS_HREF} className="underline">Verify a domain</Link>{' '}
+        <Link href={DOMAIN_SETTINGS_HREF} className="underline">Verify a domain under Settings → Email domains</Link>{' '}
         (a DNS TXT record), then come back to this step.
+        {' '}<strong>Google Workspace is the one exception</strong> — Google verifies the domain itself before it
+        will issue identities for it, so those sign-ins are accepted without your DNS record. Verify one anyway:
+        without it nobody can reach this connection from the sign-in page&apos;s &ldquo;Continue with single
+        sign-on&rdquo;, and &ldquo;require single sign-on&rdquo; cannot be switched on for any provider.
       </Callout>
     );
   }

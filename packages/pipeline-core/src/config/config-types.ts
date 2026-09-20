@@ -286,7 +286,7 @@ export interface BundleConfig {
    *  constrained to real quota fields so a typo is a compile error (was
    *  `Record<string, number>`, where a misspelled key was silently unenforceable). */
   readonly grants: Readonly<Partial<Record<keyof QuotaTierLimits, number>>>;
-  /** Feature flags granted by a feature bundle (e.g. `sso`). */
+  /** Feature flags granted by a feature bundle (e.g. `advanced_reporting`). */
   readonly features?: readonly string[];
   /** Per-unit price (cents). Stripe multiplies by quantity. */
   readonly prices: BillingPlanPrices;

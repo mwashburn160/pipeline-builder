@@ -43,6 +43,19 @@ const PRESETS: Array<{ value: LogRangePreset; label: string }> = [
   { value: '7d', label: 'Last 7 days' },
 ];
 
+/**
+ * How far either side of an entry the "show context" drill-down reaches. The
+ * server clamps `spanMs` at 600_000 (10 minutes), so that is the last option.
+ */
+const CONTEXT_SPANS: Array<{ value: number; label: string }> = [
+  { value: 30_000, label: '± 30 seconds' },
+  { value: 60_000, label: '± 1 minute' },
+  { value: 300_000, label: '± 5 minutes' },
+  { value: 600_000, label: '± 10 minutes' },
+];
+/** The server's own default when no `spanMs` is sent. */
+const DEFAULT_CONTEXT_SPAN_MS = 60_000;
+
 /** Shown under the search box — the syntax is parsed server-side against an allow-list. */
 const SYNTAX_HINT = 'level:error service:platform "connection refused" -healthz /timed? out/';
 
@@ -60,6 +73,15 @@ export default function LogsPage() {
   const [rawLoading, setRawLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // How far either side of an entry "show context" reaches. The endpoint has
+  // always taken `spanMs` (and clamps it at 600s); this page never passed one,
+  // so context was stuck at the 60s default — too narrow to see what a slow
+  // request did before it failed.
+  const [contextSpanMs, setContextSpanMs] = useState(DEFAULT_CONTEXT_SPAN_MS);
+  // Name the export carries. The server sanitises it and puts it in
+  // Content-Disposition; without one every download is `pipeline-builder-logs`,
+  // so a folder of them is indistinguishable.
+  const [exportName, setExportName] = useState('');
   const [context, setContext] = useState<{ anchor: LogEntry; before: LogEntry[]; after: LogEntry[] } | null>(null);
 
   const isSysadmin = user?.isSuperAdmin === true;
@@ -103,24 +125,28 @@ export default function LogsPage() {
     try {
       // The server streams the SAME compiled query as the on-screen search, with
       // the same tenant scope and masking — the download is not a second path.
-      const { blob, filename } = await api.logExport({ ...params, format });
+      const { blob, filename } = await api.logExport({
+        ...params,
+        format,
+        ...(exportName.trim() ? { name: exportName.trim() } : {}),
+      });
       triggerBlobDownload(blob, filename);
     } catch (err) {
       setActionError(formatError(err));
     } finally {
       setDownloading(false);
     }
-  }, [params]);
+  }, [params, exportName]);
 
   const showContext = useCallback(async (anchor: LogEntry) => {
     setActionError(null);
     try {
-      const res = await api.logContext({ ...params, at: anchor.time });
+      const res = await api.logContext({ ...params, at: anchor.time, spanMs: contextSpanMs });
       setContext({ anchor, before: res.data?.before ?? [], after: res.data?.after ?? [] });
     } catch (err) {
       setActionError(formatError(err));
     }
-  }, [params]);
+  }, [params, contextSpanMs]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
@@ -144,6 +170,18 @@ export default function LogsPage() {
               egress is a different risk class from paging the list on screen. */}
           {can('logs:export') && (
             <>
+              {/* The export endpoint takes a `name` (sanitised server-side into
+                  Content-Disposition). Without one every download lands as
+                  `pipeline-builder-logs`, which is useless in a folder of them. */}
+              <SearchInput
+                value={exportName}
+                onChange={setExportName}
+                onClear={() => setExportName('')}
+                placeholder="Download name (optional)"
+                aria-label="Download file name"
+                containerClassName="w-48"
+                className="text-xs"
+              />
               <Button variant="outline" size="sm" onClick={() => download('log')} loading={downloading}>
                 <Download className="mr-1 h-3.5 w-3.5" /> .log
               </Button>
@@ -264,6 +302,29 @@ export default function LogsPage() {
 
       {context && (
         <Modal title="Context" onClose={() => setContext(null)} maxWidth="max-w-5xl" tall>
+          <div className="mb-2 flex items-center justify-end gap-2">
+            <FilterSelect
+              aria-label="Context window"
+              value={contextSpanMs}
+              onChange={(e) => {
+                const span = Number(e.target.value);
+                setContextSpanMs(span);
+                // Re-read the SAME anchor at the new width, so widening is one
+                // step rather than "close, change, find the line again".
+                void (async () => {
+                  setActionError(null);
+                  try {
+                    const res = await api.logContext({ ...params, at: context.anchor.time, spanMs: span });
+                    setContext({ anchor: context.anchor, before: res.data?.before ?? [], after: res.data?.after ?? [] });
+                  } catch (err) {
+                    setActionError(formatError(err));
+                  }
+                })();
+              }}
+            >
+              {CONTEXT_SPANS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </FilterSelect>
+          </div>
           <div className="font-mono text-xs">
             {context.before.map((e, i) => <LogEntryRow key={`b-${i}`} entry={e} wrap showOrg={isSysadmin} />)}
             <div className="my-1 border-y-2 border-blue-400 bg-blue-50 dark:bg-blue-950/40">

@@ -35,16 +35,19 @@ import { CreateOrgModal } from '@/components/members/CreateOrgModal';
 import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
 import { ManageRolesModal } from '@/components/members/ManageRolesModal';
-import { TransferOwnershipModal } from '@/components/members/TransferOwnershipModal';
 import { buildMemberColumns } from '@/components/members/memberColumns';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { MfaResetPanel } from '@/components/members/MfaResetPanel';
+import { POOLING_TITLE, poolingExplanation } from '@/components/quotas/constants';
 import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { tierAllowsTeams } from '@/lib/tiers';
 import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
+
+/** Ties the disabled Create Team button to the sentence that says why. */
+const CREATE_TEAM_REASON_ID = 'create-team-blocked-reason';
 
 export default function MembersPage() {
   // The read gate (`members:manage`) comes from the nav entry via page-access.
@@ -145,6 +148,8 @@ export default function MembersPage() {
   // Create organization
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
+  // The team just created here, if any — drives the "what now?" banner.
+  const [newTeam, setNewTeam] = useState<{ orgId: string; orgName: string } | null>(null);
   // Teams nest one level: only a root org can parent a team, so the "Create
   // Team" action only appears when the active org is itself a root.
   const { activeOrg, isChildOrg, hasChildOrgs } = useOrgHierarchy();
@@ -185,16 +190,13 @@ export default function MembersPage() {
   const canManageTeams = hasChildOrgs && childTeamCount > 0;
   const memberTeams = useMemberTeams({ orgId });
 
-  // Transfer ownership. Click-through path mirrors the delete-org flow:
-  // confirm modal → step-up (backend `requireStepUp`) → executeTransfer with
-  // the returned token. Only offered on non-owner, non-self rows.
-  const [transferConfirm, setTransferConfirm] = useState<OrganizationMember | null>(null);
+  // Transfer ownership. Destructive (the current owner is demoted and loses
+  // owner-only controls) AND step-up gated, so it is ONE dialog that states
+  // what is lost and takes the factor — the rule settings.tsx documents for
+  // "Delete your account". It used to open a confirm modal and THEN the
+  // step-up modal, which asked the same person the same question twice.
+  // Only offered on non-owner, non-self rows.
   const [pendingTransfer, setPendingTransfer] = useState<OrganizationMember | null>(null);
-
-  const confirmTransfer = () => {
-    setPendingTransfer(transferConfirm);
-    setTransferConfirm(null);
-  };
 
   const executeTransfer = async (stepUpToken: string) => {
     if (!orgId || !pendingTransfer) return;
@@ -319,11 +321,23 @@ export default function MembersPage() {
       // Pulls the new org into the switcher and bumps `childOrgCount`, which
       // reveals the Teams list + Manage-teams action (re-running the teams read).
       await refreshTeams();
-      toast.success(parentOrgId
-        ? `Team "${name}" created — switch to it from the organization switcher (bottom-left)`
-        : `Organization "${name}" created`);
+      const created = result.data?.organization;
+      toast.success(parentOrgId ? `Team "${name}" created` : `Organization "${name}" created`);
+      // A team with no members and nothing in it is a dead end, and telling the
+      // user to "switch from the organization switcher (bottom-left)" is an
+      // instruction where a button belongs. Stage the new team so the banner
+      // below offers the two things that actually move it forward.
+      if (parentOrgId && created) setNewTeam({ orgId: created.id, orgName: created.name });
     }
   };
+
+  // The create-team entry point: shown to a root-org admin whether or not the
+  // org has any teams yet (an org with none is precisely the one that needs to
+  // find it), and disabled — with the reason in view, not only in a tooltip —
+  // when the root's tier can't parent teams.
+  const canCreateTeamHere = activeOrgIsRoot && canOrgSettings;
+  const openCreateTeam = () => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); };
+  const createTeamBlockedReason = activeOrgCanHaveTeams ? undefined : 'Teams need a Team or Enterprise plan.';
 
   const columns = useMemo(() => buildMemberColumns({
     currentUserId: user?.id,
@@ -334,7 +348,7 @@ export default function MembersPage() {
     canManageRoles,
     rolesForMember: memberRoles.rolesForMember,
     onManageTeams: memberTeams.openManageTeams,
-    onTransfer: (m) => setTransferConfirm(m),
+    onTransfer: (m) => setPendingTransfer(m),
     onManageRoles: memberRoles.openManageRoles,
     onToggleActive: handleToggleActive,
     onRemove: (m) => removeMember.open(m),
@@ -352,21 +366,38 @@ export default function MembersPage() {
       subtitle="Manage organization members and roles"
       maxWidth="4xl"
       actions={
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-start">
           {/* Teams nest one level under a root org, so only show this on a root
               org (a team can't parent sub-teams). Top-level orgs are created by
               a system admin from the Organizations page. Disabled (not hidden) on
-              ineligible tiers so the feature is discoverable as an upsell. */}
-          {activeOrgIsRoot && canOrgSettings && (
-            <Button
-              variant="secondary"
-              onClick={() => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); }}
-              disabled={!activeOrgCanHaveTeams}
-              title={activeOrgCanHaveTeams ? undefined : 'Teams require a Team or Enterprise plan — upgrade this organization to create teams'}
-              className="disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Building2 className="w-4 h-4 mr-1.5" /> Create Team
-            </Button>
+              ineligible tiers so the feature is discoverable as an upsell — and
+              this is the entry point an org with NO teams has, so it stays put
+              while the team LIST stays hidden until there is something to list. */}
+          {canCreateTeamHere && (
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                variant="secondary"
+                onClick={openCreateTeam}
+                disabled={!activeOrgCanHaveTeams}
+                aria-describedby={createTeamBlockedReason ? CREATE_TEAM_REASON_ID : undefined}
+                className="disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Building2 className="w-4 h-4 mr-1.5" /> Create Team
+              </Button>
+              {/* The reason used to live ONLY in a `title`: invisible on touch,
+                  unread by most screen readers, and with nowhere to go about it.
+                  Rendered as text next to the control (the pattern
+                  TokenPermissionPicker uses for a permission you don't hold),
+                  with the upgrade link only for someone who can open Billing. */}
+              {createTeamBlockedReason && (
+                <p id={CREATE_TEAM_REASON_ID} className="text-2xs text-fg-muted text-right max-w-[16rem]">
+                  {createTeamBlockedReason}{' '}
+                  {canManageBilling ? (
+                    <Link href="/dashboard/billing" className="action-link underline">Upgrade this organization</Link>
+                  ) : 'Ask an owner to upgrade this organization'}{' '}to create teams.
+                </p>
+              )}
+            </div>
           )}
           {canManageMembers && (
             <Button onClick={openAddModal}>
@@ -390,7 +421,15 @@ export default function MembersPage() {
                   <Link href="/dashboard/billing" className="action-link font-medium underline">add a seat pack</Link>
                 ) : 'add a seat pack'}{' '}to invite more</>
             ) : ''}
-            {activeOrgIsRoot ? '' : ' (pooled across your organization)'}
+            {/* Buying seats is decided HERE, so what pooling means for that
+                purchase is stated here rather than hidden in a tooltip — one
+                wording shared with the quota surfaces (`poolingExplanation`). */}
+            {(isChildOrg || hasChildOrgs) && (
+              <span className="block mt-1 text-xs">
+                <strong>{POOLING_TITLE}.</strong>{' '}
+                {poolingExplanation(activeOrgIsRoot ? 'root' : 'team')}
+              </span>
+            )}
           </Callout>
         );
       })()}
@@ -398,7 +437,34 @@ export default function MembersPage() {
       {isChildOrg && (
         <Callout variant="neutral" icon={Building2} className="mb-4">
           This organization is a <strong>team</strong> nested under a parent organization. Its members are managed here;
-          quotas, seats and billing are pooled across the parent organization.
+          quotas, seats and billing are set on the root organization.
+        </Callout>
+      )}
+
+      {/* "You made a team — now what?" Both next steps are real buttons on the
+          handlers the Teams list already uses, so the admin never has to go
+          hunting for the org switcher. Dismissible; the Teams list below keeps
+          both actions permanently. */}
+      {newTeam && (
+        <Callout variant="success" title={`Team "${newTeam.orgName}" is ready`} onDismiss={() => setNewTeam(null)} className="mb-4">
+          <p className="text-sm">
+            It starts empty. Add the people who belong to it, or switch into it to create pipelines and plugins there.
+            Existing pipelines stay with the organization that created them — set their owning team from a pipeline&apos;s
+            Edit → Access &amp; Status instead.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {canManageMembers && (
+              <Button
+                variant="secondary"
+                onClick={() => { setTeamMemberEmail(''); teamAddForm.reset(); setAddToTeam(newTeam); }}
+              >
+                Add members
+              </Button>
+            )}
+            <Button onClick={() => { const t = newTeam; setNewTeam(null); void switchTeam(t); }}>
+              Switch to {newTeam.orgName}
+            </Button>
+          </div>
         </Callout>
       )}
 
@@ -417,6 +483,8 @@ export default function MembersPage() {
           onOpen={(t) => void switchTeam(t)}
           onAddMember={(t) => { setTeamMemberEmail(''); teamAddForm.reset(); setAddToTeam(t); }}
           onChanged={refreshTeams}
+          {...(canCreateTeamHere ? { onCreateTeam: openCreateTeam } : {})}
+          {...(createTeamBlockedReason ? { createTeamDisabledReason: createTeamBlockedReason } : {})}
         />
       )}
 
@@ -565,15 +633,21 @@ export default function MembersPage() {
         onClose={() => setAddToTeam(null)}
       />
 
-      {/* Transfer ownership — confirm, then step-up before the PATCH runs */}
-      <TransferOwnershipModal
-        target={transferConfirm}
-        onConfirm={confirmTransfer}
-        onClose={() => setTransferConfirm(null)}
-      />
+      {/* Transfer ownership — ONE dialog: what it costs, and the factor. */}
       {pendingTransfer && (
         <StepUpModal
+          title="Transfer ownership?"
           action={`Transfer ownership of this organization to ${pendingTransfer.username}`}
+          details={(
+            <>
+              <p>
+                <strong className="text-fg">{pendingTransfer.username}</strong> becomes the owner of this organization.
+              </p>
+              <p className="mt-2">
+                You are demoted to admin and lose owner-only controls, including the ability to transfer ownership back.
+              </p>
+            </>
+          )}
           onConfirmed={executeTransfer}
           onClose={() => setPendingTransfer(null)}
         />

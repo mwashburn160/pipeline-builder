@@ -129,7 +129,7 @@ jest.mock('@/hooks/useAuthGuard', () => ({
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn() }) }));
 jest.mock('@/hooks/useFeatures', () => ({ useFeatures: () => ({ isLoaded: true, isEnabled: () => false }) }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));
-for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
+for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
   jest.doMock(`../src/components/ui/${mod}`, () => ({ [mod]: () => null }));
 }
 jest.mock('@/components/ask/AskPanel', () => ({ AskPanel: () => null }));

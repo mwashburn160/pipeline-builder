@@ -18,6 +18,13 @@ export const QUOTA_META: Record<DisplayedQuotaType, { label: string; description
   aiCalls: { label: 'AI Calls', description: 'AI generation invocations this period' },
 };
 
+/**
+ * Cut-offs the at-risk views offer, in percent. 100 means "already exhausted" —
+ * the quota service treats `threshold=100` as exactly that. Shared so the
+ * sysadmin banner and an owner's own callout offer the same steps.
+ */
+export const AT_RISK_THRESHOLDS = [50, 70, 80, 90, 100] as const;
+
 export const TIER_KEYS: QuotaTier[] = [...SHARED_TIER_KEYS];
 
 // Tier descriptions + quota limits stay local — they're page-specific and
@@ -112,4 +119,43 @@ export function buildTierPresets(
     }
   }
   return presetsFromLimits(merged);
+}
+
+// ---------------------------------------------------------------------------
+// Pooling copy
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE wording for pooled limits, used everywhere the subject comes up.
+ *
+ * It was said four different ways — "Pooled at <uuid>", "Pooled across your
+ * organization", "Pooled across the parent organization", "(pooled across your
+ * organization)" — none of which explained what pooling DOES, and one of which
+ * named an org by raw id. The two questions a reader actually has are "whose
+ * limit binds me?" and "what happens to the seats I am about to buy?", so the
+ * answer to both lives in the copy itself rather than in a tooltip.
+ *
+ * `rootName` is the pool root's display NAME; callers pass `undefined` when the
+ * API could not resolve one and the copy stays generic rather than printing an
+ * id at the reader.
+ */
+export const POOLING_TITLE = 'Shared across your whole organization';
+
+/**
+ * The explanation, from the point of view of `perspective`:
+ *  - `team` — the viewer is in a team and is bound by the root's caps;
+ *  - `root` — the viewer IS the root and its caps bind every team below it.
+ */
+export function poolingExplanation(
+  perspective: 'team' | 'root',
+  rootName?: string,
+  teamCount?: number,
+): string {
+  const root = rootName || 'the root organization';
+  const teams = typeof teamCount === 'number' && teamCount > 0
+    ? ` and its ${teamCount} team${teamCount === 1 ? '' : 's'}`
+    : ' and its teams';
+  return perspective === 'team'
+    ? `Limits and seats are not per-team. ${root}${teams} draw from ONE set of caps, set on ${root} — that is the limit that binds you here, and the usage shown is everyone's combined total. A seat or add-on bought on ${root} can be used by any team, including this one.`
+    : `Limits and seats are not per-team. This organization${teams} draw from ONE set of caps, set here — these are the limits that bind all of them, and the usage shown is everyone's combined total. A seat or add-on bought here can be used by any team.`;
 }

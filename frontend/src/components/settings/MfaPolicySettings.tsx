@@ -93,6 +93,10 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
    *  Only meaningful where `policy.enrolment` is present, which is the only
    *  place it is read. */
   const outstanding = policy?.enrolment ? policy.enrolment.members - policy.enrolment.enrolled : 0;
+  /** Of those, the ones who were asked to protect their own account and said
+   *  "don't ask again". A reminder will not move them, so a deadline is the
+   *  only thing that will — which is precisely what this panel is deciding. */
+  const declined = policy?.enrolment?.declined ?? 0;
 
   const save = async (stepUpToken: string) => {
     if (!draft) return;
@@ -185,6 +189,18 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
               {outstanding === 0
                 ? 'Everyone can already sign in with two factors, so the requirement can be applied immediately.'
                 : `${outstanding} ${outstanding === 1 ? 'person' : 'people'} would be refused once the grace period ends.`}
+              {/* Counts, never names. Who declined is in the audit log
+                  (`user.mfa.prompt_declined`), on the surface that already
+                  gates reading it. */}
+              {declined > 0 && (
+                <>
+                  {' '}
+                  {declined === 1
+                    ? 'One of them has been asked and chose not to be reminded again'
+                    : `${declined} of them have been asked and chose not to be reminded again`}
+                  {' '}— a reminder will not reach them, so a deadline is what would.
+                </>
+              )}
             </Callout>
           )}
 

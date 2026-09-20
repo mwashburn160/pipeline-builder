@@ -46,3 +46,31 @@ export const RESULT_STYLES: Record<string, { bg: string; text: string; label: st
   warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
   block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
 };
+
+/**
+ * Human copy for a compliance audit entry's `action` — the five verbs the
+ * `compliance_audit_log.action` column stores (upload | deploy | create |
+ * update | scan), paired with the `target` (plugin | pipeline) that gives them
+ * meaning. Both dashboards printed the bare code in a `<code>` block, so an org
+ * admin's "recent violations" list read `upload`, which is a database value, not
+ * a sentence.
+ *
+ * An unknown action degrades to the raw code rather than being dropped — a new
+ * backend verb must still show up in the feed while this map catches up.
+ */
+const COMPLIANCE_ACTION_VERBS: Record<string, string> = {
+  upload: 'Upload of',
+  deploy: 'Deployment of',
+  create: 'Creation of',
+  update: 'Change to',
+  scan: 'Scan of',
+};
+
+/**
+ * "Upload of plugin" / "Change to pipeline" — the subject line for one audit
+ * entry, with the entity name (when known) appended by the caller.
+ */
+export function complianceActionLabel(action: string, target?: string): string {
+  const verb = COMPLIANCE_ACTION_VERBS[action] ?? action;
+  return target ? `${verb} ${target}` : verb;
+}

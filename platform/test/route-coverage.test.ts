@@ -204,6 +204,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Personalization only (favorites/recents for the active org) — no security-relevant state, and it is overwritten on every UI interaction.',
   },
+  {
+    method: 'POST',
+    path: '/user/mfa-prompt/snooze',
+    waive: 'audit',
+    reason: 'Hides the "your account is password-only" banner for a week and nothing else — no factor, session, policy or permission changes, and the account is exactly as protected either way. Its two siblings ARE audited: the decline (user.mfa.prompt_declined) is a durable decision an admin sees the count of, and the reversal (user.mfa.prompt_restored) is what keeps that reading honest. A row a week per password-only account would bury both.',
+  },
 
   // -- Invitations -----------------------------------------------------------
   {

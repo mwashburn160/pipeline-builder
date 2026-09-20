@@ -18,6 +18,7 @@ import { LoadingPage } from './Loading';
 import { QuotaBanner } from './QuotaBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuthErrorBanner } from './AuthErrorBanner';
+import { MfaEnrolmentNudge } from './MfaEnrolmentNudge';
 import { MfaRequiredBanner } from './MfaRequiredBanner';
 import { MfaRequiredDialog } from './MfaRequiredDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
@@ -321,6 +322,10 @@ export function DashboardLayout({
           </div>
           <AuthErrorBanner />
           <MfaRequiredBanner />
+          {/* The org-policy banner above and this one are mutually exclusive by
+              construction (the nudge stands down whenever `user.mfaPolicy` is
+              present), so the two can never stack. */}
+          <MfaEnrolmentNudge />
           <QuotaBanner />
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>

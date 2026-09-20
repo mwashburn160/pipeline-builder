@@ -47,10 +47,12 @@ jest.mock('@/hooks/useAuthGuard', () => ({
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn() }) }));
 let aiEntitled = false;
 jest.mock('@/hooks/useFeatures', () => ({
-  useFeatures: () => ({ isLoaded: true, isSuperAdmin: false, isEnabled: (f: string) => f === 'ai_generation' && aiEntitled }),
+  // `canReachBilling` = this viewer can open /dashboard/billing (`billing:read`,
+  // billing enabled). A lock only links there when they can; see feature-lock.test.tsx.
+  useFeatures: () => ({ isLoaded: true, isSuperAdmin: false, canReachBilling: true, isEnabled: (f: string) => f === 'ai_generation' && aiEntitled }),
 }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));
-for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
+for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
   jest.doMock(`../src/components/ui/${mod}`, () => ({ [mod]: () => null }));
 }
 
@@ -93,7 +95,10 @@ describe('Ask entry point', () => {
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
     const locked = screen.getByTestId('feature-locked-ai_generation');
-    expect(locked).toHaveAttribute('href', '/dashboard/billing?highlight=ai_generation');
-    expect(locked).toHaveAccessibleName(/Ask — requires .*Open billing to add it/);
+    // AI Generation comes with the Pro plan and is not sold as an add-on, so the
+    // lock opens the Plans tab: `?highlight=ai_generation` would match no card on
+    // the add-on grid and quietly highlight nothing.
+    expect(locked).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(locked).toHaveAccessibleName(/Ask — requires .*It comes with the Pro plan\. Open billing to compare plans/);
   });
 });

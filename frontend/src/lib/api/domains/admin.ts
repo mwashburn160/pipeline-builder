@@ -6,6 +6,26 @@ import { buildQuery, API_URL } from '../util';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 
+/**
+ * One quota dimension an org is at/over the threshold on.
+ *
+ * `type` is the FULL `QuotaType` union. It used to be spelled out here as the
+ * four original dimensions, but the quota service's at-risk scans iterate
+ * `VALID_QUOTA_TYPES` (api/quota/src/routes/read-quotas.ts) — so `storageBytes`,
+ * `dashboards`, `alertRules`, `alertDestinations` and `idpConfigs` come back too
+ * and used to arrive as a type the UI had no label for.
+ */
+export interface AtRiskDimension {
+  orgId: string;
+  name: string;
+  slug: string;
+  tier?: string;
+  type: QuotaType;
+  used: number;
+  limit: number;
+  percent: number;
+}
+
 export function adminApi(core: ApiCore) {
   return {
     // ============================================
@@ -411,24 +431,13 @@ export function adminApi(core: ApiCore) {
     /**
      * List orgs at >= threshold% on any quota dimension (system admin only).
      * Powers the operations dashboard "orgs about to hit limits" panel.
-     * @param threshold integer 1-100 (default 80 server-side)
+     * @param threshold integer 1-100 (default 80 server-side; 100 = exhausted)
      */
     getAtRiskQuotas: async (threshold?: number) => {
       const qs = threshold ? `?threshold=${threshold}` : '';
-      return core.request<ApiResponse<{
-        atRisk: Array<{
-          orgId: string;
-          name: string;
-          slug: string;
-          tier?: string;
-          type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
-          used: number;
-          limit: number;
-          percent: number;
-        }>;
-        count: number;
-        threshold: number;
-      }>>(`/api/quota/at-risk${qs}`);
+      return core.request<ApiResponse<{ atRisk: AtRiskDimension[]; count: number; threshold: number }>>(
+        `/api/quota/at-risk${qs}`,
+      );
     },
 
     /**
@@ -438,21 +447,12 @@ export function adminApi(core: ApiCore) {
      * org — so an org owner/admin can see what's near cap without sysadmin.
      * For pooled/hierarchy orgs the numbers are the root's pooled cap + subtree
      * usage, matching enforcement.
-     * @param threshold integer 1-100 (default 80 server-side)
+     * @param threshold integer 1-100 (default 80 server-side; 100 = exhausted)
      */
     getOrgAtRisk: async (orgId: string, threshold?: number) => {
       const qs = threshold ? `?threshold=${threshold}` : '';
       return core.request<ApiResponse<{
-        atRisk: Array<{
-          orgId: string;
-          name: string;
-          slug: string;
-          tier?: string;
-          type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
-          used: number;
-          limit: number;
-          percent: number;
-        }>;
+        atRisk: AtRiskDimension[];
         count: number;
         total: number;
         threshold: number;

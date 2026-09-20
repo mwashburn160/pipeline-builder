@@ -24,6 +24,8 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionBar';
 import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/BulkSelectionBanner';
 import { useToast } from '@/components/ui/Toast';
+import { InviteFollowUpNotice } from '@/components/invitations/InviteFollowUpNotice';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
 
 interface InvitationListItem {
@@ -50,6 +52,9 @@ export default function InvitationsPage() {
   const toast = useToast();
   // Role admins/owners (via bundle) and custom-group members granted it.
   const canManageInvitations = can('invitations:manage');
+  // Drives the team wording in the invite follow-up notice: an org with teams
+  // has somewhere to place the invitee AFTER acceptance; a flat org doesn't yet.
+  const { hasChildOrgs } = useOrgHierarchy();
 
   const list = useListPage<InvitationListItem>({
     fields: [
@@ -481,9 +486,15 @@ export default function InvitationsPage() {
             <div>
               <label className="label">Role</label>
               <Select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
+                <option value="member">Member — build pipelines, no administration</option>
+                <option value="admin">Admin — full administration of this organization</option>
               </Select>
+              {/* The coarse role is only the first of three layers (role → Roles →
+                  teams), and an org-wide MFA requirement can stop the invitee at
+                  first sign-in. Say so here rather than letting them find out. */}
+              <div className="mt-2">
+                <InviteFollowUpNotice orgId={user?.organizationId} role={sendRole} hasTeams={hasChildOrgs} />
+              </div>
             </div>
             <div>
               <label className="label">Invitation Type</label>

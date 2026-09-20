@@ -5,7 +5,9 @@
  * Passkeys and the account's recovery codes (controllers/webauthn.ts):
  *   - registering the account's FIRST second factor as a passkey mints the
  *     recovery-code set and returns it once; a later passkey keeps the set;
- *   - enrolling ends any MFA-reset enrolment grace;
+ *   - enrolling ends any MFA-reset enrolment grace, AND any "don't ask again"
+ *     the person gave the password-only prompt — otherwise removing this
+ *     passkey later would leave them silently un-nudged;
  *   - removing the LAST factor takes the recovery codes with it.
  */
 
@@ -20,6 +22,7 @@ const mockAudit = jest.fn();
 const mockIssue = jest.fn<(...a: unknown[]) => Promise<string[] | null>>();
 const mockRemoveIfNone = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockClearGrace = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+const mockClearNudge = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const passkey = { id: 'pk1', name: 'Laptop', backedUp: false };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -40,6 +43,7 @@ jest.unstable_mockModule('../src/services/recovery-codes-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({
   clearResetGraceOnEnrolment: (...a: unknown[]) => mockClearGrace(...a),
+  clearMfaNudgeOnEnrolment: (...a: unknown[]) => mockClearNudge(...a),
 }));
 
 const { registerVerify, removePasskey } = await import('../src/controllers/webauthn.js');
@@ -64,6 +68,10 @@ describe('registering a passkey', () => {
     expect(res._body.data).toEqual({ passkey, recoveryCodes: ['AAAAA-BBBBB'] });
     expect(mockIssue).toHaveBeenCalledWith(USER);
     expect(mockClearGrace).toHaveBeenCalledWith(USER);
+    // A factor exists now, so any "don't ask again" on the password-only prompt
+    // is cleared — removing this passkey later must prompt them again rather
+    // than leave a decline they made before they had one still silencing it.
+    expect(mockClearNudge).toHaveBeenCalledWith(USER);
   });
 
   it('keeps the existing set (and returns none) for a later passkey', async () => {

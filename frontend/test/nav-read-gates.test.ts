@@ -11,7 +11,8 @@
  * this drives the same helper the consumers do (superadmin bypass included).
  */
 import { hasPermission } from '../src/lib/auth-helpers';
-import { NAV_SECTIONS, isNavItemVisible, type NavItem } from '../src/lib/nav';
+import { NAV_SECTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '../src/lib/nav';
+import { resolvePageGate } from '../src/lib/page-access';
 
 const GATED: Record<string, string> = {
   '/dashboard/quotas': 'quotas:read',
@@ -20,8 +21,8 @@ const GATED: Record<string, string> = {
   '/dashboard/messages': 'messages:read',
 };
 
-function findItem(href: string): NavItem {
-  const item = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.href === href);
+function findItem(href: string, title?: string): NavItem {
+  const item = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.href === href && (!title || i.title === title));
   if (!item) throw new Error(`nav item not found: ${href}`);
   return item;
 }
@@ -67,12 +68,15 @@ describe('nav read-permission gates', () => {
   });
 });
 
-// The SSO nav item is feature-gated (`requiredFeature: 'sso'`) on TOP of the
-// `org:settings` permission. `isNavItemVisible` bypasses the feature gate for
-// superadmins, matching the page which now treats superadmins as entitled — so
-// nav visibility and page access agree.
-describe('SSO nav feature-entitlement gate', () => {
+// An entitlement is NOT a read gate. `page-access.ts` refuses to turn
+// `requiredFeature` into one because a missing entitlement is "this isn't on
+// your plan" — a thing the page says, with an upsell. The nav has to agree:
+// hiding the row is how an org that isn't on the SSO tier never learns SSO
+// exists. So a feature-gated item stays visible and reports its lock, while the
+// PERMISSION beside it still removes it outright.
+describe('entitlement-gated nav items are locked, not hidden', () => {
   const SSO = '/dashboard/settings/sso';
+  const INCIDENTS = '/dashboard/settings/incident-reporting';
 
   it('declares the sso feature + org:idp permission', () => {
     const item = findItem(SSO);
@@ -80,19 +84,78 @@ describe('SSO nav feature-entitlement gate', () => {
     expect(item.requiredPermission).toBe('org:idp');
   });
 
-  it('hides SSO from a permitted-but-non-entitled non-superadmin', () => {
+  it('keeps SSO visible for a permitted-but-non-entitled viewer, and marks it locked', () => {
     const user = { permissions: ['org:idp'], features: [] };
+    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
+    expect(navItemLockedFeature(findItem(SSO), ctx(user))).toBe('sso');
+  });
+
+  it('unlocks SSO once the sso entitlement is present', () => {
+    const user = { permissions: ['org:idp'], features: ['sso'] };
+    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
+    expect(navItemLockedFeature(findItem(SSO), ctx(user))).toBeUndefined();
+  });
+
+  it('still HIDES SSO from a viewer without org:idp — a permission is not an upsell', () => {
+    const user = { permissions: [], features: ['sso'] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(false);
   });
 
-  it('shows SSO once the sso entitlement is present', () => {
-    const user = { permissions: ['org:idp'], features: ['sso'] };
-    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
-  });
-
-  it('shows SSO to a superadmin whose org lacks the sso entitlement', () => {
+  it('never locks anything for a superadmin, who holds every entitlement', () => {
     const user = { permissions: [], features: [], isSuperAdmin: true };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
+    expect(navItemLockedFeature(findItem(SSO), ctx(user))).toBeUndefined();
+  });
+
+  it('locks Incident Reporting for an admin off the advanced_reporting tier', () => {
+    const item = findItem(INCIDENTS);
+    expect(item.requiredFeature).toBe('advanced_reporting');
+    const admin = { ...ctx({ permissions: [], features: [] }), isAdmin: true };
+    expect(isNavItemVisible(item, admin)).toBe(true);
+    expect(navItemLockedFeature(item, admin)).toBe('advanced_reporting');
+    // …and stays hidden from a non-admin, whose gate is a role, not a plan.
+    expect(isNavItemVisible(item, ctx({ permissions: [], features: [] }))).toBe(false);
+  });
+
+  it('locks nothing that declares no entitlement', () => {
+    for (const item of NAV_SECTIONS.flatMap((s) => s.items).filter((i) => !i.requiredFeature)) {
+      expect(navItemLockedFeature(item, ctx({ permissions: [], features: [] }))).toBeUndefined();
+    }
+  });
+});
+
+describe('Teams entry point', () => {
+  const TEAMS = findItem('/dashboard/members', 'Teams');
+
+  it('is findable in ⌘K by the words people actually type', () => {
+    expect(TEAMS.paletteOnly).toBe(true);
+    for (const word of ['team', 'hierarchy', 'sub-organization', 'create team']) {
+      expect(TEAMS.keywords).toContain(word);
+    }
+  });
+
+  it('rides the Members page gate, so it never advertises a page that denies', () => {
+    expect(TEAMS.requiredPermission).toBe('members:manage');
+    expect(isNavItemVisible(TEAMS, ctx({ permissions: [] }))).toBe(false);
+    expect(isNavItemVisible(TEAMS, ctx({ permissions: ['members:manage'] }))).toBe(true);
+  });
+
+  it('agrees with every other entry that shares its href', () => {
+    // `page-access.ts` keys route gates by href, so two entries on one href must
+    // declare the same gate or the second silently redefines the first's page gate.
+    const byHref = new Map<string, NavItem[]>();
+    for (const item of NAV_SECTIONS.flatMap((s) => s.items)) {
+      byHref.set(item.href, [...(byHref.get(item.href) ?? []), item]);
+    }
+    for (const [href, items] of byHref) {
+      const gates = items.map((i) => ({
+        permission: i.requiredPermission,
+        adminOnly: !!i.adminOnly,
+        systemAdminOnly: !!i.systemAdminOnly,
+      }));
+      expect({ href, gates }).toEqual({ href, gates: gates.map(() => gates[0]) });
+    }
+    expect(resolvePageGate('/dashboard/members')).toEqual({ permission: 'members:manage' });
   });
 });
 

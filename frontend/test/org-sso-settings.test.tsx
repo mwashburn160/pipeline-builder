@@ -22,6 +22,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgSsoSettings } from '../src/components/settings/OrgSsoSettings';
 import { SsoDisconnect } from '../src/components/settings/SsoDisconnect';
+import { DOMAIN_SETTINGS_HREF } from '../src/components/sso/VerifiedDomainPicker';
 import type { OrgIdpConfigDto } from '../src/types';
 
 const putOwnOrgIdpConfig = jest.fn();
@@ -174,7 +175,10 @@ describe('OrgSsoSettings', () => {
 
   it('links to domain verification when the org has no verified domain', async () => {
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
-    expect(await screen.findByRole('link', { name: /verify a domain/i })).toHaveAttribute('href', '/dashboard/settings?tab=organization');
+    // …at the "Email domains" CARD, not just the tab it is the sixth of.
+    expect(await screen.findByRole('link', { name: /verify a domain/i }))
+      .toHaveAttribute('href', DOMAIN_SETTINGS_HREF);
+    expect(DOMAIN_SETTINGS_HREF).toContain('#email-domains');
   });
 
   it('in the wizard: selects OIDC, creates the connection DISABLED, and leaves domains/enabling to later steps', async () => {

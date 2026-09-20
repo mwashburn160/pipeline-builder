@@ -3,8 +3,10 @@
 
 /**
  * Parent-propagated compliance rules in a team: the enforced view badges them
- * "Inherited from {parent}", and RuleList offers no edit/delete/toggle for them
- * (the API refuses team-side mutations of a parent's rule with a 403).
+ * "Inherited from {parent}" by NAME (never by raw org id), and RuleList keeps
+ * the edit/activate/delete controls visible but DISABLED, with the reason as
+ * on-screen text — the API refuses team-side mutations of a parent's rule with
+ * a 403, and a row whose actions simply vanish looks like a bug.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -51,19 +53,20 @@ describe('EnforcedRulesView', () => {
     expect(screen.getAllByText('Inherited from Acme')).toHaveLength(1);
   });
 
-  it('falls back to the source org id when the name is unresolved', async () => {
+  it('says "the parent organization" — never the raw id — when the name is unresolved', async () => {
     getEnforcedRules.mockResolvedValue({
       success: true,
       data: { rules: [{ ...inherited, sourceOrgName: undefined }], total: 1 },
     });
     render(<EnforcedRulesView />);
 
-    expect(await screen.findByText('Inherited from root-1')).toBeInTheDocument();
+    expect(await screen.findByText('Inherited from the parent organization')).toBeInTheDocument();
+    expect(screen.queryByText(/root-1/)).not.toBeInTheDocument();
   });
 });
 
 describe('RuleList', () => {
-  it('offers no edit/delete/toggle for an inherited rule, but does for an owned one', async () => {
+  it('disables — rather than hides — the mutation controls on an inherited rule', async () => {
     getComplianceRules.mockResolvedValue({
       success: true,
       data: { rules: [own, inherited], pagination: { total: 2, limit: 20, offset: 0 } },
@@ -72,9 +75,28 @@ describe('RuleList', () => {
 
     expect(await screen.findByText('Parent rule')).toBeInTheDocument();
     expect(screen.getByText('Inherited from Acme')).toBeInTheDocument();
-    // Exactly one of each mutation control — the owned rule's.
-    expect(screen.getAllByRole('button', { name: 'Edit rule' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Delete rule' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /(de)?activate rule/i })).toHaveLength(1);
+
+    // Both rows keep every control; only the inherited row's are disabled.
+    for (const name of ['Edit rule', 'Delete rule'] as const) {
+      const [ownBtn, inheritedBtn] = screen.getAllByRole('button', { name });
+      expect(ownBtn).toBeEnabled();
+      expect(inheritedBtn).toBeDisabled();
+    }
+    const toggles = screen.getAllByRole('button', { name: /(de)?activate rule/i });
+    expect(toggles).toHaveLength(2);
+    expect(toggles[1]).toBeDisabled();
+  });
+
+  it('states the reason in visible text, wired to the disabled controls', async () => {
+    getComplianceRules.mockResolvedValue({
+      success: true,
+      data: { rules: [inherited], pagination: { total: 1, limit: 20, offset: 0 } },
+    });
+    render(<RuleList onEdit={jest.fn()} />);
+
+    // Not a `title` tooltip: real text in the row, referenced by the controls.
+    const reason = await screen.findByText('Set by Acme and applied to every team — change it there.');
+    expect(reason).toHaveAttribute('id', 'inherited-reason-inh');
+    expect(screen.getByRole('button', { name: 'Edit rule' })).toHaveAttribute('aria-describedby', 'inherited-reason-inh');
   });
 });

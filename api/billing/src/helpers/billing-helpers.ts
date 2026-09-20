@@ -400,9 +400,13 @@ export interface PruneResult {
  * Prune predicate (applied per add-on): the add-on's bundle exists in the
  * catalog AND has NO quota grants (`Object.keys(bundle.grants).length === 0`)
  * AND every flag in `bundle.features` is present in `TIER_FEATURES[newTier]`.
- * HYBRID bundles that also grant a quota (e.g. `sso` → `idpConfigs:5`) are NEVER
- * pruned — dropping them would strip the paid quota. Quota-only packs
- * (seat, pipeline_pack, etc.) carry no features and are never pruned.
+ * HYBRID bundles — ones that grant a feature AND a quota — are NEVER pruned:
+ * dropping them would strip the paid quota along with the redundant feature. No
+ * shipped bundle is hybrid today (the last one, `sso`, was withdrawn when SSO
+ * became Team-and-above only), but the rule is structural, not a special case,
+ * so a future hybrid pack can't be silently deleted by a tier upgrade.
+ * Quota-only packs (seat, pipeline_pack, etc.) carry no features and are never
+ * pruned.
  *
  * Pure function (no I/O) so callers persist + sync the reduced list themselves.
  */

@@ -67,11 +67,18 @@ export interface NavItem {
    *  it, so a deep link renders one honest "no access" state instead of the
    *  chrome plus a 403 per panel. Hiding a link was never a gate. */
   requiredPermission?: string;
-  /** Show only when this feature entitlement is enabled for the current user
-   *  (per-user/tier feature flag, e.g. `sso`). Sourced from the FeaturesProvider
-   *  (`useFeatures().isEnabled`). Superadmins get all features, so they always
-   *  pass. Distinct from `requiresBillingEnabled` (deployment config) — this is a
-   *  per-org tier entitlement. */
+  /** The feature entitlement this page needs (per-user/tier feature flag, e.g.
+   *  `sso`). Sourced from the FeaturesProvider (`useFeatures().isEnabled`);
+   *  superadmins hold every entitlement. Distinct from `requiresBillingEnabled`
+   *  (deployment config) — this is a per-org tier entitlement.
+   *
+   *  This does NOT hide the item. A missing entitlement is "this isn't on your
+   *  plan", not "you can't see this" (the same distinction `page-access.ts`
+   *  makes when it refuses to turn an entitlement into a read gate): hiding it
+   *  is how an org on a lower tier never learns the product does SSO at all.
+   *  The item stays listed in a locked style and still routes to the page, which
+   *  renders its own `FeatureLock` upsell. `navItemLockedFeature` reports which
+   *  entitlement is missing so the sidebar and ⌘K can mark it. */
   requiredFeature?: string;
   /** Hide unless the billing SERVICE is enabled in this deployment
    *  (`BILLING_ENABLED`), so the Billing link doesn't show when it would only
@@ -90,6 +97,12 @@ export interface NavItem {
    * the entry still declares the route's read gate for `page-access.ts`.
    */
   paletteOnly?: boolean;
+  /**
+   * Extra search terms for the command palette, for an entry whose title isn't
+   * what the user would type (⌘K matches title, section label and these). The
+   * sidebar ignores them.
+   */
+  keywords?: string;
 }
 
 export interface NavSection {
@@ -204,6 +217,20 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Organization',
     items: [
       { title: 'Members', href: '/dashboard/members', icon: UsersRound, requiredPermission: 'members:manage' },
+      // Teams (sub-organizations) are created and managed on the Members page —
+      // the roster and the team list are the same admin's job, and a second
+      // sidebar row pointing at the same route would light up alongside Members.
+      // But with no entry of its own, "teams" was unfindable in ⌘K and invisible
+      // to an org that has none yet, which is exactly the org that needs to find
+      // the create control. Palette-only, same gate as the page it opens.
+      {
+        title: 'Teams',
+        href: '/dashboard/members',
+        icon: Building2,
+        requiredPermission: 'members:manage',
+        paletteOnly: true,
+        keywords: 'team teams sub-organization suborg child org hierarchy create team',
+      },
       { title: 'Roles', href: '/dashboard/roles', icon: ShieldCheck, requiredPermission: 'roles:manage' },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
       { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
@@ -269,7 +296,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
-      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso' },
+      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
       // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
       // config surface, gated on the `advanced_reporting` entitlement (like DORA).
       { title: 'Incident Reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
@@ -281,27 +308,45 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+/** What the sidebar and ⌘K know about the viewer when they gate the nav. */
+export interface NavVisibilityContext {
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
+  hasPermission: (perm: string) => boolean;
+  billingEnabled?: boolean;
+  /** Feature-entitlement check (useFeatures().isEnabled). Superadmins get all
+   *  features, so this may be omitted for them. Only used by
+   *  {@link navItemLockedFeature} — an entitlement never hides an item. */
+  isFeatureEnabled?: (feature: string) => boolean;
+}
+
 /**
  * Shared visibility gate for a nav item. Both the sidebar and the command
  * palette filter with this so an item shows in exactly the same places.
+ *
+ * Deliberately does NOT consider `requiredFeature`: a permission the viewer
+ * lacks means the page would 403, so the link goes; an entitlement they lack
+ * means the page has an upsell to show them, so the link stays (locked — see
+ * {@link navItemLockedFeature}). Collapsing the two is what left an org that
+ * isn't on the SSO tier with no way to discover that SSO exists.
  */
-export function isNavItemVisible(
-  item: NavItem,
-  ctx: {
-    isAdmin: boolean;
-    isSuperAdmin: boolean;
-    hasPermission: (perm: string) => boolean;
-    billingEnabled?: boolean;
-    /** Feature-entitlement check (useFeatures().isEnabled). Superadmins get all
-     *  features, so this may be omitted for them and `requiredFeature` still passes. */
-    isFeatureEnabled?: (feature: string) => boolean;
-  },
-): boolean {
+export function isNavItemVisible(item: NavItem, ctx: NavVisibilityContext): boolean {
   if (item.systemAdminOnly && !ctx.isSuperAdmin) return false;
   if (item.adminOnly && !ctx.isAdmin) return false;
   if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
   if (item.requiresBillingEnabled && !ctx.billingEnabled) return false;
-  // Superadmins hold every feature; only enforce the gate for everyone else.
-  if (item.requiredFeature && !ctx.isSuperAdmin && !(ctx.isFeatureEnabled?.(item.requiredFeature) ?? false)) return false;
   return true;
+}
+
+/**
+ * The entitlement a VISIBLE item needs but the viewer's plan doesn't include,
+ * or `undefined` when nothing is locked.
+ *
+ * Callers render the item muted, lock-marked and named as off-plan, and still
+ * link it: the destination renders the `FeatureLock` upsell in place.
+ * Superadmins hold every entitlement, so nothing is ever locked for them.
+ */
+export function navItemLockedFeature(item: NavItem, ctx: NavVisibilityContext): string | undefined {
+  if (!item.requiredFeature || ctx.isSuperAdmin) return undefined;
+  return ctx.isFeatureEnabled?.(item.requiredFeature) ? undefined : item.requiredFeature;
 }

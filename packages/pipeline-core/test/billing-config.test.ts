@@ -3,8 +3,8 @@
 
 import { jest } from '@jest/globals';
 import { VALID_TIERS } from '@pipeline-builder/api-core';
-import { loadBillingConfig, assertBundleRequiresValid } from '../src/config/billing-config.js';
-import type { BundleConfig } from '../src/config/config-types.js';
+import { loadBillingConfig, assertBundleRequiresValid, assertCombosValid } from '../src/config/billing-config.js';
+import type { BundleConfig, ComboDiscountConfig } from '../src/config/config-types.js';
 
 /** Minimal BundleConfig factory for the requires-graph assertion tests. */
 function mkBundle(id: string, overrides: Partial<BundleConfig> = {}): BundleConfig {
@@ -18,6 +18,19 @@ function mkBundle(id: string, overrides: Partial<BundleConfig> = {}): BundleConf
     availableForTiers: ['pro'],
     isActive: true,
     sortOrder: 0,
+    ...overrides,
+  };
+}
+
+/** Minimal ComboDiscountConfig factory for the combo-member assertion tests. */
+function mkCombo(id: string, bundleIds: string[], overrides: Partial<ComboDiscountConfig> = {}): ComboDiscountConfig {
+  return {
+    id,
+    name: id,
+    bundleIds,
+    prices: { monthly: 1000, annual: 10000 },
+    sortOrder: 0,
+    isActive: true,
     ...overrides,
   };
 }
@@ -165,8 +178,9 @@ describe('loadBillingConfig', () => {
     expect(pro.features).toContain('Priority Support');
     expect(pro.features).not.toContain('Community support');
     // SSO is INCLUDED in Team (TIER_FEATURES.team grants `sso`), so Team markets it
-    // (derived from FEATURE_METADATA.sso.label). The Pro tier does NOT — SSO is a
-    // Pro-only add-on bundle there.
+    // (derived from FEATURE_METADATA.sso.label). The Pro tier does NOT — and, since
+    // the Pro-only SSO add-on was withdrawn, there is now no way for Pro to get it
+    // at all short of upgrading. See the bundle-catalog test below.
     expect(team.features).toContain('SSO / IdP');
     expect(pro.features).not.toContain('SSO / IdP');
   });
@@ -196,11 +210,8 @@ describe('loadBillingConfig', () => {
         ],
       });
       // Feature bundles carry a flag and no numeric grant.
-      const sso = bundles.find((x) => x.id === 'sso');
-      expect(sso?.features).toContain('sso');
-      expect(sso?.stackable).toBe(false);
       // Advanced Reporting (DORA) — a feature bundle for every non-Enterprise tier
-      // (Enterprise gets it via TIER_FEATURES), priced below SSO.
+      // (Enterprise gets it via TIER_FEATURES).
       const advReporting = bundles.find((x) => x.id === 'advanced_reporting');
       expect(advReporting).toMatchObject({
         id: 'advanced_reporting',
@@ -210,6 +221,31 @@ describe('loadBillingConfig', () => {
         stackable: false,
         availableForTiers: ['developer', 'pro', 'team'],
       });
+    });
+
+    it('sells no SSO add-on — `sso` is a Team-and-above TIER feature only', () => {
+      // The withdrawn `sso` bundle was $40/mo on Pro only: Pro ($39) + add-on came
+      // to exactly the Team price, and Team includes SSO anyway. It was also
+      // unusable below Team — SSO needs a DNS-verified domain and domain
+      // registration is itself a Team+ tier check, so a Pro buyer's non-Google IdP
+      // failed at callback. Neither the id NOR the flag may come back as a SKU:
+      // checking only the id would let a differently-named bundle re-sell it.
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'sso')).toBeUndefined();
+      expect(bundles.filter((b) => (b.features ?? []).includes('sso'))).toEqual([]);
+      // …and no bundle may depend on it either, which would be permanently
+      // unsatisfiable below Team.
+      expect(bundles.filter((b) => (b.requires ?? []).includes('sso'))).toEqual([]);
+      expect(bundles.filter((b) => (b.requiresFeatures ?? []).includes('sso'))).toEqual([]);
+    });
+
+    it('lists no combo whose members are not all in the catalog', () => {
+      // The real guard against a withdrawn bundle leaving a dangling combo.
+      const { bundles, comboDiscounts } = loadBillingConfig();
+      const ids = new Set(bundles.filter((b) => b.isActive).map((b) => b.id));
+      for (const combo of comboDiscounts) {
+        expect(combo.bundleIds.filter((id) => !ids.has(id))).toEqual([]);
+      }
     });
 
     it('caps the retention packs at their maxQuantity (730-day retention ceiling)', () => {
@@ -463,6 +499,21 @@ describe('loadBillingConfig', () => {
       // developer has no tier features and nothing here grants advanced_reporting.
       const bundles = [mkBundle('dependent', { requiresFeatures: ['advanced_reporting'], availableForTiers: ['developer'] })];
       expect(() => assertBundleRequiresValid(bundles)).toThrow(/developer tier neither includes nor can buy/);
+    });
+
+    it('throws when a combo names a bundle that is not in the catalog', () => {
+      // This is what withdrawing a bundle would leave behind if a combo still
+      // listed it: the member resolves to nothing, the basket is priced as if it
+      // were free, and the combo silently grants a credit for a SKU nobody holds.
+      const bundles = [mkBundle('api_pack')];
+      expect(() => assertCombosValid([mkCombo('gone', ['api_pack', 'sso'])], bundles))
+        .toThrow(/references bundle "sso", which is not an active bundle/);
+    });
+
+    it('throws when a combo names an INACTIVE bundle', () => {
+      const bundles = [mkBundle('api_pack'), mkBundle('retired', { isActive: false })];
+      expect(() => assertCombosValid([mkCombo('stale', ['api_pack', 'retired'])], bundles))
+        .toThrow(/references bundle "retired", which is not an active bundle/);
     });
 
     it('throws on a multi-node requires cycle', () => {

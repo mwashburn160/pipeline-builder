@@ -516,7 +516,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), plus the Scale Bundle combo and the SSO feature bundle. Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices, and pooling rules.",
+            "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up. Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices, and pooling rules.",
             "Enforcement. Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage."
           ]
         }

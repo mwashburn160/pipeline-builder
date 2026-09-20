@@ -61,9 +61,9 @@ describe('effectiveEntitlements', () => {
   it('leaves an already-unlimited (-1) field unlimited', () => {
     // Enterprise idpConfigs is unlimited (-1); an idp-granting bundle must not
     // turn it into a finite number.
-    const idpBundle = [bundle({ id: 'sso', grants: { idpConfigs: 5 } })];
+    const idpBundle = [bundle({ id: 'idp_pack', grants: { idpConfigs: 5 } })];
     expect(getTierLimits('enterprise').idpConfigs).toBe(-1);
-    const { limits } = effectiveEntitlements('enterprise', [{ bundleId: 'sso', quantity: 4 }], idpBundle);
+    const { limits } = effectiveEntitlements('enterprise', [{ bundleId: 'idp_pack', quantity: 4 }], idpBundle);
     expect(limits.idpConfigs).toBe(-1);
   });
 
@@ -74,14 +74,16 @@ describe('effectiveEntitlements', () => {
   });
 
   it('clamps a non-stackable bundle to quantity 1 even if a larger qty is stored', () => {
-    // sso is stackable:false with an idpConfigs:5 grant — a stored quantity>1
+    // A non-stackable bundle with an idpConfigs:5 grant — a stored quantity>1
     // must NOT over-grant (the canonical math enforces the invariant, not just
-    // the purchase route).
+    // the purchase route). Fixture ids only: the shipped catalog has no
+    // non-stackable bundle carrying a quota grant since `sso` was withdrawn, and
+    // the clamp is a property of the math, not of any one SKU.
     const dev = getTierLimits('developer');
-    const ssoBundle = [bundle({ id: 'sso', grants: { idpConfigs: 5 }, features: ['sso'], stackable: false })];
-    const { limits, features } = effectiveEntitlements('developer', [{ bundleId: 'sso', quantity: 3 }], ssoBundle);
+    const idpBundle = [bundle({ id: 'idp_pack', grants: { idpConfigs: 5 }, features: ['advanced_reporting'], stackable: false })];
+    const { limits, features } = effectiveEntitlements('developer', [{ bundleId: 'idp_pack', quantity: 3 }], idpBundle);
     expect(limits.idpConfigs).toBe(dev.idpConfigs + 5); // +5, not +15
-    expect(features).toContain('sso');
+    expect(features).toContain('advanced_reporting');
   });
 
   it('clamps a stackable bundle to its maxQuantity even if a larger qty is stored', () => {

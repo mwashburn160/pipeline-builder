@@ -10,8 +10,11 @@
  * customer stops paying for a feature their tier includes — and because the
  * tier-filtered `/bundles` catalog hides it (its `availableForTiers` excludes the
  * higher tier), they couldn't self-service-remove it. HYBRID bundles that ALSO
- * grant a quota (e.g. `sso`→idpConfigs) must NOT be pruned (that would strip the
- * paid quota); quota-only packs (seat_pack) are never pruned.
+ * grant a quota must NOT be pruned (that would strip the paid quota); quota-only
+ * packs (seat_pack) are never pruned. No SHIPPED bundle is hybrid today — `sso`
+ * was the last one and was withdrawn when SSO became a Team-and-above tier
+ * feature — so the hybrid case is exercised with a fixture, because the rule is
+ * a property of the prune predicate rather than of any one SKU.
  *
  * The real helper is exercised against the real TIER_FEATURES (from the api-core
  * mock, which mirrors the canonical map) and a fixture bundle catalog served via
@@ -27,8 +30,8 @@ const CATALOG = [
   { id: 'seat_pack', name: 'Seat Pack', description: '', grants: { seats: 5 }, features: [], prices: { monthly: 2500, annual: 25000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 0 },
   { id: 'pipeline_pack', name: 'Pipeline Pack', description: '', grants: { pipelines: 10 }, features: [], prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 1 },
   { id: 'bulk_operations', name: 'Bulk Operations', description: '', grants: {}, features: ['bulk_operations'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
-  // HYBRID: SSO grants a quota (idpConfigs) in ADDITION to its feature flag.
-  { id: 'sso', name: 'SSO / IdP', description: '', grants: { idpConfigs: 5 }, features: ['sso'], prices: { monthly: 4000, annual: 40000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 3 },
+  // HYBRID (fixture-only, see the header): grants a quota in ADDITION to a flag.
+  { id: 'hybrid_pack', name: 'Hybrid Pack', description: '', grants: { apiCalls: 100000 }, features: ['team_usage_analytics'], prices: { monthly: 4000, annual: 40000 }, stackable: false, availableForTiers: ['team'], isActive: true, sortOrder: 3 },
   { id: 'advanced_reporting', name: 'Advanced Reporting', description: '', grants: {}, features: ['advanced_reporting'], prices: { monthly: 3000, annual: 30000 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], isActive: true, sortOrder: 4 },
   // A capacity pack with a FEATURE prerequisite (tier-included on enterprise).
   { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, features: [], requiresFeatures: ['advanced_reporting'], prices: { monthly: 3000, annual: 30000 }, stackable: true, maxQuantity: 1, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 5 },
@@ -107,17 +110,18 @@ describe('pruneTierIncludedFeatureAddons', () => {
     expect(pruned.find((p) => p.bundleId === 'advanced_reporting')?.features).toEqual(['advanced_reporting']);
   });
 
-  it('does NOT prune a HYBRID bundle (sso grants idpConfigs) even when the new tier includes its feature', () => {
+  it('does NOT prune a HYBRID bundle (feature AND quota) even when the new tier includes its feature', () => {
     const addons = [
       { bundleId: 'bulk_operations', quantity: 1 },
-      { bundleId: 'sso', quantity: 1 },
+      { bundleId: 'hybrid_pack', quantity: 1 },
     ];
-    // team includes BOTH bulk_operations and sso — but sso also grants a quota.
-    const { addons: kept, pruned } = pruneTierIncludedFeatureAddons(addons, 'team', catalog);
+    // enterprise includes BOTH bulk_operations and team_usage_analytics — but
+    // hybrid_pack also grants a quota (apiCalls).
+    const { addons: kept, pruned } = pruneTierIncludedFeatureAddons(addons, 'enterprise', catalog);
 
-    // bulk_operations (pure feature) is pruned; sso (hybrid) is retained so its
-    // idpConfigs quota isn't stripped.
-    expect(kept).toEqual([{ bundleId: 'sso', quantity: 1 }]);
+    // bulk_operations (pure feature) is pruned; hybrid_pack is retained so its
+    // apiCalls quota isn't stripped along with the redundant feature.
+    expect(kept).toEqual([{ bundleId: 'hybrid_pack', quantity: 1 }]);
     expect(pruned.map((p) => p.bundleId)).toEqual(['bulk_operations']);
   });
 

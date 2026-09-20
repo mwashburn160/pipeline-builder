@@ -153,7 +153,10 @@ export const getDomainOrgs = withController('Discover domain orgs', async (req, 
   // Only a provider-verified email may discover — an unverified address is an
   // unproven domain claim and must not surface other tenants.
   if (!user || !user.isEmailVerified) return sendSuccess(res, 200, { orgs: [] });
-  const orgs = await orgDomainService.findDiscoverableOrgsByEmail(user.email);
+  // Annotated with the caller's OWN membership + join-request state: this is the
+  // read behind a durable "join an organization" surface, not just a one-shot
+  // first-run list, so a request already filed has to be visible as such.
+  const orgs = await orgDomainService.findDiscoverableOrgsForUser({ _id: user._id, email: user.email });
   sendSuccess(res, 200, { orgs });
 });
 

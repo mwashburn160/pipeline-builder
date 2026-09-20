@@ -4,6 +4,7 @@
 import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { withInheritedSource } from '../helpers/inherited-source.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 /**
@@ -29,12 +30,19 @@ export function createReadRuleRoutes(): Router {
       tag: req.query.tag as string | undefined,
     };
 
+    // A team also SEES its parent's `propagateToChildren` rules here, exactly as
+    // `/enforced` and upload-time validation do — they bind the team, so hiding
+    // them from the rule list made a failing build unexplainable. They come back
+    // labelled with their source org (name, not id) and are read-only: the
+    // update/delete routes refuse a team's attempt with a 403.
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
     const result = await complianceRuleService.findPaginated(
-      filter, orgId, { limit, offset, sortBy: sortBy || 'priority', sortOrder: sortOrder || 'desc' },
+      filter, orgId, { limit, offset, sortBy: sortBy || 'priority', sortOrder: sortOrder || 'desc' }, parentOrgId,
     );
+    const rules = await withInheritedSource(result.data, parentOrgId);
 
-    ctx.log('COMPLETED', 'Listed compliance rules', { count: result.data.length });
-    return sendPaginatedNested(res, 'rules', result.data, {
+    ctx.log('COMPLETED', 'Listed compliance rules', { count: rules.length });
+    return sendPaginatedNested(res, 'rules', rules, {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));

@@ -65,7 +65,7 @@ describe('BillingDashboard', () => {
   });
 
   it('renders the cost-by-team table when the org parents teams', async () => {
-    mockOrgHierarchy({ childOrgCount: 1 });
+    mockOrgHierarchy({ childOrgCount: 1, childOrgs: [{ id: 'team-a', name: 'Payments' }] });
     getBillingSummary.mockResolvedValue(summary(1));
     getBillingAllocation.mockResolvedValue(allocation([
       { orgId: 'root', driverUnits: 6, sharePct: 75, grossCents: 3675, discountCents: 0, creditCents: 1500, taxCents: 0, netCents: 2175 },
@@ -73,8 +73,21 @@ describe('BillingDashboard', () => {
     ]));
     render(<BillingDashboard />);
     expect(await screen.findByText('Cost by team')).toBeInTheDocument();
-    expect(screen.getByText('team-a')).toBeInTheDocument();
+    // Named from the session's org list, not left as a raw org id.
+    expect(screen.getByText('Payments')).toBeInTheDocument();
+    expect(screen.queryByText('team-a')).not.toBeInTheDocument();
     expect(screen.getByText('75%')).toBeInTheDocument();
+  });
+
+  it('falls back to the org id for a row the session cannot name', async () => {
+    mockOrgHierarchy({ childOrgCount: 1 });
+    getBillingSummary.mockResolvedValue(summary(1));
+    getBillingAllocation.mockResolvedValue(allocation([
+      { orgId: 'team-z', driverUnits: 2, sharePct: 100, grossCents: 1225, discountCents: 0, creditCents: 0, taxCents: 0, netCents: 1225 },
+    ]));
+    render(<BillingDashboard />);
+    expect(await screen.findByText('Cost by team')).toBeInTheDocument();
+    expect(screen.getByText('team-z')).toBeInTheDocument();
   });
 
   it('skips the allocation request and hides cost-by-team for an org with no teams', async () => {
@@ -85,10 +98,22 @@ describe('BillingDashboard', () => {
     expect(screen.queryByText('Cost by team')).not.toBeInTheDocument();
   });
 
-  it('hides cost-by-team when a parent org\'s allocation holds a single row', async () => {
+  it('still shows cost-by-team when a parent org\'s allocation holds a single row', async () => {
+    // Gating is the hierarchy signal, not the row count: "the parent carries
+    // all of it this period" is an answer, and hiding it looked like the
+    // breakdown didn't exist.
     mockOrgHierarchy({ childOrgCount: 1 });
     getBillingSummary.mockResolvedValue(summary(1));
     getBillingAllocation.mockResolvedValue(allocation([{ orgId: 'root', driverUnits: 6, sharePct: 100, grossCents: 4900, discountCents: 0, creditCents: 2000, taxCents: 0, netCents: 2900 }]));
+    render(<BillingDashboard />);
+    expect(await screen.findByText('Cost by team')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('hides cost-by-team when the allocation read yields no rows at all', async () => {
+    mockOrgHierarchy({ childOrgCount: 1 });
+    getBillingSummary.mockResolvedValue(summary(1));
+    getBillingAllocation.mockResolvedValue(allocation([]));
     render(<BillingDashboard />);
     await screen.findByText('Amounts billed');
     expect(screen.queryByText('Cost by team')).not.toBeInTheDocument();

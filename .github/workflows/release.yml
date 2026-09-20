@@ -150,11 +150,13 @@ jobs:
         id: run_build_target
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
+          RUN_MONGO_INTEGRATION: "true"
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Run test target
         id: run_test_target
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
+          RUN_MONGO_INTEGRATION: "true"
         run: pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Semantic version
         id: semantic_version

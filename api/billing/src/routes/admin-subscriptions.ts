@@ -195,7 +195,7 @@ export function createAdminSubscriptionRoutes(): Router {
         // isn't double-billed for a feature its tier includes (and can't
         // self-service-remove — the tier-filtered catalog hides it). Mutates the
         // doc's addons in memory (persisted by save() below) BEFORE the deferred
-        // side effects; hybrid bundles (e.g. `sso`→idpConfigs) are kept.
+        // side effects; hybrid bundles (feature AND quota) are kept.
         const pruned = applyTierIncludedAddonPrune(subscription, newTier, {
           orgId, subscriptionId: subscription._id.toString(), source: 'admin_plan_change',
         });

@@ -433,7 +433,11 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
           {!canWrite && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
               <span className="text-fg-muted">To:</span>
-              <span className="flex-1 text-fg-muted font-medium" data-testid="support-recipient">{supportAlias}</span>
+              {/* Show the alias's local-part, as every other support surface does
+                  (the datalist below, the inbox sender label) — printing the raw
+                  `support@pipeline-builder` here leaked an internal routing
+                  address into the one place a read-only member always sees. */}
+              <span className="flex-1 text-fg-muted font-medium" data-testid="support-recipient">{aliasLocalPart(supportAlias)}</span>
             </div>
           )}
 

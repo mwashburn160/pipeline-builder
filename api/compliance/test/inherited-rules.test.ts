@@ -3,8 +3,11 @@
 
 /**
  * Parent-propagated (`propagateToChildren`) rules inside a TEAM:
- *  - GET /subscriptions/enforced marks them `inherited` with `sourceOrgId` and,
- *    when resolvable, `sourceOrgName`;
+ *  - GET /subscriptions/enforced AND the paginated GET /rules both mark them
+ *    `inherited` with `sourceOrgId` and, when resolvable, `sourceOrgName` — the
+ *    list used to resolve no name, which is why the UI printed a raw org UUID;
+ *  - GET /rules widens the read to the parent so its binding rules are visible
+ *    in the team's rule list at all;
  *  - PUT/DELETE /rules/:id from the team answers a clear 403 instead of a bare
  *    404, and never mutates or audits.
  */
@@ -16,6 +19,7 @@ const updateMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const deleteMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const isInheritedRuleMock = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const findAllEnforcedMock = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
+const findPaginatedMock = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
 const resolveOrgNameMock = jest.fn<(id: string) => Promise<string | undefined>>();
 const emitComplianceAuditMock = jest.fn();
 
@@ -29,6 +33,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendEntityNotFound: jest.fn((res: any, what: string) => res.status(404).json({ message: what })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
+  sendPaginatedNested: jest.fn((res: any, key: string, items: unknown[], pagination: any) =>
+    res.status(200).json({ success: true, statusCode: 200, data: { [key]: items, pagination } })),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -56,6 +62,7 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
     delete: (...a: unknown[]) => deleteMock(...a),
     isInheritedRule: (...a: unknown[]) => isInheritedRuleMock(...a),
     findAllEnforced: (...a: unknown[]) => findAllEnforcedMock(...a),
+    findPaginated: (...a: unknown[]) => findPaginatedMock(...a),
   },
   InvalidRuleRegexError,
   InvalidSetTagError,
@@ -164,5 +171,67 @@ describe('GET /subscriptions/enforced — inherited origin', () => {
 
     expect(data.rules[0]).not.toHaveProperty('sourceOrgName');
     expect(data.rules[0]).toMatchObject({ inherited: true, sourceOrgId: 'root-1' });
+  });
+});
+
+describe('GET /rules — inherited origin on the paginated list', () => {
+  async function listRules(user: Record<string, unknown>, orgId: string) {
+    const { createReadRuleRoutes } = await import('../src/routes/read-rules.js') as any;
+    const handler = lastHandler(createReadRuleRoutes(), '/', 'get');
+    const { res, json } = makeRes();
+    await handler({ __orgId: orgId, query: {}, user } as any, res);
+    return json.mock.calls[0][0].data;
+  }
+
+  it('widens the read to the parent and labels its rules with the parent NAME', async () => {
+    findPaginatedMock.mockResolvedValueOnce({
+      data: [
+        { id: 'own', orgId: 'team-1', scope: 'org' },
+        { id: 'inh', orgId: 'root-1', scope: 'org' },
+      ],
+      total: 2,
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+    resolveOrgNameMock.mockResolvedValueOnce('Acme');
+
+    const data = await listRules(TEAM_USER, 'team-1');
+
+    // The parent org id is threaded into the query so its propagated rules are
+    // visible at all — without it the team's list simply omitted them.
+    expect(findPaginatedMock).toHaveBeenCalledWith(
+      expect.anything(), 'team-1', expect.anything(), 'root-1',
+    );
+    expect(data.rules).toEqual([
+      { id: 'own', orgId: 'team-1', scope: 'org' },
+      { id: 'inh', orgId: 'root-1', scope: 'org', inherited: true, sourceOrgId: 'root-1', sourceOrgName: 'Acme' },
+    ]);
+  });
+
+  it('leaves the name unset (never invents one) when the lookup yields nothing', async () => {
+    findPaginatedMock.mockResolvedValueOnce({
+      data: [{ id: 'inh', orgId: 'root-1', scope: 'org' }], total: 1, limit: 20, offset: 0, hasMore: false,
+    });
+    resolveOrgNameMock.mockResolvedValueOnce(undefined);
+
+    const data = await listRules(TEAM_USER, 'team-1');
+
+    expect(data.rules[0]).not.toHaveProperty('sourceOrgName');
+    expect(data.rules[0]).toMatchObject({ inherited: true, sourceOrgId: 'root-1' });
+  });
+
+  it('a root org widens nothing and never looks a name up', async () => {
+    findPaginatedMock.mockResolvedValueOnce({
+      data: [{ id: 'own', orgId: 'root-1', scope: 'org' }], total: 1, limit: 20, offset: 0, hasMore: false,
+    });
+
+    const data = await listRules(ROOT_USER, 'root-1');
+
+    expect(findPaginatedMock).toHaveBeenCalledWith(
+      expect.anything(), 'root-1', expect.anything(), undefined,
+    );
+    expect(resolveOrgNameMock).not.toHaveBeenCalled();
+    expect(data.rules[0]).not.toHaveProperty('inherited');
   });
 });

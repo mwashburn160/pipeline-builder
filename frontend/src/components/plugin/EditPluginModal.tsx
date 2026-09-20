@@ -20,6 +20,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatError, formatJSON, safeJSONParse } from '@/lib/constants';
 import { Plugin, Visibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
+import { useAuth } from '@/hooks/useAuth';
+import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
@@ -47,6 +50,10 @@ function dirtySnapshot(pl: Plugin) {
     pluginType: pl.pluginType,
     computeType: pl.computeType,
     env: formatJSON(pl.env || {}),
+    // Reassigning the owning team is a real edit — without it here, a discard
+    // click would drop that change with no prompt.
+    ownerId: pl.ownerId ?? null,
+    ownerType: pl.ownerType ?? null,
   };
 }
 
@@ -72,6 +79,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
   const [secrets, setSecrets] = useState(formatJSON([]));
   const [visibility, setVisibility] = useState<Visibility>(plugin.visibility);
+  // Catalog owner (person or team); the list row omits the owner columns, so it
+  // seeds from the full record below. Reassigning it is admin-only server-side.
+  const [owner, setOwner] = useState<CatalogOwner>({});
+  const { user } = useAuth();
+  const canAssignOwner = isOrgAdmin(user) || isSystemAdmin(user);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const { execute: saveAsync, loading, error: saveError, clearError } = useAsyncCallback(
@@ -121,6 +133,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     setFailureBehavior(fullPlugin.failureBehavior || 'fail');
     setSecrets(formatJSON(fullPlugin.secrets || []));
     setVisibility(fullPlugin.visibility);
+    setOwner({ ownerId: fullPlugin.ownerId, ownerType: fullPlugin.ownerType });
   }, [fullPlugin]);
 
   // The full record (fetched by id); null until it lands.
@@ -132,7 +145,10 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   // form is seeded from it), not the first render's placeholders.
   const baseline = useMemo(() => (fullPlugin ? JSON.stringify(dirtySnapshot(fullPlugin)) : null), [fullPlugin]);
   const dirty = baseline !== null
-    && baseline !== JSON.stringify({ name, description, keywords, version, metadata, pluginType, computeType, env });
+    && baseline !== JSON.stringify({
+      name, description, keywords, version, metadata, pluginType, computeType, env,
+      ownerId: owner.ownerId ?? null, ownerType: owner.ownerType ?? null,
+    });
 
   const handleSave = async ({ metadataWipeConfirmed = false }: { metadataWipeConfirmed?: boolean } = {}) => {
     clearError();
@@ -181,6 +197,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       timeout: timeout.trim() ? parseInt(timeout, 10) : null,
       failureBehavior,
       secrets: parsedSecrets,
+      // Owner is admin-only server-side and non-nullable in the schema, so only
+      // send it when this viewer may set it AND it resolves to a real id.
+      ...(canAssignOwner && owner.ownerId && owner.ownerType
+        ? { ownerId: owner.ownerId, ownerType: owner.ownerType }
+        : {}),
     });
 
     if (response?.success) {
@@ -330,6 +351,21 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
                 <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={loading} />
               </FormField>
+              {/* Owner + team access — the same control the pipeline editor uses,
+                  because the backend rules are the same: admin-only owner write,
+                  `plugins:publish` for the rung a team org reads at, and no move. */}
+              <CatalogOwnerFields
+                value={owner}
+                onChange={setOwner}
+                visibility={visibility}
+                canAssign={canAssignOwner}
+                personOwnerId={(p?.ownerType === 'user' && p?.ownerId) || p?.createdBy || ''}
+                onShareWithTeams={canPublish ? () => setVisibility('public') : undefined}
+                entityNoun="plugins"
+                publishPermission="plugins:publish"
+                idPrefix="editPlugin"
+                disabled={loading}
+              />
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">

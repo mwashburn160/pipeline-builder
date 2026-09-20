@@ -251,7 +251,7 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
       // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
       // fix) so a plan change made directly in Stripe also drops the redundant
       // paid bundle. Mutates addons in memory (persisted by the `dirty` save
-      // below); hybrid bundles (e.g. `sso`→idpConfigs) are kept.
+      // below); hybrid bundles (feature AND quota) are kept.
       prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {
         orgId: subscription.orgId, subscriptionId: subscription._id.toString(), source: 'stripe_plan_change',
       });

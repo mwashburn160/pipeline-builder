@@ -59,7 +59,7 @@ export async function resolveOrgName(orgId: string): Promise<string | undefined>
     });
     return names[orgId.toLowerCase()];
   } catch (err) {
-    logger.warn('Org name lookup failed; inherited rules will show the org id', { orgId, error: errorMessage(err) });
+    logger.warn('Org name lookup failed; inherited rules will be labelled generically', { orgId, error: errorMessage(err) });
     return undefined;
   }
 }

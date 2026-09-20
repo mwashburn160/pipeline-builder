@@ -10,6 +10,13 @@
  * hiding it entirely (the customer can't tell the product does the thing, let
  * alone that it's purchasable). The lock states below are the third option —
  * visible, disabled-or-diverted, and specific about what's missing.
+ *
+ * "Where to get it" splits two ways, and getting it wrong is silent. An ADD-ON
+ * (`advanced_reporting`) deep-links to its card via `?highlight=`. A feature that
+ * only comes with a PLAN (`bulk_operations` from Pro, `sso` from Team) has no
+ * card to highlight: AddonGrid matches nothing, highlights nothing, and the
+ * viewer lands on an add-on grid that never mentions what they clicked. Those
+ * open the Plans tab and name the plan instead.
  */
 import { render, screen } from '@testing-library/react';
 import { FeatureLock, FeatureLockedAction } from '@/components/ui/FeatureLock';
@@ -18,9 +25,12 @@ import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 let features: string[] = [];
 let isLoaded = true;
 let isSuperAdmin = false;
+// Whether the viewer can open /dashboard/billing at all (`billing:read`, and
+// billing running in this deployment) — the upsell link's precondition.
+let canReachBilling = true;
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
-  useFeatures: () => ({ isEnabled: (f: string) => features.includes(f), isLoaded, features, isSuperAdmin }),
+  useFeatures: () => ({ isEnabled: (f: string) => features.includes(f), isLoaded, features, isSuperAdmin, canReachBilling }),
 }));
 
 jest.mock('@/hooks/useBuildStatus', () => ({
@@ -32,6 +42,7 @@ beforeEach(() => {
   features = [];
   isLoaded = true;
   isSuperAdmin = false;
+  canReachBilling = true;
 });
 
 describe('<FeatureLock>', () => {
@@ -41,6 +52,27 @@ describe('<FeatureLock>', () => {
     expect(screen.getByTestId('feature-lock-advanced_reporting')).toHaveTextContent(/DORA metrics/i);
     expect(screen.getByRole('link', { name: /billing/i }))
       .toHaveAttribute('href', '/dashboard/billing?highlight=advanced_reporting');
+  });
+
+  it('sends a TIER-only feature to Plans and names the plan, not to a nonexistent add-on', () => {
+    // `sso` is included from Team up and is not sold separately (the Pro-only
+    // SSO bundle was withdrawn), so `?highlight=sso` would highlight nothing.
+    render(<FeatureLock flag="sso" />);
+    const lock = screen.getByTestId('feature-lock-sso');
+    expect(lock).toHaveTextContent(/included from the Team plan and isn't sold separately/i);
+    const link = screen.getByRole('link', { name: /Compare plans/i });
+    expect(link).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(link.getAttribute('href')).not.toContain('highlight');
+    expect(lock).not.toHaveTextContent(/add it to your plan/i);
+  });
+
+  it('tells a viewer who cannot open Billing to ask about an UPGRADE for a tier feature', () => {
+    // "add it to your plan" is a lie when there is nothing to add.
+    canReachBilling = false;
+    render(<FeatureLock flag="sso" />);
+    expect(screen.getByTestId('feature-lock-sso'))
+      .toHaveTextContent(/Ask an organization owner or admin about upgrading the plan/i);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('renders nothing for an entitled org', () => {
@@ -60,6 +92,19 @@ describe('<FeatureLock>', () => {
     const { container } = render(<FeatureLock flag="bulk_operations" />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('sends a viewer who cannot open Billing to a person, not a dead link', () => {
+    // /dashboard/billing needs `billing:read`. A developer clicking "See it in
+    // Billing" got a full-screen AccessDenied — the upsell replaced by a wall.
+    canReachBilling = false;
+    render(<FeatureLock flag="advanced_reporting" />);
+    expect(screen.getByTestId('feature-lock-advanced_reporting'))
+      .toHaveTextContent(/Ask an organization owner or admin to add it to your plan/i);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    // It still says what's missing and what it buys.
+    expect(screen.getByText(/Advanced Reporting isn't included in your current plan/i)).toBeInTheDocument();
+    expect(screen.getByTestId('feature-lock-advanced_reporting')).toHaveTextContent(/DORA metrics/i);
+  });
 });
 
 describe('<FeatureLockedAction>', () => {
@@ -67,7 +112,9 @@ describe('<FeatureLockedAction>', () => {
     render(<FeatureLockedAction flag="bulk_operations" label="Bulk import" />);
     const link = screen.getByTestId('feature-locked-bulk_operations');
     expect(link).toHaveTextContent('Bulk import');
-    expect(link).toHaveAttribute('href', '/dashboard/billing?highlight=bulk_operations');
+    // Bulk Operations comes with Pro and is not sold as a pack, so the CTA is
+    // the Plans tab rather than a `?highlight=` that matches no card.
+    expect(link).toHaveAttribute('href', '/dashboard/billing?tab=plans');
     expect(link).toHaveAttribute('title', expect.stringContaining('Bulk Operations'));
   });
 
@@ -75,6 +122,18 @@ describe('<FeatureLockedAction>', () => {
     features = ['bulk_operations'];
     const { container } = render(<FeatureLockedAction flag="bulk_operations" label="Bulk import" />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('stays visible and named — but inert, not a dead link — without billing access', () => {
+    canReachBilling = false;
+    render(<FeatureLockedAction flag="bulk_operations" label="Bulk import" />);
+    const control = screen.getByTestId('feature-locked-bulk_operations');
+    expect(control.tagName).toBe('BUTTON');
+    expect(control).not.toHaveAttribute('href');
+    expect(control).toHaveAttribute('aria-disabled', 'true');
+    // Still keyboard-reachable (aria-disabled, not the `disabled` attribute that
+    // drops it out of the tab order) and it names what's missing and who to ask.
+    expect(control).toHaveAccessibleName(/Bulk import — requires Bulk Operations, not included in your plan\. It comes with the Pro plan\. Ask an organization owner or admin about upgrading/i);
   });
 });
 

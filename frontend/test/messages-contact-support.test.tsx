@@ -91,7 +91,10 @@ describe('ComposeModal — support-only contact form (no messages:write)', () =>
   it('offers no way to address anything but support — the recipient is not editable', () => {
     renderCompose(false, jest.fn().mockResolvedValue(true));
 
-    expect(screen.getByTestId('support-recipient')).toHaveTextContent(SUPPORT_ALIAS);
+    // Shown as the alias's LOCAL-PART, like every other support surface — the
+    // fixed To field used to print the raw `support@x.io` routing address.
+    expect(screen.getByTestId('support-recipient')).toHaveTextContent('support');
+    expect(screen.getByTestId('support-recipient')).not.toHaveTextContent(SUPPORT_ALIAS);
     // The editable recipient field belongs to full compose only.
     expect(screen.queryByRole('textbox', { name: /recipient/i })).toBeNull();
     expect(screen.queryByRole('combobox', { name: /recipient/i })).toBeNull();

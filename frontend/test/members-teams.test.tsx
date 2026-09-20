@@ -27,11 +27,17 @@ jest.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: { organizationId: 'org-1' }, organizations: mockOrganizations, refreshUser, switchOrganization }),
 }));
 
+// Renders `title` + `details` too: a destructive step-up action is ONE dialog
+// that states what is lost and takes the factor, so the cost copy has to be
+// asserted HERE — there is no confirm dialog in front of it to carry it.
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (
-    <div role="dialog" aria-label="step-up">
+  StepUpModal: ({ action, title, details, onConfirmed }: {
+    action: string; title?: string; details?: React.ReactNode; onConfirmed: (t: string) => void;
+  }) => (
+    <div role="dialog" aria-label={title ?? 'step-up'}>
       <p>{action}</p>
+      {details}
       <button type="button" onClick={() => onConfirmed('step-up-token')}>Verify</button>
     </div>
   ),
@@ -90,12 +96,58 @@ describe('Create Team gate', () => {
     expect(screen.queryByRole('button', { name: /create team/i })).not.toBeInTheDocument();
   });
 
-  it('keeps the tier-ineligible disabled state and its tooltip', async () => {
+  it('keeps the tier-ineligible disabled state, with the reason VISIBLE', async () => {
+    // The reason used to live only in `title=`: invisible on touch, unread by
+    // screen readers, and with no way to act on it. It is now text next to the
+    // control, tied to it by aria-describedby, and it links to Billing.
     mockOrganizations = [root({ tier: 'pro', childOrgCount: 0 })];
     render(<MembersPage />);
     const btn = await screen.findByRole('button', { name: /create team/i });
     expect(btn).toBeDisabled();
-    expect(btn).toHaveAttribute('title', expect.stringMatching(/Team or Enterprise plan/));
+    const reasonId = btn.getAttribute('aria-describedby');
+    expect(reasonId).toBeTruthy();
+    const reason = document.getElementById(reasonId!);
+    expect(reason).toHaveTextContent(/Teams need a Team or Enterprise plan/i);
+    expect(within(reason!).getByRole('link', { name: /upgrade this organization/i }))
+      .toHaveAttribute('href', '/dashboard/billing');
+  });
+
+  it('tells a viewer who cannot open Billing to ask an owner, with no dead link', async () => {
+    // `billing:manage` + org admin is what the upgrade link needs; without it
+    // the link would land on AccessDenied, so the copy names who can act.
+    mockOrganizations = [root({ tier: 'pro', childOrgCount: 0 })];
+    mockAuthGuard({
+      isAdmin: false,
+      user: { id: 'me', organizationId: 'org-1', permissions: ['members:manage', 'org:settings'] },
+      can: (p: string) => ['members:manage', 'org:settings'].includes(p),
+    });
+    render(<MembersPage />);
+    const btn = await screen.findByRole('button', { name: /create team/i });
+    const reason = document.getElementById(btn.getAttribute('aria-describedby')!);
+    expect(reason).toHaveTextContent(/Ask an owner to upgrade this organization/i);
+    expect(within(reason!).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('stays visible for a root org with no teams at all — that org needs it most', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.getOrganizationTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [] } });
+    render(<MembersPage />);
+    expect(await screen.findByRole('button', { name: /create team/i })).toBeEnabled();
+  });
+});
+
+describe('TeamsCard empty state', () => {
+  it('offers the create control its copy promises', async () => {
+    // Reached when every live team is deleted but still restorable: the card
+    // renders, and its "create a new one" sentence used to point at nothing.
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.getOrganizationTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [] } });
+    mockApi.listDeletedTeams = jest.fn().mockResolvedValue({
+      success: true, data: { teams: [{ orgId: 't9', orgName: 'Gone', deletedAt: '2026-09-01T00:00:00Z', purgeAfter: '2026-10-01T00:00:00Z' }] },
+    });
+    render(<MembersPage />);
+    expect(await screen.findByText(/No live teams\./i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^create a team$/i })).toBeEnabled();
   });
 });
 
@@ -130,18 +182,23 @@ describe('Teams row actions', () => {
     expect(triggerBlobDownload).toHaveBeenCalledWith(expect.any(Blob), 'team-Platform-export.json');
   });
 
-  it('Delete confirms the retention window, steps up, deletes, then refreshes the session', async () => {
+  it('Delete opens ONE dialog that states the retention window and takes the factor', async () => {
     mockApi.deleteTeam = jest.fn().mockResolvedValue({ success: true });
     render(<MembersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /delete team/i }));
 
-    const confirm = await screen.findByRole('dialog', { name: /delete team platform/i });
+    // The house rule (see StepUpModal's doc comment and the "Delete your
+    // account" flow on Settings): a destructive step-up action does NOT confirm
+    // and then re-prompt. This used to show a ConfirmDialog whose Confirm opened
+    // a second, separate step-up dialog.
+    const dialogs = await screen.findAllByRole('dialog');
+    expect(dialogs).toHaveLength(1);
+    const confirm = screen.getByRole('dialog', { name: /delete team platform\?/i });
     expect(confirm).toHaveTextContent(/restorable from Recently deleted teams until its retention window ends/i);
     expect(mockApi.deleteTeam).not.toHaveBeenCalled();
-    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete team' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(mockApi.deleteTeam).toHaveBeenCalledWith('org-1', 't1', 'step-up-token'));
     await waitFor(() => expect(refreshUser).toHaveBeenCalled());
   });

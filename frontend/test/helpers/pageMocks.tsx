@@ -110,10 +110,17 @@ export interface PageOrgHierarchy {
   hasChildOrgs: boolean;
   childOrgCount: number;
   parentOrgId: string | undefined;
+  parentOrgName: string | undefined;
+  /** The viewer reaches this org as an admin of its parent (no membership row). */
+  viaAncestor: boolean;
+  childOrgs: Array<{ id: string; name: string }>;
+  teamName: (orgId: string) => string;
 }
 
 let currentHierarchy: PageOrgHierarchy = {
-  activeOrg: undefined, isChildOrg: false, hasChildOrgs: false, childOrgCount: 0, parentOrgId: undefined,
+  activeOrg: undefined, isChildOrg: false, hasChildOrgs: false, childOrgCount: 0,
+  parentOrgId: undefined, parentOrgName: undefined, viaAncestor: false,
+  childOrgs: [], teamName: (orgId: string) => orgId,
 };
 
 /**
@@ -122,15 +129,27 @@ let currentHierarchy: PageOrgHierarchy = {
  * it a parent; `{ parentOrgId }` makes it a team.
  */
 export function mockOrgHierarchy(
-  overrides: { childOrgCount?: number; parentOrgId?: string; activeOrg?: { id: string; name: string; tier: string } } = {},
+  overrides: {
+    childOrgCount?: number;
+    parentOrgId?: string;
+    parentOrgName?: string;
+    viaAncestor?: boolean;
+    childOrgs?: Array<{ id: string; name: string }>;
+    activeOrg?: { id: string; name: string; tier: string };
+  } = {},
 ): PageOrgHierarchy {
   const childOrgCount = overrides.childOrgCount ?? 0;
+  const childOrgs = overrides.childOrgs ?? [];
   currentHierarchy = {
     activeOrg: overrides.activeOrg,
     isChildOrg: !!overrides.parentOrgId,
     hasChildOrgs: childOrgCount > 0,
     childOrgCount,
     parentOrgId: overrides.parentOrgId,
+    parentOrgName: overrides.parentOrgName,
+    viaAncestor: !!overrides.viaAncestor,
+    childOrgs,
+    teamName: (orgId: string) => childOrgs.find((o) => o.id === orgId)?.name ?? orgId,
   };
   return currentHierarchy;
 }

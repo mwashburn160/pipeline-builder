@@ -333,7 +333,8 @@ function StepDomains({
       {verified.domains !== null && verified.domains.length === 0 && (
         <p className="text-xs text-fg-muted">
           You can continue and test now, but a test (and every sign-in) is refused until the email&apos;s domain is
-          verified. <Link href={DOMAIN_SETTINGS_HREF} className="underline">Verify a domain</Link>.
+          verified — except for Google Workspace, which verifies its own domains.{' '}
+          <Link href={DOMAIN_SETTINGS_HREF} className="underline">Verify a domain</Link>.
         </p>
       )}
       <ErrorAlert message={error} onDismiss={() => setError(null)} />

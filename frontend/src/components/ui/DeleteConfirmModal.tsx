@@ -23,6 +23,11 @@ interface DeleteConfirmModalProps {
  * buttons. Built on {@link Modal} for the shared focus-trap / Escape / portal /
  * scroll-lock behavior; the Cancel button receives initial focus so a stray
  * Enter can't confirm the deletion.
+ *
+ * For a delete the server STEP-UP gates, use `StepUpModal` alone instead: it
+ * takes the heading and what is lost as `title` + `details` and collects the
+ * factor in the same dialog. Chaining this in front of it double-prompts for one
+ * decision, and `test/one-dialog-rule.test.ts` fails the build when it happens.
  */
 export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '' }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);

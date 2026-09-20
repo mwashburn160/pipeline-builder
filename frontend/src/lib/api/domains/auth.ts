@@ -195,9 +195,22 @@ export function authApi(core: ApiCore) {
       });
     },
 
-    /** GET /auth/onboarding/domain-orgs — orgs the user could join by verified email domain. */
+    /**
+     * GET /auth/onboarding/domain-orgs — orgs the user could join by verified
+     * email domain, each annotated with where THIS user already stands:
+     * `isMember` once they belong, and `requestStatus` for a request they filed
+     * (`pending` awaiting an admin, `denied` refused and not re-openable).
+     * Those two are what make the join surface re-visitable rather than a
+     * one-shot first-run list.
+     */
     getDomainOrgs: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ orgs: Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }> }>>('/api/auth/onboarding/domain-orgs', { signal: opts?.signal });
+      return core.request<ApiResponse<{ orgs: Array<{
+        orgId: string;
+        orgName: string;
+        autoJoin: 'off' | 'request' | 'auto';
+        requestStatus?: 'pending' | 'approved' | 'denied';
+        isMember?: boolean;
+      }> }>>('/api/auth/onboarding/domain-orgs', { signal: opts?.signal });
     },
 
     /** POST /auth/onboarding/join — auto-join or request to join a domain-discovered org. */
@@ -390,6 +403,34 @@ export function authApi(core: ApiCore) {
         method: 'PUT',
         body: JSON.stringify(patch),
       });
+    },
+
+    /**
+     * The PASSWORD-ONLY PROMPT's three own-account writes.
+     *
+     * There is no matching read: the state rides on `GET /user/profile` next to
+     * `authFactors`, because it only means anything alongside them — and
+     * because the profile is one of the few calls a bootstrap-admin enrolment
+     * session may make, which is exactly the account that should see the
+     * prompt first.
+     *
+     * None is step-up gated: postponing a question does not weaken anything.
+     */
+    snoozeMfaPrompt: async () => {
+      return core.request<ApiResponse<{ snoozedUntil: string; snoozeDays: number }>>(
+        '/api/user/mfa-prompt/snooze',
+        { method: 'POST' },
+      );
+    },
+
+    /** POST /user/mfa-prompt/decline — stop offering until the person asks. */
+    declineMfaPrompt: async () => {
+      return core.request<ApiResponse<{ declinedAt: string }>>('/api/user/mfa-prompt/decline', { method: 'POST' });
+    },
+
+    /** DELETE /user/mfa-prompt — undo a snooze or a decline. */
+    restoreMfaPrompt: async () => {
+      return core.request<ApiResponse<{ cleared: boolean }>>('/api/user/mfa-prompt', { method: 'DELETE' });
     },
 
     /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session.

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { forgetReturnPath, rememberReturnPath } from '@/lib/return-to';
-import { SessionMfaPolicy, User, UserOrgMembership } from '@/types';
+import { AuthFactors, MfaNudgeState, SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { clearQueryCache } from '@/lib/query-cache';
@@ -98,6 +98,12 @@ interface RawUserData {
   featureOverrides?: Record<string, boolean>;
   /** The active org's two-factor requirement (#8), when it has one. */
   mfaPolicy?: SessionMfaPolicy;
+  /** Which factors the account holds. Read by the security posture strip, the
+   *  step-up modal and the password-only prompt. */
+  authFactors?: AuthFactors;
+  /** "Not now" / "don't ask again" for that prompt; only ever sent for an
+   *  account with no factor. */
+  mfaNudge?: MfaNudgeState;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -188,6 +194,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Drives the MFA banner. Only present when the org requires it, so
             // the field is simply absent for everyone else.
             ...(rawUser.mfaPolicy ? { mfaPolicy: rawUser.mfaPolicy } : {}),
+            // The account's own factors, and whether it has asked us to stop
+            // offering to add one. Both drive the password-only prompt (and
+            // `authFactors` the security posture strip, which read it off the
+            // context and therefore showed nothing until it was carried here).
+            ...(rawUser.authFactors ? { authFactors: rawUser.authFactors } : {}),
+            ...(rawUser.mfaNudge ? { mfaNudge: rawUser.mfaNudge } : {}),
             createdAt: rawUser.createdAt,
             updatedAt: rawUser.updatedAt,
           };

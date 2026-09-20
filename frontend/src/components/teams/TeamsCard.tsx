@@ -3,8 +3,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Building2, Download, MoreHorizontal, Network, RotateCcw, Settings, Trash2, UserPlus } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
@@ -17,13 +17,17 @@ import { formatDateMedium } from '@/lib/format';
 import { triggerBlobDownload } from '@/lib/csv-export';
 import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations';
 
+/** Ties the disabled create control to the sentence that says why. */
+const TEAMS_CARD_CREATE_REASON_ID = 'teams-card-create-blocked-reason';
+
 /**
  * The parent org's teams, with everything a parent admin does to one without
  * switching into it: add a member, open it, manage its settings, export it, and
  * delete it — plus the recently-deleted teams it can still restore.
  *
  * Deleting and restoring are step-up gated (the backend `requireStepUp`), so
- * each confirms in a dialog that states the retention window, then re-verifies.
+ * each opens ONE dialog that states what happens — the retention window — and
+ * takes the factor in the same place, rather than confirming twice.
  * Every lifecycle change calls `onChanged`, which the page uses to re-read the
  * lists AND `refreshUser()` — `childOrgCount` and the org switcher move with it.
  */
@@ -38,6 +42,8 @@ export function TeamsCard({
   onOpen,
   onAddMember,
   onChanged,
+  onCreateTeam,
+  createTeamDisabledReason,
 }: {
   parentOrgId: string;
   parentOrgName?: string;
@@ -52,10 +58,21 @@ export function TeamsCard({
   onOpen: (team: OrgTeamRef) => void;
   onAddMember: (team: OrgTeamRef) => void;
   onChanged: () => Promise<void>;
+  /** Starts the create-team flow. Passed only when this viewer may create one
+   *  (root org + `org:settings`) — the empty state used to tell people to
+   *  "create a new one" and then offer nothing to click. */
+  onCreateTeam?: () => void;
+  /** Why creating is unavailable (e.g. the tier can't parent teams). Rendered
+   *  as visible text beside the disabled control, not just as a tooltip. */
+  createTeamDisabledReason?: string;
 }) {
   const toast = useToast();
   const [managing, setManaging] = useState<OrgTeamRef | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<OrgTeamRef | null>(null);
+  // Deleting a team is destructive AND step-up gated, so it is ONE dialog that
+  // states what is lost and takes the factor (the rule settings.tsx documents
+  // for "Delete your account" and StepUpModal's own doc comment spells out).
+  // This used to open a ConfirmDialog and then a StepUpModal for a single
+  // delete: two modals asking the same person the same question.
   const [pendingDelete, setPendingDelete] = useState<OrgTeamRef | null>(null);
   const [pendingRestore, setPendingRestore] = useState<DeletedTeam | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -112,7 +129,31 @@ export function TeamsCard({
       </div>
 
       {teams.length === 0 ? (
-        <p className="py-2 text-sm text-fg-muted">No live teams. Restore a deleted team below, or create a new one.</p>
+        <div className="py-2 space-y-2">
+          {/* Say only what's actually on offer: "create a new one" with no
+              control was an instruction to nowhere for a viewer who can't
+              create, and a dead end for one who can. */}
+          <p className="text-sm text-fg-muted">
+            No live teams.{deletedTeams.length > 0 ? ' Restore a deleted team below.' : ''}
+          </p>
+          {onCreateTeam && (
+            <div className="space-y-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onCreateTeam}
+                disabled={!!createTeamDisabledReason}
+                aria-describedby={createTeamDisabledReason ? TEAMS_CARD_CREATE_REASON_ID : undefined}
+                className="disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Building2 className="w-3.5 h-3.5 mr-1.5" /> Create a team
+              </Button>
+              {createTeamDisabledReason && (
+                <p id={TEAMS_CARD_CREATE_REASON_ID} className="text-2xs text-fg-muted">{createTeamDisabledReason}</p>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-800">
           {teams.map((t) => (
@@ -139,7 +180,7 @@ export function TeamsCard({
                     team={t}
                     exporting={exporting === t.orgId}
                     onExport={() => void exportTeam(t)}
-                    onDelete={() => setConfirmDelete(t)}
+                    onDelete={() => setPendingDelete(t)}
                   />
                 )}
               </div>
@@ -189,27 +230,22 @@ export function TeamsCard({
         />
       )}
 
-      {confirmDelete && (
-        <ConfirmDialog
-          title={`Delete team ${confirmDelete.orgName}?`}
-          confirmLabel="Delete team"
-          tone="danger"
-          onConfirm={() => { setPendingDelete(confirmDelete); setConfirmDelete(null); }}
-          onCancel={() => setConfirmDelete(null)}
-        >
-          <p>
-            <span className="font-medium">{confirmDelete.orgName}</span> disappears straight away and its members lose
-            access to it.
-          </p>
-          <p>
-            It stays restorable from <strong>Recently deleted teams</strong> until its retention window ends, then it and
-            its data are purged permanently. Export it first if you need a copy.
-          </p>
-        </ConfirmDialog>
-      )}
       {pendingDelete && (
         <StepUpModal
+          title={`Delete team ${pendingDelete.orgName}?`}
           action={`Delete team ${pendingDelete.orgName}`}
+          details={(
+            <>
+              <p>
+                <span className="font-medium">{pendingDelete.orgName}</span> disappears straight away and its members
+                lose access to it.
+              </p>
+              <p className="mt-2">
+                It stays restorable from <strong>Recently deleted teams</strong> until its retention window ends, then it
+                and its data are purged permanently. Export it first if you need a copy.
+              </p>
+            </>
+          )}
           onConfirmed={executeDelete}
           onClose={() => setPendingDelete(null)}
         />

@@ -85,6 +85,31 @@ describe('derivePosture', () => {
     expect(items['org-mfa'].href).toContain('#passkeys');
   });
 
+  // The three policy fields mean three different things; the strip used to
+  // print "Required" for two of them, telling people they were locked out when
+  // they were not (and reading identically before and after a deadline).
+  it.each([
+    ['enforced now', { requireMfa: true as const, enforced: true, aal: 1 as const }, 'Required'],
+    ['a grace period still running', { requireMfa: true as const, enforced: false, graceUntil: '2026-10-01T00:00:00Z', aal: 1 as const }, 'Required from'],
+    ['on but not yet enforcing', { requireMfa: true as const, enforced: false, aal: 1 as const }, 'Not yet enforced'],
+  ])('describes an org policy that is %s', (_label, mfaPolicy, expected) => {
+    const items = byId(derivePosture({
+      user: baseUser({ mfaPolicy }), recoveryCodes: null, activeSessions: null, sso: undefined, canManageOrg: false,
+    }));
+    expect(items['org-mfa'].value).toContain(expected);
+  });
+
+  it('points a person mid-MFA-reset at their own enrolment deadline', () => {
+    const items = byId(derivePosture({
+      user: baseUser({ mfaPolicy: { requireMfa: true, enforced: true, resetGraceUntil: '2026-10-01T00:00:00Z', aal: 1 } }),
+      recoveryCodes: null, activeSessions: null, sso: undefined, canManageOrg: false,
+    }));
+    // The org-wide requirement bites, but THIS account is not refused until its
+    // post-reset window ends — so the deadline it gets is its own.
+    expect(items['org-mfa'].value).toBe('Required');
+    expect(items['org-mfa'].detail).toMatch(/^Add a passkey or authenticator app by /);
+  });
+
   it('says "Not required" when the org has no policy', () => {
     const items = byId(derivePosture({ user: baseUser(), recoveryCodes: null, activeSessions: null, sso: undefined, canManageOrg: true }));
     expect(items['org-mfa']).toMatchObject({ value: 'Not required', href: '/dashboard/settings?tab=organization' });

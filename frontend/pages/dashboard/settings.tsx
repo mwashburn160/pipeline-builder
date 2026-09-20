@@ -18,6 +18,7 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
+import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { PasswordPolicySettings } from '@/components/settings/PasswordPolicySettings';
@@ -65,7 +66,16 @@ export default function SettingsPage() {
   // shareable / back-forward-friendly — same pattern as the Billing page.
   // Tab state lives in `?tab=` so the view is shareable, refresh-safe and
   // back/forward-friendly. `useUrlTab` owns the hydrate + shallow write-back.
-  const [activeTab, changeTab] = useUrlTab<SettingsTab>('tab', SETTINGS_TAB_IDS as readonly SettingsTab[], 'profile');
+  // `#email-domains` names the card SSO setup sends admins to (verify a domain).
+  // Registering it here makes the fragment carry its own tab, so the link works
+  // with or without `?tab=organization`, and `useUrlTab` does the scroll once the
+  // card has actually rendered.
+  const [activeTab, changeTab] = useUrlTab<SettingsTab>(
+    'tab',
+    SETTINGS_TAB_IDS as readonly SettingsTab[],
+    'profile',
+    { hashTabs: { [DOMAIN_SETTINGS_ANCHOR]: 'organization' } },
+  );
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -215,7 +225,9 @@ export default function SettingsPage() {
             {/* Organization Identity (owner/admin self-serve) */}
             {can('org:settings') && <OrgIdentitySettings onSaved={refreshUser} />}
 
-            {/* Domain-based join (owner/admin self-serve) */}
+            {/* Email domains: DNS verification (what single sign-on serves) +
+                domain-based join (owner/admin self-serve). The SSO wizard deep
+                links here — see DOMAIN_SETTINGS_ANCHOR. */}
             {can('org:settings') && user.organizationId && (
               <DomainJoinSettings orgId={user.organizationId} />
             )}

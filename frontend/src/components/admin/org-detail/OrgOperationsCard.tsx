@@ -10,7 +10,6 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { formatError } from '@/lib/constants';
@@ -20,15 +19,22 @@ import type { OrganizationDetail } from '@/lib/api/domains/organizations';
 /**
  * Scaffolding + destructive operations for one org: the k8s namespace manifest
  * (step-up — it pins service-account tokens and namespace labels), the GDPR
- * export, the org's audit trail, and the soft delete (typed confirmation, then
- * step-up).
+ * export, the org's audit trail, and the soft delete. Both step-up-gated
+ * operations state what they cost inside the step-up dialog itself.
  */
 export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
+  // A root with live teams cannot be deleted — the backend refuses (400) so the
+  // teams aren't orphaned. Refusing here, BEFORE the step-up re-auth, turns a
+  // dead end into an answer with the way out in it. Read off the org on screen
+  // (sysadmin `teams`), not the viewer's.
+  const liveTeams = org.teams ?? [];
+  const blockedByTeams = liveTeams.length > 0;
   const router = useRouter();
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Both operations are step-up gated, so each is ONE dialog that states what
+  // it costs and takes the factor — no confirm modal in front of it.
   const [pendingOp, setPendingOp] = useState<'delete' | 'yaml' | null>(null);
 
   // GDPR portability dump. The endpoint streams raw JSON (not an ApiResponse
@@ -80,25 +86,42 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
           View audit log
         </LinkButton>
         <div className="flex-1" />
-        <Button variant="danger" onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-2 text-sm">
+        <Button
+          variant="danger"
+          onClick={() => setPendingOp('delete')}
+          disabled={blockedByTeams}
+          title={blockedByTeams ? 'This organization has teams — move or delete them first' : undefined}
+          className="inline-flex items-center gap-2 text-sm disabled:opacity-60"
+        >
           <Trash2 className="w-4 h-4" /> Delete organization
         </Button>
       </div>
-
-      {/* The typed-name confirmation clears first; the step-up then runs the delete. */}
-      {confirmDelete && (
-        <DeleteConfirmModal
-          title="Delete Organization"
-          itemName={org.name}
-          loading={false}
-          onConfirm={() => { setConfirmDelete(false); setPendingOp('delete'); }}
-          onCancel={() => setConfirmDelete(false)}
-        />
+      {blockedByTeams && (
+        <p className="mt-2 text-xs text-fg-muted">
+          {org.name} has {liveTeams.length} team{liveTeams.length === 1 ? '' : 's'} and can&apos;t be deleted while
+          they exist. Delete each team, or move it under another organization or out as a standalone one (Configuration →
+          Hierarchy), then come back.
+        </p>
       )}
 
+      {/* ONE dialog: what is lost, and the factor. It used to confirm the delete
+          and then re-prompt in a second modal for the same click. */}
       {pendingOp && (
         <StepUpModal
+          title={pendingOp === 'delete' ? `Delete ${org.name}?` : `Download ${org.name}'s namespace YAML?`}
           action={pendingOp === 'delete' ? `Delete organization ${org.name}` : `Download k8s namespace YAML for ${org.name}`}
+          details={pendingOp === 'delete' ? (
+            <p>
+              <strong className="text-fg">{org.name}</strong> and its members, pipelines, plugins and settings stop being
+              reachable. It is soft-deleted and restorable from the organizations list until its retention window ends,
+              then purged permanently. Export its data first if you need a copy.
+            </p>
+          ) : (
+            <p>
+              The manifest pins <strong className="text-fg">{org.name}</strong>&apos;s namespace labels and
+              service-account tokens — treat the file as a credential.
+            </p>
+          )}
           onConfirmed={onStepUpConfirmed}
           onClose={() => setPendingOp(null)}
         />

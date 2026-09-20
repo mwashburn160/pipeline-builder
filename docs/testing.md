@@ -256,12 +256,44 @@ looked up. The categories are `machine-only`, `machine-credential`,
 `external-callback`, `pre-session`, `session-plumbing`, `own-account`,
 `step-up-resume`, `sysadmin-console`, `same-control` and `no-ui`.
 
-Two rules keep the registry from becoming a rubber stamp: a `same-control` entry
-must name a `CONTROLS` row that really exists (so leaning on another control's
-gate means leaning on a gate this file proves), and a `machine-only` entry is
-checked against the route table's own `internalCallers` / `servicePrincipal`.
+Four rules keep the registry from becoming a rubber stamp:
+
+- a `same-control` entry must name a `CONTROLS` row that really exists (so
+  leaning on another control's gate means leaning on a gate this file proves);
+- a `machine-only` entry is checked against the route table's own
+  `internalCallers` / `servicePrincipal`;
+- a `no-ui` entry is checked against the **api client**: the suite indexes every
+  `/api/...` endpoint in `src/lib/api/domains/*.ts` and `src/lib/api/core.ts`
+  (applying the three nginx rewrites that are not a bare prefix strip) and fails
+  if a method for the route exists, because that is exactly what makes "no UI
+  reaches this" false;
+- and the reverse — a category that NAMES a surface (`sysadmin-console`,
+  `same-control`, `own-account`, `session-plumbing`, `step-up-resume`,
+  `pre-session`) must have a client method, because a control that cannot call
+  the route cannot exist.
+
 Reasons are required to be long enough to name a file or a caller, so "N/A"
 cannot pass.
+
+The `no-ui` half used to be unreachable: its assertion opened with
+`if (d.category !== 'machine-only') continue;`, so only the machine-only check
+ever ran. Two untrue rows sat under it — `platform POST /user/generate-token`
+(the machine-token panel on Settings → Security drives it; now `own-account`)
+and `quota DELETE /quotas/:orgId` (filed `sysadmin-console` beside the usage
+reset, with no such control; now `no-ui`).
+
+**3. Every authenticated read is reachable.** The two rules above cover writes
+and the reads that carry a feature / step-up / scope / assurance gate, which
+left 156 authenticated GETs unchecked — the half the surveys kept finding holes
+in. Mapping each to a control is not honest work (a read is not a button, it is
+whatever a page fetches on mount), so the rule is mechanical instead: every
+authenticated read must have an api-client method, or a disposition naming the
+machine surface that drives it. What that deliberately does NOT cover is gate
+parity on reads — a read is gated by the PAGE (`src/lib/page-access.ts`) and a
+page pulls from many services, so there is no single control to compare against
+— and which page issues a given read. Unauthenticated reads (`/health`,
+`/metrics`, `/ready`, `/warmup`, `/config`, JWKS, the registry `/token`) are
+excluded: they carry nothing to be in parity with.
 
 ### Write routes with no UI caller
 
@@ -273,11 +305,28 @@ the dashboard:
 | `platform POST /auth/device/code`, `POST /auth/device/token` | The CLI's device-authorization grant. The dashboard drives only the human half (`/auth/device/authorize`, approve, deny). |
 | `platform POST /auth/token/exchange` | Service-account token exchange. |
 | `platform POST /auth/key/rotate`, `POST /auth/key/revoke` | Unattended service-account key self-rotation/revocation — the audit-event text says explicitly that no person is present. |
-| `platform POST /user/generate-token` | CLI / renewal-Lambda machine-credential mint. |
-| `platform POST /organization/names` | Batch org-id → name resolver, called service-to-service only. **Unlike its peers it is not marked service-principal in the route table**, so any authenticated caller can resolve org names. |
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
 | `plugin POST /plugins/lookup` | Deploy-time PluginLookup Lambda call from the CDK. |
 | `ask POST /ask`, `POST /ask/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask/agent/stream`. |
+| `quota DELETE /quotas/:orgId` | The org-purge **cascade hook**, driven with a service token by `platform/src/services/org-cascade-service.ts`. A human sysadmin is admitted by the gate, but no control exists and none should: `quotaService.update()` and `.resetUsage()` both throw `OrgNotFoundError` on a missing document and never upsert, so dropping the row leaves the org unenforceable and unrepairable from the dashboard. |
+
+`platform POST /organization/names` was on this list; it is now `machine-only` —
+the service-principal gate moved from the controller onto the route, so the
+route table advertises it and the machine-only assertion can check it.
+
+### Read routes with no UI caller
+
+The same treatment for reads. Each was looked up, and each is a peer-service or
+CLI surface:
+
+| Route | What drives it |
+|---|---|
+| `pipeline GET /pipelines/find`, `plugin GET /plugins/find` | Exact-match lookup by project/name, documented in `docs/api-reference.md` as a curl/CLI surface. The dashboard filters the list endpoints instead. |
+| `compliance GET /compliance/rules/:id`, `GET /compliance/policies/:id` | Read-one-by-id for API / CLI callers; the dashboard's list response already carries the whole row. |
+| `compliance GET /compliance/entitlements/:orgId` | The billing↔compliance entitlement sync leg, gated with `requireBillingService`. |
+| `billing GET /billing/subscriptions/by-org/:orgId/billable` | Pre-flight for nesting a root under another org (`platform/src/services/org-hierarchy-service.ts`). |
+| `quota GET /quotas/:orgId/:quotaType` | Single-dimension status read by `packages/api-core/src/services/quota.ts`. |
+| `platform GET /organization/:id/descendants`, `GET /organization/:id/members/:userId/exists`, `GET /organization/:id/parent` | Org-hierarchy reads for peer services (`packages/api-core/src/helpers/org-hierarchy-http.ts`, `api/compliance/src/helpers/org-hierarchy-client.ts`). The dashboard had a `getOrganizationDescendants` client method with zero callers; it was deleted rather than left looking like a product capability. |
 
 ### Known UI ↔ route gate mismatches
 

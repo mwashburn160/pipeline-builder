@@ -376,7 +376,7 @@ export function createSubscriptionRoutes(): Router {
       // This mutates subscription.addons in memory (persisted by the save below);
       // the provider line-item removal + audit run post-save via
       // applyPlanTierChange → finalizePrunedAddons. Hybrid bundles (e.g.
-      // `sso`→idpConfigs) are kept. `plan` is always set when planChanged
+      // feature AND a quota) are kept. `plan` is always set when planChanged
       // (fetched above); guard for TS.
       if (plan) {
         prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {

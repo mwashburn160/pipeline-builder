@@ -40,7 +40,7 @@ import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
-import { clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
+import { clearMfaNudgeOnEnrolment, clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
 import { issueRecoveryCodesIfAbsent, removeRecoveryCodesIfNoFactor } from '../services/recovery-codes-service.js';
 import {
   WEBAUTHN_ATTESTATION_UNVERIFIABLE,
@@ -203,6 +203,9 @@ export const registerVerify = withController('Passkey register verify', async (r
   await closeBootstrapExceptionOnEnrolment(req, userId);
   // ...and so does any MFA-reset enrolment grace: they have enrolled.
   await clearResetGraceOnEnrolment(userId);
+  // ...and so does any "not now" / "don't ask again" they gave the
+  // password-only prompt: it was a decision about an account with no factor.
+  await clearMfaNudgeOnEnrolment(userId);
   // The account's recovery codes are minted with its FIRST second factor,
   // whichever kind that is. Shown once; a later passkey keeps the same set.
   const recoveryCodes = await issueRecoveryCodesIfAbsent(userId);

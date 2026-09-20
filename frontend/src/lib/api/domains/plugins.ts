@@ -4,7 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
 import { ApiError } from '../errors';
-import type { ApiResponse, Plugin, QueueStatus , Visibility } from '@/types';
+import type { ApiResponse, OwnerType, Plugin, QueueStatus , Visibility } from '@/types';
 
 /**
  * Page envelope of the build-queue listings (`/plugins/queue/failed`, `/dlq`).
@@ -167,6 +167,19 @@ export function pluginsApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Update a plugin in place.
+     *
+     * As with `updatePipeline`, there is deliberately no move/transfer: the
+     * `plugins` table is FORCE'd RLS with
+     * `WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())`, so the
+     * database itself rejects an UPDATE that rewrites `org_id`. Giving a TEAM a
+     * plugin is `visibility: 'public'` (the rung a team org reads its parent's
+     * rows at) plus `ownerId`/`ownerType` — see `CatalogOwnerFields`.
+     *
+     * `ownerId`/`ownerType` are admin-only server-side (a plain member's values
+     * are dropped, not rejected), and the `public` rung needs `plugins:publish`.
+     */
     updatePlugin: async (id: string, data: {
       name?: string;
       description?: string;
@@ -186,6 +199,11 @@ export function pluginsApi(core: ApiCore) {
       timeout?: number | null;
       failureBehavior?: 'fail' | 'warn' | 'ignore';
       secrets?: Array<{ name: string; required: boolean; description?: string }>;
+      /** Catalog owner: a user id (`ownerType: 'user'`) or a team org id
+       *  (`ownerType: 'team'`). Not nullable — the server schema requires a
+       *  non-empty string, so ownership is reassigned, never cleared. */
+      ownerId?: string;
+      ownerType?: OwnerType;
     }) => {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
         method: 'PUT',

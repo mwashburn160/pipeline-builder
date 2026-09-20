@@ -80,12 +80,35 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   // before the server round-trip returns the resolved name.
   const currentOrgName = organizations.find((o) => o.id.toLowerCase() === currentOrgId.toLowerCase())?.name;
 
-  // The counterparty org name for the header: server-enriched field first, then
-  // the client-side backfill, then the raw id.
+  /**
+   * ONE org-label resolver for every org this view names — the thread header and
+   * each individual bubble.
+   *
+   * The name is normally resolved SERVER-side (`enrichWithOrgNames` labels every
+   * row the message service returns), with the page's `resolveOrgName` map as a
+   * client backfill — it is also what maps the system support org to the support
+   * alias instead of its literal name, "system". Both are best-effort, so a
+   * lookup that genuinely fails used to fall through to the raw org UUID as
+   * visible text: meaningless to the reader, and in the middle of a conversation
+   * it reads as a rendering bug. The last resort is now honest generic copy, with
+   * the id kept in `title` so support can still identify the org.
+   */
+  const orgLabel = (orgId: string | null | undefined, serverName?: string | null): string => {
+    if (!orgId) return 'another organization';
+    const isMine = orgId.toLowerCase() === currentOrgId.toLowerCase();
+    return serverName
+      || resolveOrgName?.(orgId)
+      || (isMine ? currentOrgName : undefined)
+      || (isMine ? 'your organization' : 'another organization');
+  };
+
+  // The counterparty org for the header: the recipient when the thread is one we
+  // started, else the sender.
   const isRootMine = rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase();
+  const counterpartyOrgId = isRootMine ? rootMessage.recipientOrgId : rootMessage.orgId;
   const counterpartyName = isRootMine
-    ? (rootMessage.recipientOrgName || resolveOrgName?.(rootMessage.recipientOrgId) || rootMessage.recipientOrgId)
-    : (rootMessage.orgName || resolveOrgName?.(rootMessage.orgId) || rootMessage.orgId);
+    ? orgLabel(rootMessage.recipientOrgId, rootMessage.recipientOrgName)
+    : orgLabel(rootMessage.orgId, rootMessage.orgName);
 
   // #4 — resolve a direct-message TARGET user id to a display name (best-effort).
   // The target lives in rootMessage.recipientOrgId; a single members lookup maps
@@ -300,7 +323,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             ) : (
               <MessageCircle className="w-4 h-4 text-brand flex-shrink-0" />
             )}
-            <h2 className="text-base font-semibold text-fg truncate">
+            {/* `title` keeps the org id reachable for support even when the name
+                resolved (or fell back to generic copy) — it is never the label. */}
+            <h2 className="text-base font-semibold text-fg truncate" title={rootMessage.messageType === 'announcement' ? undefined : counterpartyOrgId}>
               {rootMessage.messageType === 'announcement' ? 'Announcement' : counterpartyName}
             </h2>
             {rootMessage.recipientUserId && (
@@ -366,7 +391,10 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                   } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
                 >
                   <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-fg-muted'}`}>
-                    <span>{msg.createdBy} ({msg.orgName || msg.orgId})</span>
+                    {/* Same resolution chain as the header — this used to be a
+                        bare `msg.orgName || msg.orgId`, which printed a raw UUID
+                        inside the bubble whenever the name lookup came back empty. */}
+                    <span title={msg.orgId}>{msg.createdBy} ({orgLabel(msg.orgId, msg.orgName)})</span>
                     {canEdit && !isEditing && (
                       <button
                         onClick={() => beginEdit(msg)}

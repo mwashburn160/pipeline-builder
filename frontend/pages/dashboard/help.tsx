@@ -12,11 +12,12 @@ import { HelpSearchResultCard } from '@/components/help/HelpSearchResult';
 import { HelpSearchBox } from '@/components/help/HelpSearchBox';
 import { HelpTopicGroup } from '@/components/help/HelpTopicGroup';
 import { WhatsNewPanel } from '@/components/help/WhatsNewPanel';
+import { ContactSupportCard } from '@/components/help/ContactSupportCard';
 import { loadHelpGroups, type HelpTopicGroup as HelpTopicGroupData } from '@/lib/help';
 import { searchHelp } from '@/lib/help/search';
 
 export default function HelpPage() {
-  const { user, isReady } = useAuthGuard();
+  const { user, isReady, can } = useAuthGuard();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -79,8 +80,15 @@ export default function HelpPage() {
           />
         </div>
 
-        <aside className={`lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-24 ${searching ? 'hidden lg:block' : ''}`}>
-          <WhatsNewPanel />
+        {/* The sidebar is also Help's only outbound path — "contact support"
+            sits ABOVE the changelog so a stuck reader meets it first, and it
+            stays visible while searching (a failed search is exactly when
+            someone needs a human). */}
+        <aside className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-24 space-y-4">
+          <ContactSupportCard canMessage={can('messages:read')} />
+          <div className={searching ? 'hidden lg:block' : ''}>
+            <WhatsNewPanel />
+          </div>
         </aside>
 
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">

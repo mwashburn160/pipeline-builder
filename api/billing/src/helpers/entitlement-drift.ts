@@ -19,7 +19,7 @@
  *                       and the account FEATURE entitlements
  *                       (`GET /organization/:orgId/feature-entitlements`)
  *
- * Feature entitlements (platform `org.featureEntitlements`, e.g. `sso`/`advanced_reporting`)
+ * Feature entitlements (platform `org.featureEntitlements`, e.g. `advanced_reporting`)
  * are compared alongside the numeric limits: the expected set is the union of
  * bundle-granted features from `effectiveEntitlements`, and the actual set is read
  * from the platform feature-entitlements endpoint (the feature sibling of
@@ -39,7 +39,8 @@ export interface ActualEntitlements {
   quotaLimits: Record<string, number>;
   /** The enforced seat limit (platform-owned). `-1` = unlimited. */
   seats: number;
-  /** The enforced account feature entitlements (platform-owned), e.g. `sso`. */
+  /** The enforced account feature entitlements (platform-owned), e.g.
+   *  `advanced_reporting`. */
   features: string[];
 }
 

@@ -8,6 +8,7 @@ import { audit } from '../helpers/audit.js';
 import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
+import { reportableMfaNudge, type StoredMfaNudge } from '../helpers/mfa-nudge.js';
 import { MFA_POLICY_ERROR_MAP, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { callerRestriction, resolveRequestedPermissions } from '../helpers/token-permissions.js';
@@ -176,6 +177,14 @@ export const getUser = withController('Get user profile', async (req, res) => {
   const factorUser = await loadFactorUser(userId);
   const authFactors = factorUser ? await resolveAuthFactors(factorUser) : undefined;
 
+  // The PASSWORD-ONLY PROMPT's suppression state (helpers/mfa-nudge.ts), which
+  // the shell reads to decide whether to invite this person to enrol a factor.
+  // Reported only for an account that HOLDS no factor: the prompt has no
+  // meaning otherwise, and refusing to report it there is what makes a stale
+  // decline — one that somehow outlived the clear every enrolment path runs —
+  // unable to suppress a future prompt. Absent is the common case.
+  const mfaNudge = reportableMfaNudge(authFactors, (user as { mfaNudge?: StoredMfaNudge }).mfaNudge);
+
   // The active org's MFA requirement (#8), so the shell can show the banner with
   // its deadline and route the person into enrolment BEFORE the grace ends —
   // rather than letting them discover the policy through a failed sign-in.
@@ -204,6 +213,10 @@ export const getUser = withController('Get user profile', async (req, res) => {
       // Step-up factors ride on the user so the auth context (and the step-up
       // modal) sees them with the rest of the profile.
       ...(authFactors && { authFactors }),
+      // "Not now" / "don't ask again" for the password-only prompt. Only ever
+      // present for an account with no factor, and only when one of them is
+      // actually in force — an expired snooze reports as nothing.
+      ...(mfaNudge && { mfaNudge }),
       // Only when the org actually requires MFA — an absent field is the common
       // case and keeps the payload (and the banner logic) quiet by default.
       ...(mfaPolicy?.requireMfa ? {

@@ -196,6 +196,35 @@ export interface UserDocument extends Document {
    * enrolment; never extends the admin-actions policy (`org_admin_aal`).
    */
   mfaResetGraceUntil?: Date;
+  /**
+   * When the account last asked NOT to be prompted to protect itself (the
+   * password-only prompt — `helpers/mfa-nudge.ts`).
+   *
+   * MFA state itself is DERIVED — an account is protected because it holds a
+   * passkey or a confirmed authenticator enrolment, never because a flag says
+   * so — so there is deliberately no "MFA enabled" boolean anywhere near this.
+   * What IS a real preference is whether we keep asking, and that has to
+   * survive a sign-out or the prompt is back on the next login, which is how
+   * people learn to dismiss a banner without reading it.
+   *
+   * It lives on the USER rather than in `UserPreferences` because factors are
+   * an ACCOUNT fact: `UserPreferences` is keyed `(userId, organizationId)`, so
+   * a snooze taken in one org would not be honoured in another and a decline
+   * would be invisible to every org but the one it was made in — including to
+   * the admin count that reports it. Two more consequences follow: the profile
+   * read already loads this document (so the prompt costs no extra query, and
+   * works for a bootstrap-admin enrolment session, which may read
+   * `/user/profile` and nothing else), and enrolment can clear it in one write.
+   *
+   * Cleared on the first enrolment of any factor, so removing that factor later
+   * leaves no stale suppression behind (`helpers/mfa-nudge.ts`).
+   */
+  mfaNudge?: {
+    /** Prompt suppressed until this moment ("Not now"). */
+    snoozedUntil?: Date;
+    /** The person asked never to be prompted again. Reversible by them. */
+    declinedAt?: Date;
+  };
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -333,6 +362,18 @@ const userSchema = new Schema<UserDocument>(
     // JSDoc). Read on every issuance, like the field above.
     mfaResetGraceUntil: {
       type: Date,
+    },
+    // "Stop asking me to protect this account" (see the interface JSDoc). Read
+    // on every profile read, and never a statement about whether MFA is ON —
+    // that is only ever the enrolled factors.
+    mfaNudge: {
+      type: new Schema(
+        { snoozedUntil: { type: Date }, declinedAt: { type: Date } },
+        { _id: false },
+      ),
+      // No default: an account that was never prompted carries no subdocument,
+      // which is what "never asked" looks like in the profile payload.
+      default: undefined,
     },
     oauth: {
       'google': oauthProviderSchema,

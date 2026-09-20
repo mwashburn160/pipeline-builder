@@ -11,12 +11,17 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { Card } from '@/components/ui/Card';
 import { RetryError } from '@/components/ui/RetryError';
-import { formatError } from '@/lib/constants';
+import { FilterSelect } from '@/components/ui/FilterSelect';
+import { formatError, QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
+import type { AtRiskDimension } from '@/lib/api/domains/admin';
+import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
 import { CurrentTierPanel } from './CurrentTierPanel';
-import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor, type TierPreset } from './constants';
+import {
+  AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor, POOLING_TITLE, poolingExplanation, type TierPreset,
+} from './constants';
 
 /**
  * System-admin master-detail quota view: an org sidebar plus the selected org's
@@ -40,6 +45,8 @@ export function QuotasAdmin({
   selectedOrgId,
   orgHealthColors,
   atRisk,
+  atRiskThreshold = QUOTA_WARNING_THRESHOLD,
+  setAtRiskThreshold,
   user,
   setSearchFilter,
   handleSelectOrg,
@@ -69,14 +76,13 @@ export function QuotasAdmin({
   searchFilter: string;
   selectedOrgId: string | null;
   orgHealthColors: Record<string, string>;
-  atRisk: Array<{
-    orgId: string;
-    name: string;
-    type: QuotaType;
-    used: number;
-    limit: number;
-    percent: number;
-  }>;
+  atRisk: AtRiskDimension[];
+  /** The at-risk percentage cut-off in force (1-100; 100 = already exhausted).
+   *  Defaults to the shared warning threshold when a caller does not own it. */
+  atRiskThreshold?: number;
+  /** Omitted when the caller holds no cut-off state — the picker is then not
+   *  rendered rather than rendered inert. */
+  setAtRiskThreshold?: (threshold: number) => void;
   user: User | null;
   setSearchFilter: (value: string) => void;
   handleSelectOrg: (orgId: string) => void;
@@ -204,23 +210,49 @@ export function QuotasAdmin({
             {loadError && !loading && (
               <RetryError message={loadError} onRetry={onRetryOrg} className="mb-6" />
             )}
-            {/* At-risk orgs banner — sysadmin only. Click an entry to jump
-                to that org in the sidebar. Hidden when no orgs are at risk. */}
-            {isSuperAdmin && atRisk.length > 0 && (
+            {/* At-risk orgs banner — sysadmin only. Click an entry to jump to
+                that org in the sidebar. Stays on screen at every cut-off, since
+                "nobody is exhausted" is the answer an operator came for. */}
+            {isSuperAdmin && (
               <div className="mb-6 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                    {atRisk.length} org{atRisk.length !== 1 ? 's' : ''} at risk (≥80% on a quota)
+                    {atRisk.length} org{atRisk.length !== 1 ? 's' : ''}{' '}
+                    {atRiskThreshold >= 100 ? 'already exhausted on a quota' : `at risk (≥${atRiskThreshold}% on a quota)`}
                   </h3>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={fetchAtRisk}
-                    className="text-xs text-amber-800 dark:text-amber-200 underline hover:no-underline"
-                  >
-                    Refresh
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {/* The endpoint has always taken `threshold`; the page pinned
+                        it to the server's 80 default, so an operator could not
+                        ask "who is already out?" or widen the early warning. */}
+                    {setAtRiskThreshold && (
+                      <FilterSelect
+                        aria-label="At-risk threshold"
+                        value={atRiskThreshold}
+                        onChange={(e) => setAtRiskThreshold(Number(e.target.value))}
+                        className="text-xs"
+                      >
+                        {AT_RISK_THRESHOLDS.map((t) => (
+                          <option key={t} value={t}>{t >= 100 ? 'Exhausted only' : `≥${t}%`}</option>
+                        ))}
+                      </FilterSelect>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={fetchAtRisk}
+                      className="text-xs text-amber-800 dark:text-amber-200 underline hover:no-underline"
+                    >
+                      Refresh
+                    </Button>
+                  </div>
                 </div>
+                {atRisk.length === 0 && (
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    {atRiskThreshold >= 100
+                      ? 'No organization has exhausted a quota.'
+                      : `No organization is at ${atRiskThreshold}% or more on any quota.`}
+                  </p>
+                )}
                 <ul className="space-y-1">
                   {atRisk.slice(0, 10).map((entry) => (
                     <li key={`${entry.orgId}:${entry.type}`} className="text-sm">
@@ -231,7 +263,7 @@ export function QuotasAdmin({
                       >
                         <span className="font-medium">{entry.name}</span>
                         <span className="ml-2 text-amber-700 dark:text-amber-300">
-                          {entry.type} {entry.percent}% ({entry.used}/{entry.limit})
+                          {QUOTA_TYPE_LABEL[entry.type] ?? entry.type} {entry.percent}% ({entry.used}/{entry.limit})
                         </span>
                       </Button>
                     </li>
@@ -254,26 +286,30 @@ export function QuotasAdmin({
             {!loading && pooledTeam && (
               <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4" role="note">
                 <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                  Pooled at {pooledTeam.rootOrgName || pooledTeam.rootOrgId}
+                  {POOLING_TITLE}
                 </h3>
                 <p className="text-sm text-blue-800 dark:text-blue-200">
-                  This is a team. Its tier is inherited and its limits are the root organization&apos;s shared caps; the
-                  usage shown is the combined total across the root and all {pooledTeam.orgCount - 1} of its teams. Change
-                  the tier or limits on the root organization.
+                  This is a team, so its tier is inherited too.{' '}
+                  {poolingExplanation('team', pooledTeam.rootOrgName || undefined, pooledTeam.orgCount - 1)}{' '}
+                  Change the tier or limits on the root organization.
                 </p>
                 <Button
                   variant="link"
                   onClick={() => handleSelectOrg(pooledTeam.rootOrgId)}
                   className="mt-2 text-sm font-medium"
+                  // Names are for reading; the id is for support to correlate.
+                  title={`Organization id: ${pooledTeam.rootOrgId}`}
                 >
-                  View {pooledTeam.rootOrgName || pooledTeam.rootOrgId}&apos;s quotas
+                  {pooledTeam.rootOrgName
+                    ? `View ${pooledTeam.rootOrgName}'s quotas`
+                    : 'View the root organization’s quotas'}
                 </Button>
               </div>
             )}
             {!loading && orgData?.pool?.isRoot && isSuperAdmin && (
               <p className="mb-4 text-xs text-fg-muted">
-                Pooled across this organization and its {orgData.pool.orgCount - 1} team{orgData.pool.orgCount - 1 !== 1 ? 's' : ''}:
-                usage is the combined total, and these limits bind all of them.
+                <span className="font-medium">{POOLING_TITLE}.</span>{' '}
+                {poolingExplanation('root', orgData.name, orgData.pool.orgCount - 1)}
               </p>
             )}
 

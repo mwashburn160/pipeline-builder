@@ -14,7 +14,13 @@
  */
 import { useFeatures } from './useFeatures';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
-import { FEATURE_GATES, featureUpsellHref } from '@/lib/feature-gates';
+import {
+  FEATURE_GATES,
+  featureUpsellAdvice,
+  featureUpsellCta,
+  featureUpsellHref,
+  featureUpsellTrailer,
+} from '@/lib/feature-gates';
 
 export interface FeatureGateState {
   flag: FeatureFlag;
@@ -29,14 +35,30 @@ export interface FeatureGateState {
   description: string;
   /** What the entitlement buys, phrased for the lock body. */
   unlocks: string;
-  /** Billing deep link that highlights the matching plan/add-on. */
+  /** Billing deep link that highlights the matching plan/add-on. Only render it
+   *  when {@link canUpsell} — otherwise it lands on AccessDenied. A tier-only
+   *  feature points at the Plans tab; an add-on points at its card. */
   upsellHref: string;
+  /** Link text for {@link upsellHref} ("Compare plans" / "See it in Billing"). */
+  upsellCta: string;
+  /** The clause that follows the link, so the sentence stays true for both
+   *  kinds of entitlement (there is nothing to "add" for a tier feature). */
+  upsellTrailer: string;
+  /** For a feature that is NOT sold separately, the plan it is included from
+   *  ("Team"); null for a purchasable add-on. Lets a lock say the honest thing
+   *  rather than pointing at an add-on card that does not exist. */
+  includedFromPlan: string | null;
+  /** The viewer can actually open the billing page (holds `billing:read`, and
+   *  billing runs in this deployment), so the lock may link there. */
+  canUpsell: boolean;
+  /** What to say INSTEAD of the deep link when `canUpsell` is false. */
+  upsellAdvice: string;
   /** One-line reason, for a `title=` on a disabled control. */
   reason: string;
 }
 
 export function useFeatureGate(flag: FeatureFlag): FeatureGateState {
-  const { isEnabled, isLoaded, isSuperAdmin } = useFeatures();
+  const { isEnabled, isLoaded, isSuperAdmin, canReachBilling } = useFeatures();
   const meta = FEATURE_METADATA[flag];
   // Superadmins are issued every entitlement in their token, but the bypass is
   // explicit here too — it mirrors `isNavItemVisible`, so the nav link and the
@@ -50,6 +72,16 @@ export function useFeatureGate(flag: FeatureFlag): FeatureGateState {
     description: meta.description,
     unlocks: FEATURE_GATES[flag].unlocks,
     upsellHref: featureUpsellHref(flag),
+    upsellCta: featureUpsellCta(flag),
+    upsellTrailer: featureUpsellTrailer(flag),
+    includedFromPlan: FEATURE_GATES[flag].acquiredVia === 'tier'
+      ? FEATURE_GATES[flag].includedFrom ?? null
+      : null,
+    // `?? false` keeps a lock honest against a context that predates the field
+    // (or a test double that doesn't set it): the worst case is the advice copy,
+    // never a link to a page the viewer can't open.
+    canUpsell: canReachBilling ?? false,
+    upsellAdvice: featureUpsellAdvice(flag),
     reason: `${meta.label} isn't included in your current plan`,
   };
 }

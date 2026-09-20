@@ -20,7 +20,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Pagination } from '@/components/ui/Pagination';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
-import { InheritedBadge } from './InheritedBadge';
+import { InheritedBadge, inheritedReason } from './InheritedBadge';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -107,7 +107,11 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
           {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
-          {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
+          {rule.inherited && (
+            <div className="mt-1">
+              <InheritedBadge rule={rule} withReason reasonId={`inherited-reason-${rule.id}`} />
+            </div>
+          )}
           {rule.tags?.length > 0 && (
             <div className="flex gap-1 mt-1">
               {rule.tags.slice(0, 3).map(tag => (
@@ -172,16 +176,24 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       cellClassName: 'text-right',
       render: (rule) => {
         // A parent-propagated rule is owned (and editable) only by its source
-        // org; the API refuses team-side mutations, so offer none here.
-        const canMutate = !!onEdit && !rule.inherited;
+        // org; the API refuses team-side mutations. The controls stay VISIBLE
+        // and disabled rather than vanishing: a row with no actions looks like a
+        // rendering bug or a permission the viewer might have, and the reason is
+        // spelled out under the rule's name where it can actually be read.
+        const locked = !!rule.inherited;
+        const lockReason = locked ? inheritedReason(rule) : undefined;
+        const canMutate = !!onEdit;
         return (
         <div className="flex items-center justify-end gap-1">
           {canMutate && (
             <IconButton
               restTone={rule.isActive ? 'success' : 'default'}
+              disabled={locked}
+              className={locked ? 'opacity-40 cursor-not-allowed' : undefined}
               onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
-              title={rule.isActive ? 'Deactivate' : 'Activate'}
+              title={lockReason ?? (rule.isActive ? 'Deactivate' : 'Activate')}
               aria-label={rule.isActive ? 'Deactivate rule' : 'Activate rule'}
+              aria-describedby={locked ? `inherited-reason-${rule.id}` : undefined}
             >
               {rule.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
             </IconButton>
@@ -192,12 +204,28 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             </IconButton>
           )}
           {canMutate && onEdit && (
-            <IconButton tone="primary" onClick={() => onEdit(rule)} title="Edit" aria-label="Edit rule">
+            <IconButton
+              tone="primary"
+              disabled={locked}
+              className={locked ? 'opacity-40 cursor-not-allowed' : undefined}
+              onClick={() => onEdit(rule)}
+              title={lockReason ?? 'Edit'}
+              aria-label="Edit rule"
+              aria-describedby={locked ? `inherited-reason-${rule.id}` : undefined}
+            >
               <Pencil className="h-4 w-4" />
             </IconButton>
           )}
           {canMutate && (
-            <IconButton tone="danger" onClick={() => del.open(rule)} title="Delete" aria-label="Delete rule">
+            <IconButton
+              tone="danger"
+              disabled={locked}
+              className={locked ? 'opacity-40 cursor-not-allowed' : undefined}
+              onClick={() => del.open(rule)}
+              title={lockReason ?? 'Delete'}
+              aria-label="Delete rule"
+              aria-describedby={locked ? `inherited-reason-${rule.id}` : undefined}
+            >
               <Trash2 className="h-4 w-4" />
             </IconButton>
           )}

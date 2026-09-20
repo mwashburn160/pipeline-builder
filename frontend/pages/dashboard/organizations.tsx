@@ -17,12 +17,10 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { useToast } from '@/components/ui/Toast';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { TabBar } from '@/components/ui/TabBar';
 import { Pagination } from '@/components/ui/Pagination';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
-import { useDelete } from '@/hooks/useDelete';
 import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -139,22 +137,14 @@ export default function OrganizationsPage() {
     String(list.filters.scope || 'all') !== 'all' ||
     String(list.filters.deleted || 'hide') !== 'hide';
 
-  // Two-phase delete: the existing DeleteConfirmModal collects intent, then
-  // a StepUpModal collects password reverify. Backend requires the step-up
-  // token; clicking delete without re-prompt would 401.
+  // Deleting an org is destructive AND step-up gated (the backend requires the
+  // token), so it is ONE dialog that states what is lost and takes the factor.
+  // It used to collect intent in a DeleteConfirmModal and then re-prompt in a
+  // StepUpModal — the same question, asked twice.
   const [pendingDeleteOrg, setPendingDeleteOrg] = useState<Organization | null>(null);
   // Restore a soft-deleted org. Step-up gated like delete, so it routes through
   // a StepUpModal before POST /organization/:id/restore fires.
   const [pendingRestoreOrg, setPendingRestoreOrg] = useState<OrganizationListItem | null>(null);
-  const del = useDelete<Organization>(
-    async (org) => {
-      // Defer the actual delete to the step-up step.
-      setPendingDeleteOrg(org);
-    },
-    () => undefined,
-    (err) => list.setError(formatError(err, 'Failed to delete organization')),
-  );
-
   // Sysadmin admin actions: manage per-org KMS binding + IdP config +
   // download the k8s namespace manifest for enterprise customers. All in
   // modals so they don't clutter the row view. The org-detail page links
@@ -272,13 +262,15 @@ export default function OrganizationsPage() {
               // A team's tier is its root's (pooled), so only roots get a tier edit.
               onTier={org.parentOrgId ? undefined : () => setTierOrg(org)}
               onNamespace={() => setPendingYamlOrg(org)}
-              onDelete={() => del.open(org)}
+              onDelete={() => setPendingDeleteOrg(org)}
             />
           </div>
         )
       ),
     },
-  ], [del]);
+    // Every other handler is a plain state setter; only the capability checks
+    // can change what a row offers.
+  ], [can]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -408,16 +400,6 @@ export default function OrganizationsPage() {
         onCreated={list.refresh}
       />
 
-      {del.target && (
-        <DeleteConfirmModal
-          title="Delete Organization"
-          itemName={del.target.name}
-          loading={del.loading}
-          onConfirm={del.confirm}
-          onCancel={del.close}
-        />
-      )}
-
       {kmsOrg && (
         <OrgKmsConfigModal org={kmsOrg} onClose={() => setKmsOrg(null)} />
       )}
@@ -426,9 +408,18 @@ export default function OrganizationsPage() {
         <OrgIdpConfigModal org={idpOrg} onClose={() => setIdpOrg(null)} />
       )}
 
+      {/* ONE dialog: what is lost, and the factor. */}
       {pendingDeleteOrg && (
         <StepUpModal
+          title={`Delete ${pendingDeleteOrg.name}?`}
           action={`Delete organization ${pendingDeleteOrg.name}`}
+          details={(
+            <p>
+              <strong className="text-fg">{pendingDeleteOrg.name}</strong> and its members, pipelines, plugins and
+              settings stop being reachable. It is soft-deleted and restorable from this list until its retention
+              window ends, then purged permanently.
+            </p>
+          )}
           onConfirmed={async (stepUpToken) => {
             try {
               const res = await api.deleteOrganization(pendingDeleteOrg.id, stepUpToken);
@@ -453,7 +444,18 @@ export default function OrganizationsPage() {
 
       {pendingRestoreOrg && (
         <StepUpModal
-          action={`Restore organization ${pendingRestoreOrg.name}`}
+          action={`Restore ${pendingRestoreOrg.parentOrgId ? 'team' : 'organization'} ${pendingRestoreOrg.name}`}
+          // Restoring a TEAM puts its members back into the parent's pooled
+          // seats, so the backend re-checks the cap (and that the parent is
+          // still live and on a tier that may parent teams) and can refuse with
+          // a 409. Say so before the re-auth rather than after it.
+          details={pendingRestoreOrg.parentOrgId ? (
+            <p>
+              This is a team of {pendingRestoreOrg.parentOrgName ?? 'another organization'}. Restoring it returns its
+              members to that account&apos;s pooled seats, so the restore is refused if the account is at its seat
+              limit, or if the parent is itself deleted or no longer on a plan that may have teams.
+            </p>
+          ) : undefined}
           onConfirmed={async (stepUpToken) => {
             try {
               const res = await api.restoreOrganization(pendingRestoreOrg.id, stepUpToken);

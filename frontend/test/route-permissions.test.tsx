@@ -1792,7 +1792,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'billing POST /billing/marketplace/resolve': { category: 'pre-session', why: 'pages/marketplace/register.tsx fires it on mount from the x-amzn-marketplace-token; the authenticated leg is POST /billing/marketplace/claim.' },
   ...group('platform', ['POST /auth/onboarding/complete', 'POST /auth/onboarding/join'], {
     category: 'pre-session',
-    why: 'First-run wizard (pages/dashboard/onboarding.tsx) — the org does not exist yet, so there is no permission to hold.',
+    why: 'pages/dashboard/onboarding.tsx — the first-run wizard, and (for /join) the durable "join an organization" surface the same page serves once onboarded. Neither is gatable: the target org is one the caller is NOT yet in, so there is no permission there to hold. Eligibility is re-derived server-side from the caller\'s verified email domain, never from the request.',
   }),
   'platform POST /auth/device/deny': { category: 'pre-session', why: '"Deny" on the CLI device-approval page (pages/auth/device.tsx); deliberately NOT step-up gated — approve is.' },
 
@@ -1815,6 +1815,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/webauthn/register/verify': { category: 'own-account', why: 'Completion of "Add a passkey"; the options leg carries the step-up token.' },
   'platform DELETE /user/keys/:id': { category: 'own-account', why: '"Revoke" on your own access key (src/components/settings/AccessKeysSection.tsx). The same row routes a SERVICE-ACCOUNT key to revokeServiceAccountKey, which is service_accounts:manage gated.' },
   'platform PUT /user/preferences': { category: 'own-account', why: 'The "mute quota warnings" toggle (pages/dashboard/notifications.tsx) and the plugin favourites star; both are personal preferences.' },
+  ...group('platform', [
+    'POST /user/mfa-prompt/snooze',
+    'POST /user/mfa-prompt/decline',
+    'DELETE /user/mfa-prompt',
+  ], {
+    category: 'own-account',
+    why: 'The "not now" / "don\'t ask again" buttons on the password-only banner (src/components/ui/MfaEnrolmentNudge.tsx) and "Remind me again" on Security → Factors (src/components/settings/MfaPromptPreference.tsx). Own account and deliberately ungated: all three decide only whether the shell offers to help this person enrol, never what their session may do — so there is no permission to hold and step-up would cost more than the question does.',
+  }),
   'platform PATCH /user/profile': { category: 'own-account', why: '"Save changes" on Settings → Profile; own account, so only the read-only-impersonation notice applies.' },
   'platform POST /user/change-password': { category: 'own-account', why: 'Profile → password section; step-up only (the user is acting on their own account).' },
   'platform DELETE /user/account': { category: 'own-account', why: '"Delete account" on Settings → Profile; own account, so step-up is the only gate.' },
@@ -1878,9 +1886,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: '"Replay" / "Retry" on pages/dashboard/build-queue.tsx (and triage.tsx). The routes ask for plugins:write; the UI requires system admin, who holds it — see KNOWN_UI_GATE_MISMATCHES for the org-admin direction.',
   }),
   'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when `isSuperAdmin`. Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
-  ...group('quota', ['DELETE /quotas/:orgId', 'POST /quotas/:orgId/reset'], {
-    category: 'sysadmin-console', why: 'Quota admin — delete an org\'s quota row / reset a period; systemAdmin + step-up.',
-  }),
+  'quota POST /quotas/:orgId/reset': {
+    category: 'sysadmin-console',
+    why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (confirm modal + api.resetOrgQuota); systemAdmin + step-up, the latter replayed by the global step-up resume.',
+  },
   'platform POST /users': { category: 'sysadmin-console', why: '"Add User" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org:kms\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
@@ -1981,18 +1990,69 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
 
   // ── No UI reaches these at all (see docs/testing.md → "Write routes with
   //    no UI caller"). Each is a CLI / CDK / unattended-machine surface.
-  'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI, not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
-  'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it; no frontend reference exists.' },
+  'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI (packages/pipeline-manager/src/utils/device-auth.ts), not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
+  'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it (packages/pipeline-manager/src/utils/device-auth.ts, `pollDeviceToken`); no frontend reference exists.' },
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },
   'platform POST /auth/key/rotate': { category: 'no-ui', why: 'Unattended service-account key self-rotation — the audit-event description says explicitly that no person is present.' },
   'platform POST /auth/key/revoke': { category: 'no-ui', why: 'Service-account key self-revocation; a machine surface with no frontend reference.' },
-  'platform POST /user/generate-token': { category: 'no-ui', why: 'CLI / renewal-Lambda machine-credential mint. Opening a NEW one is subject to the org\'s admin-actions MFA policy; renewal is not.' },
+  'plugin POST /plugins/lookup': { category: 'no-ui', why: 'Deploy-time PluginLookup Lambda call from the CDK; no client function exists for it.' },
+  ...group('compliance', ['GET /compliance/rules/:id', 'GET /compliance/policies/:id'], {
+    category: 'no-ui',
+    why: 'Read-one-by-id, for API / CLI callers. The dashboard never re-reads a single rule or policy: src/lib/api/domains/compliance.ts has only the list, PUT and DELETE by id — the list response already carries the whole row the drawer renders.',
+  }),
+  ...group('pipeline', ['GET /pipelines/find'], {
+    category: 'no-ui',
+    why: 'Exact-match lookup by project/organization, documented in docs/api-reference.md as a curl/CLI surface (the CDK resolves a pipeline this way). The dashboard uses the filtered list (GET /pipelines) instead; no client function exists.',
+  }),
+  'plugin GET /plugins/find': { category: 'no-ui', why: 'Exact-match lookup by name/version — the CLI / CDK surface documented in docs/api-reference.md. The dashboard filters GET /plugins instead; no client function exists.' },
+  'billing GET /billing/subscriptions/by-org/:orgId/billable': {
+    category: 'no-ui',
+    why: 'Service-to-service pre-flight: platform/src/services/org-hierarchy-service.ts calls it before nesting a root under another org (a root with a billable subscription is refused). Authenticated + permission-gated rather than service-principal-only, so it cannot be `machine-only`, but nothing in the frontend references it.',
+  },
+  'quota GET /quotas/:orgId/:quotaType': {
+    category: 'no-ui',
+    why: 'Single-dimension quota status read by the shared service client (packages/api-core/src/services/quota.ts `getQuotaStatus`) — the gate allows a service principal for exactly that. The dashboard reads the whole document via GET /quota[/:orgId]; no client function exists for one dimension.',
+  },
+  ...group('platform', ['GET /organization/:id/descendants', 'GET /organization/:id/members/:userId/exists'], {
+    category: 'no-ui',
+    why: 'Org-hierarchy reads for PEER SERVICES — packages/api-core/src/helpers/org-hierarchy-http.ts fetches the subtree id list and the membership probe (the reporting rollup and the authz boundary use them). Authenticated but not service-principal-only, so not `machine-only`. The dashboard had a `getOrganizationDescendants` client method with zero callers; it was deleted rather than left looking like a product capability.',
+  }),
+  'platform GET /organization/:id/parent': {
+    category: 'no-ui',
+    why: 'Least-privilege internal read (service principal OR org admin) for peer services: api/compliance/src/helpers/org-hierarchy-client.ts needs the parent to evaluate `propagateToChildren` rules on scheduled scans that run detached from any request JWT. No frontend reference exists.',
+  },
+  'compliance GET /compliance/entitlements/:orgId': {
+    category: 'no-ui',
+    why: 'The billing↔compliance entitlement sync leg: api/compliance/src/routes/entitlements.ts gates it with `requireBillingService`, so only the billing service reads it. The dashboard reads subscriptions, not the synced entitlement row.',
+  },
+
+  // `POST /user/generate-token` used to sit here as "CLI / renewal-Lambda
+  // machine-credential mint, no UI". It has one: the "Generate machine token"
+  // panel on pages/dashboard/security.tsx, with lifetime, capability scope and
+  // permission-subset selection. It belongs with the other own-account rows.
+  'platform POST /user/generate-token': { category: 'own-account', why: 'Settings → Security, "Generate machine token" (pages/dashboard/security.tsx → MachineTokenSection, api.generateNewToken). Own account: the credential carries a subset of the caller\'s OWN permissions, so no org permission gates it — the org\'s admin-actions MFA policy does, and renewal by the machine session does not re-prompt.' },
   'platform POST /organization/names': { category: 'machine-only', why: 'Batch org-id → name resolver called service-to-service (packages/api-core org-hierarchy-http.ts, api/compliance org-hierarchy-client.ts). Gated by requireServicePrincipal on the route, so a user token can never reach it; the check used to sit in the controller, which enforced correctly but left the route table advertising servicePrincipal:false.' },
   ...group('compliance', ['POST /compliance/validate/pipeline', 'POST /compliance/validate/plugin'], {
     category: 'no-ui',
     why: 'The enforcing (non dry-run) validation, called by the CDK / service principals at deploy time. The client layer only has the /dry-run variants.',
   }),
-  'plugin POST /plugins/lookup': { category: 'no-ui', why: 'Deploy-time PluginLookup Lambda call from the CDK; no client function exists for it.' },
+
+  // Filed as `sysadmin-console` beside POST /quotas/:orgId/reset — "Quota admin
+  // — delete an org's quota row / reset a period". Reset has that control;
+  // delete never did, and should not. api/quota/src/routes/update-quota.ts
+  // calls it a CASCADE HOOK and platform/src/services/org-cascade-service.ts
+  // drives it with a service token during org purge (requireStepUp waives the
+  // factor for a verified service principal, which is why the cascade runs
+  // unattended). Offering it to a person would be a one-way door: quotaService
+  // .update() and .resetUsage() both throw OrgNotFoundError on a missing
+  // document and never upsert, and findByOrgId then serves READ-ONLY defaults
+  // — so an org whose row a sysadmin dropped reads plausible numbers, cannot
+  // reserve or enforce anything, and cannot be repaired from the dashboard at
+  // all. The recreate path belongs to org creation in the platform service.
+  'quota DELETE /quotas/:orgId': {
+    category: 'no-ui',
+    why: 'Org-purge CASCADE hook, not a product capability: platform/src/services/org-cascade-service.ts DELETEs it with a service token while purging an org (idempotent, returns deleted:false when already gone). A human sysadmin is admitted by the gate but no control exists and none should — dropping the document leaves the org unenforceable and unrepairable from the UI (update/reset both throw OrgNotFoundError and never upsert).',
+  },
 };
 
 /**
@@ -2054,6 +2114,105 @@ function writeRoutes(): string[] {
       .filter((e) => e.method !== 'GET')
       .map((e) => `${service} ${e.method} ${e.path}`))
     .sort();
+}
+
+/**
+ * Every AUTHENTICATED read that `gatedRoutes()` does not already pick up —
+ * permission-gated, sysadmin-only, and plain-authenticated alike. These are the
+ * routes the surveys kept finding holes in and that neither set above covered:
+ * a read the client cannot reach is either a machine surface (fine, say so) or
+ * a control that was never built (not fine). Unauthenticated reads (`/health`,
+ * `/metrics`, `/ready`, `/warmup`, `/config`, JWKS, the registry `/token`) are
+ * excluded — they carry nothing to be in parity with.
+ */
+function readRoutes(): string[] {
+  return Object.entries(tables)
+    .flatMap(([service, table]) => table
+      .filter((e) => e.method === 'GET' && e.auth
+        && !(e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance))
+      .map((e) => `${service} ${e.method} ${e.path}`))
+    .sort();
+}
+
+// ── Client-call index ──────────────────────────────────────────────────────
+//
+// `<service> <METHOD> <path>` → the api-client file(s) that can drive it.
+//
+// The dashboard never speaks to a service directly: every call leaves through
+// `src/lib/api/domains/*.ts` and hits nginx on `/api/…`, which strips the
+// prefix and proxies. Three locations rewrite more than the prefix (see
+// deploy/*/nginx/nginx.conf) and are mirrored here, so a route the client CAN
+// reach never looks unreachable because of a proxy rewrite.
+
+const CLIENT_DIR = 'src/lib/api/domains';
+/** The fetch core drives a few routes itself (refresh, impersonation revoke). */
+const CLIENT_CORE = 'src/lib/api/core.ts';
+
+/** The `/api/…` path the browser asks for when it wants `service <path>`. */
+function clientPathFor(service: string, path: string): string {
+  const p = path.replace(/:[A-Za-z0-9_]+/g, ':p');
+  // The image registry is proxied at its own `/api/…` mount, unrewritten.
+  if (service === 'image-registry') return p;
+  // nginx: `/api/quota[/…]` → the quota service's `/quotas[/…]`.
+  if (service === 'quota') return `/api${p.replace('/quotas', '/quota')}`;
+  // nginx: `/api/plugins/logs/…` → the plugin service's `/logs/…`.
+  if (service === 'plugin' && p.startsWith('/logs')) return `/api/plugins${p}`;
+  return `/api${p}`;
+}
+
+/**
+ * Turn a client endpoint literal into a route path. A `${…}` that follows a
+ * slash is a path parameter; one appended to anything else is the query tail
+ * (`${buildQuery(params)}`, `${qs}`) and is dropped.
+ */
+function normaliseEndpoint(literal: string): string {
+  let out = '';
+  for (let i = 0; i < literal.length; i += 1) {
+    if (literal.startsWith('${', i)) {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < literal.length; j += 1) {
+        if (literal[j] === '{') depth += 1;
+        else if (literal[j] === '}') { depth -= 1; if (depth === 0) break; }
+      }
+      out += out.endsWith('/') ? ':p' : '';
+      i = j;
+    } else out += literal[i];
+  }
+  return out.split('?')[0].replace(/\/+$/, '') || '/';
+}
+
+const CLIENT_CALLS: Map<string, string[]> = (() => {
+  const index = new Map<string, string[]>();
+  // `${API_URL}` prefixes the handful of raw-`fetch` clients (log raw/export,
+  // attachment blobs) that cannot go through `core.request`.
+  const endpoint = /[`'](?:\$\{API_URL\})?(\/api[^`'\n]*)[`']/g;
+  const files = [
+    ...readdirSync(resolve(FRONTEND_DIR, CLIENT_DIR)).filter((n) => n.endsWith('.ts')).map((n) => `${CLIENT_DIR}/${n}`),
+    CLIENT_CORE,
+  ];
+  for (const file of files) {
+    const src = readFileSync(resolve(FRONTEND_DIR, file), 'utf8');
+    const hits = [...src.matchAll(endpoint)];
+    hits.forEach((m, i) => {
+      const at = m.index ?? 0;
+      // The options object belongs to THIS call: stop at the next endpoint.
+      const from = at + m[0].length;
+      const to = Math.min(hits[i + 1]?.index ?? src.length, from + 400);
+      // `streamRequest` takes no options object — it always POSTs (SSE).
+      const streamed = /streamRequest\s*\(\s*$/.test(src.slice(Math.max(0, at - 40), at));
+      const method = streamed ? 'POST' : (/method:\s*'(\w+)'/.exec(src.slice(from, to))?.[1] ?? 'GET');
+      const key = `${method} ${normaliseEndpoint(m[1])}`;
+      index.set(key, [...new Set([...(index.get(key) ?? []), file])]);
+    });
+  }
+  return index;
+})();
+
+/** The api-client file(s) a browser session could reach `route` through. */
+function clientCallers(route: string): string[] {
+  const [service, method, ...rest] = route.split(' ');
+  return CLIENT_CALLS.get(`${method} ${clientPathFor(service, rest.join(' '))}`) ?? [];
 }
 
 describe('generated route tables', () => {
@@ -2192,7 +2351,7 @@ describe('no write route lands unmapped', () => {
   });
 
   it('the registry carries no stale or duplicated entries', () => {
-    const known = new Set([...writeRoutes(), ...gatedRoutes()]);
+    const known = new Set([...writeRoutes(), ...gatedRoutes(), ...readRoutes()]);
     const stale = Object.keys(ROUTE_DISPOSITIONS).filter((r) => !known.has(r));
     const alsoMapped = Object.keys(ROUTE_DISPOSITIONS).filter((r) => mapped.has(r));
     // A route may hold BOTH a disposition and a mismatch entry: the first says
@@ -2223,17 +2382,117 @@ describe('no write route lands unmapped', () => {
 
   it('`machine-only` really is machine-only, and `no-ui` really has no client function', () => {
     for (const [route, d] of Object.entries(ROUTE_DISPOSITIONS)) {
-      if (d.category !== 'machine-only') continue;
-      const { entry } = lookup(route);
-      // Claiming "no user token reaches this" must be true in the table.
-      expect({ route, internal: !!entry && (entry.internalCallers.length > 0 || entry.servicePrincipal) })
-        .toEqual({ route, internal: true });
+      if (d.category === 'machine-only') {
+        const { entry } = lookup(route);
+        // Claiming "no user token reaches this" must be true in the table.
+        expect({ route, internal: !!entry && (entry.internalCallers.length > 0 || entry.servicePrincipal) })
+          .toEqual({ route, internal: true });
+        continue;
+      }
+      // The `no-ui` half. It used to sit behind `if (category !== 'machine-only')
+      // continue;` and therefore never ran — the assertion the title promised was
+      // vacuous, and two untrue rows sat under it (POST /user/generate-token, which
+      // has the full machine-token panel on Settings → Security, and DELETE
+      // /quotas/:orgId, filed as a sysadmin console control that does not exist).
+      // "No UI reaches this" is a claim about the API CLIENT: every dashboard call
+      // leaves through src/lib/api/domains, so a client method for the route is
+      // exactly what makes the claim false. Reachability from a page/component is
+      // then implied — an exported client method is callable from anywhere — and a
+      // method with no caller at all is dead code the claim should not hide either.
+      if (d.category !== 'no-ui') continue;
+      expect({ route, clientMethodIn: clientCallers(route) }).toEqual({ route, clientMethodIn: [] });
     }
+  });
+
+  it('a disposition that NAMES a surface can really reach the route', () => {
+    // The other direction of the same rule, and the one that catches a false
+    // "there is a control for this". `DELETE /quotas/:orgId` sat in the
+    // sysadmin-console group next to `POST /quotas/:orgId/reset` — "delete an
+    // org's quota row / reset a period" — while no frontend caller for the
+    // delete has ever existed. A category that claims a person drives the route
+    // is only true if the api client can reach it at all.
+    const claimsASurface = new Set<Category>([
+      'sysadmin-console', 'same-control', 'own-account', 'session-plumbing', 'step-up-resume', 'pre-session',
+    ]);
+    const unreachable = Object.entries(ROUTE_DISPOSITIONS)
+      .filter(([route, d]) => claimsASurface.has(d.category) && clientCallers(route).length === 0)
+      .map(([route, d]) => `${route} (${d.category})`);
+    expect({
+      unreachable,
+      fix: 'The disposition says a dashboard surface drives this route, but src/lib/api has no method '
+        + 'that calls it — so the surface it names cannot exist. Either the control is missing, or the '
+        + 'route has no UI and the disposition should say `no-ui` with the machine caller you FOUND.',
+    }).toEqual({ unreachable: [], fix: expect.any(String) });
+  });
+
+  it('the client-call index really resolves calls (it is what `no-ui` leans on)', () => {
+    // A broken extractor would silently pass every `no-ui` row. Anchor it on
+    // calls of each shape: a plain path, a path parameter, an nginx-rewritten
+    // mount, a query-tail template, and an SSE stream.
+    expect(CLIENT_CALLS.size).toBeGreaterThan(350);
+    expect(clientCallers('platform POST /auth/refresh')).toEqual([CLIENT_CORE]);
+    expect(clientCallers('platform POST /user/generate-token')).toEqual([`${CLIENT_DIR}/auth.ts`]);
+    expect(clientCallers('quota POST /quotas/:orgId/reset')).toEqual([`${CLIENT_DIR}/admin.ts`]);
+    expect(clientCallers('pipeline GET /pipelines')).toEqual([`${CLIENT_DIR}/pipelines.ts`]);
+    expect(clientCallers('ask POST /ask/agent/stream')).toEqual([`${CLIENT_DIR}/ask.ts`]);
+    expect(clientCallers('image-registry DELETE /api/images/:name')).toEqual([`${CLIENT_DIR}/registry.ts`]);
+    expect(clientCallers('platform GET /observability/logs/export')).toEqual([`${CLIENT_DIR}/observability.ts`]);
   });
 
   it('is not vacuous — the tables really do carry these routes', () => {
     expect(writeRoutes().length).toBeGreaterThan(250);
     expect(gatedRoutes().length).toBeGreaterThan(50);
+  });
+});
+
+/**
+ * ── Reads ──────────────────────────────────────────────────────────────────
+ *
+ * The mechanism above covers WRITES and the reads that carry a feature /
+ * step-up / scope / assurance gate. That left ~156 authenticated GETs unchecked
+ * — permission-gated, sysadmin-only and plain-authenticated — the half the
+ * surveys kept finding holes in.
+ *
+ * Mapping each of those to a control the way CONTROLS does is not honest work:
+ * a read is not a button, it is whatever a page fetches on mount, and hand-
+ * writing 156 dispositions would produce a wall of rubber stamps rather than a
+ * contract. So the extension here is deliberately narrower and entirely
+ * mechanical: every gated read must be REACHABLE — the api client must have a
+ * method for it — or carry a disposition saying which machine surface drives it
+ * instead. That catches the two failures that matter and cannot be faked: a
+ * read route nothing can call (a control that was never built, or dead backend
+ * surface), and a disposition that stops being true once a client method lands.
+ *
+ * WHAT REMAINS UNCOVERED, deliberately:
+ *  - GATE parity on reads. A write route is compared against the control's own
+ *    `can(...)`; a read is gated by the PAGE (src/lib/page-access.ts), and a
+ *    page pulls from many services, so "the page's gate satisfies this read's
+ *    permission" has no single control to compare against. `resolvePageGate` is
+ *    asserted per CONTROL row instead, for the pages that own a write.
+ *  - Unauthenticated reads (`/health`, `/metrics`, `/ready`, `/warmup`,
+ *    `/config`, JWKS, the registry `/token`): no gate, nothing to be in parity
+ *    with.
+ *  - Which PAGE issues a given read. The client method proves the dashboard CAN
+ *    reach it; proving which surface does would mean mapping every mount-time
+ *    fetch, which is the CONTROLS exercise again at ten times the size.
+ */
+describe('no read route is unreachable', () => {
+  it('every authenticated GET has an api-client method, or a disposition', () => {
+    const unaccounted = readRoutes()
+      .filter((r) => clientCallers(r).length === 0 && !(r in ROUTE_DISPOSITIONS));
+    expect({
+      unaccounted,
+      fix: 'A gated read route has no way to be called from the dashboard. Either it is missing its '
+        + 'client method (add it, and the surface that uses it), or nothing in the product reads it — '
+        + 'in which case add a ROUTE_DISPOSITIONS entry naming the machine / CLI caller you FOUND.',
+    }).toEqual({ unaccounted: [], fix: expect.any(String) });
+  });
+
+  it('is not vacuous — the tables really do carry these reads', () => {
+    expect(readRoutes().length).toBeGreaterThan(150);
+    // And most of them really are reachable, so the rule above is doing work
+    // rather than being satisfied by an empty client index.
+    expect(readRoutes().filter((r) => clientCallers(r).length > 0).length).toBeGreaterThan(100);
   });
 });
 

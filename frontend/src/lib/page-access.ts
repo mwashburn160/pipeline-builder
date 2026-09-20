@@ -51,6 +51,11 @@ function gateOf(item: NavItem): PageGate {
 /**
  * pathname → gate, derived from the nav item's own `href` ONLY.
  *
+ * Two nav entries MAY share an href (e.g. Members and the palette-only Teams
+ * entry, which open the same page from different words). When they do they must
+ * declare the SAME gate — `frontend/test/nav-read-gates.test.ts` asserts it, so
+ * a second entry can never quietly redefine the first one's page gate here.
+ *
  * `extraActivePaths` is deliberately NOT followed: it says "keep this nav item
  * highlighted while the user is over there", which is a highlighting concern,
  * not a shared-gate claim — a consolidated entry can legitimately cover pages

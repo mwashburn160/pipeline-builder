@@ -103,7 +103,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
       <>
         <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
         {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
-        {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
+        {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} withReason /></div>}
       </>
     ),
   },

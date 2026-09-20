@@ -4,7 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import { ApiError } from '../errors';
-import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
+import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
  *  single-create body (PipelineCreateSchema on the server). */
@@ -130,7 +130,24 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
-    updatePipeline: async (id: string, data: { 
+    /**
+     * Update a pipeline in place.
+     *
+     * NOTE — there is deliberately no `movePipeline` / `transferPipeline` here.
+     * A pipeline is immutably scoped to the org that created it: the Postgres
+     * RLS policy on `pipelines` carries
+     * `WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())`, so an
+     * UPDATE that rewrote `org_id` is rejected by the database itself, and every
+     * dependent row (registry, events, deployment outcomes, incidents,
+     * compliance scans) is independently org-scoped. Sharing a pipeline with a
+     * TEAM is done on the two fields below instead: `visibility: 'public'` —
+     * which a team org reads through its parent — and `ownerId`/`ownerType`,
+     * the catalog owner. See `PipelineOwnerFields`.
+     *
+     * `ownerId`/`ownerType` are admin-only server-side (a plain member's values
+     * are dropped, not rejected), and the `public` rung needs `pipelines:publish`.
+     */
+    updatePipeline: async (id: string, data: {
       pipelineName?: string;
       description?: string;
       keywords?: string[];
@@ -138,6 +155,11 @@ export function pipelinesApi(core: ApiCore) {
       visibility?: Visibility;
       isDefault?: boolean;
       isActive?: boolean;
+      /** Catalog owner: a user id (`ownerType: 'user'`) or a team org id
+       *  (`ownerType: 'team'`). Not nullable — the server schema requires a
+       *  non-empty string, so ownership is reassigned, never cleared. */
+      ownerId?: string;
+      ownerType?: OwnerType;
     }) => {
       return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`, {
         method: 'PUT',

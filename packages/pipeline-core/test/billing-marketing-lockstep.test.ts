@@ -10,17 +10,24 @@
  * billing-config `defaultFeatures`), so this can't fail today; the test exists to
  * fail CI if a future change reverts to hand-copied perk strings and drifts.
  *
- * Bundle-purchasable features (`sso`, `advanced_reporting`) are
- * add-ons sold separately, so marketing may legitimately mention them without
- * them being a base entitlement — they are excluded from the assertion.
+ * Bundle-purchasable features (advanced_reporting, team_usage_analytics, the
+ * compliance libraries) are add-ons sold separately, so marketing may
+ * legitimately mention them without them being a base entitlement — they are
+ * excluded from the assertion. The exclusion set is DERIVED from the bundle
+ * catalog rather than hand-listed, so withdrawing a bundle (as `sso` was) tightens
+ * this guard automatically instead of leaving a permanent hole: `sso` is now a
+ * pure tier feature and IS asserted against TIER_FEATURES like any other perk.
  *
  * Uses the REAL `@pipeline-builder/api-core` (no jest mock in this suite).
  */
 import { FEATURE_METADATA, TIER_FEATURES, type FeatureFlag } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 
-// Features sold as separate add-on bundles (see billing-config `loadBundles()`).
-const ADDON_FEATURES: ReadonlySet<FeatureFlag> = new Set<FeatureFlag>(['sso', 'advanced_reporting']);
+// Features sold as separate add-on bundles — read off the live catalog so a
+// withdrawn (or newly added) feature bundle can't leave this list stale.
+const ADDON_FEATURES: ReadonlySet<FeatureFlag> = new Set<FeatureFlag>(
+  loadBillingConfig().bundles.flatMap((b) => (b.features ?? []) as FeatureFlag[]),
+);
 
 // Reverse lookup: customer-facing marketed label -> canonical feature flag.
 const LABEL_TO_FLAG = new Map<string, FeatureFlag>(
@@ -29,6 +36,13 @@ const LABEL_TO_FLAG = new Map<string, FeatureFlag>(
 
 describe('plan marketing / entitlement lockstep', () => {
   const { plans } = loadBillingConfig();
+
+  it('sells no bundle granting `sso`, so it is held to the base-entitlement rule', () => {
+    // Guards the derivation above: if SSO ever came back as an add-on, the
+    // exclusion set would silently swallow it again and the lockstep assertion
+    // below would stop covering the tier that markets it.
+    expect(ADDON_FEATURES.has('sso')).toBe(false);
+  });
 
   it.each(plans.map((p) => [p.id, p] as const))(
     'every base feature marketed by the %s plan is enforced in TIER_FEATURES',

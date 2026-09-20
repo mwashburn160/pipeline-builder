@@ -236,6 +236,16 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
           About to: <strong>{action}</strong>
         </p>
 
+        {/* WHY this is being asked, in words. The code around here calls it
+            "step-up", "strong step-up" and "assurance"; none of those mean
+            anything to the person staring at the dialog. Two sentences, one for
+            each gate, stating the reason for THIS action. */}
+        <p className="text-xs text-fg-muted">
+          {requireStrongFactor
+            ? 'This action changes who can get into your organization, so a password alone isn’t enough: passwords get phished and reused. Confirm with something only you physically hold — a passkey or your authenticator app.'
+            : 'Confirming proves it’s still you at the keyboard, not someone who found this session open. It won’t sign you out.'}
+        </p>
+
         {/* What it costs — this dialog is the confirmation as well as the gate. */}
         {details && <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">{details}</div>}
 
@@ -249,10 +259,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                 that takes a touch rather than a typed secret. */}
             {hasPasskeys && (
               <div className="space-y-2">
-                <p className="text-xs text-fg-muted">
-                  Confirm with a passkey. This protects against accidental
-                  destructive actions on a left-open session.
-                </p>
+                <p className="text-xs text-fg-muted">Confirm with a passkey.</p>
                 <Button
                   type="button"
                   fullWidth
@@ -306,9 +313,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
             {hasPassword && (
               <>
                 <p className="text-xs text-fg-muted">
-                  {hasPasskeys || hasTotp
-                    ? 'Or re-enter your password:'
-                    : 'Re-enter your password to confirm. This protects against accidental destructive actions on a left-open session.'}
+                  {hasPasskeys || hasTotp ? 'Or re-enter your password:' : 'Re-enter your password to confirm.'}
                 </p>
 
                 <Input
@@ -353,17 +358,10 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
               </div>
             )}
 
-            {requireStrongFactor && (hasPasskeys || hasTotp) && (
-              <p className="text-xs text-fg-muted">
-                This action can only be confirmed with a passkey or an authenticator code —
-                a password isn&apos;t accepted here.
-              </p>
-            )}
-
             {requireStrongFactor && !hasPasskeys && !hasTotp && (
               <p className="text-xs text-fg-muted">
-                This action can only be confirmed with a passkey or an authenticator app, and
-                this account has neither. Add one from{' '}
+                This account has neither a passkey nor an authenticator app, so there is no
+                way to confirm this action yet. Add one from{' '}
                 <a href={PASSKEY_ENROLMENT_HREF} className="action-link">
                   Security → Factors
                 </a>

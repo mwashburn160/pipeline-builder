@@ -6,6 +6,7 @@ import { Router } from 'express';
 import {
   changePassword,
   createAccessKey,
+  declineMfaPrompt,
   deleteUser,
   generateToken,
   getPreferences,
@@ -14,9 +15,11 @@ import {
   listSessions,
   listTokenHistory,
   listUserOrganizations,
+  resetMfaPrompt,
   revokeAllTokens,
   revokeAccessKey,
   revokeSession,
+  snoozeMfaPrompt,
   updatePreferences,
   updateUser,
 } from '../controllers/index.js';
@@ -87,6 +90,21 @@ router.delete('/keys/:id', requireAuth, audited('user.key.revoke'), revokeAccess
 /** Personalization — server-persisted favorites/recents for the active org. */
 router.get('/preferences', requireAuth, getPreferences);
 router.put('/preferences', requireAuth, updatePreferences);
+
+/** The PASSWORD-ONLY PROMPT — "not now", "don't ask again", and undoing either.
+ *
+ *  Own-account and deliberately ungated beyond authentication: none of the
+ *  three changes what the session may do. They only decide whether the shell
+ *  asks this person to enrol a factor, so requiring step-up (or a permission)
+ *  to postpone that question would cost the person more than the question does.
+ *  The state itself is read from GET /user/profile, next to `authFactors` —
+ *  it means nothing apart from them.
+ *
+ *  The decline and its reversal are audited; the 7-day snooze is not (see
+ *  controllers/mfa-nudge.ts). */
+router.post('/mfa-prompt/snooze', requireAuth, snoozeMfaPrompt);
+router.post('/mfa-prompt/decline', requireAuth, audited('user.mfa.prompt_declined'), declineMfaPrompt);
+router.delete('/mfa-prompt', requireAuth, audited('user.mfa.prompt_restored'), resetMfaPrompt);
 
 /** POST /user/tokens/revoke-all - Sign out everywhere by bumping tokenVersion.
  *  Step-up gated — a stolen session shouldn't be able to forcibly sign out
