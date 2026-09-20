@@ -61,7 +61,7 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
       {/* Ask agent drafts with the ask service's server-configured keys — no
           per-request key override (its delegated generation can't forward one). */}
       {ai.currentSource === 'agent' ? (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-fg-muted">
           The Ask agent drafts this for you with the selected model. Review the result before creating.
         </p>
       ) : (
@@ -70,7 +70,7 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
             type="button"
             onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
             aria-expanded={ai.showKeyOverride}
-            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            className="flex items-center text-xs text-fg-muted hover:text-fg"
           >
             {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
             {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
@@ -90,7 +90,7 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
                 className="text-sm"
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              <p className="text-xs text-fg-subtle mt-1">
                 {ai.currentSource === 'none'
                   ? 'An API key is required to use this provider.'
                   : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}

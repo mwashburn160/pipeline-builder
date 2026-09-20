@@ -20,8 +20,10 @@
 
 import { audited } from '@pipeline-builder/api-core';
 import { Router } from 'express';
+import { handleSamlSlo, startSsoLogout } from '../controllers/saml-slo.js';
 import { completeSamlLogin, getSamlMetadata, handleSamlAcs } from '../controllers/saml.js';
 import { discoverSso, getSsoAuthUrl, handleSsoCallback, startSsoLogin } from '../controllers/sso.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router();
 
@@ -32,6 +34,12 @@ router.post('/discover', discoverSso);
  *  with single sign-on"): resolves the enforcing org server-side and returns the
  *  same { url, state } the by-org route does, without naming the org. */
 router.post('/start', startSsoLogin);
+
+/** POST /auth/sso/logout - SP-initiated Single Logout for the CALLER'S OWN
+ *  current session: { redirectUrl } to the IdP's SLO endpoint (a signed
+ *  LogoutRequest) when that session came from a SAML sign-in and the IdP has an
+ *  SLO URL, else { redirectUrl: null }. The app calls it just before /auth/logout. */
+router.post('/logout', requireAuth, audited('sso.saml.logout'), startSsoLogout);
 
 /** GET /auth/sso/:orgId/authorize - Get the IdP authorize URL for redirect (OIDC or SAML) */
 router.get('/:orgId/authorize', getSsoAuthUrl);
@@ -53,5 +61,11 @@ router.post(
 
 /** POST /auth/sso/:orgId/saml/complete - Redeem the ACS handoff for a session */
 router.post('/:orgId/saml/complete', audited('user.login'), completeSamlLogin);
+
+/** GET|POST /auth/sso/:orgId/saml/slo - Single Logout endpoint (HTTP-Redirect and
+ *  HTTP-POST bindings): the IdP's signed LogoutRequest (IdP-initiated — revokes
+ *  that NameID's sessions in this org) or its LogoutResponse to ours. */
+router.get('/:orgId/saml/slo', audited('sso.saml.logout'), handleSamlSlo);
+router.post('/:orgId/saml/slo', audited('sso.saml.logout'), handleSamlSlo);
 
 export default router;

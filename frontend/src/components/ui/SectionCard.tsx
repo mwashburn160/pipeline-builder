@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 interface SectionCardProps {
-  /** Section heading (IBM Plex, not the page's serif H1). */
+  /** Section heading (the shared `.h2` heading style). */
   title?: ReactNode;
   /** Muted one-liner under the title. */
   description?: ReactNode;
@@ -30,8 +30,8 @@ interface SectionCardProps {
  * `flex items-center gap-2` + drifting `h2/h3` headers repeated across settings,
  * incident, api-catalog, notifications, tokens, and roles pages.
  *
- * Section titles use the body font (IBM Plex) via `fontFamily:inherit` — the
- * serif (Fraunces) stays reserved for the page H1 in the top bar.
+ * The title uses the shared `.h2` heading style (serif, like every other
+ * heading), at `text-base` so section cards sit below the page title.
  */
 export function SectionCard({
   title, description, icon: Icon, actions, footer, children,
@@ -40,29 +40,29 @@ export function SectionCard({
   const hasHeader = Boolean(title || description || actions || Icon);
   return (
     <section
-      className={['rounded-2xl border border-[var(--pb-border)] bg-[var(--pb-surface)] shadow-[var(--pb-shadow)] overflow-hidden', className].filter(Boolean).join(' ')}
+      className={['rounded-2xl border border-default bg-surface shadow-[var(--pb-shadow)] overflow-hidden', className].filter(Boolean).join(' ')}
     >
       {hasHeader && (
-        <header className={['flex items-start gap-3 px-5 py-4', flushHeader ? '' : 'border-b border-[var(--pb-border)]'].filter(Boolean).join(' ')}>
+        <header className={['flex items-start gap-3 px-5 py-4', flushHeader ? '' : 'border-b border-default'].filter(Boolean).join(' ')}>
           {Icon && (
-            <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--pb-surface-muted)] text-[var(--pb-brand)]">
+            <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-muted text-brand">
               <Icon className="h-4 w-4" />
             </span>
           )}
           <div className="min-w-0 flex-1">
             {title && (
-              <h2 className="text-base font-semibold leading-tight text-[var(--pb-text)]" style={{ fontFamily: 'inherit' }}>
+              <h2 className="h2 text-base leading-tight">
                 {title}
               </h2>
             )}
-            {description && <p className="mt-0.5 text-sm text-[var(--pb-text-muted)]">{description}</p>}
+            {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
       {children != null && <div className={bodyClassName}>{children}</div>}
       {footer && (
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-default bg-surface-muted px-5 py-3">
           {footer}
         </div>
       )}

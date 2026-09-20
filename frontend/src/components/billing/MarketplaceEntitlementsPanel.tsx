@@ -10,16 +10,16 @@ import type { MarketplaceEntitlements, MarketplaceEntitlement } from '@/lib/api/
 import { formatDate } from '@/lib/format';
 
 const ENTITLEMENT_COLUMNS: Column<MarketplaceEntitlement>[] = [
-  { id: 'plan', header: 'Plan', cellClassName: 'font-mono text-gray-800 dark:text-gray-200', render: (e) => e.planId },
-  { id: 'dimension', header: 'Dimension', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => e.dimension },
+  { id: 'plan', header: 'Plan', cellClassName: 'font-mono text-fg', render: (e) => e.planId },
+  { id: 'dimension', header: 'Dimension', cellClassName: 'text-fg-muted', render: (e) => e.dimension },
   {
     id: 'status',
     header: 'Status',
     render: (e) => (e.isEntitled
-      ? <span className="text-green-600 dark:text-green-400 font-medium">Entitled</span>
-      : <span className="text-gray-400 dark:text-gray-500">Not entitled</span>),
+      ? <span className="text-success font-medium">Entitled</span>
+      : <span className="text-fg-subtle">Not entitled</span>),
   },
-  { id: 'expires', header: 'Expires', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => formatDate(e.expirationDate) },
+  { id: 'expires', header: 'Expires', cellClassName: 'text-fg-muted', render: (e) => formatDate(e.expirationDate) },
 ];
 
 /**
@@ -44,10 +44,10 @@ export function MarketplaceEntitlementsPanel() {
   return (
     <Card>
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AWS Marketplace Entitlements</h3>
-        <span className="text-xs text-gray-400 dark:text-gray-500">Managed in AWS</span>
+        <h3 className="h3">AWS Marketplace Entitlements</h3>
+        <span className="text-xs text-fg-subtle">Managed in AWS</span>
       </div>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+      <p className="mt-1 text-xs text-fg-muted">
         Current plan <code className="font-mono">{data.currentPlanId}</code> · customer{' '}
         <code className="font-mono break-all">{data.customerIdentifier}</code>
       </p>

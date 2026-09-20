@@ -341,7 +341,7 @@ export default function RegistryPage() {
           <button
             onClick={() => setShortcutsOpen(true)}
             title="Keyboard shortcuts (?)"
-            className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+            className="text-xs text-fg-muted hover:text-fg"
           >
             <kbd className="px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded font-mono">?</kbd>
           </button>
@@ -367,7 +367,7 @@ export default function RegistryPage() {
               <ChevronLeft className="h-3.5 w-3.5" />
               {mobilePane === 'manifest' ? 'Tags' : 'Repositories'}
             </button>
-            <span className="text-gray-400 truncate">{mobilePane === 'manifest' ? `${repo}:${tag}` : repo}</span>
+            <span className="text-fg-subtle truncate">{mobilePane === 'manifest' ? `${repo}:${tag}` : repo}</span>
           </div>
         )}
         {health === 'error' && (
@@ -409,8 +409,8 @@ export default function RegistryPage() {
                 metadata={tagMetadata}
               />
             ) : (
-              <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-                Select a repository to view its tags. <span className="text-gray-400">(Tip: press <kbd className="px-1 py-0.5 border rounded text-xs">?</kbd> to see all keyboard shortcuts.)</span>
+              <div className="p-6 text-sm text-fg-muted">
+                Select a repository to view its tags. <span className="text-fg-subtle">(Tip: press <kbd className="px-1 py-0.5 border rounded text-xs">?</kbd> to see all keyboard shortcuts.)</span>
               </div>
             )}
           </div>
@@ -486,7 +486,7 @@ function HealthBadge({ state }: { state: HealthState }) {
       ? { color: 'bg-green-500', label: 'Registry OK' }
       : { color: 'bg-red-500', label: 'Registry error' };
   return (
-    <span className="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+    <span className="inline-flex items-center gap-2 text-xs text-fg-muted">
       <span className={`w-2 h-2 rounded-full ${color}`} aria-hidden />
       {label}
     </span>

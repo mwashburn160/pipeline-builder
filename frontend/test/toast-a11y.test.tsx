@@ -3,8 +3,8 @@
 
 /**
  * Toast accessibility: severity should drive the ARIA live-region politeness.
- * error/warning interrupt a screen reader (role="alert" + aria-live="assertive");
- * success/info are announced politely (role="status" + aria-live="polite") so
+ * errors interrupt a screen reader (role="alert" + aria-live="assertive");
+ * success/info/warning are announced politely (role="status" + aria-live="polite") so
  * they don't cut off whatever the user is currently reading.
  */
 
@@ -56,11 +56,11 @@ describe('Toast a11y live-region politeness', () => {
     expect(el).toHaveAttribute('aria-live', 'assertive');
   });
 
-  it('announces warnings assertively (role=alert, aria-live=assertive)', async () => {
+  it('announces warnings politely (role=status, aria-live=polite) — only errors interrupt', async () => {
     renderHarness();
     fireEvent.click(screen.getByText('fire-warning'));
-    const el = await screen.findByRole('alert');
+    const el = await screen.findByRole('status');
     expect(el).toHaveTextContent('careful');
-    expect(el).toHaveAttribute('aria-live', 'assertive');
+    expect(el).toHaveAttribute('aria-live', 'polite');
   });
 });

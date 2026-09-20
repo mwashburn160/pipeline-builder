@@ -45,6 +45,7 @@ interface Cred {
   name: string;
   createdAt: Date;
   lastUsedAt: Date | null;
+  aaguid?: string;
 }
 let creds: Cred[] = [];
 let users: Record<string, { password?: string; oauth?: Record<string, { id?: string }>; webauthnUserId?: string; email: string; username: string }> = {};
@@ -298,6 +299,14 @@ describe('passkey sign-in', () => {
     const { ceremonyId } = await svc.loginOptions();
     await expect(svc.verifyLogin(ceremonyId, assertionResponse(c.credentialId, 'handle-abc')))
       .resolves.toMatchObject({ userId: ownerId });
+  });
+
+  it('carries the passkey\'s model (AAGUID) out, so the session can apply the org allowlist', async () => {
+    const c = addCred({ aaguid: 'CB69481E-8FF7-4039-93EC-0A2729A154A8' });
+    users[ownerId].webauthnUserId = 'handle-abc';
+    const { ceremonyId } = await svc.loginOptions();
+    await expect(svc.verifyLogin(ceremonyId, assertionResponse(c.credentialId, 'handle-abc')))
+      .resolves.toMatchObject({ aaguid: 'cb69481e-8ff7-4039-93ec-0a2729a154a8' });
   });
 
   it('refuses a mismatched or missing user handle, without touching the stored counter', async () => {

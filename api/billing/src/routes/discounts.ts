@@ -4,6 +4,7 @@
 import {
   audited,
   requireAuth,
+  requireOrgAdminAssurance,
   requirePermission,
   requireSystemAdmin,
   sendSuccess,
@@ -38,6 +39,14 @@ import { DiscountMintSchema, DiscountUpdateSchema, DiscountApplySchema, Discount
 
 const logger = createLogger('billing-discounts');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * The org policy "administrative actions require MFA" (the `org_admin_aal`
+ * claim). Changing what the org pays for is an administrative action; billing
+ * automation (API keys, service accounts) is legitimate, so machines pass and a
+ * person needs an `aal: 2` session while the policy is on.
+ */
+const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler;
 
 /** Public shape of a discount record (nothing sensitive — tokens are separate). */
 function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
@@ -288,7 +297,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/discounts — redeem a token or public alias.
-  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -313,7 +322,7 @@ export function createDiscountRoutes(): Router {
   // recurring discount (no more per-period credits). Credits already granted
   // persist on the balance until consumed — there is nothing to detach at the
   // provider (discounts are usage credits, not coupons).
-  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId }) => {
     const discountId = getParam(req.params, 'discountId');
     if (!discountId) return sendError(res, 400, 'discountId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

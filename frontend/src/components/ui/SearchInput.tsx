@@ -33,7 +33,7 @@ export function SearchInput({
   const showClear = !!onClear && value.length > 0;
   return (
     <div className={`relative ${containerClassName}`}>
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle pointer-events-none" />
       <FilterInput
         type="text"
         value={value}
@@ -47,7 +47,7 @@ export function SearchInput({
           type="button"
           onClick={onClear}
           aria-label="Clear search"
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-fg-subtle hover:text-fg"
         >
           <X className="w-4 h-4" />
         </button>

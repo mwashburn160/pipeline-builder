@@ -149,7 +149,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
               ) : (
                 <span className="truncate">{g.namespace}</span>
               )}
-              <span className="ml-auto text-gray-400">({g.repos.length})</span>
+              <span className="ml-auto text-fg-subtle">({g.repos.length})</span>
             </button>
             {isOpen(g.namespace) && (
               <ul>
@@ -178,7 +178,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                       onClick={(e) => { e.stopPropagation(); onDelete(r.name); }}
                       title={`Delete repository ${r.name}`}
                       aria-label={`Delete repository ${r.name}`}
-                      className="absolute right-1.5 p-1 rounded text-gray-400 opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-opacity"
+                      className="absolute right-1.5 p-1 rounded text-fg-subtle opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/30 transition-opacity"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

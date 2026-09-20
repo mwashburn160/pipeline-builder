@@ -16,6 +16,7 @@ import { ToggleRow } from '@/components/ui/SettingRow';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { MfaRequiredError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import type { OrgMfaPolicy } from '@/types';
 
@@ -24,6 +25,7 @@ interface Draft {
   requireMfa: boolean;
   graceDays: number;
   idpEnforcesMfa: boolean;
+  adminActionsRequireMfa: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -41,8 +43,17 @@ function formatDate(iso: string): string {
  * afterthought — without it, saving this switch would sign out everyone who
  * hasn't enrolled yet, very often including the admin who just saved it.
  *
- * Saving is step-up gated, because turning the requirement OFF removes a control
- * for every member of the organization.
+ * A second, separate policy — "administrative actions require MFA" — leaves
+ * sign-in alone but demands a session opened with a second factor for role,
+ * member, invitation, IdP group-mapping, billing, log-export and access-key
+ * actions. It travels to every service inside the session token, so changing it
+ * ends every other member's session (they sign in again and pick it up).
+ *
+ * Saving is step-up gated. WEAKENING anything — turning either requirement off,
+ * or stating that the IdP enforces MFA — also needs a session opened with a
+ * second factor; the server answers a single-factor session with 401
+ * `MFA_REQUIRED`, which the shell turns into the enrol / sign-in-again dialog.
+ * Tightening never does, so an admin without MFA can still adopt it.
  */
 export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const toast = useToast();
@@ -60,12 +71,27 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
   // Edit the org's OWN setting — that is what saving changes; a parent's
   // requirement is shown but not editable from here. Re-seeded on every read.
   useEffect(() => {
-    if (policy) setDraft({ requireMfa: policy.own, graceDays: policy.defaultGraceDays, idpEnforcesMfa: policy.idpEnforcesMfa });
+    if (policy) {
+      setDraft({
+        requireMfa: policy.own,
+        graceDays: policy.defaultGraceDays,
+        idpEnforcesMfa: policy.idpEnforcesMfa,
+        adminActionsRequireMfa: policy.adminActionsOwn,
+      });
+    }
   }, [policy]);
 
-  const dirty = !!policy && !!draft
-    && (draft.requireMfa !== policy.own || draft.idpEnforcesMfa !== policy.idpEnforcesMfa);
+  const requireChanged = !!policy && !!draft && draft.requireMfa !== policy.own;
+  const idpChanged = !!policy && !!draft && draft.idpEnforcesMfa !== policy.idpEnforcesMfa;
+  const adminChanged = !!policy && !!draft && draft.adminActionsRequireMfa !== policy.adminActionsOwn;
+  const dirty = requireChanged || idpChanged || adminChanged;
   const turningOn = !!policy && !!draft && draft.requireMfa && !policy.own;
+  /** The save WEAKENS something, so the server will want a two-factor session. */
+  const loosening = !!policy && !!draft && (
+    (requireChanged && !draft.requireMfa)
+    || (adminChanged && !draft.adminActionsRequireMfa)
+    || (idpChanged && draft.idpEnforcesMfa)
+  );
   /** Members who would be locked out today — the grace period's whole purpose.
    *  Only meaningful where `policy.enrolment` is present, which is the only
    *  place it is read. */
@@ -79,6 +105,7 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
         {
           requireMfa: draft.requireMfa,
           idpEnforcesMfa: draft.idpEnforcesMfa,
+          ...(adminChanged ? { adminActionsRequireMfa: draft.adminActionsRequireMfa } : {}),
           // Only meaningful while turning it on; the server computes the
           // deadline from it so the client never posts a date.
           ...(turningOn ? { graceDays: draft.graceDays } : {}),
@@ -86,13 +113,23 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
         stepUpToken,
       );
       if (res.success && res.data) {
-        toast.success(res.message || 'Two-factor policy saved');
+        const refreshed = res.data.sessionsRefreshed ?? 0;
+        toast.success(refreshed > 0
+          ? `${res.message || 'Two-factor policy saved'} — ${refreshed} ${refreshed === 1 ? 'member was' : 'members were'} signed out to pick up the change.`
+          : res.message || 'Two-factor policy saved');
         // Re-read rather than adopting the write's response: the READ is what
         // carries the enrolment counts, and enrolment moves on its own anyway.
         read.refetch();
       }
       setError(null);
     } catch (e) {
+      // A weakening save from a single-factor session: the shell already shows
+      // the "two-factor authentication required" dialog with the way to enrol,
+      // so a second, generic error here would only repeat it less helpfully.
+      if (e instanceof MfaRequiredError) {
+        setError(null);
+        return;
+      }
       // e.g. the bootstrap administrator has not enrolled a factor yet, which
       // this refuses rather than lock the install's only admin out.
       setError(formatError(e, 'Could not save the two-factor policy'));
@@ -112,7 +149,7 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
       {read.error && !policy ? (
         <RetryError message={formatError(read.error, 'Could not load the two-factor policy')} onRetry={read.refetch} />
       ) : loading || !policy || !draft ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
+        <div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
           <LoadingSpinner size="sm" /> Loading…
         </div>
       ) : (
@@ -187,6 +224,34 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
             onChange={(v) => setDraft({ ...draft, idpEnforcesMfa: v })}
           />
 
+          <div className="border-t border-default pt-4 space-y-3">
+            {policy.adminActionsInheritedFrom && !policy.adminActionsOwn && (
+              <Callout variant="neutral">
+                {policy.adminActionsInheritedFromName
+                  ? <>The parent organization <strong>{policy.adminActionsInheritedFromName}</strong> already requires</>
+                  : 'A parent organization already requires'}{' '}
+                two-factor authentication for administrative actions, so it applies here whatever is set below.
+              </Callout>
+            )}
+            <ToggleRow
+              label="Require two-factor authentication for administrative actions"
+              description={'Managing roles, members, invitations, IdP group mappings, billing, exporting logs and creating access keys will need a session '
+                + 'opened with a passkey or an authenticator code — even while signing in with a password alone is still allowed. '
+                + 'API keys and service accounts are not affected, except that only a person can create a new access key. '
+                + 'Changing this signs every other member of this organization and its teams out, so the change applies to them at once.'}
+              checked={draft.adminActionsRequireMfa}
+              disabled={readOnly}
+              onChange={(v) => setDraft({ ...draft, adminActionsRequireMfa: v })}
+            />
+          </div>
+
+          {loosening && (
+            <Callout variant="warning">
+              This change weakens your organization&apos;s protection, so it needs a session you opened with a passkey
+              or an authenticator code — a password sign-in is not enough, even with the confirmation that follows.
+            </Callout>
+          )}
+
           <div className="flex justify-end">
             <Button type="button" readOnly={readOnly} disabled={!dirty} onClick={() => setConfirmingSave(true)}>
               Save
@@ -197,21 +262,33 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
 
       {confirmingSave && (
         <StepUpModal
-          title={draft?.requireMfa ? 'Require two-factor authentication?' : 'Stop requiring two-factor authentication?'}
-          action={draft?.requireMfa
-            ? 'Require two-factor authentication for this organization'
-            : 'Stop requiring two-factor authentication for this organization'}
-          details={draft?.requireMfa ? (
-            <p>
-              {turningOn && draft.graceDays > 0
-                ? `Members have ${draft.graceDays} ${draft.graceDays === 1 ? 'day' : 'days'} to enrol; after that they cannot sign in without a second factor.`
-                : 'Members who have not enrolled a passkey or an authenticator app cannot sign in.'}
-              {policy?.enrolment && outstanding > 0
-                ? ` That is ${outstanding} of ${policy.enrolment.members} today.`
-                : ''}
-            </p>
-          ) : (
-            <p>This removes a control for every member of the organization — single-factor sessions are issued again.</p>
+          title={loosening ? 'Weaken the two-factor policy?' : 'Save the two-factor policy?'}
+          action={loosening ? 'Weaken this organization\'s two-factor policy' : 'Save this organization\'s two-factor policy'}
+          details={(
+            <div className="space-y-2">
+              {requireChanged && (draft?.requireMfa ? (
+                <p>
+                  {turningOn && draft.graceDays > 0
+                    ? `Members have ${draft.graceDays} ${draft.graceDays === 1 ? 'day' : 'days'} to enrol; after that they cannot sign in without a second factor.`
+                    : 'Members who have not enrolled a passkey or an authenticator app cannot sign in.'}
+                  {policy?.enrolment && outstanding > 0
+                    ? ` That is ${outstanding} of ${policy.enrolment.members} today.`
+                    : ''}
+                </p>
+              ) : (
+                <p>Signing in stops requiring a second factor — single-factor sessions are issued again for every member.</p>
+              ))}
+              {adminChanged && (draft?.adminActionsRequireMfa ? (
+                <p>Administrative actions will need a session opened with a second factor. Every other member is signed out so this applies at once.</p>
+              ) : (
+                <p>Administrative actions will no longer need a second factor. Every other member is signed out so this applies at once.</p>
+              ))}
+              {idpChanged && (draft?.idpEnforcesMfa ? (
+                <p>Single sign-on through your identity provider will count as two-factor authentication on your word.</p>
+              ) : (
+                <p>Single sign-on will no longer count as two-factor authentication.</p>
+              ))}
+            </div>
           )}
           onConfirmed={save}
           onClose={() => setConfirmingSave(false)}

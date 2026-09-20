@@ -8,8 +8,9 @@
  * `src/generated/route-table/<service>.json` (see docs/permissions.md →
  * "Route coverage"). A table entry records EVERY gate the route runs, not just
  * permissions: `permissions`, `systemAdmin`, `features` (paid entitlements),
- * `stepUp` (recent re-authentication), `scopes` (machine-credential scopes) and
- * `minAssurance` (authenticator strength).
+ * `stepUp` (recent re-authentication), `scopes` (machine-credential scopes),
+ * `minAssurance` (authenticator strength) and `orgAdminAssurance` (the org's
+ * "administrative actions require MFA" policy applies).
  *
  * This suite maps every gated control in the dashboard to the route(s) it calls
  * and asserts, for EACH of those dimensions:
@@ -57,6 +58,9 @@ interface RouteTableEntry {
   scopes: string[];
   /** Minimum authenticator-assurance level (0 = none, 2 = strong factor). */
   minAssurance: number;
+  /** Present when the org's "administrative actions require MFA" policy applies
+   *  to the route (`requireOrgAdminAssurance`); absent otherwise. */
+  orgAdminAssurance?: { machines: 'allow' | 'refuse' };
   audit: string[];
 }
 
@@ -104,6 +108,14 @@ interface Control {
   stepUp?: boolean;
   /** Highest `minAssurance` the routes demand (0 when none do). */
   minAssurance?: number;
+  /**
+   * The routes are subject to the org's "administrative actions require MFA"
+   * policy: while it is on, a single-factor session gets 401 `MFA_REQUIRED`,
+   * which the shell turns into the enrol / sign-in dialog app-wide (see the
+   * "MFA refusals" suite below) — so declaring it records what the click can
+   * cost, the same way `stepUp` does.
+   */
+  orgAdminAssurance?: boolean;
   /** `<service> <METHOD> <path>` entries from the generated tables. */
   routes: string[];
   /**
@@ -227,16 +239,32 @@ const CONTROLS: Control[] = [
     // Cancelling is step-up gated; the resume path is global (see the
     // "step-up refusals are resumable app-wide" test).
     stepUp: true,
+    orgAdminAssurance: true,
     routes: [
       'billing POST /billing/subscriptions',
       'billing PUT /billing/subscriptions/:id',
       'billing POST /billing/subscriptions/:id/cancel',
+      'billing POST /billing/subscriptions/:id/reactivate',
+      'billing POST /billing/subscriptions/checkout',
+      'billing POST /billing/portal',
+    ],
+  },
+  {
+    control: 'Redeem / remove a discount code',
+    file: 'pages/dashboard/billing.tsx',
+    gateFiles: ['src/components/billing/DiscountRedeem.tsx'],
+    permissions: ['billing:manage'],
+    orgAdminAssurance: true,
+    routes: [
+      'billing POST /billing/subscriptions/:id/discounts',
+      'billing DELETE /billing/subscriptions/:id/discounts/:discountId',
     ],
   },
   {
     control: 'Add / remove a billing add-on',
     file: 'pages/dashboard/quotas.tsx',
     permissions: ['billing:manage'],
+    orgAdminAssurance: true,
     routes: [
       'billing POST /billing/subscriptions/:id/addons',
       'billing DELETE /billing/subscriptions/:id/addons/:bundleId',
@@ -290,26 +318,67 @@ const CONTROLS: Control[] = [
     control: 'Change a member\'s role / remove a member',
     file: 'pages/dashboard/members.tsx',
     permissions: ['members:manage'],
+    orgAdminAssurance: true,
     routes: [
       'platform POST /organization/:id/members',
       'platform DELETE /organization/:id/members/:userId',
       'platform PATCH /organization/:id/members/:userId/deactivate',
+      'platform PATCH /organization/:id/members/:userId/activate',
+      'platform POST /organization/:id/members/bulk-add',
     ],
   },
   {
-    control: 'Create / edit / delete a Role',
+    control: 'Request a two-factor reset for a member (Members → Reset MFA…)',
+    file: 'pages/dashboard/members.tsx',
+    gateFiles: ['src/components/members/RequestMfaResetModal.tsx'],
+    permissions: ['members:manage'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: ['platform POST /organization/:id/mfa-resets'],
+  },
+  {
+    control: 'Approve / deny a pending two-factor reset (Members → Pending two-factor resets)',
+    file: 'pages/dashboard/members.tsx',
+    gateFiles: ['src/components/members/MfaResetPanel.tsx'],
+    permissions: ['members:manage'],
+    // Approval: step-up with a second factor on an MFA-grade session; denial
+    // needs neither (it only removes a pending action).
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'platform GET /organization/:id/mfa-resets',
+      'platform POST /organization/:id/mfa-resets/:requestId/approve',
+      'platform POST /organization/:id/mfa-resets/:requestId/deny',
+    ],
+  },
+  {
+    control: 'Reset a user\'s two-factor authentication directly (sysadmin users page)',
+    file: 'pages/dashboard/users.tsx',
+    gateFiles: ['src/components/users/DirectMfaResetModal.tsx'],
+    // Sysadmin-only route (`systemAdmin`) on a sysadmin-only page.
+    permissions: [],
+    stepUp: true,
+    minAssurance: 2,
+    routes: ['platform POST /admin/users/:id/mfa-reset'],
+  },
+  {
+    control: 'Create / edit / delete a Role, and add / remove its members',
     file: 'pages/dashboard/roles.tsx',
     permissions: ['roles:manage'],
+    orgAdminAssurance: true,
     routes: [
       'platform POST /organization/:id/roles',
       'platform PUT /organization/:id/roles/:roleId',
       'platform DELETE /organization/:id/roles/:roleId',
+      'platform POST /organization/:id/roles/:roleId/members',
+      'platform DELETE /organization/:id/roles/:roleId/members/:userId',
     ],
   },
   {
     control: 'Add / edit / delete an IdP group → role mapping',
     file: 'pages/dashboard/settings/sso.tsx',
     permissions: ['roles:manage'],
+    orgAdminAssurance: true,
     routes: [
       'platform POST /organization/:id/idp/group-mappings',
       'platform PUT /organization/:id/idp/group-mappings/:mappingId',
@@ -322,6 +391,8 @@ const CONTROLS: Control[] = [
     gateFiles: ['src/components/settings/ScimProvisioning.tsx'],
     permissions: ['service_accounts:manage'],
     stepUp: true,
+    // Creating the account and minting its key always need an MFA-grade session.
+    minAssurance: 2,
     // The SCIM endpoints themselves are driven by the identity provider, never
     // by the dashboard — what the UI drives is the service-account key mint that
     // produces the credential, so those are the routes to compare against.
@@ -335,6 +406,7 @@ const CONTROLS: Control[] = [
     control: 'Send / revoke an invitation',
     file: 'pages/dashboard/invitations.tsx',
     permissions: ['invitations:manage'],
+    orgAdminAssurance: true,
     routes: [
       'platform POST /invitation/send',
       'platform DELETE /invitation/:invitationId',
@@ -356,9 +428,21 @@ const CONTROLS: Control[] = [
     routes: ['platform PATCH /organization/:id/impersonation-policy'],
   },
   {
-    control: 'Connect / edit / disconnect the org\'s own SSO (OIDC or SAML)',
+    control: 'Edit the password policy / approved authenticators (Settings → Organization)',
+    file: 'pages/dashboard/settings.tsx',
+    gateFiles: ['src/components/settings/PasswordPolicySettings.tsx', 'src/components/settings/AuthenticatorPolicySettings.tsx'],
+    permissions: ['org:settings'],
+    stepUp: true,
+    routes: ['platform PATCH /organization/:id/password-policy', 'platform PATCH /organization/:id/authenticator-policy'],
+  },
+  {
+    control: 'Connect / edit / enable / require / disconnect the org\'s own SSO (setup wizard + summary)',
     file: 'pages/dashboard/settings/sso.tsx',
     gateFiles: [
+      'src/components/sso/SsoSetupWizard.tsx',
+      'src/components/sso/SsoStatusSummary.tsx',
+      'src/components/sso/SsoEnableToggle.tsx',
+      'src/components/sso/SsoRequiredToggle.tsx',
       'src/components/settings/OrgSsoSettings.tsx',
       'src/components/settings/OrgSamlSettings.tsx',
       'src/components/settings/SsoDisconnect.tsx',
@@ -380,6 +464,27 @@ const CONTROLS: Control[] = [
     ],
   },
   {
+    control: 'SSO setup helpers: service-provider values, IdP metadata import, test connection',
+    file: 'pages/dashboard/settings/sso.tsx',
+    gateFiles: [
+      'src/components/sso/SpValues.tsx',
+      'src/components/sso/SamlMetadataImport.tsx',
+      'src/components/sso/SsoTestConnection.tsx',
+    ],
+    // Same page gate as the connection itself; none of these WRITES the
+    // connection, so none carries the step-up / assurance the writes do.
+    permissions: [],
+    pagePermissions: ['org:idp'],
+    page: '/dashboard/settings/sso',
+    features: ['sso'],
+    routes: [
+      'platform GET /organization/:id/idp/sp-info',
+      'platform POST /organization/:id/idp/metadata/import',
+      'platform POST /organization/:id/idp/test',
+      'platform POST /organization/:id/idp/test/complete',
+    ],
+  },
+  {
     control: 'View / edit / enable-disable / delete a service account',
     file: 'pages/dashboard/security.tsx',
     gateFiles: [
@@ -393,6 +498,13 @@ const CONTROLS: Control[] = [
       'platform PATCH /organization/:id/service-accounts/:accountId',
       'platform DELETE /organization/:id/service-accounts/:accountId',
     ],
+  },
+  {
+    control: 'Download logs (.log / .jsonl)',
+    file: 'pages/dashboard/logs.tsx',
+    permissions: ['logs:export'],
+    orgAdminAssurance: true,
+    routes: ['platform GET /observability/logs/export'],
   },
   // ── Teams, managed from their parent (Members → Teams) ────────────────────
   {
@@ -647,19 +759,20 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   // ── Own-account security (step-up), Settings → profile sections ───────────
   'platform POST /user/change-password': 'Profile → password section; step-up only (the user is acting on their own account).',
   'platform DELETE /user/account': 'Profile → delete account; step-up only.',
-  'platform POST /user/keys': 'Profile → access keys; step-up only.',
+  'platform POST /user/keys': 'Profile → access keys; step-up, plus the org\'s admin-actions MFA policy (only a person may mint a key while it is on).',
+  'platform POST /user/generate-token': 'CLI / renewal Lambda machine-credential mint — no dashboard control. Opening a new one is subject to the org\'s admin-actions MFA policy; renewal is not.',
+  'platform POST /auth/recovery-codes': 'Profile → recovery codes (Passkeys / Authenticator panels); step-up only (the user is acting on their own account).',
   'platform DELETE /user/sessions/:id': 'Profile → sessions section; step-up only.',
   'platform POST /user/tokens/revoke-all': 'Profile → revoke all tokens; step-up only.',
   'platform POST /auth/totp/enrol': 'Profile → TOTP section; step-up only.',
   'platform DELETE /auth/totp': 'Profile → TOTP section; step-up only.',
-  'platform POST /auth/totp/recovery-codes': 'Profile → TOTP recovery codes; step-up only.',
   'platform POST /auth/webauthn/register/options': 'Profile → passkey section; step-up only.',
   'platform DELETE /auth/webauthn/credentials/:id': 'Profile → passkey section; step-up only.',
   'platform POST /auth/device/approve': 'CLI device-approval page; step-up only (the approval IS the authorization).',
 
   // ── Org administration (step-up), gated by permissions already mapped ─────
   'platform DELETE /organization/:id': 'Sysadmin org drill-down / All Organizations — soft-delete an org; systemAdmin + step-up.',
-  'platform PATCH /organization/:id/transfer-owner': 'Org settings — transfer ownership; owner-gated + step-up.',
+  'platform PATCH /organization/:id/transfer-owner': 'Org settings — transfer ownership; owner-gated + step-up on an MFA-grade session.',
   'platform PUT /organization/ai-config': 'Org settings → AI provider config; `org:settings` + step-up.',
 
   // ── Sysadmin-only surfaces (systemAdmin + step-up, some strong-factor) ────
@@ -674,10 +787,11 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
   'platform POST /admin/users/:id/grants': 'Sysadmin superadmin-grant editor; systemAdmin + step-up with a strong factor.',
   'platform DELETE /admin/users/:id/grants': 'Sysadmin superadmin-grant editor; systemAdmin + step-up with a strong factor.',
   'platform GET /admin/orgs/:orgId/k8s-namespace.yaml': 'Sysadmin org drill-down — namespace manifest download; systemAdmin + step-up.',
-  'platform PUT /users/:id': 'Sysadmin users page — edit a user; systemAdmin + step-up.',
-  'platform DELETE /users/:id': 'Sysadmin users page — delete a user; systemAdmin + step-up.',
-  'platform POST /users/bulk-delete': 'Sysadmin users page — bulk delete; systemAdmin + step-up.',
-  'platform PUT /users/:id/features': 'Sysadmin per-user feature-override editor; systemAdmin + step-up.',
+  'platform PUT /users/:id': 'Sysadmin users page — edit a user; systemAdmin + step-up on an MFA-grade session.',
+  'platform DELETE /users/:id': 'Sysadmin users page — delete a user; systemAdmin + step-up on an MFA-grade session.',
+  'platform POST /users/bulk-delete': 'Sysadmin users page — bulk delete; systemAdmin + step-up on an MFA-grade session.',
+  'platform PUT /users/:id/features': 'Sysadmin per-user feature-override editor; systemAdmin + step-up on an MFA-grade session.',
+  'billing POST /billing/marketplace/claim': 'AWS Marketplace landing page (pages/marketplace/register.tsx) — binds the purchase to the org; billing:manage + the org\'s admin-actions MFA policy.',
   'platform PATCH /organization/:id/tier': 'Sysadmin change-tier dialog; systemAdmin + step-up.',
   'quota DELETE /quotas/:orgId': 'Sysadmin quota admin — delete an org\'s quota row; systemAdmin + step-up.',
   'quota POST /quotas/:orgId/reset': 'Sysadmin quota admin — reset a period; systemAdmin + step-up.',
@@ -688,7 +802,7 @@ const GATED_ROUTES_WITHOUT_A_CONTROL: Record<string, string> = {
 function gatedRoutes(): string[] {
   return Object.entries(tables)
     .flatMap(([service, table]) => table
-      .filter((e) => e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0)
+      .filter((e) => e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance)
       .map((e) => `${service} ${e.method} ${e.path}`))
     .sort();
 }
@@ -823,6 +937,8 @@ describe('UI gates match the routes they call', () => {
       .toEqual({ control: control.control, stepUp: entries.some((e) => e.stepUp) });
     expect({ control: control.control, minAssurance: control.minAssurance ?? 0 })
       .toEqual({ control: control.control, minAssurance: Math.max(0, ...entries.map((e) => e.minAssurance)) });
+    expect({ control: control.control, orgAdminAssurance: !!control.orgAdminAssurance })
+      .toEqual({ control: control.control, orgAdminAssurance: entries.some((e) => !!e.orgAdminAssurance) });
 
     // Each declared feature must (a) be one the API really enforces, and (b) be
     // rendered somewhere in this control's sources — a declared-but-absent lock
@@ -917,6 +1033,28 @@ describe('feature entitlements are gated where — and only where — the API ga
         expect({ flag, file, mentioned: source.includes(flag) }).toEqual({ flag, file, mentioned: true });
       }
     }
+  });
+});
+
+describe('MFA refusals are handled app-wide', () => {
+  // Every `minAssurance` / `orgAdminAssurance` route leans on ONE mechanism: the
+  // fetch core turns a 401 `MFA_REQUIRED` into an `mfa-required` event and the
+  // dashboard shell opens the MFA-required dialog (with the way to enrol) —
+  // never a sign-out, and never just a generic error.
+  it('the fetch core emits the mfa-required event', () => {
+    const core = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/core.ts'), 'utf8');
+    expect(core).toContain("'mfa-required'");
+  });
+
+  it('the dashboard shell listens for it and shows the MFA dialog', () => {
+    const layout = readFileSync(resolve(FRONTEND_DIR, 'src/components/ui/DashboardLayout.tsx'), 'utf8');
+    expect(layout).toContain('mfa-required');
+    expect(layout).toContain('MfaRequiredDialog');
+  });
+
+  it('the one raw-fetch policy route (log export) raises it too', () => {
+    const domain = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/domains/observability.ts'), 'utf8');
+    expect(domain).toContain("'mfa-required'");
   });
 });
 

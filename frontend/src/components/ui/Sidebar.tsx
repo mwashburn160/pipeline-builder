@@ -88,10 +88,10 @@ export function Sidebar({
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>
       {/* Brand */}
-      <div className={`border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'px-2 py-5' : 'px-4 py-5'}`}>
+      <div className={`border-b border-default ${collapsed ? 'px-2 py-5' : 'px-4 py-5'}`}>
         <Link
           href="/"
-          className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors tracking-tight"
+          className="text-lg font-semibold text-brand hover:text-brand-strong transition-colors tracking-tight"
         >
           {collapsed ? (
             <Tooltip content="Pipeline Builder">
@@ -142,14 +142,14 @@ export function Sidebar({
                     type="button"
                     onClick={() => toggleSection(section.label)}
                     aria-expanded={!isSectionCollapsed}
-                    className="w-full flex items-center justify-between sidebar-section-label hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    className="w-full flex items-center justify-between sidebar-section-label hover:text-fg transition-colors"
                   >
                     <span className="flex items-center gap-1.5">
                       {section.label}
                       {/* Count of hidden items so a collapsed section reads as
                           "collapsed", not "empty/missing". */}
                       {isSectionCollapsed && (
-                        <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-fg-muted">
                           {visibleItems.length}
                         </span>
                       )}
@@ -158,7 +158,7 @@ export function Sidebar({
                   </button>
                 )
               )}
-              {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
+              {collapsed && <div className="my-2 mx-3 border-t border-default" />}
               {(collapsed || !isSectionCollapsed) && visibleItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href)
@@ -171,14 +171,14 @@ export function Sidebar({
                     className={`sidebar-nav-item relative ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''}`}
                   >
                     {active && (
-                      <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-500/80 dark:bg-blue-400/80" />
+                      <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-brand/80" />
                     )}
                     <Icon className="w-[18px] h-[18px] flex-shrink-0" aria-hidden="true" />
                     {/* Icon-only rail: the tooltip is hover-only (and describes,
                         not names), so the link carries its title as hidden text. */}
                     <span className={collapsed ? 'sr-only' : 'flex-1'}>{item.title}</span>
                     {!collapsed && item.title === 'Messages' && unreadCount > 0 && (
-                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-red-500 rounded-full">
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-2xs font-bold text-white bg-red-500 rounded-full">
                         {unreadCount > 99 ? '99+' : unreadCount}
                         <span className="sr-only"> unread</span>
                       </span>
@@ -209,12 +209,12 @@ export function Sidebar({
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-3">
+      <div className="border-t border-default p-4 space-y-3">
         {/* Collapse toggle (desktop only) */}
         {onToggleCollapsed && (
           <button
             onClick={onToggleCollapsed}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
@@ -226,7 +226,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="space-y-2">
             <div className="px-1">
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              <p className="text-sm font-medium text-fg truncate">
                 {user.username}
               </p>
             </div>
@@ -240,7 +240,7 @@ export function Sidebar({
               <Tooltip content={isDark ? 'Light mode' : 'Dark mode'}>
                 <button
                   onClick={onToggleDark}
-                  className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="p-2 rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
                   aria-label="Toggle dark mode"
                 >
                   {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -249,7 +249,7 @@ export function Sidebar({
               <Tooltip content="Log out">
                 <button
                   onClick={onLogout}
-                  className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
+                  className="p-2 rounded-lg text-fg-muted hover:bg-danger-bg hover:text-danger transition-colors"
                   aria-label="Log out"
                 >
                   <LogOut className="w-4 h-4" />
@@ -260,7 +260,7 @@ export function Sidebar({
             <>
               <button
                 onClick={onToggleDark}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-surface-muted transition-colors"
                 aria-label="Toggle dark mode"
               >
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -268,7 +268,7 @@ export function Sidebar({
               </button>
               <button
                 onClick={onLogout}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-fg-muted hover:bg-danger-bg hover:text-danger transition-colors"
                 aria-label="Log out"
               >
                 <LogOut className="w-4 h-4" />

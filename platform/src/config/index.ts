@@ -333,6 +333,66 @@ export const config = {
       challengeTtlMs: intEnv('WEBAUTHN_CHALLENGE_TTL_MS', 120_000), // 2 min
       /** Cap on the in-memory challenge fallback (Redis-less deployments). */
       maxPendingCeremonies: intEnv('WEBAUTHN_MAX_PENDING_CEREMONIES', 1000),
+      /**
+       * FIDO Metadata Service (MDS3) — only consulted when an org sets an
+       * authenticator (AAGUID) allowlist. Registration into such an org requests
+       * DIRECT attestation and verifies it against MDS; without a loaded MDS
+       * blob that registration is REFUSED (the policy asked for provenance we
+       * could not check).
+       *
+       * Source order: `FIDO_MDS_BLOB_PATH` (a downloaded blob JWT on disk — the
+       * air-gapped path) wins; otherwise the blob is fetched from `FIDO_MDS_URL`
+       * (default the FIDO Alliance's MDS3 endpoint — platform already calls the
+       * public internet for OAuth / OIDC / breach checks). `FIDO_MDS_URL=off`
+       * disables fetching. Either way the blob's signature chain is verified
+       * against the FIDO root before a single statement is trusted, and it is
+       * cached in memory for `FIDO_MDS_REFRESH_MS`.
+       */
+      mds: {
+        blobPath: process.env.FIDO_MDS_BLOB_PATH || undefined,
+        url: (() => {
+          const raw = (process.env.FIDO_MDS_URL ?? '').trim();
+          if (raw.toLowerCase() === 'off') return undefined;
+          return raw || 'https://mds.fidoalliance.org/';
+        })(),
+        fetchTimeoutMs: intEnv('FIDO_MDS_FETCH_TIMEOUT_MS', 10_000),
+        refreshMs: intEnv('FIDO_MDS_REFRESH_MS', 86_400_000), // 24 h
+      },
+    },
+
+    /**
+     * Breached-password check (HIBP "Pwned Passwords" k-anonymity range API).
+     * Only the first 5 hex chars of the password's SHA-1 leave the process; the
+     * response is ~800 suffixes the comparison happens against locally (and is
+     * padded, so its size says nothing either).
+     *
+     * `PASSWORD_BREACH_CHECK=hibp` (default) checks at registration, password
+     * change and admin reset; `off` disables it (air-gapped installs).
+     *
+     * FAIL-OPEN, deliberately: an unreachable/slow range API lets the password
+     * through (metered as `outcome="unavailable"`, alertable) rather than making
+     * registration and password changes depend on a third party's uptime. The
+     * check is defence-in-depth on top of the length/complexity rules and the
+     * login throttle, not the only line — while a password reset that fails
+     * during an HIBP outage would strand a locked-out person entirely.
+     */
+    passwordBreachCheck: {
+      mode: (process.env.PASSWORD_BREACH_CHECK || 'hibp').trim().toLowerCase() === 'off' ? 'off' as const : 'hibp' as const,
+      rangeUrl: process.env.PASSWORD_BREACH_CHECK_URL || 'https://api.pwnedpasswords.com/range/',
+      timeoutMs: intEnv('PASSWORD_BREACH_CHECK_TIMEOUT_MS', 2_000),
+    },
+
+    /**
+     * Password sign-in throttling. `/auth/*` is already behind the per-IP auth
+     * limiter (`AUTH_LIMITER_*`); this adds a PER-ACCOUNT bucket on
+     * `/auth/login`, keyed by a hash of the normalized identifier, that counts
+     * only FAILED attempts — so a credential-stuffing run spread across many IPs
+     * still stalls on the account, while the owner's successful sign-ins never
+     * consume it.
+     */
+    loginThrottle: {
+      perAccountMax: intEnv('LOGIN_ACCOUNT_LIMITER_MAX', 10),
+      perAccountWindowMs: intEnv('LOGIN_ACCOUNT_LIMITER_WINDOWMS', 900_000), // 15 min
     },
 
     /**

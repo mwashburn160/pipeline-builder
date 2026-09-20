@@ -98,7 +98,7 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
       }
     >
       <div className="space-y-3 text-sm">
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-fg-muted">
           Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">visibility</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
         </p>
         <Textarea

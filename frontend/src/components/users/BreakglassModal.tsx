@@ -36,7 +36,7 @@ export function BreakglassModal({ targetLabel, onContinue, onClose }: Breakglass
   return (
     <Modal
       title="Emergency access"
-      titleIcon={<ShieldAlert className="w-5 h-5 text-[var(--pb-danger)]" />}
+      titleIcon={<ShieldAlert className="w-5 h-5 text-danger" />}
       onClose={onClose}
       maxWidth="max-w-lg"
       footer={

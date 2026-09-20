@@ -261,7 +261,7 @@ export default function BuildQueuePage() {
           <Badge color="yellow">DLQ: {dlqTotal}</Badge>
         )}
         {lastUpdated && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto flex items-center gap-1.5">
+          <span className="text-xs text-fg-subtle ml-auto flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             Auto-refresh {POLL_INTERVAL / 1000}s &middot; {formatTime(lastUpdated)}
           </span>
@@ -291,12 +291,12 @@ export default function BuildQueuePage() {
         <Card className="mt-6">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-tier breakdown</h3>
-            <span className="text-xs text-gray-500 dark:text-gray-400">One BullMQ queue per pricing tier</span>
+            <span className="text-xs text-fg-muted">One BullMQ queue per pricing tier</span>
           </div>
           {tiersIdle && !showBreakdown ? (
-            <div className="flex items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-between gap-3 text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                <CheckCircle2 className="w-4 h-4 text-success" />
                 All {Object.keys(status.tiers).length} tiers idle — no waiting, active, failed, or delayed builds.
               </span>
               <button
@@ -333,7 +333,7 @@ export default function BuildQueuePage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Failed Builds
-              <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+              <span className="ml-2 text-sm font-normal text-fg-muted">
                 ({status.failed})
               </span>
             </h2>
@@ -373,9 +373,9 @@ export default function BuildQueuePage() {
         >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-yellow-500" />
+              <AlertTriangle className="w-5 h-5 text-warning" />
               Dead Letter Queue
-              <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+              <span className="text-sm font-normal text-fg-muted">
                 ({dlqTotal})
               </span>
             </h2>

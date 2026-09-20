@@ -93,6 +93,35 @@ export interface OrganizationDocument extends Document {
    * and applies to whichever protocol that config speaks.
    */
   idpEnforcesMfa?: boolean;
+  /**
+   * Org policy "administrative actions require MFA": role, member, invitation,
+   * IdP group-mapping, billing, log-export and access-key actions need an
+   * `aal: 2` session even when `requireMfa` is off. Absent means off; read only
+   * through `resolveEffectiveMfaPolicy` (a parent org's setting applies to its
+   * teams, strictest wins). Carried to every service as the `org_admin_aal`
+   * token claim and enforced by api-core's `requireOrgAdminAssurance`.
+   */
+  adminActionsRequireMfa?: boolean;
+  /**
+   * Org password policy: the minimum password length for this org's members,
+   * at or above the platform minimum (`PASSWORD_MIN_LENGTH`) and at most 128.
+   * Absent means the platform minimum. Enforced whenever a member SETS a
+   * password (change, admin reset, registration through an invitation) and
+   * checked at password SIGN-IN, where a shorter existing password must be
+   * changed before a session opens. Read only through
+   * `helpers/password-policy.ts`, which owns the ancestor walk (strictest wins).
+   */
+  passwordMinLength?: number;
+  /**
+   * Org authenticator policy: the passkey models (AAGUIDs, lowercase canonical
+   * form) members may register. Absent/empty means any. When set, a passkey
+   * registration from a member active in this org requests DIRECT attestation,
+   * verified against the FIDO Metadata Service, and a model not on the list is
+   * refused; a passkey sign-in with a model not on the list counts as `aal: 1`
+   * in this org. Read only through `helpers/authenticator-policy.ts` (ancestor
+   * lists intersect — strictest wins).
+   */
+  allowedAuthenticatorAaguids?: string[];
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -350,6 +379,22 @@ const organizationSchema = new Schema<OrganizationDocument>(
     },
     idpEnforcesMfa: {
       type: Boolean,
+    },
+    // Org policy "administrative actions require MFA". Same no-default rule.
+    adminActionsRequireMfa: {
+      type: Boolean,
+    },
+    // Org password policy — absent means the platform minimum (no default, so
+    // an untouched org stores nothing).
+    passwordMinLength: {
+      type: Number,
+      min: 1,
+      max: 128,
+    },
+    // Org authenticator (AAGUID) allowlist — absent/empty means any model.
+    allowedAuthenticatorAaguids: {
+      type: [String],
+      default: undefined,
     },
     owner: {
       type: Schema.Types.ObjectId,

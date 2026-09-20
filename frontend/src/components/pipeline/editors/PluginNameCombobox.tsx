@@ -70,9 +70,9 @@ export default function PluginNameCombobox({
         {open && !disabled && (
           <div role="listbox" id={listboxId} aria-label="Plugins" className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
             {isLoading ? (
-              <div className="px-3 py-2 text-gray-500 dark:text-gray-400">Loading plugins...</div>
+              <div className="px-3 py-2 text-fg-muted">Loading plugins...</div>
             ) : groups.length === 0 ? (
-              <div className="px-3 py-2 text-gray-500 dark:text-gray-400">
+              <div className="px-3 py-2 text-fg-muted">
                 {query ? 'No matching plugins' : 'No plugins available'}
               </div>
             ) : (
@@ -80,7 +80,7 @@ export default function PluginNameCombobox({
                 let flatIndex = -1;
                 return groups.map((group) => (
                   <div key={group.category}>
-                    <div className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 sticky top-0">
+                    <div className="px-3 py-1 text-xs font-semibold text-fg-muted bg-gray-50 dark:bg-gray-900 sticky top-0">
                       {group.category}
                     </div>
                     {group.plugins.map((plugin) => {
@@ -101,10 +101,10 @@ export default function PluginNameCombobox({
                         >
                           <div className="flex justify-between items-center">
                             <span className="truncate font-medium">{plugin.name}</span>
-                            <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 shrink-0">v{plugin.version}</span>
+                            <span className="ml-2 text-xs text-fg-subtle shrink-0">v{plugin.version}</span>
                           </div>
                           {plugin.description && (
-                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{plugin.description}</div>
+                            <div className="text-xs text-fg-muted truncate">{plugin.description}</div>
                           )}
                         </button>
                       );

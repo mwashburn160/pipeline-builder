@@ -74,15 +74,15 @@ export function usePipelineColumns({
                 so the standalone Project column can stay hidden (see below). */}
             <Link
               href={`/dashboard/pipelines/${encodeURIComponent(p.id)}`}
-              className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline truncate"
+              className="text-sm font-medium text-fg hover:text-brand hover:underline truncate"
             >
               {p.pipelineName}
             </Link>
             {p.project && (
-              <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{p.project}</span>
+              <span className="shrink-0 text-2xs font-mono text-fg-subtle border border-default rounded px-1 py-0.5">{p.project}</span>
             )}
           </div>
-          {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
+          {p.description && <div className="text-xs text-fg-muted truncate max-w-md mt-0.5">{p.description}</div>}
         </div>
       ),
     },
@@ -90,7 +90,7 @@ export function usePipelineColumns({
       id: 'pipelineId',
       header: 'Pipeline ID',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      cellClassName: 'text-sm text-fg-muted font-mono',
       sortValue: (p) => p.id,
       render: (p) => <>{p.id}</>,
     },
@@ -100,7 +100,7 @@ export function usePipelineColumns({
       // Hidden by default: the project shows as a chip in the Name cell, so a
       // standalone column is redundant. Re-enable via the column toggle.
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.project,
       render: (p) => <>{p.project}</>,
     },
@@ -108,7 +108,7 @@ export function usePipelineColumns({
       id: 'organization',
       header: 'Organization',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.organization,
       render: (p) => <>{p.organization}</>,
     },
@@ -125,7 +125,7 @@ export function usePipelineColumns({
       // Active (common) → subtle dot + word; Inactive (exception) → loud badge.
       render: (p) => (
         p.isActive
-          ? <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"><span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden="true" />Active</span>
+          ? <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted"><span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden="true" />Active</span>
           : <Badge color="red">Inactive</Badge>
       ),
     },
@@ -140,7 +140,7 @@ export function usePipelineColumns({
       id: 'createdBy',
       header: 'Created By',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdBy,
       render: (p) => <>{p.createdBy}</>,
     },
@@ -148,7 +148,7 @@ export function usePipelineColumns({
       id: 'createdAt',
       header: 'Created',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdAt,
       render: (p) => <RelativeTime value={p.createdAt} />,
     },
@@ -156,7 +156,7 @@ export function usePipelineColumns({
       id: 'updatedAt',
       header: 'Updated',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.updatedAt,
       render: (p) => <RelativeTime value={p.updatedAt} />,
     },
@@ -164,7 +164,7 @@ export function usePipelineColumns({
       id: 'keywords',
       header: 'Keywords',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (p) => <>{(p.keywords || []).join(', ')}</>,
     },
     {
@@ -182,7 +182,7 @@ export function usePipelineColumns({
             </IconButton>
           </div>
         ) : (
-          <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
+          <span className="text-fg-subtle text-xs">Read-only</span>
         )
       ),
     },

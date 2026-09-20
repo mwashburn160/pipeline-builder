@@ -42,13 +42,13 @@ const SOLUTION_POINTS: { icon: typeof Sparkles; text: string }[] = [
 function SolutionPanel({ billingOff }: { billingOff: boolean }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">What you get</div>
+      <div className="text-2xs uppercase tracking-wide text-fg-muted mb-2">What you get</div>
       {billingOff && (
-        <div className="mb-4 rounded-xl border border-[var(--pb-border)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3">
+        <div className="mb-4 rounded-xl border border-default bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3">
           <div className="flex items-center gap-1.5 text-sm font-semibold">
-            <Sparkles className="w-4 h-4 text-[var(--pb-brand)]" strokeWidth={2} /> Full platform, unlocked
+            <Sparkles className="w-4 h-4 text-brand" strokeWidth={2} /> Full platform, unlocked
           </div>
-          <p className="text-xs text-[var(--pb-text-muted)] mt-1 leading-relaxed">
+          <p className="text-xs text-fg-muted mt-1 leading-relaxed">
             Billing is off on this instance — every feature is enabled with no plan gating and no seat, pipeline, or usage caps.
           </p>
         </div>
@@ -56,8 +56,8 @@ function SolutionPanel({ billingOff }: { billingOff: boolean }) {
       <ul className="space-y-3">
         {SOLUTION_POINTS.map((p) => (
           <li key={p.text} className="flex items-start gap-2.5">
-            <p.icon className="w-4 h-4 mt-0.5 shrink-0 text-[var(--pb-brand)]" strokeWidth={1.75} />
-            <span className="text-sm text-[var(--pb-text-muted)] leading-relaxed">{p.text}</span>
+            <p.icon className="w-4 h-4 mt-0.5 shrink-0 text-brand" strokeWidth={1.75} />
+            <span className="text-sm text-fg-muted leading-relaxed">{p.text}</span>
           </li>
         ))}
       </ul>
@@ -156,9 +156,9 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card p-8 max-w-xs text-center" role="status" aria-live="polite">
-          <CheckCircle className="w-10 h-10 text-[var(--pb-success)] mx-auto mb-3" />
+          <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
           <p className="font-bold">Account created!</p>
-          <p className="text-sm text-[var(--pb-text-muted)] mt-1">Redirecting...</p>
+          <p className="text-sm text-fg-muted mt-1">Redirecting...</p>
         </motion.div>
       </div>
     );
@@ -182,25 +182,25 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
       </Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-4xl mx-auto mb-6">
-          <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <Link href="/" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </Link>
         </div>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto">
           <h1 className="text-xl font-bold text-center mb-1">Create account</h1>
-          <p className="text-sm text-[var(--pb-text-muted)] text-center mb-6">
-            Have an account? <Link href="/" className="text-[var(--pb-brand)] hover:underline">Sign in</Link>
+          <p className="text-sm text-fg-muted text-center mb-6">
+            Have an account? <Link href="/" className="text-brand hover:underline">Sign in</Link>
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
             {/* Sign-up form */}
             <Card className="p-5 lg:col-span-2">
               {isMarketplace && (
-                <div className="mb-4 rounded-lg border border-[var(--pb-border)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3 text-sm">
+                <div className="mb-4 rounded-lg border border-default bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3 text-sm">
                   <span className="font-semibold">AWS Marketplace</span>
-                  <p className="text-[var(--pb-text-muted)] mt-1 leading-relaxed">
-                    Create your account to finish linking your{marketplacePlan ? <> <span className="font-medium text-[var(--pb-text)]">{marketplacePlan}</span></> : ''} subscription — billing is handled by AWS, so there&apos;s no plan to choose here.
+                  <p className="text-fg-muted mt-1 leading-relaxed">
+                    Create your account to finish linking your{marketplacePlan ? <> <span className="font-medium text-fg">{marketplacePlan}</span></> : ''} subscription — billing is handled by AWS, so there&apos;s no plan to choose here.
                   </p>
                 </div>
               )}
@@ -226,8 +226,8 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                 </div>
 
                 {hasPlans && !isMarketplace && (
-                  <p className="text-xs text-[var(--pb-text-muted)] pt-1">
-                    Selected plan: <span className="font-semibold text-[var(--pb-text)]">{plans.find((p) => p.id === selectedPlan)?.name ?? 'Developer'}</span>. Change it anytime — start free, no card required.
+                  <p className="text-xs text-fg-muted pt-1">
+                    Selected plan: <span className="font-semibold text-fg">{plans.find((p) => p.id === selectedPlan)?.name ?? 'Developer'}</span>. Change it anytime — start free, no card required.
                   </p>
                 )}
 
@@ -243,7 +243,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                 <div className="mt-4">
                   <div className="flex items-center gap-3 mb-3">
                     <span className="flex-1 h-px bg-[var(--pb-border)]" />
-                    <span className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)]">or</span>
+                    <span className="text-2xs uppercase tracking-wide text-fg-muted">or</span>
                     <span className="flex-1 h-px bg-[var(--pb-border)]" />
                   </div>
                   <div className="space-y-2">
@@ -273,7 +273,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
             <div className="lg:col-span-3">
               {hasPlans && !isMarketplace ? (
                 <>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Choose your plan</div>
+                  <div className="text-2xs uppercase tracking-wide text-fg-muted mb-2">Choose your plan</div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {plans.map((plan) => (
                       <SelectablePlanCard
@@ -287,11 +287,11 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                     ))}
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3">
+                  <div className="mt-3 rounded-xl border border-default bg-surface-muted p-3">
                     <div className="flex items-center gap-1.5 text-sm font-semibold mb-1">
-                      <Sparkles className="w-4 h-4 text-[var(--pb-brand)]" strokeWidth={2} /> Scale any plan with add-on packs
+                      <Sparkles className="w-4 h-4 text-brand" strokeWidth={2} /> Scale any plan with add-on packs
                     </div>
-                    <p className="text-xs text-[var(--pb-text-muted)] leading-relaxed">
+                    <p className="text-xs text-fg-muted leading-relaxed">
                       Stackable bundles raise your limits without switching tiers — per-Seat (with volume discounts),
                       Pipeline&nbsp;(+5), Plugin&nbsp;(+25), API&nbsp;(+100k), AI&nbsp;(+2.5k) &amp; Storage&nbsp;(+10&nbsp;GB) packs
                       — plus the Scale&nbsp;Bundle, SSO, Audit&nbsp;Log, DORA reporting, and Team&nbsp;Usage&nbsp;Analytics.

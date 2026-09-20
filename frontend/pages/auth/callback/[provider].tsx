@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { takeReturnPath } from '@/lib/return-to';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { XCircle, ArrowLeft } from 'lucide-react';
@@ -43,13 +44,6 @@ import { formatError } from '@/lib/constants';
  * The `state` itself is validated server-side; the client stores it only to carry
  * the intent across the redirect. No PKCE is involved.
  */
-
-/** Only permit same-site relative return URLs — never an attacker-supplied absolute
- *  URL (open-redirect). Falls back to the dashboard. */
-function safeReturnUrl(url: string | undefined): string {
-  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) return url;
-  return '/dashboard';
-}
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
@@ -144,7 +138,7 @@ export default function OAuthCallbackPage() {
         const res = await api.completeOAuthCallback(provider, { code, state });
         if (!res.success) throw new Error(res.message || 'Sign-in failed');
         await refreshUser();
-        router.replace(safeReturnUrl(effective?.kind === 'login' ? effective.returnUrl : undefined));
+        router.replace(takeReturnPath(effective?.kind === 'login' ? effective.returnUrl : undefined));
       } catch (err) {
         setError(formatError(err, 'Sign-in failed. Please try again.'));
       }
@@ -158,7 +152,7 @@ export default function OAuthCallbackPage() {
       <Head><title>Signing in… - Pipeline Builder</title></Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
-          <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <Link href="/" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </Link>
         </div>
@@ -168,19 +162,19 @@ export default function OAuthCallbackPage() {
             {reauth ? (
               <>
                 <p className="font-bold">Confirmed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">You can close this window.</p>
+                <p className="text-sm text-fg-muted mt-1">You can close this window.</p>
               </>
             ) : !error ? (
               <>
                 <LoadingSpinner size="md" className="mx-auto mb-3" />
                 <p className="font-bold">Completing sign-in…</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">Verifying your account.</p>
+                <p className="text-sm text-fg-muted mt-1">Verifying your account.</p>
               </>
             ) : (
               <>
-                <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
+                <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Sign-in failed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">{error}</p>
+                <p className="text-sm text-fg-muted mt-1">{error}</p>
                 <LinkButton href="/" variant="primary" fullWidth className="text-sm mt-4">
                   Back to sign in
                 </LinkButton>

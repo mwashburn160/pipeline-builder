@@ -14,6 +14,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { AccountRecoveryCodes, RecoveryCodes } from '@/components/settings/RecoveryCodes';
 import { useLoadable } from '@/hooks/useLoadable';
 import api from '@/lib/api';
 import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkeys';
@@ -39,6 +40,11 @@ import type { Passkey } from '@/types';
  * Removing the last thing you can sign in with is refused by the server
  * (`409`); the message is shown as-is rather than being re-derived here, so the
  * UI can't disagree with the rule that actually applies.
+ *
+ * The account's FIRST second factor mints its recovery codes. When that is a
+ * passkey, the server returns them once with the new passkey and they are shown
+ * here, in place, until the person confirms they have saved them; the count and
+ * a way to replace them follow below the list (see `AccountRecoveryCodes`).
  *
  * Hidden entirely when the browser has no WebAuthn — there is nothing useful to
  * offer, and an "add" button that can only fail is worse than no button.
@@ -69,6 +75,8 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
   const [renameValue, setRenameValue] = useState('');
 
   const [pendingRemove, setPendingRemove] = useState<Passkey | null>(null);
+  /** Recovery codes handed back with this account's first passkey — shown once. */
+  const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -81,8 +89,9 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     if (!pendingAdd) return;
     setAdding(true);
     try {
-      await registerPasskey(pendingAdd, stepUpToken);
+      const { recoveryCodes } = await registerPasskey(pendingAdd, stepUpToken);
       setName('');
+      if (recoveryCodes?.length) setFreshCodes(recoveryCodes);
       toast.success('Passkey added');
       void reload();
     } catch (err) {
@@ -157,6 +166,14 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
               <Badge color="green">synced</Badge>
             </span>
           )}
+          {/* Registered under an org authenticator allowlist: its make and model
+              were proven by attestation and checked against the FIDO Metadata
+              Service. */}
+          {p.attestationVerified && (
+            <span title={`Verified authenticator model${p.aaguid ? ` (${p.aaguid})` : ''} — approved by your organization.`}>
+              <Badge color="blue">verified model</Badge>
+            </span>
+          )}
         </div>
       )),
     },
@@ -164,7 +181,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     {
       id: 'lastUsed',
       header: 'Last used',
-      render: (p) => (p.lastUsedAt ? <RelativeTime value={p.lastUsedAt} /> : <span className="text-gray-400">never</span>),
+      render: (p) => (p.lastUsedAt ? <RelativeTime value={p.lastUsedAt} /> : <span className="text-fg-subtle">never</span>),
     },
     {
       id: 'actions',
@@ -187,7 +204,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
             readOnly={readOnly}
             disabled={removing === p.id}
             onClick={() => setPendingRemove(p)}
-            className="gap-1 text-red-600 hover:text-red-700"
+            className="gap-1 text-danger hover:text-danger-strong"
           >
             <Trash2 className="w-3.5 h-3.5" /> Remove
           </Button>
@@ -229,7 +246,9 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
         />
       )}
 
-      {loading && passkeys.length === 0 ? (
+      {freshCodes ? (
+        <RecoveryCodes codes={freshCodes} onDone={() => setFreshCodes(null)} />
+      ) : loading && passkeys.length === 0 ? (
         <div className="space-y-2">{[0, 1].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
       ) : loadError && passkeys.length === 0 ? (
         <RetryError message={loadError} onRetry={() => void reload()} />
@@ -247,6 +266,12 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
               description: 'Add one above to sign in without a password.',
             }}
           />
+        </div>
+      )}
+
+      {!freshCodes && passkeys.length > 0 && (
+        <div className="mt-4 border-t border-default pt-4">
+          <AccountRecoveryCodes readOnly={readOnly} />
         </div>
       )}
 

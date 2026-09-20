@@ -216,7 +216,7 @@ export default function SourceTypeEditor({
               checked={codestar.codeBuildCloneOutput}
               onChange={(e) => onCodestarChange('codeBuildCloneOutput', e.target.checked)}
               disabled={disabled}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+              className="h-4 w-4 text-brand focus:ring-blue-500"
             />
             <label htmlFor="codeBuildCloneOutput" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
               CodeBuild Clone Output

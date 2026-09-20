@@ -104,7 +104,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
         );
       },
     },
-    { id: 'target', header: 'Target', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (scan) => scan.target },
+    { id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted', render: (scan) => scan.target },
     {
       id: 'progress',
       header: 'Progress',
@@ -115,7 +115,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
             <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
             </div>
-            <span className="text-xs text-gray-500">{scan.processedEntities}/{scan.totalEntities}</span>
+            <span className="text-xs text-fg-muted">{scan.processedEntities}/{scan.totalEntities}</span>
           </div>
         );
       },
@@ -125,13 +125,13 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       header: 'Results',
       render: (scan) => (
         <div className="flex gap-3 text-xs">
-          <span className="text-green-600">{scan.passCount} pass</span>
-          <span className="text-yellow-600">{scan.warnCount} warn</span>
-          <span className="text-red-600">{scan.blockCount} block</span>
+          <span className="text-success">{scan.passCount} pass</span>
+          <span className="text-warning">{scan.warnCount} warn</span>
+          <span className="text-danger">{scan.blockCount} block</span>
         </div>
       ),
     },
-    { id: 'triggered', header: 'Triggered', cellClassName: 'text-xs text-gray-500', render: (scan) => formatDateTime(scan.createdAt) },
+    { id: 'triggered', header: 'Triggered', cellClassName: 'text-xs text-fg-muted', render: (scan) => formatDateTime(scan.createdAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -158,7 +158,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Scan className="h-5 w-5 text-indigo-600" />
+          <Scan className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Compliance Scans</h2>
         </div>
         {!readOnly && (
@@ -201,7 +201,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600" /></div>
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" /></div>
       ) : scans.length === 0 ? (
         <TextEmptyState>No scans found.</TextEmptyState>
       ) : (

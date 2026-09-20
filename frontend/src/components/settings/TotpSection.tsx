@@ -101,7 +101,9 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
       if (!res.success || !res.data) { toast.error(res.message || 'That code isn\'t right'); return; }
       setEnrolment(null);
       setCode('');
-      setFreshCodes(res.data.recoveryCodes);
+      // Recovery codes come only with the account's FIRST second factor; an
+      // account that already has a set (from a passkey) keeps it.
+      if (res.data.recoveryCodes.length > 0) setFreshCodes(res.data.recoveryCodes);
       toast.success('Two-factor authentication is on');
       void reload();
     } catch (err) {
@@ -130,7 +132,7 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
   const regenerate = async (stepUpToken: string) => {
     setBusy(true);
     try {
-      const res = await api.regenerateTotpRecoveryCodes(stepUpToken);
+      const res = await api.regenerateRecoveryCodes(stepUpToken);
       if (!res.success || !res.data) { toast.error(res.message || 'Could not create new recovery codes'); return; }
       setFreshCodes(res.data.recoveryCodes);
       void reload();
@@ -163,8 +165,9 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
         action: 'Turn off two-factor authentication',
         details: (
           <p>
-            Signing in will need only your password again, and your recovery codes
-            stop working. Remove the entry from your authenticator app too.
+            Signing in will need only your password again — and, unless you also have a
+            passkey, your recovery codes stop working. Remove the entry from your
+            authenticator app too.
           </p>
         ),
       }
@@ -174,7 +177,8 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
         details: (
           <p>
             Every code you have written down stops working immediately, including
-            any you haven&apos;t used. You&apos;ll get a new set to save.
+            any you haven&apos;t used — they are one set for your whole account, shared with
+            your passkeys. You&apos;ll get a new set to save.
           </p>
         ),
       };
@@ -204,13 +208,13 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
           <div className="flex flex-wrap items-start gap-5">
             <TotpQrCode value={enrolment.otpauthUri} />
             <div className="flex-1 min-w-[220px] space-y-3">
-              <p className="text-sm text-[var(--pb-text-muted)]">
+              <p className="text-sm text-fg-muted">
                 Scan this with Google Authenticator, 1Password, Aegis or whichever app you use.
               </p>
               <div>
-                <p className="text-xs text-[var(--pb-text-muted)] mb-1">Can&apos;t scan? Enter this setup key by hand:</p>
+                <p className="text-xs text-fg-muted mb-1">Can&apos;t scan? Enter this setup key by hand:</p>
                 <div className="flex items-center gap-2">
-                  <code className="font-mono text-sm break-all rounded bg-[var(--pb-surface-muted)] px-2 py-1">{enrolment.secret}</code>
+                  <code className="font-mono text-sm break-all rounded bg-surface-muted px-2 py-1">{enrolment.secret}</code>
                   <CopyButton text={enrolment.secret} />
                 </div>
               </div>
@@ -248,15 +252,15 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
         <div className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
             <div>
-              <dt className="text-xs text-[var(--pb-text-muted)]">Turned on</dt>
+              <dt className="text-xs text-fg-muted">Turned on</dt>
               <dd>{status.activatedAt ? <RelativeTime value={status.activatedAt} /> : '—'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-[var(--pb-text-muted)]">Last used</dt>
-              <dd>{status.lastUsedAt ? <RelativeTime value={status.lastUsedAt} /> : <span className="text-gray-400">never</span>}</dd>
+              <dt className="text-xs text-fg-muted">Last used</dt>
+              <dd>{status.lastUsedAt ? <RelativeTime value={status.lastUsedAt} /> : <span className="text-fg-subtle">never</span>}</dd>
             </div>
             <div>
-              <dt className="text-xs text-[var(--pb-text-muted)]">Recovery codes left</dt>
+              <dt className="text-xs text-fg-muted">Recovery codes left</dt>
               <dd>{status.recoveryCodesRemaining} of {status.recoveryCodesTotal}</dd>
             </div>
           </dl>

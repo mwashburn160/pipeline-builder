@@ -312,15 +312,18 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
       expect(await bootstrap.isBootstrapExceptionOpen(await m.User.findById(userId).lean())).toBe(false);
     });
 
-    it('can clear the org policy in the same pass, so the person can sign back in and re-enrol', async () => {
+    it('grants a PER-USER enrolment grace instead of touching the org policy', async () => {
       await requireMfa();
       await addPasskey();
-      const result = await recover.recoverMfa({ email: 'boot@internal', operator: 'ops@example.com', clearOrgPolicy: true });
-      expect(result.orgPolicyCleared).toBe(orgId);
-      expect((await mfaPolicy.resolveEffectiveMfaPolicy(orgId)).requireMfa).toBe(false);
-      // …and the now factor-less admin can open a session again.
+      const result = await recover.recoverMfa({ email: 'boot@internal', operator: 'ops@example.com', graceHours: 24 });
+      expect(result.graceUntil.getTime()).toBeGreaterThan(Date.now() + 23 * 3600_000);
+      // The org still requires MFA — nobody else was exempted.
+      expect((await mfaPolicy.resolveEffectiveMfaPolicy(orgId)).enforced).toBe(true);
+      // …but the now factor-less admin can open a session to re-enrol.
       const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
       await expect(token.issueTokens(fresh, orgId, { kind: 'interactive', auth: token.signInAuth('pwd') })).resolves.toBeTruthy();
+      const audit = await m.AuditEvent.findOne({ action: 'auth.mfa.operator_reset' }).lean();
+      expect(audit.details).toMatchObject({ operatorAsserted: true, graceUntil: result.graceUntil.toISOString() });
     });
 
     it('returns null for an address that has no account', async () => {

@@ -142,7 +142,34 @@ request also emits an [`authz.denied` audit event](audit-events.md#action-catalo
 | `requireSystemAdmin` | platform-operator routes: the `isSuperAdmin` claim only, never an org permission |
 | `requireServicePrincipal` | a signed `service:*` token, never a user |
 | `requireInternalService({ callers })` | **internal routes** (`/internal/*`, the quota usage counters, the entity-event / audit ingests, the entitlement sync legs): a signed `service:*` token whose name is one of `callers`, never a user token — not even a superadmin's. The name is bound to the signing key, so this is an identity check, not a claim check. Refusals increment `internal_route_refused_total{service,route,reason,caller}` and emit `authz.denied` |
+| `requireAssurance({ minAssurance: 2 })` | the SESSION must have been opened with a second factor (`aal: 2`); a single-factor one gets 401 `MFA_REQUIRED`, a machine credential 403 `HUMAN_SESSION_REQUIRED` |
+| `requireOrgAdminAssurance({ machines })` | the org's **"administrative actions require MFA"** policy: while it is on (the `org_admin_aal` claim), a single-factor session gets 401 `MFA_REQUIRED`; `machines: 'allow'` lets PATs / service accounts through, `'refuse'` answers them 403 `HUMAN_SESSION_REQUIRED`. A no-op while the policy is off |
 | `audited('<action>')` | declares the audit action the route's handler emits — metadata for the route table, a no-op at runtime |
+
+### Assurance tiers
+
+Permissions say **who** may do something; assurance says **how strongly** the
+session doing it was opened (see [Assurance levels and required
+MFA](authentication.md#assurance-levels-and-required-mfa)). Two tiers sit on top
+of the permission gates:
+
+| Always `aal: 2` (whatever the org's settings) | By policy (`adminActionsRequireMfa`) |
+|---|---|
+| Loosening the org MFA policy (`mfa-policy`: require-MFA off, admin-actions off, "IdP enforces MFA" on) — tightening stays open to `aal: 1` | Roles: create / update / delete, add / remove members (`roles:manage`) |
+| Loosening the impersonation policy (less strict mode, self-approval on) | IdP group → Role mappings (`roles:manage`) |
+| Service-account create and key issue (`service_accounts:manage`) | Members: add, bulk-add, remove, deactivate, activate (`members:manage`) |
+| Ownership transfer | Invitations: send, revoke, resend (`invitations:manage`) |
+| Sysadmin user edit / delete / feature overrides / bulk delete | Billing: subscription create / update / cancel / reactivate, checkout, portal, add-ons, discounts, Marketplace claim (`billing:manage`) |
+| MFA reset: request, approve, sysadmin direct reset | Log export (`logs:export`) |
+| Impersonation, per-org KMS, IdP config, platform-admin grants (+ second-factor step-up) | Access-key creation and opening a machine credential (person only) |
+
+The policy is set on the org's two-factor card (`PATCH
+/organization/:id/mfa-policy`, `adminActionsRequireMfa`), inherited by teams
+(strictest wins), and carried to every service as the `org_admin_aal` token
+claim — changing it bumps every affected member's session. Machine credentials
+pass the by-policy gates on routes automation legitimately drives and are refused
+where the action would mint another credential; the per-route decision is in the
+route table (`orgAdminAssurance.machines`).
 
 ### Route coverage
 
@@ -186,8 +213,8 @@ Each test also writes its table to `frontend/src/generated/route-table/<service>
 (regenerate with `UPDATE_ROUTE_TABLES=1`), and the frontend's
 `test/route-permissions.test.ts` asserts that every gated control matches the
 route it calls on EVERY dimension the table records — permissions, entitlements
-(`features`), step-up, scopes and assurance — so a UI gate can't drift from the
-API. Its `GATED_ROUTES_WITHOUT_A_CONTROL` registry closes the other direction:
+(`features`), step-up, scopes, assurance and the admin-actions MFA policy
+(`orgAdminAssurance`) — so a UI gate can't drift from the API. Its `GATED_ROUTES_WITHOUT_A_CONTROL` registry closes the other direction:
 a route that gains a gate must be mapped to the control that calls it or listed
 there with a reason, or the test fails naming the route.
 
@@ -231,7 +258,10 @@ Downward report roll-up (`?includeDescendants`) requires `reports:rollup`.
 organizations, so `members:manage` covers a member's **role in your
 organization** and removing them from it — not the account itself. Changing a
 user's username, email or password, and deleting an account, are platform-admin
-actions (`PUT`/`DELETE /users/:id`, both behind step-up). An org admin who
+actions (`PUT`/`DELETE /users/:id`, both behind step-up on an `aal: 2` session).
+Resetting a member's second factors is an org action, but a two-person one: an
+owner/admin requests it and a different owner/admin (or a sysadmin) approves it
+— see [Recovery when every factor is lost](authentication.md#recovery-when-every-factor-is-lost). An org admin who
 needs someone locked out removes or deactivates the membership.
 
 ## Session invalidation

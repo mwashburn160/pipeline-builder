@@ -57,12 +57,12 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
       <div className="flex items-center gap-3">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           aria-label="Go back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <History className="h-5 w-5 text-blue-600" />
+        <History className="h-5 w-5 text-brand" />
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
           History: {ruleName}
         </h2>
@@ -77,7 +77,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-brand" />
         </div>
       ) : history.length === 0 ? (
         <TextEmptyState>No history entries found.</TextEmptyState>
@@ -92,20 +92,20 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
                     <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>
                       {entry.changeType}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-fg-muted">
                       by {entry.changedBy}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-fg-subtle">
                     {formatDateTime(entry.changedAt)}
                   </span>
                 </div>
                 {entry.previousState && Object.keys(entry.previousState).length > 0 && (
-                  <div className="mt-2 p-2 rounded bg-gray-50 dark:bg-gray-800 text-xs font-mono text-gray-600 dark:text-gray-400 overflow-x-auto">
+                  <div className="mt-2 p-2 rounded bg-gray-50 dark:bg-gray-800 text-xs font-mono text-fg-muted overflow-x-auto">
                     <div className="text-gray-500 dark:text-gray-500 mb-1">Previous state:</div>
                     {Object.entries(entry.previousState).map(([key, val]) => (
                       <div key={key}>
-                        <span className="text-gray-400">{key}:</span> {JSON.stringify(val)}
+                        <span className="text-fg-subtle">{key}:</span> {JSON.stringify(val)}
                       </div>
                     ))}
                   </div>

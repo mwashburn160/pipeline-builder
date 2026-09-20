@@ -275,7 +275,7 @@ export default function PromotionsPage() {
       render: (p) => (
         <div>
           <div className="font-medium text-gray-900 dark:text-gray-100">{p.name}</div>
-          {p.campaign && <div className="text-xs text-gray-500 dark:text-gray-400">{p.campaign}</div>}
+          {p.campaign && <div className="text-xs text-fg-muted">{p.campaign}</div>}
         </div>
       ),
     },
@@ -287,7 +287,7 @@ export default function PromotionsPage() {
         const pct = p.budgetCents > 0 ? Math.min(100, Math.round((p.spentCents / p.budgetCents) * 100)) : 0;
         return (
           <div className="min-w-[8rem]">
-            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex justify-between text-xs text-fg-muted">
               <span>{formatCents(p.spentCents)}</span><span>{formatCents(p.budgetCents)}</span>
             </div>
             <div className="mt-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
@@ -377,7 +377,7 @@ export default function PromotionsPage() {
           <div className="space-y-3">
             <ErrorAlert message={createForm.error} onDismiss={() => createForm.setError(null)} />
             <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Summer signup credit" /></Field>
-            <Field label={<>Campaign <span className="text-gray-400">(optional)</span></>}><Input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="summer24" /></Field>
+            <Field label={<>Campaign <span className="text-fg-subtle">(optional)</span></>}><Input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="summer24" /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Unit">
                 <Select className="w-full" value={unit} onChange={(e) => setUnit(e.target.value as 'dollar' | 'percent')}>
@@ -399,12 +399,12 @@ export default function PromotionsPage() {
               </Select>
             </Field>
             {event === 'referral' && (
-              <Field label={<>Referrer {unit === 'percent' ? 'percent' : 'amount ($)'} <span className="text-gray-400">(blank = same as referee)</span></>}>
+              <Field label={<>Referrer {unit === 'percent' ? 'percent' : 'amount ($)'} <span className="text-fg-subtle">(blank = same as referee)</span></>}>
                 <Input value={referrerValue} onChange={(e) => setReferrerValue(e.target.value)} placeholder={unit === 'percent' ? '10' : '25'} />
               </Field>
             )}
             <div>
-              <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Eligible tiers <span className="text-gray-400">(none = all)</span></span>
+              <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Eligible tiers <span className="text-fg-subtle">(none = all)</span></span>
               <div className="flex flex-wrap gap-2">
                 {TIER_KEYS.map((t) => (
                   <button key={t} type="button" onClick={() => toggleTier(t)} aria-pressed={tiers.includes(t)}
@@ -422,7 +422,7 @@ export default function PromotionsPage() {
             </label>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Budget ($)"><Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="500" /></Field>
-              <Field label={<>Per-org cap <span className="text-gray-400">($)</span></>}><Input value={perOrgCap} onChange={(e) => setPerOrgCap(e.target.value)} placeholder="optional" /></Field>
+              <Field label={<>Per-org cap <span className="text-fg-subtle">($)</span></>}><Input value={perOrgCap} onChange={(e) => setPerOrgCap(e.target.value)} placeholder="optional" /></Field>
               <Field label="Max grants"><Input value={maxGrants} onChange={(e) => setMaxGrants(e.target.value)} placeholder="optional" /></Field>
             </div>
           </div>
@@ -446,7 +446,7 @@ export default function PromotionsPage() {
         >
           <div className="space-y-3">
             <ErrorAlert message={grantForm.error} onDismiss={() => grantForm.setError(null)} />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Grants this promotion to one org (honors budget + one-per-org idempotency).</p>
+            <p className="text-sm text-fg-muted">Grants this promotion to one org (honors budget + one-per-org idempotency).</p>
             <Field label="Target org ID"><Input value={grantOrg} onChange={(e) => setGrantOrg(e.target.value)} placeholder="org id" /></Field>
           </div>
         </Modal>
@@ -475,7 +475,7 @@ export default function PromotionsPage() {
               {' '}(<span className="font-mono">{formatCents(activateTarget.spentCents)} / {formatCents(activateTarget.budgetCents)}</span> used).
               It cannot be undone.
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Tip: use the preview (eye) action first to see the projected reach.</p>
+            <p className="text-xs text-fg-muted">Tip: use the preview (eye) action first to see the projected reach.</p>
             <Field label={<>Type <span className="font-mono font-semibold">GRANT</span> to confirm</>}>
               <Input value={activateConfirm} onChange={(e) => setActivateConfirm(e.target.value)} placeholder="GRANT" autoFocus />
             </Field>

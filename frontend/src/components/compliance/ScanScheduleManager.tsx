@@ -125,7 +125,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   };
 
   const columns: Column<ScanSchedule>[] = [
-    { id: 'target', header: 'Target', cellClassName: 'text-sm text-gray-600 dark:text-gray-400 capitalize', render: (s) => s.target },
+    { id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted capitalize', render: (s) => s.target },
     {
       id: 'cron',
       header: 'Cron Expression',
@@ -145,13 +145,13 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
           aria-label={s.isActive ? 'Deactivate schedule' : 'Activate schedule'}
         >
           {togglingId === s.id
-            ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            ? <Loader2 className="w-4 h-4 animate-spin text-fg-subtle" />
             : <Badge color={s.isActive ? 'green' : 'gray'}>{s.isActive ? 'Active' : 'Inactive'}</Badge>}
         </button>
       ),
     },
-    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-gray-500', render: (s) => formatDateTime(s.lastRunAt) },
-    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-gray-500', render: (s) => formatDateTime(s.nextRunAt) },
+    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.lastRunAt) },
+    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-fg-muted', render: (s) => formatDateTime(s.nextRunAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -174,7 +174,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <CalendarClock className="h-5 w-5 text-indigo-600" />
+          <CalendarClock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Schedules</h2>
         </div>
         {!readOnly && (
@@ -191,13 +191,13 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
               {editingId ? 'Edit Schedule' : 'Create Schedule'}
             </h3>
-            <button onClick={closeForm} aria-label="Close" className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <button onClick={closeForm} aria-label="Close" className="p-1 rounded-lg text-fg-subtle hover:text-fg">
               <X className="w-4 h-4" />
             </button>
           </div>
           <form onSubmit={handleSubmit} className="flex items-end gap-3">
             <div className="flex-1">
-              <label htmlFor="scan-schedule-target" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target</label>
+              <label htmlFor="scan-schedule-target" className="block text-xs font-medium text-fg-muted mb-1">Target</label>
               <FilterSelect
                 id="scan-schedule-target"
                 value={formData.target}
@@ -209,7 +209,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
               </FilterSelect>
             </div>
             <div className="flex-[2]">
-              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cron Expression</label>
+              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-fg-muted mb-1">Cron Expression</label>
               <Input
                 id="scan-schedule-cron"
                 type="text"
@@ -234,7 +234,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
 
       {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600" /></div>
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" /></div>
       ) : schedules.length === 0 ? (
         <TextEmptyState>No scan schedules found.</TextEmptyState>
       ) : (

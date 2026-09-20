@@ -167,7 +167,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
           <Input id="scim-base-url" value={baseUrl} readOnly className="font-mono text-sm" />
           <CopyButton text={baseUrl} />
         </div>
-        <p className="mt-1 text-xs text-[var(--pb-text-muted)]">
+        <p className="mt-1 text-xs text-fg-muted">
           Paste this into your identity provider&apos;s SCIM connector. It is the same for every organization —
           the key you issue below is what says which one.
         </p>
@@ -221,19 +221,19 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
       ) : error && scimKeys.length === 0 ? (
         <RetryError message={error} onRetry={() => void reload()} />
       ) : scimKeys.length === 0 ? (
-        <p className="text-sm text-[var(--pb-text-muted)]">
+        <p className="text-sm text-fg-muted">
           No SCIM keys yet. Issue one to connect your identity provider.
         </p>
       ) : (
         <div className="space-y-1">
           {scimKeys.map((key) => (
-            <div key={key.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--pb-border)] px-3 py-2 text-xs">
+            <div key={key.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-default px-3 py-2 text-xs">
               <span className="flex flex-wrap items-center gap-2">
                 <span className="font-mono">{key.display}</span>
                 <span>{key.name}</span>
                 <Badge color={key.status === 'active' ? 'green' : key.status === 'expired' ? 'gray' : 'red'}>{key.status}</Badge>
-                <span className="text-[var(--pb-text-muted)]">expires <RelativeTime value={key.expiresAt} /></span>
-                <span className="text-[var(--pb-text-muted)]">
+                <span className="text-fg-muted">expires <RelativeTime value={key.expiresAt} /></span>
+                <span className="text-fg-muted">
                   {key.lastUsedAt ? <>last used <RelativeTime value={key.lastUsedAt} /></> : 'never used'}
                 </span>
               </span>
@@ -241,7 +241,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
                 <Button
                   variant="ghost"
                   size="xs"
-                  className="text-red-600 hover:text-red-700"
+                  className="text-danger hover:text-danger-strong"
                   readOnly={readOnly}
                   disabled={busy}
                   onClick={() => setPendingRevoke(key)}

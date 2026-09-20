@@ -23,9 +23,11 @@
  *   - FAILURES LOCK OUT. A 6-digit code is ~20 bits, so the lockout is the real
  *     bound on online guessing; it applies to sign-in and step-up alike, and to
  *     recovery codes, because they share the counter.
- *   - RECOVERY CODES ARE SINGLE-USE AND HASHED. They are accepted anywhere a
- *     generated code is, and a spent one is kept (marked) so it is refused as
- *     spent rather than as unknown — and so the UI can count what is left.
+ *   - RECOVERY CODES belong to the ACCOUNT, not to this factor
+ *     (`recovery-codes-service.ts`): one set, minted with whichever second
+ *     factor came first. They are accepted anywhere a generated code is, and a
+ *     failed one counts against THIS enrolment's lockout, so the two can't be
+ *     guessed on separate budgets.
  *   - ENROLMENT IS REFUSED FOR SSO-ENFORCED ACCOUNTS. When an org owns the
  *     domain and forces SSO, the IdP owns the factors; a second, unmanaged MFA
  *     its admins can neither see nor revoke is worse than none.
@@ -35,6 +37,12 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
+import {
+  getRecoveryCodeStatus,
+  issueRecoveryCodesIfAbsent,
+  removeRecoveryCodesIfNoFactor,
+  spendRecoveryCode,
+} from './recovery-codes-service.js';
 import {
   TOTP_ALREADY_ENROLLED,
   TOTP_INVALID_CODE,
@@ -48,14 +56,7 @@ import { loadSignInMethods, retainsSignInMethod } from '../helpers/sign-in-metho
 import { findSsoEnforcementForEmail } from '../helpers/sso-enforcement.js';
 import { User, UserTotp } from '../models/index.js';
 import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
-import {
-  RECOVERY_CODE_COUNT,
-  generateRecoveryCode,
-  generateTotpSecret,
-  hashRecoveryCode,
-  totpAuthUri,
-  verifyTotp,
-} from '../utils/totp.js';
+import { generateTotpSecret, totpAuthUri, verifyTotp } from '../utils/totp.js';
 
 const logger = createLogger('totp');
 
@@ -83,8 +84,9 @@ export interface TotpStatus {
   pending: boolean;
   activatedAt: Date | null;
   lastUsedAt: Date | null;
-  /** Unspent recovery codes. Zero on an active enrolment is worth surfacing —
-   *  a lost phone then means an operator recovery, not a self-service one. */
+  /** Unspent recovery codes (the ACCOUNT's set, shared with passkeys). Zero on
+   *  an active enrolment is worth surfacing — a lost phone then means an admin
+   *  reset, not a self-service one. */
   recoveryCodesRemaining: number;
   recoveryCodesTotal: number;
   recoveryGeneratedAt: Date | null;
@@ -110,14 +112,12 @@ export async function hasActiveTotp(userId: string): Promise<boolean> {
 
 /** The settings-page view. Absent enrolment reads as a clean "off". */
 export async function getStatus(userId: string): Promise<TotpStatus> {
-  const doc = await UserTotp.findOne({ userId }).select('+recoveryCodes').lean() as
-    (Pick<TotpStatus, never> & {
+  const doc = await UserTotp.findOne({ userId }).lean() as
+    {
       activatedAt?: Date | null;
       lastUsedAt?: Date | null;
       lockedUntil?: Date | null;
-      recoveryGeneratedAt?: Date;
-      recoveryCodes?: Array<{ usedAt?: Date | null }>;
-    }) | null;
+    } | null;
   if (!doc) {
     return {
       enabled: false,
@@ -130,16 +130,16 @@ export async function getStatus(userId: string): Promise<TotpStatus> {
       lockedUntil: null,
     };
   }
-  const codes = doc.recoveryCodes ?? [];
+  const recovery = await getRecoveryCodeStatus(userId);
   const locked = doc.lockedUntil && doc.lockedUntil.getTime() > Date.now() ? doc.lockedUntil : null;
   return {
     enabled: !!doc.activatedAt,
     pending: !doc.activatedAt,
     activatedAt: doc.activatedAt ?? null,
     lastUsedAt: doc.lastUsedAt ?? null,
-    recoveryCodesRemaining: codes.filter((c) => !c.usedAt).length,
-    recoveryCodesTotal: codes.length,
-    recoveryGeneratedAt: doc.recoveryGeneratedAt ?? null,
+    recoveryCodesRemaining: recovery.remaining,
+    recoveryCodesTotal: recovery.total,
+    recoveryGeneratedAt: recovery.generatedAt,
     lockedUntil: locked,
   };
 }
@@ -177,8 +177,6 @@ export async function beginEnrolment(userId: string): Promise<TotpEnrolment> {
         secret: encrypted,
         activatedAt: null,
         lastUsedStep: 0,
-        recoveryCodes: [],
-        recoveryGeneratedAt: new Date(),
         failedAttempts: 0,
         lockedUntil: null,
         lastUsedAt: null,
@@ -195,8 +193,10 @@ export async function beginEnrolment(userId: string): Promise<TotpEnrolment> {
 }
 
 /**
- * Confirm a pending enrolment with a code from the authenticator, and mint the
- * recovery codes.
+ * Confirm a pending enrolment with a code from the authenticator — and, when
+ * this is the account's FIRST second factor, mint its recovery codes (returned
+ * once). An account that already has a set (from a passkey) keeps it, and gets
+ * `recoveryCodes: []`.
  *
  * Confirming with a real code (rather than trusting the scan) is the whole point
  * of the two-step enrolment: it proves the secret actually reached a working
@@ -223,7 +223,6 @@ export async function activate(userId: string, code: string): Promise<{ recovery
     throw new Error(TOTP_INVALID_CODE);
   }
 
-  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
   await UserTotp.updateOne(
     { userId },
     {
@@ -231,15 +230,14 @@ export async function activate(userId: string, code: string): Promise<{ recovery
         activatedAt: new Date(),
         lastUsedStep: step,
         lastUsedAt: new Date(),
-        recoveryCodes: codes.map((c) => ({ hash: hashRecoveryCode(c), usedAt: null })),
-        recoveryGeneratedAt: new Date(),
         failedAttempts: 0,
         lockedUntil: null,
       },
     },
   );
-  logger.info('TOTP enrolment activated', { userId });
-  return { recoveryCodes: codes };
+  const recoveryCodes = await issueRecoveryCodesIfAbsent(userId);
+  logger.info('TOTP enrolment activated', { userId, recoveryCodesMinted: !!recoveryCodes });
+  return { recoveryCodes: recoveryCodes ?? [] };
 }
 
 /**
@@ -250,12 +248,11 @@ export async function activate(userId: string, code: string): Promise<{ recovery
  */
 export async function verifyCode(userId: string, code: string): Promise<TotpVerification> {
   const doc = await UserTotp.findOne({ userId, activatedAt: { $ne: null } })
-    .select('+secret +recoveryCodes').lean() as
+    .select('+secret').lean() as
     {
       secret: string;
       lastUsedStep: number;
       lockedUntil?: Date | null;
-      recoveryCodes?: Array<{ hash: string; usedAt?: Date | null }>;
     } | null;
   if (!doc) throw new Error(TOTP_NOT_ENROLLED);
   assertNotLockedOut(doc.lockedUntil);
@@ -276,61 +273,25 @@ export async function verifyCode(userId: string, code: string): Promise<TotpVeri
     }
     return {
       method: 'totp',
-      recoveryCodesRemaining: (doc.recoveryCodes ?? []).filter((c) => !c.usedAt).length,
+      recoveryCodesRemaining: (await getRecoveryCodeStatus(userId)).remaining,
     };
   }
 
   const recovery = await spendRecoveryCode(userId, code);
-  if (recovery !== null) return { method: 'recovery', recoveryCodesRemaining: recovery };
+  if (recovery !== null) {
+    // A good recovery code ends a failure run exactly like a good generated one.
+    await UserTotp.updateOne({ userId }, { $set: { lastUsedAt: new Date(), failedAttempts: 0, lockedUntil: null } });
+    return { method: 'recovery', recoveryCodesRemaining: recovery };
+  }
 
   await recordFailure(userId);
   throw new Error(TOTP_INVALID_CODE);
 }
 
 /**
- * Spend one unused recovery code, returning how many remain — or `null` when the
- * value matches nothing unspent.
- *
- * The `$` positional update makes the spend atomic: the filter matches the
- * ELEMENT with that hash and `usedAt: null`, so two concurrent uses of one code
- * race on the same array element and exactly one stamps it.
- */
-async function spendRecoveryCode(userId: string, code: string): Promise<number | null> {
-  const hash = hashRecoveryCode(code);
-  const updated = await UserTotp.findOneAndUpdate(
-    { userId, activatedAt: { $ne: null }, recoveryCodes: { $elemMatch: { hash, usedAt: null } } },
-    { $set: { 'recoveryCodes.$.usedAt': new Date(), 'lastUsedAt': new Date(), 'failedAttempts': 0, 'lockedUntil': null } },
-    { new: true, projection: { recoveryCodes: 1 } },
-  ).select('+recoveryCodes').lean() as { recoveryCodes?: Array<{ usedAt?: Date | null }> } | null;
-  if (!updated) return null;
-  return (updated.recoveryCodes ?? []).filter((c) => !c.usedAt).length;
-}
-
-/**
- * Mint a fresh set of recovery codes, discarding the old ones (spent or not).
- *
- * Whole-set replacement rather than topping up: the old sheet is assumed to be
- * on paper somewhere, and "some of these still work" is not a state anybody can
- * reason about.
- */
-export async function regenerateRecoveryCodes(userId: string): Promise<{ recoveryCodes: string[] }> {
-  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
-  const updated = await UserTotp.findOneAndUpdate(
-    { userId, activatedAt: { $ne: null } },
-    {
-      $set: {
-        recoveryCodes: codes.map((c) => ({ hash: hashRecoveryCode(c), usedAt: null })),
-        recoveryGeneratedAt: new Date(),
-      },
-    },
-    { projection: { _id: 1 } },
-  ).lean();
-  if (!updated) throw new Error(TOTP_NOT_ENROLLED);
-  return { recoveryCodes: codes };
-}
-
-/**
- * Turn TOTP off, taking the secret and every recovery code with it.
+ * Turn TOTP off, taking the secret with it — and the account's recovery codes
+ * too when no passkey remains (a recovery code with no factor to recover is a
+ * second password in disguise).
  *
  * Refused when nothing else could open a session (see
  * `helpers/sign-in-methods.ts`) — the same rule that stops the last passkey from
@@ -343,7 +304,8 @@ export async function disable(userId: string): Promise<void> {
     throw new Error(TOTP_LAST_SIGN_IN_METHOD);
   }
   await UserTotp.deleteOne({ userId });
-  logger.info('TOTP disabled', { userId });
+  const codesRemoved = await removeRecoveryCodesIfNoFactor(userId);
+  logger.info('TOTP disabled', { userId, recoveryCodesRemoved: codesRemoved });
 }
 
 /** Refuse every verification while a lockout is live. */

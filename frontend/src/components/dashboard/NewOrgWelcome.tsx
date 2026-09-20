@@ -38,14 +38,14 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
             <button
               type="button"
               onClick={onDismiss}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1"
+              className="text-xs text-fg-muted hover:text-fg flex items-center gap-1"
               aria-label="Dismiss onboarding card"
             >
               <X className="w-3 h-3" aria-hidden="true" />
               Don&apos;t show again
             </button>
           </div>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-fg-muted mt-0.5">
             Three steps to your first build. Each checks off automatically as you go.
           </p>
         </div>
@@ -71,11 +71,11 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
                       {step.title}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                  <p className="text-xs text-fg-muted mt-0.5">
                     {step.description}
                   </p>
                 </div>
-                <ArrowRight className="w-4 h-4 flex-shrink-0 mt-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true" />
+                <ArrowRight className="w-4 h-4 flex-shrink-0 mt-1 text-fg-subtle opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true" />
               </Link>
             </li>
           );

@@ -34,6 +34,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: { deleteMany: deleteMany('JoinRequest') },
   WebAuthnCredential: { deleteMany: deleteMany('WebAuthnCredential') },
   UserTotp: { deleteMany: deleteMany('UserTotp') },
+  MfaRecoveryCodes: { deleteMany: deleteMany('MfaRecoveryCodes') },
+  MfaResetRequest: { deleteMany: deleteMany('MfaResetRequest') },
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertNotLastPrivilegedMember: (...a: unknown[]) => mockAssertNotLast(...a),

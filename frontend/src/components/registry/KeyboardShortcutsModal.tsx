@@ -52,7 +52,7 @@ export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps)
           </li>
         ))}
       </ul>
-      <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+      <div className="mt-4 text-xs text-fg-muted">
         Shortcuts are disabled while typing in a form field or while any modal is open.
       </div>
     </Modal>

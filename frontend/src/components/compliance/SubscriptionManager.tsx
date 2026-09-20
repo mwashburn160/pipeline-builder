@@ -239,7 +239,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <BookOpen className="h-5 w-5 text-blue-600" />
+        <BookOpen className="h-5 w-5 text-brand" />
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Published Rules & Subscriptions</h2>
       </div>
       {/* The tab bar stays mounted through a load, so switching views never
@@ -248,7 +248,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-brand" />
         </div>
       ) : tab === 'subscriptions' && (
         <>
@@ -281,7 +281,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                       <div>
                         <div className="text-sm font-medium text-gray-900 dark:text-white">{sub.rule?.name || sub.ruleId}</div>
                         {sub.rule?.description && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{sub.rule.description}</div>
+                          <div className="text-xs text-fg-muted truncate max-w-md">{sub.rule.description}</div>
                         )}
                       </div>
                       {sub.rule && (
@@ -332,10 +332,10 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                     <div className="mx-3 mb-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm">
                       <div className="flex items-center gap-3 mb-1">
                         <span className="flex items-center gap-1 text-xs">
-                          {previewResult.passed ? <CheckCircle className="h-3.5 w-3.5 text-green-600" /> : <XCircle className="h-3.5 w-3.5 text-red-600" />}
+                          {previewResult.passed ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-danger" />}
                           {previewResult.passed ? 'Would pass' : 'Would fail'}
                         </span>
-                        <span className="text-xs text-gray-500">{previewResult.rulesEvaluated} rules evaluated</span>
+                        <span className="text-xs text-fg-muted">{previewResult.rulesEvaluated} rules evaluated</span>
                       </div>
                       {previewResult.violations.length > 0 && previewResult.violations.map((v, i) => (
                         <div key={i} className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
@@ -355,7 +355,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
                           Impact on your existing entities
                         </span>
-                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                        <span className="text-xs text-fg-muted">
                           <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
                             {impactResult.wouldFail}
                           </span>
@@ -371,12 +371,12 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                               <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
                               <span>
                                 <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
-                                {s.messages[0] && <span className="text-gray-600 dark:text-gray-400"> — {s.messages[0]}</span>}
+                                {s.messages[0] && <span className="text-fg-muted"> — {s.messages[0]}</span>}
                               </span>
                             </li>
                           ))}
                           {impactResult.wouldFail > impactResult.samples.length && (
-                            <li className="text-xs text-gray-500 italic">
+                            <li className="text-xs text-fg-muted italic">
                               + {impactResult.wouldFail - impactResult.samples.length} more
                             </li>
                           )}
@@ -440,7 +440,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                     <div className="flex items-center gap-3">
                       <div>
                         <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-                        {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{rule.description}</div>}
+                        {rule.description && <div className="text-xs text-fg-muted truncate max-w-md">{rule.description}</div>}
                       </div>
                       <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
                       <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
@@ -455,7 +455,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                     ) : locked ? (
                       <Link
                         href={setGates[setMeta.feature].upsellHref}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 whitespace-nowrap"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-brand whitespace-nowrap"
                         title={`This rule is part of the ${setMeta.label} Compliance library — unlock it in billing`}
                       >
                         <Lock className="h-3 w-3" aria-hidden="true" /> Requires {setMeta.label}

@@ -318,9 +318,9 @@ export default function TemplatesPage() {
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t.name}</h3>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
+                    <span className="text-2xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
                     <span
-                      className={`text-[11px] px-2 py-0.5 rounded ${VISIBILITY_BADGE[t.visibility] ?? VISIBILITY_BADGE.private}`}
+                      className={`text-2xs px-2 py-0.5 rounded ${VISIBILITY_BADGE[t.visibility] ?? VISIBILITY_BADGE.private}`}
                       title={VISIBILITY_TITLE[t.visibility] ?? VISIBILITY_TITLE.private}
                     >
                       {t.visibility}
@@ -347,8 +347,8 @@ export default function TemplatesPage() {
                     )}
                   </div>
                 </div>
-                {t.description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-3">{t.description}</p>}
-                <div className="mt-2 text-xs text-gray-400">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
+                {t.description && <p className="mt-1 text-sm text-fg-muted line-clamp-3">{t.description}</p>}
+                <div className="mt-2 text-xs text-fg-subtle">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
                 <div className="mt-auto pt-3">
                   <Button onClick={() => openInstantiate(t)} disabled={!canCreatePipeline} title={canCreatePipeline ? undefined : 'Requires pipelines:write'} className="w-full">
                     <Sparkles className="w-4 h-4 mr-1.5" /> Use template
@@ -365,7 +365,7 @@ export default function TemplatesPage() {
         <Modal title={`Use “${selected.name}”`} onClose={() => (submitting ? undefined : setSelected(null))} maxWidth="max-w-lg" footer={modalFooter}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project <span className="text-danger">*</span></label>
               <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="my-service" disabled={submitting} />
             </div>
             <div>
@@ -381,19 +381,19 @@ export default function TemplatesPage() {
                 canPublish={canPublishPipeline}
                 disabled={submitting}
               />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublishPipeline, 'pipelines:publish')}</p>
+              <p className="text-xs text-fg-subtle mt-1">{visibilityHint(canPublishPipeline, 'pipelines:publish')}</p>
             </div>
 
             {(selected.inputs?.length ?? 0) > 0 && (
               <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Template inputs</h4>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Template inputs</h4>
                 {selected.inputs.map((inp) => (
                   <div key={inp.name}>
                     <label htmlFor={`tpl-input-${inp.name}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       {inp.label || inp.name}
-                      {inp.required && inp.default === undefined && <span className="text-red-500"> *</span>}
+                      {inp.required && inp.default === undefined && <span className="text-danger"> *</span>}
                     </label>
-                    {inp.description && <p className="text-xs text-gray-400 mb-1">{inp.description}</p>}
+                    {inp.description && <p className="text-xs text-fg-subtle mb-1">{inp.description}</p>}
                     {inp.type === 'boolean' ? (
                       <Checkbox
                         id={`tpl-input-${inp.name}`}

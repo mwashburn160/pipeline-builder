@@ -31,7 +31,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
   switch (block.type) {
     case 'text':
       return (
-        <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+        <p className="text-sm text-fg-muted leading-relaxed">
           {block.content}
         </p>
       );
@@ -44,13 +44,13 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     case 'list':
       return (
-        <ul className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
+        <ul className="space-y-1.5 text-sm text-fg-muted">
           {block.items.map((item, i) => (
             // Help list items are plain strings; the string itself is a
             // stable identifier within the list. Fall back to the index
             // only on the (extremely rare) duplicate-string case.
             <li key={`${item}-${i}`} className="flex gap-2">
-              <span className="text-gray-400 dark:text-gray-500 mt-0.5 flex-shrink-0">&#8226;</span>
+              <span className="text-fg-subtle mt-0.5 flex-shrink-0">&#8226;</span>
               <span className="leading-relaxed">{item}</span>
             </li>
           ))}

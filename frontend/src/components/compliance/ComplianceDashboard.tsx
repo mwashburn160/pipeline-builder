@@ -60,10 +60,10 @@ const SECTIONS: { id: Section; label: string; icon: typeof Shield; tabs: Tab[] }
 ];
 
 const STAT_COLORS: Record<string, string> = {
-  blue: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20',
-  green: 'text-green-600 bg-green-50 dark:bg-green-900/20',
-  yellow: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20',
-  red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
+  blue: 'text-info bg-info-bg',
+  green: 'text-success bg-success-bg',
+  yellow: 'text-warning bg-warning-bg',
+  red: 'text-danger bg-danger-bg',
 };
 
 
@@ -292,7 +292,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'text-fg-muted hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" /> {label}
@@ -371,7 +371,7 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
   if (error) return <RetryError message={error} onRetry={onRetry} />;
   if (changes === null) return <TabSpinner />;
   if (changes.length === 0) {
-    return <div className="text-center py-6 text-sm text-gray-400">No compliance changes recorded yet.</div>;
+    return <div className="text-center py-6 text-sm text-fg-subtle">No compliance changes recorded yet.</div>;
   }
   return (
     <ul className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -384,13 +384,13 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
               <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
               <span className="text-gray-800 dark:text-gray-200 truncate">
                 <code className="text-xs">{e.action}</code>
-                {e.entityName && <span className="text-gray-500 dark:text-gray-400"> on {e.entityName}</span>}
+                {e.entityName && <span className="text-fg-muted"> on {e.entityName}</span>}
               </span>
               {violations.length > 0 && (
                 <span className="text-xs text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
               )}
             </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatRelativeTime(e.createdAt)}</span>
+            <span className="text-xs text-fg-muted whitespace-nowrap">{formatRelativeTime(e.createdAt)}</span>
           </li>
         );
       })}
@@ -512,7 +512,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                 <div className={`rounded-lg p-2 ${STAT_COLORS[color]}`}><Icon className="h-5 w-5" /></div>
                 <div>
                   <div className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
+                  <div className="text-xs text-fg-muted">{label}</div>
                 </div>
               </div>
             </button>
@@ -543,7 +543,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
           </div>
           {activityTab === 'checks' && (
           <div className="flex flex-wrap items-center gap-2">
-            <Filter className="h-3.5 w-3.5 text-gray-400" />
+            <Filter className="h-3.5 w-3.5 text-fg-subtle" />
             <FilterSelect
               value={auditTarget}
               onChange={e => onTargetChange(e.target.value)}
@@ -596,7 +596,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               title="From date"
               aria-label="Audit log from date"
             />
-            <span className="text-xs text-gray-400">→</span>
+            <span className="text-xs text-fg-subtle">→</span>
             <input
               type="date"
               value={auditDateTo}
@@ -613,7 +613,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
         ) : auditError ? (
           <RetryError message={auditError} onRetry={onRetryAudit} />
         ) : audit.length === 0 ? (
-          <div className="text-center py-6 text-sm text-gray-400">
+          <div className="text-center py-6 text-sm text-fg-subtle">
             {filtersActive ? 'No checks match these filters.' : 'No check results recorded yet.'}
           </div>
         ) : (
@@ -632,17 +632,17 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                       className="w-full flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded text-left hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <ChevronDown className={`h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+                        <ChevronDown className={`h-3.5 w-3.5 text-fg-subtle shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                         <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
-                        <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 shrink-0">{entry.action}</span>
+                        <span className="text-2xs font-medium text-fg-subtle shrink-0">{entry.action}</span>
                         <span className="text-sm text-gray-900 dark:text-white truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
+                        <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
                         {violations.length > 0 && (
-                          <span className="text-[11px] text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
+                          <span className="text-2xs text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
                         )}
                       </div>
                       <span
-                        className="flex items-center gap-1 text-xs text-gray-400 shrink-0"
+                        className="flex items-center gap-1 text-xs text-fg-subtle shrink-0"
                         title={formatDateTime(entry.createdAt)}
                       >
                         <Clock className="h-3 w-3" /> {formatRelativeTime(entry.createdAt)}
@@ -650,7 +650,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                     </button>
                     {expanded && (
                       <div className="ml-5 mb-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 text-xs space-y-2">
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-500 dark:text-gray-400">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-fg-muted">
                           <span><span className="font-medium text-gray-700 dark:text-gray-300">Action:</span> <code>{entry.action}</code></span>
                           <span><span className="font-medium text-gray-700 dark:text-gray-300">Rules evaluated:</span> {entry.ruleCount}</span>
                           <span title={formatDateTime(entry.createdAt)}><span className="font-medium text-gray-700 dark:text-gray-300">When:</span> {formatDateTime(entry.createdAt)}</span>
@@ -666,9 +666,9 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                                 <div key={i} className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="font-medium text-gray-900 dark:text-white">{v.ruleName}</span>
-                                    {v.severity && <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{v.severity}</span>}
+                                    {v.severity && <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{v.severity}</span>}
                                   </div>
-                                  {v.message && <div className="text-gray-600 dark:text-gray-400 mt-0.5">{v.message}</div>}
+                                  {v.message && <div className="text-fg-muted mt-0.5">{v.message}</div>}
                                   {(v.field || v.operator) && (
                                     <div className="text-gray-500 dark:text-gray-500 mt-1">
                                       <code>{v.field}</code> {v.operator} — expected <code className="text-gray-700 dark:text-gray-300">{fmtVal(v.expectedValue)}</code>, got <code className="text-red-600 dark:text-red-400">{fmtVal(v.actualValue)}</code>
@@ -679,7 +679,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                             })}
                           </div>
                         ) : (
-                          <div className="text-gray-500 dark:text-gray-400">No violations — all {entry.ruleCount} rule{entry.ruleCount === 1 ? '' : 's'} passed.</div>
+                          <div className="text-fg-muted">No violations — all {entry.ruleCount} rule{entry.ruleCount === 1 ? '' : 's'} passed.</div>
                         )}
                       </div>
                     )}

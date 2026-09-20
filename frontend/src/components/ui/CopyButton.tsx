@@ -14,12 +14,12 @@ export function CopyButton({ text }: { text: string }) {
     <Button variant="outline" size="xs" onClick={() => copy(text)} aria-label="Copy to clipboard">
       {state === 'copied' ? (
         <>
-          <Check className="w-3.5 h-3.5 mr-1 text-green-500" />
+          <Check className="w-3.5 h-3.5 mr-1 text-success" />
           Copied
         </>
       ) : state === 'failed' ? (
         <>
-          <X className="w-3.5 h-3.5 mr-1 text-red-500" />
+          <X className="w-3.5 h-3.5 mr-1 text-danger" />
           Failed
         </>
       ) : (

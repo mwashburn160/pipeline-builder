@@ -36,6 +36,14 @@ interface PendingMfaChallenge {
   /** Active org the completed sign-in should land on — resolved BEFORE the
    *  challenge so the second leg can't be steered somewhere else. */
   orgId?: string;
+  /** Only a RECOVERY CODE can finish this sign-in: the account has no
+   *  authenticator app (its factor is a passkey), and the org's MFA policy
+   *  refused the password alone. */
+  recoveryOnly?: boolean;
+  /** The verified password no longer meets the person's org password policy:
+   *  once the second factor verifies, the sign-in owes a forced password change
+   *  (to at least this length) instead of a session. */
+  passwordChangeMinLength?: number;
   /** Unix seconds; carried so the client can show a countdown. */
   expiresAt: number;
 }
@@ -58,11 +66,22 @@ export interface IssuedMfaChallenge {
   expiresAt: number;
 }
 
-/** Open a challenge for a password sign-in that still owes a second factor. */
-export async function createMfaChallenge(userId: string, orgId?: string): Promise<IssuedMfaChallenge> {
+/** Open a challenge for a password sign-in that still owes a second factor.
+ *  `recoveryOnly` when the only code the account can present is a recovery code. */
+export async function createMfaChallenge(
+  userId: string,
+  orgId?: string,
+  opts: { recoveryOnly?: boolean; passwordChangeMinLength?: number } = {},
+): Promise<IssuedMfaChallenge> {
   const challengeId = crypto.randomBytes(32).toString('base64url');
   const expiresAt = Math.floor((Date.now() + config.auth.totp.challengeTtlMs) / 1000);
-  await challenges.put(challengeId, { userId, ...(orgId ? { orgId } : {}), expiresAt });
+  await challenges.put(challengeId, {
+    userId,
+    ...(orgId ? { orgId } : {}),
+    ...(opts.recoveryOnly ? { recoveryOnly: true } : {}),
+    ...(opts.passwordChangeMinLength ? { passwordChangeMinLength: opts.passwordChangeMinLength } : {}),
+    expiresAt,
+  });
   return { challengeId, expiresAt };
 }
 

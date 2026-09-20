@@ -39,11 +39,11 @@ export function PluginOverview({ loading, pluginSummary, distribution }: PluginO
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <SectionHeading>By Plugin Type</SectionHeading>
-            <div className="space-y-2">{Object.entries(typeDistribution).sort((a, b) => b[1] - a[1]).map(([type, count]) => (<div key={type} className="flex items-center gap-3"><span className="text-sm text-gray-700 dark:text-gray-300 w-36 truncate">{type}</span><div className="flex-1 h-5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden"><div className="h-full bg-blue-500/70 rounded" style={{ width: `${(count / maxDistCount) * 100}%` }} /></div><span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums w-8 text-right">{count}</span></div>))}</div>
+            <div className="space-y-2">{Object.entries(typeDistribution).sort((a, b) => b[1] - a[1]).map(([type, count]) => (<div key={type} className="flex items-center gap-3"><span className="text-sm text-fg w-36 truncate">{type}</span><div className="flex-1 h-5 bg-surface-muted rounded overflow-hidden"><div className="h-full bg-blue-500/70 rounded" style={{ width: `${(count / maxDistCount) * 100}%` }} /></div><span className="text-xs text-fg-subtle tabular-nums w-8 text-right">{count}</span></div>))}</div>
           </Card>
           <Card>
             <SectionHeading>By Compute Type</SectionHeading>
-            <div className="space-y-2">{Object.entries(computeDistribution).sort((a, b) => b[1] - a[1]).map(([type, count]) => (<div key={type} className="flex items-center gap-3"><span className="text-sm text-gray-700 dark:text-gray-300 w-36 truncate">{type}</span><div className="flex-1 h-5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden"><div className="h-full bg-purple-500/70 rounded" style={{ width: `${(count / maxDistCount) * 100}%` }} /></div><span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums w-8 text-right">{count}</span></div>))}</div>
+            <div className="space-y-2">{Object.entries(computeDistribution).sort((a, b) => b[1] - a[1]).map(([type, count]) => (<div key={type} className="flex items-center gap-3"><span className="text-sm text-fg w-36 truncate">{type}</span><div className="flex-1 h-5 bg-surface-muted rounded overflow-hidden"><div className="h-full bg-purple-500/70 rounded" style={{ width: `${(count / maxDistCount) * 100}%` }} /></div><span className="text-xs text-fg-subtle tabular-nums w-8 text-right">{count}</span></div>))}</div>
           </Card>
         </div>
       )}

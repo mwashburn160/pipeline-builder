@@ -80,7 +80,12 @@ This reference documents every environment variable across the Pipeline Builder 
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d). Also the `Max-Age` of the browser's `pb_refresh` cookie. |
 | `AUTH_REFRESH_COOKIE_PATH` | `/api/auth/refresh` | Path the browser's refresh cookie is scoped to, as the **browser** sees it (nginx strips `/api` before proxying, so this is the public path). Change only when the UI is served under a different public prefix. |
 | `AUTH_COOKIE_SECURE` | `true` | `Secure` on the refresh cookie. Every shipped target terminates TLS in front of the gateway and browsers accept `Secure` on `http://localhost`, so leave this on. Set `false` **only** for a plain-http deployment on a non-localhost hostname, where the browser would otherwise drop the cookie and no session could refresh. |
-| `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
+| `PASSWORD_MIN_LENGTH` | `8` | Platform minimum password length — the floor every org's own minimum sits on (an org can raise it for its members, up to 128; see [Org password policy](authentication.md#org-password-policy)) |
+| `PASSWORD_BREACH_CHECK` | `hibp` | Breached-password check at registration, password change and admin reset. `hibp` queries the Have I Been Pwned "Pwned Passwords" range API with only the first 5 hex characters of the password's SHA-1 (k-anonymity, padded responses); `off` disables it (air-gapped installs). **Fail-open**: a timeout or error lets the password through and is metered as `platform_password_breach_checks_total{outcome="unavailable"}` |
+| `PASSWORD_BREACH_CHECK_URL` | `https://api.pwnedpasswords.com/range/` | Range API base (the 5-char prefix is appended). Point at an internal mirror to keep the check without public egress |
+| `PASSWORD_BREACH_CHECK_TIMEOUT_MS` | `2000` | Per-check timeout; past it the check fails open |
+| `LOGIN_ACCOUNT_LIMITER_MAX` | `10` | Per-**account** failed password sign-ins allowed per window on `POST /auth/login` (keyed on a SHA-256 of the normalized identifier; successful sign-ins are not counted). The per-IP limit is `AUTH_LIMITER_*` |
+| `LOGIN_ACCOUNT_LIMITER_WINDOWMS` | `900000` | Per-account sign-in throttle window (15 min) |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the **bootstrap-admin MFA exception** applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See [Assurance levels and required MFA](authentication.md#assurance-levels-and-required-mfa). |
 | `MFA_RECOVER_OPERATOR` | — | Default `--operator` for the `scripts/mfa-recover.js` factor-reset command — who is running it, recorded as the audit actor. Only read by that command; the flag wins when both are given, and the command refuses to run with neither (an audit row for a factor reset is worth little without a name). |
 
@@ -188,6 +193,10 @@ default origin is its scheme + host + port. Nothing below needs to be set.
 | `WEBAUTHN_RP_NAME` | `Pipeline Builder` | Name shown in the device's passkey prompt |
 | `WEBAUTHN_CHALLENGE_TTL_MS` | `120000` | How long a ceremony may take between `/options` and `/verify` (2 min). Challenges are single-use and held in the shared Redis |
 | `WEBAUTHN_MAX_PENDING_CEREMONIES` | `1000` | Cap on the in-memory ceremony fallback, used only when no Redis is configured |
+| `FIDO_MDS_BLOB_PATH` | — | Path to a downloaded FIDO Metadata Service (MDS3) blob JWT. Consulted only for orgs with an approved-authenticator (AAGUID) allowlist; wins over `FIDO_MDS_URL` (the air-gapped option). Its signature chain is verified against the FIDO root before any statement is trusted |
+| `FIDO_MDS_URL` | `https://mds.fidoalliance.org/` | Where to fetch the MDS blob when no path is set; `off` disables fetching. With no metadata loaded, passkey registrations into an allowlisted org are **refused** (fail closed) |
+| `FIDO_MDS_FETCH_TIMEOUT_MS` | `10000` | Blob fetch timeout. After a failed load, loads are not retried for 5 minutes (a stale snapshot, if any, keeps serving) |
+| `FIDO_MDS_REFRESH_MS` | `86400000` | How long a loaded blob is cached before it is re-read (24 h) |
 
 The browser also needs `publickey-credentials-get` / `publickey-credentials-create`
 in `Permissions-Policy`; every shipped nginx config and `frontend/next.config.js`

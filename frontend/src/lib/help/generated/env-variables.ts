@@ -227,7 +227,32 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PASSWORD_MIN_LENGTH",
               "8",
-              "Minimum password length"
+              "Platform minimum password length — the floor every org's own minimum sits on (an org can raise it for its members, up to 128; see Org password policy)"
+            ],
+            [
+              "PASSWORD_BREACH_CHECK",
+              "hibp",
+              "Breached-password check at registration, password change and admin reset. hibp queries the Have I Been Pwned \"Pwned Passwords\" range API with only the first 5 hex characters of the password's SHA-1 (k-anonymity, padded responses); off disables it (air-gapped installs). Fail-open: a timeout or error lets the password through and is metered as platform_password_breach_checks_total{outcome=\"unavailable\"}"
+            ],
+            [
+              "PASSWORD_BREACH_CHECK_URL",
+              "https://api.pwnedpasswords.com/range/",
+              "Range API base (the 5-char prefix is appended). Point at an internal mirror to keep the check without public egress"
+            ],
+            [
+              "PASSWORD_BREACH_CHECK_TIMEOUT_MS",
+              "2000",
+              "Per-check timeout; past it the check fails open"
+            ],
+            [
+              "LOGIN_ACCOUNT_LIMITER_MAX",
+              "10",
+              "Per-account failed password sign-ins allowed per window on POST /auth/login (keyed on a SHA-256 of the normalized identifier; successful sign-ins are not counted). The per-IP limit is AUTH_LIMITER_*"
+            ],
+            [
+              "LOGIN_ACCOUNT_LIMITER_WINDOWMS",
+              "900000",
+              "Per-account sign-in throttle window (15 min)"
             ],
             [
               "BOOTSTRAP_SUPERADMIN_EMAILS",
@@ -540,6 +565,26 @@ export const envVariablesTopic: HelpTopic = {
               "WEBAUTHN_MAX_PENDING_CEREMONIES",
               "1000",
               "Cap on the in-memory ceremony fallback, used only when no Redis is configured"
+            ],
+            [
+              "FIDO_MDS_BLOB_PATH",
+              "—",
+              "Path to a downloaded FIDO Metadata Service (MDS3) blob JWT. Consulted only for orgs with an approved-authenticator (AAGUID) allowlist; wins over FIDO_MDS_URL (the air-gapped option). Its signature chain is verified against the FIDO root before any statement is trusted"
+            ],
+            [
+              "FIDO_MDS_URL",
+              "https://mds.fidoalliance.org/",
+              "Where to fetch the MDS blob when no path is set; off disables fetching. With no metadata loaded, passkey registrations into an allowlisted org are refused (fail closed)"
+            ],
+            [
+              "FIDO_MDS_FETCH_TIMEOUT_MS",
+              "10000",
+              "Blob fetch timeout. After a failed load, loads are not retried for 5 minutes (a stale snapshot, if any, keeps serving)"
+            ],
+            [
+              "FIDO_MDS_REFRESH_MS",
+              "86400000",
+              "How long a loaded blob is cached before it is re-read (24 h)"
             ]
           ]
         },

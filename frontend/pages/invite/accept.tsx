@@ -157,7 +157,8 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       // org; creating a second org here would be wrong. `redirect: false` keeps
       // register from navigating to /dashboard before we accept the invite —
       // otherwise the page unmounts mid-accept and `finish()` never runs.
-      await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false });
+      // Naming the invitation makes the inviting org's password policy apply.
+      await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false, invitationToken: token });
       const res = await api.acceptInvitation(token);
       if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
       await finish();
@@ -188,14 +189,14 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       </Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
-          <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <Link href="/" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </Link>
         </div>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
           <div className="flex items-center justify-center mb-4">
-            <Mail className="w-7 h-7 text-[var(--pb-brand)]" />
+            <Mail className="w-7 h-7 text-brand" />
           </div>
           <h1 className="text-xl font-bold text-center mb-1">You&apos;re invited</h1>
 
@@ -203,45 +204,45 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
             {(loading || !isInitialized) && (
               <div className="py-6 text-center" role="status" aria-live="polite">
                 <LoadingSpinner size="md" className="mx-auto mb-2" />
-                <p className="text-sm text-[var(--pb-text-muted)]">Loading invitation…</p>
+                <p className="text-sm text-fg-muted">Loading invitation…</p>
               </div>
             )}
 
             {!loading && loadError && (
               <div className="py-4 text-center">
-                <XCircle className="w-9 h-9 text-[var(--pb-danger)] mx-auto mb-2" />
-                <p className="text-sm text-[var(--pb-text-muted)]">{loadError}</p>
+                <XCircle className="w-9 h-9 text-danger mx-auto mb-2" />
+                <p className="text-sm text-fg-muted">{loadError}</p>
               </div>
             )}
 
             {!loading && done && (
               <div className="py-4 text-center" role="status" aria-live="polite">
-                <CheckCircle className="w-9 h-9 text-[var(--pb-success)] mx-auto mb-2" />
+                <CheckCircle className="w-9 h-9 text-success mx-auto mb-2" />
                 <p className="font-bold">Invitation accepted!</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">Redirecting to your dashboard…</p>
+                <p className="text-sm text-fg-muted mt-1">Redirecting to your dashboard…</p>
               </div>
             )}
 
             {!loading && !loadError && !done && invite && isInitialized && (
               <>
-                <p className="text-sm text-[var(--pb-text-muted)] mb-4">
-                  Invitation for <strong className="text-[var(--pb-text)]">{invite.email}</strong> to
-                  join as <strong className="text-[var(--pb-text)]">{invite.role}</strong>.
+                <p className="text-sm text-fg-muted mb-4">
+                  Invitation for <strong className="text-fg">{invite.email}</strong> to
+                  join as <strong className="text-fg">{invite.role}</strong>.
                 </p>
 
                 <ErrorAlert message={actionError} className="text-sm mb-3" />
 
                 {inviteUnusable ? (
                   <div className="text-center py-2">
-                    <XCircle className="w-8 h-8 text-[var(--pb-danger)] mx-auto mb-2" />
-                    <p className="text-sm text-[var(--pb-text-muted)]">
+                    <XCircle className="w-8 h-8 text-danger mx-auto mb-2" />
+                    <p className="text-sm text-fg-muted">
                       This invitation is {invite.status === 'pending' ? 'no longer valid' : invite.status} and can&apos;t be accepted.
                     </p>
                   </div>
                 ) : user ? (
                   // Logged in.
                   <>
-                    <p className="text-xs text-[var(--pb-text-muted)] mb-3">
+                    <p className="text-xs text-fg-muted mb-3">
                       Signed in as <strong>{user.email}</strong>.
                       {user.email.toLowerCase() !== invite.email.toLowerCase() && (
                         <> This invite was sent to a different email — accepting may be rejected.</>
@@ -261,9 +262,9 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                 ) : invite.canAcceptViaEmail ? (
                   // Logged out — register-and-accept.
                   <form onSubmit={handleRegisterAndAccept} className="space-y-3">
-                    <p className="text-xs text-[var(--pb-text-muted)]">
+                    <p className="text-xs text-fg-muted">
                       Create your account to accept. Already have one?{' '}
-                      <Link href="/" className="text-[var(--pb-brand)] hover:underline">Sign in</Link> first, then reopen this link.
+                      <Link href="/" className="text-brand hover:underline">Sign in</Link> first, then reopen this link.
                     </p>
                     <Input
                       type="email"
@@ -313,7 +314,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                   // approved provider. The invite token rides through OAuth and the
                   // callback completes it via POST /invitation/accept-oauth.
                   <div className="text-center py-2">
-                    <p className="text-xs text-[var(--pb-text-muted)] mb-3">
+                    <p className="text-xs text-fg-muted mb-3">
                       This invitation is accepted by signing in with Google.
                     </p>
                     <Button
@@ -330,7 +331,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                 ) : (
                   // OAuth-only invite with no supported provider we can drive here.
                   <div className="text-center py-2">
-                    <p className="text-sm text-[var(--pb-text-muted)]">
+                    <p className="text-sm text-fg-muted">
                       This invitation must be accepted by signing in with an approved
                       sign-in provider. Sign in first, then reopen this link.
                     </p>

@@ -14,6 +14,8 @@ import { FormField } from '@/components/ui/FormField';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccessKeyTable, type KeyRow } from '@/components/settings/AccessKeyTable';
+import { TokenPermissionPicker, permissionsForRequest } from '@/components/settings/TokenPermissionPicker';
+import { readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
@@ -81,6 +83,13 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
   const { data: keys, loading, error: loadError, reload: load } = useLoadable<KeyRow[]>(loadKeys, [], 'Failed to load access keys');
   const [name, setName] = useState('');
   const [days, setDays] = useState(90);
+  // New keys default to SELECTED permissions, seeded with the read-only preset:
+  // least privilege is the path of least resistance, full access a deliberate
+  // choice. Re-seeded when the profile's permissions arrive.
+  const held = user?.permissions ?? [];
+  const [permMode, setPermMode] = useState<PermissionMode>('selected');
+  const [selectedPerms, setSelectedPerms] = useState<Set<string> | null>(null);
+  const selected = selectedPerms ?? new Set(readOnlyPreset(held));
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -89,7 +98,7 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
   const [pendingRevoke, setPendingRevoke] = useState<KeyRow | null>(null);
   // Creating a key is step-up gated (it mints a long-lived credential). Hold the
   // validated request until the user re-confirms in StepUpModal.
-  const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number } | null>(null);
+  const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number; permissions?: string[] } | null>(null);
 
   // Validate, then hand off to the step-up modal — the actual create runs in
   // executeCreate once the user re-confirms.
@@ -97,7 +106,9 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
     if (!name.trim()) { toast.error('Name is required'); return; }
     const d = Math.floor(Number(days));
     if (!Number.isFinite(d) || d < 1 || d > 365) { toast.error('Expiry must be 1–365 days'); return; }
-    setPendingCreate({ name: name.trim(), expiresIn: d * 86400 });
+    const permissions = permissionsForRequest(permMode, selected);
+    if (permissions && permissions.length === 0) { toast.error('Choose at least one permission, or full access'); return; }
+    setPendingCreate({ name: name.trim(), expiresIn: d * 86400, ...(permissions ? { permissions } : {}) });
   };
 
   const executeCreate = async (stepUpToken: string) => {
@@ -109,6 +120,8 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
       if (res.success && res.data) {
         setNewKey(res.data.key);
         setName('');
+        setPermMode('selected');
+        setSelectedPerms(null);
         toast.success('Access key created');
         void load();
       } else {
@@ -156,6 +169,16 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
         </FormField>
         <Button onClick={handleCreate} loading={creating || !!pendingCreate} readOnly={readOnly}>Create key</Button>
       </div>
+      <div className="mb-4">
+        <TokenPermissionPicker
+          mode={permMode}
+          onModeChange={setPermMode}
+          selected={selected}
+          onSelectedChange={setSelectedPerms}
+          held={held}
+          disabled={creating || readOnly}
+        />
+      </div>
 
       {pendingCreate && (
         <StepUpModal
@@ -163,8 +186,11 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
           action={`Create the access key “${pendingCreate.name}”`}
           details={(
             <p>
-              It is a long-lived credential that can act as you wherever it is used, and it is shown
-              exactly once — on the next screen.
+              It is a long-lived credential that can act as you wherever it is used
+              {pendingCreate.permissions
+                ? <> — limited to {pendingCreate.permissions.length} selected permission{pendingCreate.permissions.length === 1 ? '' : 's'}</>
+                : <>, with <strong>full access</strong> to everything you can do</>}
+              , and it is shown exactly once — on the next screen.
             </p>
           )}
           onConfirmed={executeCreate}

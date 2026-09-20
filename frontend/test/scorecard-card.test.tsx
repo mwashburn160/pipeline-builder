@@ -76,7 +76,7 @@ describe('ScorecardCard', () => {
     render(<ScorecardCard pipelineId="p1" />);
     const grade = await screen.findByText('A');
     // Grade "A" carries the green grade-style classes (GRADE_STYLES['A']).
-    expect(grade).toHaveClass('bg-green-100');
+    expect(grade).toHaveClass('bg-success-bg');
     expect(screen.getByText('Maturity scorecard')).toBeInTheDocument();
   });
 

@@ -64,7 +64,7 @@ export default function NewDashboardPage() {
     <DashboardLayout title="New dashboard" subtitle="Create an empty dashboard, then add panels in the editor.">
       <div className="max-w-xl rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Name <span className="text-danger">*</span></label>
           <Input
             type="text"
             value={name}
@@ -74,7 +74,7 @@ export default function NewDashboardPage() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Description</label>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -83,7 +83,7 @@ export default function NewDashboardPage() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Visibility</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Visibility</label>
           <Select
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as typeof visibility)}

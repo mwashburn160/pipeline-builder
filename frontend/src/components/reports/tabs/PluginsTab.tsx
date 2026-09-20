@@ -44,7 +44,7 @@ export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
       {/* The team rollup reaches the build reports; the plugin INVENTORY is
           per-organization by design, so say so rather than imply it rolled up. */}
       {filters.includeDescendants && subTab !== 'builds' && (
-        <p className="text-xs text-gray-500 dark:text-gray-400" role="note">
+        <p className="text-xs text-fg-muted" role="note">
           Plugin inventory is per-organization — the team rollup applies to the Builds reports.
         </p>
       )}

@@ -137,7 +137,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // differs: header pops down left-aligned at a fixed width, the collapsed rail
   // pops out to the right, and the sidebar card fills its own width).
   const menuPosition = variant === 'header'
-    ? 'left-0 top-full mt-1.5 w-64'
+    ? 'left-0 top-full mt-1.5 w-64 max-w-[calc(100vw-2rem)]'
     : collapsed
       ? 'left-full top-0 ml-2 w-60'
       : 'left-0 right-0 top-full mt-1.5';
@@ -146,7 +146,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       className={`absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden ${menuPosition}`}
       role="menu"
     >
-      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
         Switch organization
       </div>
       <div className="py-1 max-h-64 overflow-y-auto">
@@ -167,25 +167,25 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
               }`}
             >
               {depth > 0 || org.parentOrgId
-                ? <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />
-                : <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />}
+                ? <Users className="w-3.5 h-3.5 text-fg-subtle shrink-0" aria-hidden />
+                : <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" aria-hidden />}
               <span className="flex-1 min-w-0 text-left">
                 <span className="block truncate">{org.name}</span>
                 {/* A team listed at the top level (the user isn't a member of its
                     parent) must still read as a team, not an account. */}
                 {depth === 0 && org.parentOrgId && (
-                  <span className="block truncate text-[11px] font-normal text-gray-400 dark:text-gray-500">
+                  <span className="block truncate text-2xs font-normal text-fg-subtle">
                     {teamCaption(org)}
                   </span>
                 )}
               </span>
               <span
-                className="text-xs text-gray-400 dark:text-gray-500 shrink-0"
+                className="text-xs text-fg-subtle shrink-0"
                 title={org.viaAncestor ? 'Admin access through the parent organization — not a member of this team' : undefined}
               >
                 {org.viaAncestor ? 'via parent' : depth > 0 ? 'team' : org.role}
               </span>
-              {isActive && <Check className="w-4 h-4 text-blue-500 shrink-0" />}
+              {isActive && <Check className="w-4 h-4 text-brand shrink-0" />}
             </button>
           );
         })}
@@ -204,15 +204,18 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
         <button
           type="button"
           onClick={() => canSwitch && setOpen(!open)}
-          aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
+          // The pill truncates the name on narrow screens, so the full name
+          // rides in the accessible name and the hover title.
+          aria-label={canSwitch ? `Switch organization (current: ${activeName})` : `Organization: ${activeName}`}
+          title={activeName}
           aria-haspopup={canSwitch ? 'menu' : undefined}
           aria-expanded={canSwitch ? open : undefined}
-          className={`inline-flex items-center gap-2 h-8 px-3 rounded-lg bg-violet-600 text-white shadow-sm transition-opacity ${
+          className={`inline-flex items-center gap-2 h-8 px-2 sm:px-3 max-w-full min-w-0 rounded-lg bg-violet-600 text-white shadow-sm transition-opacity ${
             canSwitch ? 'hover:opacity-90 cursor-pointer' : 'cursor-default'
           }`}
         >
           {activeIsTeam ? <Users className="w-4 h-4 shrink-0" /> : <Building2 className="w-4 h-4 shrink-0" />}
-          <span className="text-sm font-semibold truncate max-w-[10rem] sm:max-w-[14rem]">{activeName}</span>
+          <span className="text-sm font-semibold truncate min-w-0 max-w-[6rem] sm:max-w-[14rem]">{activeName}</span>
           {canSwitch && <ChevronsUpDown className="w-3.5 h-3.5 shrink-0 text-white/80" />}
         </button>
         {menu}
@@ -237,7 +240,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
             }`}
           >
             <Building2 className="w-5 h-5" />
-            {canSwitch && <ChevronsUpDown className="w-3 h-3 text-gray-400 absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-900 rounded-full" />}
+            {canSwitch && <ChevronsUpDown className="w-3 h-3 text-fg-subtle absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-900 rounded-full" />}
           </button>
         </Tooltip>
         {menu}
@@ -264,14 +267,14 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           {activeIsTeam ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
         </span>
         <span className="flex-1 min-w-0 text-left">
-          <span className="block truncate text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-fg-subtle">
             {activeIsTeam && activeOrg ? teamCaption(activeOrg) : 'Organization'}
           </span>
           <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
             {activeName}
           </span>
         </span>
-        {canSwitch && <ChevronsUpDown className="w-4 h-4 text-gray-400 group-hover:text-blue-500 shrink-0 transition-colors" />}
+        {canSwitch && <ChevronsUpDown className="w-4 h-4 text-fg-subtle group-hover:text-brand shrink-0 transition-colors" />}
       </button>
       {menu}
     </div>

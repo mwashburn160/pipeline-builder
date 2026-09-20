@@ -16,9 +16,8 @@
  *     `activate` is NOT step-up gated a second time: it confirms the pending
  *     secret the gated call minted, and is useless without a code from the
  *     authenticator that secret reached.
- *   - REMOVAL and RECOVERY-CODE REGENERATION each take a fresh step-up — one
- *     destroys the factor, the other invalidates every code the person has
- *     written down and mints a new sheet.
+ *   - REMOVAL takes a fresh step-up — it destroys the factor. (Recovery codes
+ *     belong to the account, not to this factor: `/auth/recovery-codes`.)
  *   - Everything that mints or destroys factor material also requires an
  *     INTERACTIVE session (`requireInteractiveSession`): never an API key, a
  *     scoped machine token or an impersonated session, read-only or not.
@@ -31,7 +30,6 @@ import {
   activateTotp,
   disableTotp,
   enrolTotp,
-  regenerateRecoveryCodes,
   totpStatus,
 } from '../controllers/totp.js';
 import { requireInteractiveSession } from '../middleware/index.js';
@@ -68,16 +66,6 @@ router.delete(
   requireStepUp,
   audited('user.totp.disable'),
   disableTotp,
-);
-
-/** POST /auth/totp/recovery-codes - Replace the recovery-code sheet */
-router.post(
-  '/recovery-codes',
-  requireAuth,
-  requireInteractiveSession,
-  requireStepUp,
-  audited('user.totp.recovery_regenerate'),
-  regenerateRecoveryCodes,
 );
 
 export default router;

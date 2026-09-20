@@ -59,7 +59,7 @@ export default function RoleSection({
                 checked={role.mutable}
                 onChange={(e) => onMutableChange(e.target.checked)}
                 disabled={disabled}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 text-brand focus:ring-blue-500"
               />
               <label htmlFor="roleArnMutable" className="ml-2 text-sm text-gray-700 dark:text-gray-300">Mutable</label>
             </div>
@@ -83,7 +83,7 @@ export default function RoleSection({
                 checked={role.mutable}
                 onChange={(e) => onMutableChange(e.target.checked)}
                 disabled={disabled}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 text-brand focus:ring-blue-500"
               />
               <label htmlFor="roleNameMutable" className="ml-2 text-sm text-gray-700 dark:text-gray-300">Mutable</label>
             </div>
@@ -106,7 +106,7 @@ export default function RoleSection({
 
         {role.type === 'oidc' && (
           <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-fg-muted">
               Create a role trusted by an OIDC identity provider (e.g. GitHub Actions, GitLab CI).
               Provide either an existing provider ARN or an issuer URL to create a new one.
             </p>
@@ -121,7 +121,7 @@ export default function RoleSection({
               />
             </FormField>
 
-            <div className="text-center text-xs text-gray-400 dark:text-gray-500">— or —</div>
+            <div className="text-center text-xs text-fg-subtle">— or —</div>
 
             <FormField label="Issuer URL">
               <Input

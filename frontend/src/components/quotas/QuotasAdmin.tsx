@@ -165,7 +165,7 @@ export function QuotasAdmin({
         {isSuperAdmin && (
           <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-fg-subtle mb-3">
                 Organizations
               </p>
               <Input
@@ -175,7 +175,7 @@ export function QuotasAdmin({
                 onChange={(e) => setSearchFilter(e.target.value)}
                 className="!py-1.5 text-xs"
               />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              <p className="text-xs text-fg-subtle mt-2">
                 {orgTotal > platformOrgs.length
                   ? `Showing ${platformOrgs.length} of ${orgTotal} — type to search all`
                   : `${platformOrgs.length} org${platformOrgs.length !== 1 ? 's' : ''}`}
@@ -192,7 +192,7 @@ export function QuotasAdmin({
                 />
               ))}
               {filteredOrgs.length === 0 && (
-                <p className="p-5 text-sm text-gray-400 dark:text-gray-500 text-center">No matches</p>
+                <p className="p-5 text-sm text-fg-subtle text-center">No matches</p>
               )}
             </div>
           </div>
@@ -246,7 +246,7 @@ export function QuotasAdmin({
             )}
 
             {!loading && orgData && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <p className="text-sm text-fg-muted mb-4">
                 {orgData.name} &middot; <span className="font-mono">{orgData.slug}</span>
               </p>
             )}
@@ -271,7 +271,7 @@ export function QuotasAdmin({
               </div>
             )}
             {!loading && orgData?.pool?.isRoot && isSuperAdmin && (
-              <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mb-4 text-xs text-fg-muted">
                 Pooled across this organization and its {orgData.pool.orgCount - 1} team{orgData.pool.orgCount - 1 !== 1 ? 's' : ''}:
                 usage is the combined total, and these limits bind all of them.
               </p>
@@ -291,10 +291,10 @@ export function QuotasAdmin({
             {!loading && orgData && canEdit && (
               <div className="mb-8">
                 <div className="mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
                     Change plan tier
                   </h2>
-                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  <p className="mt-1 text-xs text-fg-subtle">
                     Selecting a tier fills in its preset limits below. Save to apply.
                   </p>
                 </div>
@@ -320,8 +320,8 @@ export function QuotasAdmin({
                           <span className={`w-2.5 h-2.5 rounded-full ${preset.color}`} />
                           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{preset.label}</span>
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{preset.description}</p>
-                        <div className="mt-2 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                        <p className="text-xs text-fg-muted">{preset.description}</p>
+                        <div className="mt-2 text-xs text-fg-subtle tabular-nums">
                           {preset.limits.pipelines === -1 ? 'Unlimited' : preset.limits.pipelines} pipelines
                           {' / '}
                           {preset.limits.plugins === -1 ? 'Unlimited' : preset.limits.plugins} plugins
@@ -337,10 +337,10 @@ export function QuotasAdmin({
             )}
 
             <div className="mb-8">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle mb-3">
                 Quota Usage
                 {canEdit && (
-                  <span className="font-normal normal-case tracking-normal ml-2 text-gray-400 dark:text-gray-500">
+                  <span className="font-normal normal-case tracking-normal ml-2 text-fg-subtle">
                     — edit each limit in its card
                   </span>
                 )}
@@ -374,7 +374,7 @@ export function QuotasAdmin({
             </div>
 
             {!isSuperAdmin && !loading && (
-              <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+              <p className="text-sm text-fg-subtle text-center mt-6">
                 Contact a system administrator to change quota limits.
               </p>
             )}

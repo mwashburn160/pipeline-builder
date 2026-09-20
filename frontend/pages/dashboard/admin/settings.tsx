@@ -133,7 +133,7 @@ export default function PlatformSettingsPage() {
 
       <Card className="mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
           <div className="text-sm text-amber-800 dark:text-amber-200">
             <strong>Read-only.</strong> All values reflect the running deploy&apos;s environment.
             To change a setting, edit the deploy&apos;s env vars and re-deploy — the platform reads
@@ -151,23 +151,23 @@ export default function PlatformSettingsPage() {
               re-presented in the platform-settings context. */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <Card className="text-center">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Orgs</div>
+              <div className="text-xs text-fg-muted">Orgs</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.total}</div>
             </Card>
             <Card className="text-center">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Users</div>
+              <div className="text-xs text-fg-muted">Users</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.users.total}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">{summary.users.sysadmins} sysadmin{summary.users.sysadmins === 1 ? '' : 's'}</div>
+              <div className="text-xs text-fg-muted">{summary.users.sysadmins} sysadmin{summary.users.sysadmins === 1 ? '' : 's'}</div>
             </Card>
             <Card className="text-center">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Per-org KMS</div>
+              <div className="text-xs text-fg-muted">Per-org KMS</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.perOrgKms}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">of {summary.orgs.total}</div>
+              <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
             </Card>
             <Card className="text-center">
-              <div className="text-xs text-gray-500 dark:text-gray-400">SSO enabled</div>
+              <div className="text-xs text-fg-muted">SSO enabled</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.ssoEnabled}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">of {summary.orgs.total}</div>
+              <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
             </Card>
           </div>
 
@@ -180,7 +180,7 @@ export default function PlatformSettingsPage() {
                 return (
                   <li key={row.envVar} className="py-3 flex items-start gap-3">
                     <div className="flex-shrink-0 w-9 h-9 rounded-md bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                      <Icon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      <Icon className="w-4 h-4 text-fg-muted" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -190,7 +190,7 @@ export default function PlatformSettingsPage() {
                           {row.currentValue}
                         </div>
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-baseline gap-2 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="mt-0.5 flex flex-wrap items-baseline gap-2 text-xs text-fg-muted">
                         <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{row.envVar}</code>
                         <span>{row.hint}</span>
                       </div>
@@ -201,7 +201,7 @@ export default function PlatformSettingsPage() {
             </ul>
           </Card>
 
-          <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-4 text-xs text-fg-muted">
             See <code>docs/environment-variables.md</code> for the full list of platform env vars
             and their effects.
           </div>

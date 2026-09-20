@@ -95,12 +95,12 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
           {qty === 0 ? 'Add' : 'Update'}
         </Button>
       </div>
-      <p id={`${bundle.id}-qty-delta`} aria-live="polite" className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
+      <p id={`${bundle.id}-qty-delta`} aria-live="polite" className="mt-1 text-xs text-fg-muted tabular-nums">
         {overMax
           ? `Capped at ${max}`
           : `${qty} → ${target}${delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''} · ${total}`}
       </p>
-      {tiers && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {tiers}</p>}
+      {tiers && <p className="mt-0.5 text-xs text-fg-muted">Volume discount — {tiers}</p>}
 
       {/* A charge (or a capacity cut) deserves the app's own dialog: `window.confirm`
           is unstyled, ignores dark mode, and renders the price as plain text. */}
@@ -116,7 +116,7 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
             {noun}: <span className="tabular-nums">{qty} → {target}</span>
           </p>
           {target < qty ? (
-            <p className="text-red-600 dark:text-red-400">
+            <p className="text-danger">
               {bundle.grants?.seats
                 ? "Members over the new limit can't be added back without buying seats again."
                 : 'That removes the extra capacity they add.'}
@@ -252,8 +252,8 @@ export function AddonGrid({
   }, [highlightedId]);
 
   return (    <div className="mt-10">
-      <h2 className="text-lg font-semibold text-[var(--pb-text)] mb-1">Add-ons</h2>
-      <p className="text-sm text-[var(--pb-text-muted)] mb-4">
+      <h2 className="h2 mb-1">Add-ons</h2>
+      <p className="text-sm text-fg-muted mb-4">
         {!subscribed
           ? 'Preview of the add-on packs available on your plan. Subscribe to a plan to buy extra capacity that stacks on it and pools across your teams.'
           : bundleSelfService
@@ -275,23 +275,23 @@ export function AddonGrid({
               key={b.id}
               ref={isHighlighted ? highlightRef : undefined}
               className={`card flex flex-col scroll-mt-24 transition-shadow ${
-                isHighlighted ? 'ring-2 ring-blue-500 dark:ring-blue-400 shadow-lg' : ''
+                isHighlighted ? 'ring-2 ring-brand shadow-lg' : ''
               }`}
             >
               <div className="flex items-start justify-between">
-                <h3 className="font-medium text-[var(--pb-text)]">{b.name}</h3>
-                <span className="text-sm text-[var(--pb-text-muted)] whitespace-nowrap">
+                <h3 className="font-medium text-fg">{b.name}</h3>
+                <span className="text-sm text-fg-muted whitespace-nowrap">
                   {formatCents(price)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
                 </span>
               </div>
-              <p className="text-sm text-[var(--pb-text-muted)] mt-1 flex-1">{b.description}</p>
+              <p className="text-sm text-fg-muted mt-1 flex-1">{b.description}</p>
               {features.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-[var(--pb-text-muted)]">Unlocks</span>
+                  <span className="text-xs text-fg-muted">Unlocks</span>
                   {features.map((label) => (
                     <span
                       key={label}
-                      className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300"
+                      className="inline-flex items-center rounded-full bg-info-bg px-2 py-0.5 text-xs font-medium text-info"
                     >
                       {label}
                     </span>
@@ -299,10 +299,10 @@ export function AddonGrid({
                 </div>
               )}
               {!subscribed && tierAvailabilityLabel(b) && (
-                <p className="mt-2 text-xs text-[var(--pb-text-muted)]">{tierAvailabilityLabel(b)}</p>
+                <p className="mt-2 text-xs text-fg-muted">{tierAvailabilityLabel(b)}</p>
               )}
               {nudge && (
-                <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-green-50 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
+                <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-success-bg px-2 py-1 text-xs font-medium text-success">
                   {nudge}
                 </p>
               )}
@@ -313,9 +313,9 @@ export function AddonGrid({
                       Subscribe to add →
                     </Button>
                   ) : (
-                    <span className="text-sm text-[var(--pb-text-muted)]">Subscribe to add</span>
+                    <span className="text-sm text-fg-muted">Subscribe to add</span>
                   )
-                ): !canBuy ? (                        <span className="text-sm text-[var(--pb-text-muted)]">
+                ): !canBuy ? (                        <span className="text-sm text-fg-muted">
                     {qty > 0 ? (
                       `${qty} active`
                     ) : (
@@ -323,7 +323,7 @@ export function AddonGrid({
                         href={AWS_MARKETPLACE_LIBRARY_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                        className="text-brand hover:underline"
                       >
                         Manage in AWS Marketplace →
                       </a>
@@ -334,12 +334,12 @@ export function AddonGrid({
                     <Button size="sm" disabled title={blocked.message}>
                       <Lock className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Add
                     </Button>
-                    <p className="text-xs text-[var(--pb-text-muted)]">
+                    <p className="text-xs text-fg-muted">
                       {blocked.message}.{' '}
                       {(() => {
                         const link = prerequisiteLink(blocked, bundles);
                         return (
-                          <Link href={link.href} className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                          <Link href={link.href} className="font-medium text-brand hover:underline">
                             {link.label} →
                           </Link>
                         );

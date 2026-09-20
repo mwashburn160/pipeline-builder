@@ -106,14 +106,14 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       render: (rule) => (
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-          {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
+          {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
           {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
           {rule.tags?.length > 0 && (
             <div className="flex gap-1 mt-1">
               {rule.tags.slice(0, 3).map(tag => (
-                <span key={tag} className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 rounded px-1.5 py-0.5">{tag}</span>
+                <span key={tag} className="text-2xs bg-gray-100 dark:bg-gray-700 text-fg-muted rounded px-1.5 py-0.5">{tag}</span>
               ))}
-              {rule.tags.length > 3 && <span className="text-[10px] text-gray-400">+{rule.tags.length - 3}</span>}
+              {rule.tags.length > 3 && <span className="text-2xs text-fg-subtle">+{rule.tags.length - 3}</span>}
             </div>
           )}
         </>
@@ -140,27 +140,27 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     {
       id: 'field',
       header: 'Field',
-      cellClassName: 'text-sm text-gray-600 dark:text-gray-400 font-mono',
+      cellClassName: 'text-sm text-fg-muted font-mono',
       render: (rule) => rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-'),
     },
     {
       id: 'scope',
       header: 'Scope',
       render: (rule) => (
-        <span className={`text-xs font-medium ${rule.scope === 'published' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`}>{rule.scope}</span>
+        <span className={`text-xs font-medium ${rule.scope === 'published' ? 'text-purple-600 dark:text-purple-400' : 'text-fg-muted'}`}>{rule.scope}</span>
       ),
     },
     {
       id: 'priority',
       header: 'Priority',
-      cellClassName: 'text-sm text-gray-600 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (rule) => rule.priority,
     },
     {
       id: 'status',
       header: 'Status',
       render: (rule) => (
-        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}>
+        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-fg-muted'}>
           {rule.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),
@@ -212,7 +212,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-blue-600" />
+          <Shield className="h-5 w-5 text-brand" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             Compliance Rules ({total})
           </h2>
@@ -227,7 +227,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-fg-subtle" />
           <FilterInput
             value={nameSearch}
             onChange={e => setNameSearch(e.target.value)}
@@ -236,7 +236,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           />
         </div>
         <div className="relative min-w-[160px] max-w-[200px]">
-          <Tag className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+          <Tag className="absolute left-2.5 top-2 h-4 w-4 text-fg-subtle" />
           <FilterInput
             value={tagSearch}
             onChange={e => setTagSearch(e.target.value)}

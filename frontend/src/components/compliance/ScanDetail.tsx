@@ -166,7 +166,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
       </div>
     );
   }
@@ -177,7 +177,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         <IconButton tone="default" onClick={onBack} aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </IconButton>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-8 text-fg-muted">
           {scanError ?? 'Scan not found.'}
           {scanError && <Button variant="link" onClick={fetchScan} className="ml-2 text-red-600 dark:text-red-400">Retry</Button>}
         </div>
@@ -199,10 +199,10 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
       },
     },
     { id: 'entity', header: 'Entity', cellClassName: 'text-sm text-gray-900 dark:text-white', render: (entry) => entry.entityName || entry.entityId || '-' },
-    { id: 'target', header: 'Target', cellClassName: 'text-xs text-gray-500', render: (entry) => entry.target },
-    { id: 'rules', header: 'Rules', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.ruleCount },
-    { id: 'violations', header: 'Violations', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.violations?.length || 0 },
-    { id: 'time', header: 'Time', cellClassName: 'text-xs text-gray-500', render: (entry) => formatTime(entry.createdAt) },
+    { id: 'target', header: 'Target', cellClassName: 'text-xs text-fg-muted', render: (entry) => entry.target },
+    { id: 'rules', header: 'Rules', cellClassName: 'text-sm text-fg-muted', render: (entry) => entry.ruleCount },
+    { id: 'violations', header: 'Violations', cellClassName: 'text-sm text-fg-muted', render: (entry) => entry.violations?.length || 0 },
+    { id: 'time', header: 'Time', cellClassName: 'text-xs text-fg-muted', render: (entry) => formatTime(entry.createdAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -249,42 +249,42 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
       <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status</div>
+            <div className="text-xs text-fg-muted mb-1">Status</div>
             <StatusPill gap className={`${cfg.bg} ${cfg.color}`}>
               <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} />
               {scan.status}
             </StatusPill>
           </div>
           <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target</div>
+            <div className="text-xs text-fg-muted mb-1">Target</div>
             <div className="text-sm font-medium text-gray-900 dark:text-white">{scan.target}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Progress</div>
+            <div className="text-xs text-fg-muted mb-1">Progress</div>
             <div className="flex items-center gap-2">
               <div className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${progress}%` }} />
               </div>
-              <span className="text-xs text-gray-500">{scan.processedEntities}/{scan.totalEntities}</span>
+              <span className="text-xs text-fg-muted">{scan.processedEntities}/{scan.totalEntities}</span>
             </div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Triggered</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">{formatDateTime(scan.createdAt)}</div>
+            <div className="text-xs text-fg-muted mb-1">Triggered</div>
+            <div className="text-xs text-fg-muted">{formatDateTime(scan.createdAt)}</div>
           </div>
         </div>
         <div className="flex gap-6 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-1.5">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <span className="text-sm font-medium text-green-600">{scan.passCount} passed</span>
+            <CheckCircle className="h-4 w-4 text-success" />
+            <span className="text-sm font-medium text-success">{scan.passCount} passed</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-            <span className="text-sm font-medium text-yellow-600">{scan.warnCount} warnings</span>
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <span className="text-sm font-medium text-warning">{scan.warnCount} warnings</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <XCircle className="h-4 w-4 text-red-600" />
-            <span className="text-sm font-medium text-red-600">{scan.blockCount} blocked</span>
+            <XCircle className="h-4 w-4 text-danger" />
+            <span className="text-sm font-medium text-danger">{scan.blockCount} blocked</span>
           </div>
         </div>
       </div>
@@ -293,7 +293,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
       <div>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Entity Results ({auditPagination.total})</h3>
         {auditEntries.length === 0 ? (
-          <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">No audit entries for this scan.</div>
+          <div className="text-center py-6 text-fg-muted text-sm">No audit entries for this scan.</div>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -337,20 +337,20 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Entity</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Entity</label>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white truncate" title={exemptTarget.entityName || exemptTarget.entityId}>
                   {exemptTarget.entityName || exemptTarget.entityId}
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Entity Type</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Entity Type</label>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white capitalize">
                   {exemptTarget.entityType}
                 </div>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Rule *</label>
+              <label className="block text-xs font-medium text-fg-muted mb-1">Rule *</label>
               <Select
                 value={exemptForm.ruleId}
                 onChange={e => setExemptForm(f => ({ ...f, ruleId: e.target.value }))}
@@ -361,7 +361,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
               </Select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Reason *</label>
+              <label className="block text-xs font-medium text-fg-muted mb-1">Reason *</label>
               <Textarea
                 value={exemptForm.reason}
                 onChange={e => setExemptForm(f => ({ ...f, reason: e.target.value }))}
@@ -370,7 +370,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Expires (optional)</label>
+              <label className="block text-xs font-medium text-fg-muted mb-1">Expires (optional)</label>
               <Input
                 type="date"
                 value={exemptForm.expiresAt}

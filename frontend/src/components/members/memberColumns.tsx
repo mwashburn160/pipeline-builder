@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ShieldCheck, UserMinus, UserCheck, UserX, Crown, Network } from 'lucide-react';
+import { ShieldCheck, UserMinus, UserCheck, UserX, Crown, Network, KeyRound } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -26,6 +26,9 @@ interface BuildMemberColumnsOptions {
   onManageRoles: (m: OrganizationMember) => void;
   onToggleActive: (m: OrganizationMember) => void;
   onRemove: (m: OrganizationMember) => void;
+  /** "Reset MFA…" — request a two-person reset of the member's second factors.
+   *  Passed only to owners/admins (who alone may file one). */
+  onResetMfa?: (m: OrganizationMember) => void;
 }
 
 /**
@@ -45,6 +48,7 @@ export function buildMemberColumns({
   onManageRoles,
   onToggleActive,
   onRemove,
+  onResetMfa,
 }: BuildMemberColumnsOptions): Column<OrganizationMember>[] {
   return [
     {
@@ -53,8 +57,8 @@ export function buildMemberColumns({
       sortValue: (m) => m.username,
       render: (m) => (
         <div>
-          <span className="font-medium text-gray-900 dark:text-gray-100">{m.username}</span>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{m.email}</p>
+          <span className="font-medium text-fg">{m.username}</span>
+          <p className="text-xs text-fg-muted">{m.email}</p>
         </div>
       ),
     },
@@ -67,7 +71,7 @@ export function buildMemberColumns({
       render: (m) => (
         <div className="flex items-center gap-2">
           <Badge color={m.role === 'admin' ? 'purple' : 'gray'}>{m.role}</Badge>
-          {m.isOwner && <span title="Owner"><Crown className="w-3.5 h-3.5 text-yellow-500" /></span>}
+          {m.isOwner && <span title="Owner"><Crown className="w-3.5 h-3.5 text-warning" /></span>}
         </div>
       ),
     },
@@ -80,12 +84,12 @@ export function buildMemberColumns({
       // than silently rendering "No roles" — "No roles" here always means empty.
       render: (m: OrganizationMember) => {
         const assigned = rolesForMember(m);
-        if (assigned.length === 0) return <span className="text-xs text-gray-400 dark:text-gray-500 italic">No roles</span>;
+        if (assigned.length === 0) return <span className="text-xs text-fg-subtle italic">No roles</span>;
         return (
           <div className="flex flex-wrap items-center gap-1">
             {assigned.map((r) => (
-              <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                <ShieldCheck className="w-2.5 h-2.5 text-gray-400" />{roleDisplayName(r.name)}
+              <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-surface-muted text-fg-muted">
+                <ShieldCheck className="w-2.5 h-2.5 text-fg-subtle" />{roleDisplayName(r.name)}
               </span>
             ))}
           </div>
@@ -108,7 +112,7 @@ export function buildMemberColumns({
       header: 'Joined',
       sortValue: (m) => m.createdAt,
       render: (m) => (
-        <span className="text-sm text-gray-500 dark:text-gray-400">
+        <span className="text-sm text-fg-muted">
           <RelativeTime value={m.createdAt} />
         </span>
       ),
@@ -151,6 +155,16 @@ export function buildMemberColumns({
                 aria-label={`Manage roles for ${m.username}`}
               >
                 <ShieldCheck className="w-4 h-4" />
+              </IconButton>
+            )}
+            {canManageMembers && onResetMfa && m.isActive && (
+              <IconButton
+                tone="orange"
+                onClick={() => onResetMfa(m)}
+                title="Reset MFA… (another admin must approve)"
+                aria-label={`Reset two-factor authentication for ${m.username}`}
+              >
+                <KeyRound className="w-4 h-4" />
               </IconButton>
             )}
             {canManageMembers && (

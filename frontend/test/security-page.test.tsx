@@ -114,12 +114,25 @@ describe('Security — one page, four answers', () => {
     await waitFor(() => expect(listTokenHistory).toHaveBeenCalledTimes(2));
   });
 
-  it('sends no scope for a full-permission token, only the lifetime', async () => {
+  it('sends no scope and no subset for a FULL-access token, only the lifetime', async () => {
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', expiresIn: 30 * 86400 } });
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+    fireEvent.click(screen.getByRole('button', { name: /full access/i }));
+    fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }));
+  });
+
+  it('defaults to SELECTED permissions, seeded with the read-only permissions the person holds', async () => {
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1', permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'] } });
     generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', expiresIn: 30 * 86400 } });
     query = { tab: 'keys' };
     render(<SecurityPage />);
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
-    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }));
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({
+      expiresIn: 30 * 86400, permissions: ['pipelines:read', 'plugins:read'],
+    }));
+    expect(await screen.findByText(/2 selected permissions/)).toBeInTheDocument();
   });
 
   it('offers only lifetimes the API accepts (1–365 days)', () => {

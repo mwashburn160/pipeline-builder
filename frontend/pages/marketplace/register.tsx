@@ -130,20 +130,20 @@ export default function MarketplaceRegisterPage({ token }: Props) {
 
   const body = () => {
     if (phase === 'resolving' || !isInitialized) {
-      return <div className="flex items-center gap-2 text-sm text-[var(--pb-text-muted)] py-4"><LoadingSpinner size="sm" /> Verifying your AWS Marketplace subscription…</div>;
+      return <div className="flex items-center gap-2 text-sm text-fg-muted py-4"><LoadingSpinner size="sm" /> Verifying your AWS Marketplace subscription…</div>;
     }
     if (phase === 'error') {
       return (
         <>
           <ErrorAlert message={error ?? 'Something went wrong.'} />
-          <p className="text-sm text-[var(--pb-text-muted)] mt-3">Return to your AWS Marketplace subscription and click <strong>Set up your account</strong> again to get a fresh link.</p>
+          <p className="text-sm text-fg-muted mt-3">Return to your AWS Marketplace subscription and click <strong>Set up your account</strong> again to get a fresh link.</p>
         </>
       );
     }
     if (phase === 'already') {
       return (
         <>
-          <p className="text-sm text-[var(--pb-text-muted)]">This AWS Marketplace subscription is already linked to an organization.</p>
+          <p className="text-sm text-fg-muted">This AWS Marketplace subscription is already linked to an organization.</p>
           <Link href="/" className="inline-block mt-4"><Button>Sign in</Button></Link>
         </>
       );
@@ -153,7 +153,7 @@ export default function MarketplaceRegisterPage({ token }: Props) {
     if (isAuthenticated && user) {
       return (
         <>
-          <p className="text-sm text-[var(--pb-text-muted)]">
+          <p className="text-sm text-fg-muted">
             Link your AWS Marketplace {planLabel} subscription to{' '}
             <strong>{user.organizationName || 'your organization'}</strong>. Billing is handled by AWS — nothing to enter here.
           </p>
@@ -166,7 +166,7 @@ export default function MarketplaceRegisterPage({ token }: Props) {
     }
     return (
       <>
-        <p className="text-sm text-[var(--pb-text-muted)]">
+        <p className="text-sm text-fg-muted">
           Your AWS Marketplace {planLabel} subscription is ready. Create your Pipeline Builder account
           (or sign in) to finish linking it — we&apos;ll connect it automatically once you&apos;re in.
         </p>
@@ -183,10 +183,10 @@ export default function MarketplaceRegisterPage({ token }: Props) {
   return (
     <>
       <Head><title>AWS Marketplace — Finish setup</title></Head>
-      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--pb-bg)]">
+      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-canvas">
         <Card className="w-full max-w-md p-6">
           <div className="flex items-center gap-2 mb-1">
-            <ShoppingBag className="w-5 h-5 text-[var(--pb-brand)]" />
+            <ShoppingBag className="w-5 h-5 text-brand" />
             <h1 className="text-xl font-bold">Finish your AWS Marketplace setup</h1>
           </div>
           <div className="mt-4">{body()}</div>

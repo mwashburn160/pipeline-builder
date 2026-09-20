@@ -50,17 +50,17 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
         className="flex w-full items-center justify-between text-left font-medium text-gray-700 dark:text-gray-300"
       >
         <span>Platform-admin grant history {isSuperAdmin && <Badge color="red">currently granted</Badge>}</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{expanded ? '▾' : '▸'}</span>
+        <span className="text-xs text-fg-muted">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
         <div className="mt-2">
           {loading && <LoadingSpinner size="sm" />}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
           {!loading && events.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">No grant events on file.</p>
+            <p className="text-xs text-fg-muted">No grant events on file.</p>
           )}
           {events.length > 0 && (
-            <ul className="space-y-1.5 text-xs text-gray-600 dark:text-gray-400">
+            <ul className="space-y-1.5 text-xs text-fg-muted">
               {events.map((e) => {
                 const source = (e.details as { source?: string } | undefined)?.source;
                 // Branch explicitly so a non-grant/non-revoke superadmin.* action

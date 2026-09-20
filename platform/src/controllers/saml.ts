@@ -13,6 +13,7 @@
  *   POST /auth/sso/:orgId/saml/complete   → tokens (the landing page redeems the
  *                                            one-time handoff)
  *   GET  /auth/sso/:orgId/saml/metadata   → SP metadata XML (for the IdP admin)
+ *   GET|POST /auth/sso/:orgId/saml/slo    → Single Logout (controllers/saml-slo.ts)
  *
  * WHY THREE LEGS instead of OIDC's two: SAML delivers its assertion by an
  * IdP-driven form POST to a SERVER endpoint, not by a redirect the frontend can
@@ -29,14 +30,19 @@
  * and the platform-admin refusal (`findOrCreateOAuthUser`), the seat pre-flight
  * and JIT membership + group→Role sync (`services/sso-jit-service.ts`).
  *
- * Single Logout is out of scope for this release — there is no SLO endpoint and
- * no `SessionIndex` bookkeeping anywhere; signing out ends the Pipeline Builder
- * session only.
+ * Every session a SAML sign-in opens is recorded with the IdP's `NameID` and
+ * `SessionIndex` (models/saml-session.ts), which is what Single Logout
+ * (controllers/saml-slo.ts) matches on in both directions.
+ *
+ * A RelayState carrying the dry-run marker is a TEST CONNECTION, not a sign-in:
+ * the ACS hands it to controllers/sso-test.ts before any sign-in logic runs.
  */
 
 import crypto from 'crypto';
 import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import { recordSamlSession } from './saml-slo.js';
+import { handleSamlTestAssertion, isTestState } from './sso-test.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
@@ -49,6 +55,7 @@ import { incCounter } from '../observability/metrics.js';
 import { SSO_SUPERADMIN_REFUSED } from '../services/auth-errors.js';
 import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
 import { authService } from '../services/index.js';
+import { orgIdpService } from '../services/org-idp-service.js';
 import {
   SAML_ERROR_MAP,
   type SamlLoginConfig,
@@ -56,6 +63,7 @@ import {
   buildSamlMetadata,
   samlLandingUrl,
   validateSamlResponse,
+  type SamlSessionRef,
 } from '../services/saml-service.js';
 import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
 import { issueTokens, signInAuth } from '../utils/token.js';
@@ -84,11 +92,13 @@ const pendingSamlStates = createPendingStateStore<{ orgId: string }>({
 /**
  * The ACS's verified result, waiting for the browser to collect it.
  *
- * Holds only `{ orgId, userId }` — never tokens: the session is minted at
- * redemption, from the redeeming request, so it carries that request's client
- * info and its cookie/body transport choice. Short-lived and consume-once.
+ * Holds `{ orgId, userId }` plus the IdP's handle on the sign-in (issuer,
+ * NameID, SessionIndex — for Single Logout) — never tokens: the session is
+ * minted at redemption, from the redeeming request, so it carries that
+ * request's client info and its cookie/body transport choice. Short-lived and
+ * consume-once.
  */
-const pendingSamlHandoffs = createPendingStateStore<{ orgId: string; userId: string }>({
+const pendingSamlHandoffs = createPendingStateStore<{ orgId: string; userId: string; issuer: string; session: SamlSessionRef }>({
   prefix: 'saml:handoff:',
   ttlMs: config.oauth.samlHandoffTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -127,16 +137,22 @@ export async function beginSamlLogin(orgId: string): Promise<{ url: string; stat
  * GET /auth/sso/:orgId/saml/metadata — the SP metadata document an IdP
  * administrator imports to create the application on their side.
  *
- * Deliberately UNCONDITIONAL: it is derived entirely from the org id and this
- * deployment's public URL, contains nothing tenant-specific beyond the id
- * already in the path, and — unlike `/authorize`, which answers 404 / 403 /
- * 200 — is therefore not an existence oracle. It must also work BEFORE the
- * connection does: an admin needs these values to configure the IdP in the first
- * place, so gating it on a working config would be a deadlock.
+ * Deliberately UNCONDITIONAL: it is derived from the org id, this deployment's
+ * public URL and SP keys, and the org's two SAML switches (sign AuthnRequests,
+ * encrypted assertions) — both of which read as `false` for an org with no
+ * config, so an unknown org gets the same document a fresh one does and this is
+ * not an existence oracle. It must also work BEFORE the connection does: an
+ * admin needs these values to configure the IdP in the first place, so gating it
+ * on a working config would be a deadlock.
  */
 export const getSamlMetadata = withController('SAML SP metadata', async (req, res) => {
   const orgId = getParam(req.params, 'orgId')!;
-  res.type('application/samlmetadata+xml').status(200).send(buildSamlMetadata(orgId));
+  const cfg = await orgIdpService.findByOrg(orgId);
+  const xml = await buildSamlMetadata(orgId, {
+    signAuthnRequests: cfg?.samlSignAuthnRequests ?? false,
+    encryptAssertions: cfg?.samlEncryptAssertions ?? false,
+  });
+  res.type('application/samlmetadata+xml').status(200).send(xml);
 }, SAML_ERROR_MAP);
 
 // Assertion consumer service
@@ -150,6 +166,8 @@ function refusalReason(err: unknown): string {
     case 'SAML_IDP_INITIATED': return 'idp_initiated';
     case 'SAML_REPLAYED_ASSERTION': return 'replay';
     case 'SAML_INVALID_ASSERTION': return 'invalid_assertion';
+    case 'SAML_ENCRYPTION_REQUIRED': return 'encryption_required';
+    case 'SAML_UNEXPECTED_ENCRYPTION': return 'unexpected_encryption';
     case 'SAML_INVALID_STATE': return 'invalid_state';
     case 'SAML_NO_EMAIL': return 'no_email';
     case 'SAML_EMAIL_DOMAIN_NOT_ALLOWED': return 'email_domain_not_allowed';
@@ -171,6 +189,7 @@ const PUBLIC_REFUSAL_CODES = new Set<string>([
   'SAML_IDP_INITIATED', 'SAML_REPLAYED_ASSERTION', 'SAML_INVALID_ASSERTION', 'SAML_INVALID_STATE',
   'SAML_NO_EMAIL', 'SAML_EMAIL_DOMAIN_NOT_ALLOWED', 'SAML_NOT_CONFIGURED', 'SAML_DISABLED',
   'SAML_NOT_ENTITLED', 'SAML_PROTOCOL_MISMATCH', 'SAML_INCOMPLETE_CONFIG',
+  'SAML_ENCRYPTION_REQUIRED', 'SAML_UNEXPECTED_ENCRYPTION',
   'OIDC_EMAIL_DOMAIN_NOT_VERIFIED', SSO_SUPERADMIN_REFUSED, JIT_SEAT_LIMIT,
 ]);
 
@@ -229,7 +248,7 @@ async function provisionFromAssertion(
   samlResponse: string,
   state: string,
   relayState: string | undefined,
-): Promise<string> {
+): Promise<{ userId: string; issuer: string; session: SamlSessionRef }> {
   const identity = await validateSamlResponse(cfg, samlResponse, relayState, state);
 
   // The org's IdP vouching for an email proves nothing unless the org has
@@ -269,7 +288,7 @@ async function provisionFromAssertion(
       details: { provider: SAML_PROVIDER_KEY, protocol: 'saml', matchedGroups: jit.matchedGroups, added: jit.rolesAdded, removed: jit.rolesRemoved },
     });
   }
-  return user._id.toString();
+  return { userId: user._id.toString(), issuer: identity.issuer, session: identity.session };
 }
 
 /**
@@ -287,20 +306,27 @@ export const handleSamlAcs = withController('SAML ACS', async (req, res) => {
   const body = validateBody(samlAcsSchema, req.body, res);
   if (!body) return;
 
-  let userId: string;
+  // A TEST CONNECTION's assertion never reaches the sign-in logic below: it is
+  // verified in dry-run mode and reported back to the admin who started it.
+  if (isTestState(body.RelayState)) {
+    await handleSamlTestAssertion(res, orgId, body.SAMLResponse, body.RelayState);
+    return;
+  }
+
+  let result: { userId: string; issuer: string; session: SamlSessionRef };
   try {
     // An assertion with no RelayState is unsolicited — IdP-initiated — and is
     // refused before anything else happens.
     const state = await consumeRelayState(orgId, body.RelayState);
     const cfg = await getEnforcedSamlConfig(orgId);
-    userId = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, state, body.RelayState);
+    result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, state, body.RelayState);
   } catch (err) {
     refuseAssertion(req, res, orgId, err);
     return;
   }
 
   const handoff = crypto.randomBytes(32).toString('hex');
-  await pendingSamlHandoffs.put(handoff, { orgId, userId });
+  await pendingSamlHandoffs.put(handoff, { orgId, ...result });
   res.redirect(302, `${samlLandingUrl(orgId)}?handoff=${handoff}`);
 }, SAML_ERROR_MAP);
 
@@ -348,6 +374,16 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
     // person, and the org vouches for how strongly it did so.
     auth: signInAuth('sso', { idpMfa: await idpEnforcesMfa(orgId) }),
     client: clientInfoOf(req),
+  });
+
+  // Remember the IdP's handle on this sign-in against the session slot, so
+  // Single Logout can find it from either end.
+  await recordSamlSession({
+    userId: user._id.toString(),
+    orgId,
+    accessToken: tokens.accessToken,
+    issuer: pending.issuer,
+    session: pending.session,
   });
 
   audit(req, 'user.login', {

@@ -225,3 +225,53 @@ describe('generateToken — machine sessions', () => {
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
   });
 });
+
+describe('generateToken — the org\'s "administrative actions require MFA" policy', () => {
+  const user = { _id: 'u1', lastActiveOrgId: 'org-1' };
+  const run = (req: any, res = mockRes()) => {
+    const promise = (generateToken as unknown as (req: any, res: any) => Promise<void>)({ headers: {}, method: 'POST', ...req }, res);
+    return promise.then(() => res);
+  };
+  const person = (aal: 1 | 2) => ({ sub: 'u1', sid: 's1', principalType: 'user', token_use: 'access', aal, org_admin_aal: 2 });
+
+  it('refuses a single-factor person OPENING a new machine credential (401 MFA_REQUIRED)', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'interactive' });
+
+    const res = await run({ user: person(1), body: {} });
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'MFA_REQUIRED' });
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('lets an MFA-grade person open one', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'interactive' });
+    mockIssueTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 900 });
+
+    await run({ user: person(2), body: {} });
+
+    expect(mockIssueTokens).toHaveBeenCalled();
+  });
+
+  it('refuses a PAT minting a machine credential while the policy is on (403 HUMAN_SESSION_REQUIRED)', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+
+    const res = await run({ user: { sub: 'u1', jti: 'pat-1', principalType: 'user', token_use: 'api_key', aal: 2, org_admin_aal: 2 }, body: {} });
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'HUMAN_SESSION_REQUIRED' });
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('keeps RENEWING an existing machine credential — unattended renewal must survive the policy', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'machine' });
+    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 3600 });
+
+    await run({ user: person(1), body: {} });
+
+    expect(mockRenewSessionTokens).toHaveBeenCalled();
+  });
+});

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL } from '../util';
-import { ApiError } from '../errors';
+import { buildQuery, API_URL, isMfaErrorCode } from '../util';
+import { ApiError, MfaRequiredError } from '../errors';
 import type { ApiResponse } from '@/types';
 import type { LogQueryParams } from '@/types/logs';
 
@@ -161,7 +161,22 @@ export function observabilityApi(core: ApiCore) {
         headers: core.authHeaders() as Record<string, string>,
         credentials: 'same-origin',
       });
-      if (!res.ok) throw new ApiError('Log export failed', res.status);
+      if (!res.ok) {
+        // A raw fetch (the body is a file, not JSON), so it does not pass through
+        // the client's error handling — an MFA refusal (the org's "administrative
+        // actions require MFA" policy covers exports) is surfaced the same way the
+        // client surfaces it everywhere else: the shell's enrol / sign-in dialog.
+        const data = await res.json().catch(() => ({})) as { code?: string; message?: string };
+        if (res.status === 401 && isMfaErrorCode(data.code)) {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mfa-required', {
+              detail: { code: data.code, message: data.message, endpoint: '/api/observability/logs/export' },
+            }));
+          }
+          throw new MfaRequiredError(data.message || 'Two-factor authentication is required', String(data.code));
+        }
+        throw new ApiError(data.message || 'Log export failed', res.status);
+      }
       // Prefer the server's filename (it is sanitized there) over rebuilding one.
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const match = /filename="([^"]+)"/.exec(disposition);

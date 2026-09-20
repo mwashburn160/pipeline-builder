@@ -10,6 +10,11 @@
  *   - Every write goes through ONE strong-factor step-up dialog, and its token
  *     rides the request.
  *   - A secret is demanded only until one is on file.
+ *   - The redirect URI to register at the IdP comes from the SERVER, with a
+ *     copy button.
+ *   - Allowed domains are PICKED from the org's verified domains (no free text).
+ *   - In the setup wizard: saving selects OIDC and a new connection starts
+ *     disabled; domains and enabling are later steps.
  *   - Disconnect confirms first (in that same dialog), states what members will
  *     experience, and only then calls DELETE.
  */
@@ -22,12 +27,16 @@ import type { OrgIdpConfigDto } from '../src/types';
 const putOwnOrgIdpConfig = jest.fn();
 const patchOwnOrgIdpConfig = jest.fn();
 const deleteOwnOrgIdpConfig = jest.fn();
+const getOwnOrgIdpSpInfo = jest.fn();
+const listOrgDomains = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     putOwnOrgIdpConfig: (...a: unknown[]) => putOwnOrgIdpConfig(...a),
     patchOwnOrgIdpConfig: (...a: unknown[]) => patchOwnOrgIdpConfig(...a),
     deleteOwnOrgIdpConfig: (...a: unknown[]) => deleteOwnOrgIdpConfig(...a),
+    getOwnOrgIdpSpInfo: (...a: unknown[]) => getOwnOrgIdpSpInfo(...a),
+    listOrgDomains: (...a: unknown[]) => listOrgDomains(...a),
   },
 }));
 // The step-up dialog is exercised in its own suite; here it confirms with a
@@ -58,8 +67,11 @@ const stored: OrgIdpConfigDto = {
   hasClientSecret: true,
   discoveryUrl: 'https://idp.example.com/.well-known/openid-configuration',
   samlCertificates: [],
+  samlSignAuthnRequests: false,
+  samlEncryptAssertions: false,
   allowedEmailDomains: [],
   enabled: true,
+  ssoRequired: false,
   updatedAt: '2026-09-01T00:00:00Z',
 };
 
@@ -68,6 +80,9 @@ beforeEach(() => {
   putOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: stored } });
   patchOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: { ...stored, enabled: false } } });
   deleteOwnOrgIdpConfig.mockResolvedValue({ success: true, data: {} });
+  getOwnOrgIdpSpInfo.mockResolvedValue({ success: true, data: { sp: { oidcRedirectUri: 'https://pb.public/auth/sso/org-1/callback' } } });
+  // No verified domains by default: the picker then offers nothing to tick.
+  listOrgDomains.mockResolvedValue({ success: true, data: { domains: [], entitled: true } });
 });
 
 describe('OrgSsoSettings', () => {
@@ -101,7 +116,7 @@ describe('OrgSsoSettings', () => {
   it('edits an existing connection with PATCH, sending only the changed field (no secret)', async () => {
     const onSaved = jest.fn();
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={onSaved} />);
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
 
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
@@ -130,6 +145,52 @@ describe('OrgSsoSettings', () => {
     expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
     expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
     expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
+  });
+
+  it('shows the SERVER\'s redirect URI with a copy button', async () => {
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    expect(await screen.findByText('https://pb.public/auth/sso/org-1/callback')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeInTheDocument();
+  });
+
+  it('picks allowed domains from the VERIFIED ones only, and sends the selection', async () => {
+    listOrgDomains.mockResolvedValue({
+      success: true,
+      data: { entitled: true, domains: [
+        { id: 'd1', domain: 'acme.com', verified: true, autoJoin: 'off' },
+        { id: 'd2', domain: 'pending.com', verified: false, autoJoin: 'off' },
+      ] },
+    });
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
+    expect(screen.queryByRole('checkbox', { name: 'pending.com' })).not.toBeInTheDocument();
+    // No free-text domain field any more.
+    expect(screen.queryByPlaceholderText(/example\.com, acme\.io/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { allowedEmailDomains: ['acme.com'] }, 'tok'));
+  });
+
+  it('links to domain verification when the org has no verified domain', async () => {
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    expect(await screen.findByRole('link', { name: /verify a domain/i })).toHaveAttribute('href', '/dashboard/settings?tab=organization');
+  });
+
+  it('in the wizard: selects OIDC, creates the connection DISABLED, and leaves domains/enabling to later steps', async () => {
+    render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn()} wizard={{ presetProvider: 'cognito', submitLabel: 'Save and continue' }} />);
+    expect(screen.getByLabelText('Provider')).toHaveValue('cognito');
+    expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
+    fireEvent.change(screen.getByLabelText(/Client Secret/), { target: { value: 's' } });
+    fireEvent.change(screen.getByLabelText('Region'), { target: { value: 'us-east-1' } });
+    fireEvent.change(screen.getByLabelText('User Pool ID'), { target: { value: 'us-east-1_abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(putOwnOrgIdpConfig).toHaveBeenCalled());
+    const body = putOwnOrgIdpConfig.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).toMatchObject({ protocol: 'oidc', provider: 'cognito', enabled: false });
+    expect(body).not.toHaveProperty('allowedEmailDomains');
   });
 
   it('resets to the empty create form when the connection goes away', () => {

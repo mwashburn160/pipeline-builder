@@ -54,6 +54,7 @@ export interface StoredMfaPolicy {
   mfaRequiredSince?: Date | null;
   mfaGraceUntil?: Date | null;
   idpEnforcesMfa?: boolean;
+  adminActionsRequireMfa?: boolean;
 }
 
 /** The resolved policy for an org — what the UI shows and issuance enforces. */
@@ -74,6 +75,17 @@ export interface EffectiveMfaPolicy {
   /** The org states its IdP enforces MFA, so an SSO sign-in reaches `aal: 2`.
    *  NOT inherited: it is a statement about THIS org's own IdP. */
   idpEnforcesMfa: boolean;
+  /**
+   * "Administrative actions require MFA" — this org's own setting OR any
+   * ancestor's (strictest wins, like `requireMfa`). Carried as the
+   * `org_admin_aal` claim; see `requireOrgAdminAssurance` in api-core.
+   */
+  adminActionsRequireMfa: boolean;
+  /** This org's OWN `adminActionsRequireMfa`, regardless of any ancestor. */
+  adminActionsOwn: boolean;
+  /** The ancestor whose `adminActionsRequireMfa` is in force when this org's
+   *  own setting is off. */
+  adminActionsInheritedFrom?: string;
 }
 
 /** Depth cap for the ancestor walk — the same defensive bound api-core's
@@ -92,12 +104,12 @@ async function ancestorPolicies(orgId: string): Promise<Array<StoredMfaPolicy & 
   let current = orgId;
   for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth += 1) {
     const doc = await Organization.findById(toOrgId(current))
-      .select('parentOrgId requireMfa mfaRequiredSince mfaGraceUntil').lean() as (StoredMfaPolicy & { _id: unknown; parentOrgId?: string | null }) | null;
+      .select('parentOrgId requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean() as (StoredMfaPolicy & { _id: unknown; parentOrgId?: string | null }) | null;
     const parent = doc?.parentOrgId;
     if (!parent || seen.has(String(parent))) return out;
     seen.add(String(parent));
     const parentDoc = await Organization.findById(toOrgId(String(parent)))
-      .select('requireMfa mfaRequiredSince mfaGraceUntil').lean() as (StoredMfaPolicy & { _id: unknown }) | null;
+      .select('requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean() as (StoredMfaPolicy & { _id: unknown }) | null;
     if (!parentDoc) return out;
     out.push({ ...parentDoc, _id: String(parentDoc._id) });
     current = String(parent);
@@ -123,7 +135,7 @@ function isEnforcedNow(policy: StoredMfaPolicy, now: Date): boolean {
 export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new Date()): Promise<EffectiveMfaPolicy> {
   const { Organization, toOrgId } = await deps();
   const org = await Organization.findById(toOrgId(orgId))
-    .select('requireMfa mfaRequiredSince mfaGraceUntil idpEnforcesMfa parentOrgId').lean() as (StoredMfaPolicy & { parentOrgId?: string | null }) | null;
+    .select('requireMfa mfaRequiredSince mfaGraceUntil idpEnforcesMfa adminActionsRequireMfa parentOrgId').lean() as (StoredMfaPolicy & { parentOrgId?: string | null }) | null;
   const own = org?.requireMfa === true;
   const base: EffectiveMfaPolicy = {
     requireMfa: own,
@@ -132,6 +144,8 @@ export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new D
     ...(org?.mfaRequiredSince ? { requiredSince: org.mfaRequiredSince } : {}),
     own,
     idpEnforcesMfa: org?.idpEnforcesMfa === true,
+    adminActionsRequireMfa: org?.adminActionsRequireMfa === true,
+    adminActionsOwn: org?.adminActionsRequireMfa === true,
   };
   if (!org?.parentOrgId) return base;
 
@@ -145,6 +159,11 @@ export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new D
 
   let resolved = base;
   for (const doc of docs) {
+    // Admin-actions policy: any ancestor turning it on applies here (strictest
+    // wins); the NEAREST such ancestor is reported.
+    if (doc.adminActionsRequireMfa === true && !resolved.adminActionsRequireMfa) {
+      resolved = { ...resolved, adminActionsRequireMfa: true, adminActionsInheritedFrom: doc._id };
+    }
     if (doc.requireMfa !== true) continue;
     const enforced = isEnforcedNow(doc, now);
     // Strictest wins: an ENFORCED ancestor beats a grace-period local setting,

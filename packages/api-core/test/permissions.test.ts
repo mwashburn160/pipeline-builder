@@ -10,8 +10,11 @@ import {
   PERMISSION_CATALOG,
   ROLE_PERMISSIONS,
   SUPERADMIN_ONLY_PERMISSIONS,
+  READ_ONLY_PERMISSIONS,
   hasPermission,
+  intersectPermissions,
   isOrgAssignablePermission,
+  normalizePermissionSubset,
   isValidPermission,
   permissionLabel,
   resolveUserPermissions,
@@ -242,5 +245,32 @@ describe('org:settings split → org:impersonation', () => {
 
   it('is NOT granted to members — it decides who may view the org\'s data', () => {
     expect(ROLE_PERMISSIONS.member).not.toContain('org:impersonation');
+  });
+});
+
+describe('permission-scoped credentials', () => {
+  it('READ_ONLY_PERMISSIONS is exactly the catalog\'s :read ids', () => {
+    expect(READ_ONLY_PERMISSIONS.length).toBeGreaterThan(0);
+    expect(READ_ONLY_PERMISSIONS.every((p) => p.endsWith(':read'))).toBe(true);
+    expect(READ_ONLY_PERMISSIONS).toContain('pipelines:read');
+    expect(READ_ONLY_PERMISSIONS).not.toContain('pipelines:write');
+  });
+
+  it('normalizePermissionSubset dedupes into catalog order and refuses unknown ids', () => {
+    expect(normalizePermissionSubset(['plugins:read', 'pipelines:read', 'plugins:read']))
+      .toEqual(['pipelines:read', 'plugins:read']);
+    expect(normalizePermissionSubset([])).toEqual([]);
+    expect(normalizePermissionSubset(['pipelines:read', 'nope:write'])).toBeNull();
+    expect(normalizePermissionSubset([42])).toBeNull();
+  });
+
+  it('intersectPermissions keeps only what BOTH the subset and the holder grant', () => {
+    expect(intersectPermissions(['pipelines:read', 'pipelines:write'], ['pipelines:read', 'billing:manage']))
+      .toEqual(['pipelines:read']);
+    // A later role loss shrinks it; nothing in the holder's set grows it.
+    expect(intersectPermissions([], ['pipelines:read'])).toEqual([]);
+    expect(intersectPermissions(['pipelines:read', 'org:settings'], [])).toEqual([]);
+    // Unknown strings in either input never survive.
+    expect(intersectPermissions(['bogus'], ['bogus'])).toEqual([]);
   });
 });

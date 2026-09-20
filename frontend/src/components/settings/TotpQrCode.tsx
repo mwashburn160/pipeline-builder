@@ -43,14 +43,14 @@ export function TotpQrCode({ value, size = 180 }: { value: string; size?: number
 
   if (failed) {
     return (
-      <p className="text-xs text-[var(--pb-text-muted)]" role="status">
+      <p className="text-xs text-fg-muted" role="status">
         Couldn&apos;t draw the QR code — enter the setup key below by hand instead.
       </p>
     );
   }
 
   if (!matrix) {
-    return <div style={{ width: size, height: size }} className="rounded bg-[var(--pb-surface-muted)] animate-pulse" aria-hidden="true" />;
+    return <div style={{ width: size, height: size }} className="rounded bg-surface-muted animate-pulse" aria-hidden="true" />;
   }
 
   const modules = matrix.length;

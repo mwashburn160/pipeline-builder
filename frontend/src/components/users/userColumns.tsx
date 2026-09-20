@@ -15,6 +15,8 @@ interface BuildUserColumnsOptions {
   onEdit: (u: UserListItem) => void;
   onToggleSuperAdmin: (u: UserListItem) => void;
   onDelete: (u: UserListItem) => void;
+  /** Sysadmin DIRECT MFA reset (single-person path, see DirectMfaResetModal). */
+  onResetMfa: (u: UserListItem) => void;
 }
 
 /**
@@ -30,6 +32,7 @@ export function buildUserColumns({
   onEdit,
   onToggleSuperAdmin,
   onDelete,
+  onResetMfa,
 }: BuildUserColumnsOptions): Column<UserListItem>[] {
   return [
     {
@@ -64,7 +67,7 @@ export function buildUserColumns({
       render: (u) => (
         <div>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{u.username}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">{u.email}</div>
+          <div className="text-sm text-fg-muted">{u.email}</div>
         </div>
       ),
     },
@@ -82,7 +85,7 @@ export function buildUserColumns({
     {
       id: 'organization',
       header: 'Organization',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (u) => u.organizationName || '',
       render: (u) => <>{u.organizationName || 'None'}</>,
     },
@@ -110,6 +113,13 @@ export function buildUserColumns({
                 title={userItem.isSuperAdmin ? 'Revoke platform-admin grant' : 'Grant platform-admin'}
               >
                 {userItem.isSuperAdmin ? 'Revoke admin' : 'Grant admin'}
+              </button>
+              <button
+                onClick={() => onResetMfa(userItem)}
+                className="action-link"
+                title="Remove every passkey, authenticator app and recovery code (for an org with no second admin)"
+              >
+                Reset MFA
               </button>
               <button onClick={() => onDelete(userItem)} className="action-link-danger">Delete</button>
             </>

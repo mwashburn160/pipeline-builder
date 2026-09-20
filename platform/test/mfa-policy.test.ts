@@ -161,3 +161,38 @@ describe('grace-period constants', () => {
     expect(MAX_MFA_GRACE_DAYS).toBe(90);
   });
 });
+
+describe('administrative actions require MFA (adminActionsRequireMfa)', () => {
+  it('is off by default', async () => {
+    orgs({ 'org-a': { _id: 'org-a' } });
+    expect(await resolveEffectiveMfaPolicy('org-a', NOW)).toMatchObject({ adminActionsRequireMfa: false, adminActionsOwn: false });
+  });
+
+  it('reads the org\'s own setting, independent of requireMfa', async () => {
+    orgs({ 'org-a': { _id: 'org-a', adminActionsRequireMfa: true } });
+    expect(await resolveEffectiveMfaPolicy('org-a', NOW)).toMatchObject({
+      requireMfa: false, adminActionsRequireMfa: true, adminActionsOwn: true,
+    });
+  });
+
+  it('applies a parent\'s setting to its team (strictest wins), naming the parent', async () => {
+    orgs({
+      team: { _id: 'team', parentOrgId: 'root' },
+      root: { _id: 'root', adminActionsRequireMfa: true },
+    });
+    const policy = await resolveEffectiveMfaPolicy('team', NOW);
+    expect(policy).toMatchObject({ adminActionsRequireMfa: true, adminActionsOwn: false, adminActionsInheritedFrom: 'root' });
+    // …without implying the (separate) sign-in requirement.
+    expect(policy.requireMfa).toBe(false);
+  });
+
+  it('keeps a team\'s own setting when the parent has none', async () => {
+    orgs({
+      team: { _id: 'team', parentOrgId: 'root', adminActionsRequireMfa: true },
+      root: { _id: 'root' },
+    });
+    const policy = await resolveEffectiveMfaPolicy('team', NOW);
+    expect(policy).toMatchObject({ adminActionsRequireMfa: true, adminActionsOwn: true });
+    expect(policy.adminActionsInheritedFrom).toBeUndefined();
+  });
+});

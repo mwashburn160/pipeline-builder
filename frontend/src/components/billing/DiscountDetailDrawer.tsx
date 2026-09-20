@@ -23,7 +23,7 @@ export function DiscountDetailDrawer({ id, onClose }: { id: string; onClose: () 
     [id],
   );
   const d = data;
-  const none = <span className="text-[var(--pb-text-muted)]">—</span>;
+  const none = <span className="text-fg-muted">—</span>;
 
   return (
     <SideDrawer

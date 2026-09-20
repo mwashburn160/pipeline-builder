@@ -45,7 +45,7 @@ type StatCardProps = StatCardBaseProps &
       }
   );
 
-const TILE = 'rounded-2xl border border-[var(--pb-border)] bg-[var(--pb-surface)] px-4 py-4';
+const TILE = 'rounded-2xl border border-default bg-surface px-4 py-4';
 
 /**
  * Shared presentational metric tile. Token-driven (`--pb-*`, dark-mode correct).
@@ -63,7 +63,7 @@ export function StatCard(props: StatCardProps) {
         className={[
           TILE,
           'flex h-full items-center gap-4',
-          href ? 'transition-colors hover:border-[var(--pb-brand)]' : '',
+          href ? 'transition-colors hover:border-brand' : '',
           className,
         ].filter(Boolean).join(' ')}
         {...wrapperProps}
@@ -71,24 +71,24 @@ export function StatCard(props: StatCardProps) {
         <span
           className={[
             'grid h-11 w-11 shrink-0 place-items-center rounded-xl',
-            accentClass ? `text-white ${accentClass}` : 'bg-[var(--pb-surface-muted)] text-[var(--pb-brand)]',
+            accentClass ? `text-white ${accentClass}` : 'bg-surface-muted text-brand',
           ].join(' ')}
         >
           <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-medium text-[var(--pb-text-muted)]">{label}</p>
+          <p className="text-sm font-medium text-fg-muted">{label}</p>
           {value == null ? (
-            <div className="mt-1 h-8 w-16 rounded bg-[var(--pb-surface-muted)]" />
+            <div className="mt-1 h-8 w-16 rounded bg-surface-muted" />
           ) : (
-            <p className="text-2xl font-bold tabular-nums text-[var(--pb-text)]">{value}</p>
+            <p className="text-2xl font-bold tabular-nums text-fg">{value}</p>
           )}
-          {sub != null && <p className="mt-1 text-xs text-[var(--pb-text-muted)]">{sub}</p>}
+          {sub != null && <p className="mt-1 text-xs text-fg-muted">{sub}</p>}
         </div>
       </div>
     );
     return href
-      ? <Link href={href} className="block rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pb-brand)]">{inner}</Link>
+      ? <Link href={href} className="block rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">{inner}</Link>
       : inner;
   }
 
@@ -97,19 +97,19 @@ export function StatCard(props: StatCardProps) {
     return (
       <div className={[TILE, 'w-full', className].filter(Boolean).join(' ')} {...wrapperProps}>
         <div className="flex items-start justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--pb-text-muted)]">{label}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">{label}</p>
           {badge}
         </div>
-        <p className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--pb-text)]">{value}</p>
-        {sub != null && <p className="mt-1 text-xs tabular-nums text-[var(--pb-text-muted)]">{sub}</p>}
+        <p className="mt-1.5 text-2xl font-bold tabular-nums text-fg">{value}</p>
+        {sub != null && <p className="mt-1 text-xs tabular-nums text-fg-muted">{sub}</p>}
       </div>
     );
   }
 
   return (
     <div className={[TILE, 'text-center', className].filter(Boolean).join(' ')} {...wrapperProps}>
-      <p className="text-2xl font-bold tabular-nums text-[var(--pb-text)]">{value}</p>
-      <p className="mt-1 text-xs text-[var(--pb-text-muted)]">{label}</p>
+      <p className="text-2xl font-bold tabular-nums text-fg">{value}</p>
+      <p className="mt-1 text-xs text-fg-muted">{label}</p>
     </div>
   );
 }

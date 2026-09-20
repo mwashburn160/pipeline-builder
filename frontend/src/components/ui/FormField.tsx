@@ -39,7 +39,7 @@ export function FormField({ label, id, error, hint, className, children, require
     <div className={`form-field ${className ?? ''}`}>
       <label className="label" htmlFor={fieldId}>
         {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+        {required && <span className="text-danger ml-0.5">*</span>}
       </label>
       {enhancedChildren}
       {error && (

@@ -129,7 +129,7 @@ export function CreateUserModal({
         {newUser.organizationId && orgRoles.length > 0 && (
           <div>
             <label className="label">
-              Roles <span className="text-gray-400 font-normal">({selectedRoleIds.size} selected)</span>
+              Roles <span className="text-fg-subtle font-normal">({selectedRoleIds.size} selected)</span>
             </label>
             <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
               {orgRoles.map((g) => (

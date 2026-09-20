@@ -92,7 +92,7 @@ export function Disclosure({
         <span className="flex-1 min-w-0 flex items-center gap-2">{title}</span>
         {showChevron && (
           <ChevronDown
-            className="w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform group-open:rotate-180 shrink-0"
+            className="w-5 h-5 text-fg-subtle transition-transform group-open:rotate-180 shrink-0"
             aria-hidden="true"
           />
         )}

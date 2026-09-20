@@ -102,7 +102,7 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
       {read.error && !policy ? (
         <RetryError message={formatError(read.error, 'Could not load the access policy')} onRetry={read.refetch} />
       ) : loading || !policy || !draft ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
+        <div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
           <LoadingSpinner size="sm" /> Loading…
         </div>
       ) : (
@@ -127,7 +127,7 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
             {OPTIONS.map((o) => (
               <label
                 key={o.value}
-                className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--pb-border)] p-3 has-[:checked]:border-[var(--pb-accent)]"
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-default p-3 has-[:checked]:border-accent"
               >
                 <input
                   type="radio"
@@ -139,7 +139,7 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
                 />
                 <span>
                   <span className="block text-sm font-medium">{o.label}</span>
-                  <span className="block text-xs text-[var(--pb-text-muted)]">{o.description}</span>
+                  <span className="block text-xs text-fg-muted">{o.description}</span>
                 </span>
               </label>
             ))}

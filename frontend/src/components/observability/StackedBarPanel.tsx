@@ -84,7 +84,7 @@ export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = '
           return (
             <g key={t}>
               <line x1={PAD.left} y1={y} x2={CHART_WIDTH - PAD.right} y2={y} stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="0.5" />
-              <text x={PAD.left - 4} y={y + 3} textAnchor="end" className="fill-current text-gray-500 dark:text-gray-400" fontSize="9">{v.toFixed(0)}</text>
+              <text x={PAD.left - 4} y={y + 3} textAnchor="end" className="fill-current text-fg-muted" fontSize="9">{v.toFixed(0)}</text>
             </g>
           );
         })}
@@ -113,7 +113,7 @@ export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = '
         })}
       </svg>
       {/* Legend (deduped across all series — bar colors map per-series index). */}
-      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
+      <div className="flex flex-wrap gap-3 mt-2 text-xs text-fg-muted">
         {series.map((s, i) => (
           <span key={s.labels[groupBy] ?? `series-${i}`} className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: SERIES_COLORS[i % SERIES_COLORS.length] }} />

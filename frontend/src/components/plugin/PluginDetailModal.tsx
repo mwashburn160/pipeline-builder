@@ -39,7 +39,7 @@ export function registryHrefFor(uri: string | undefined): string | null {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="text-xs font-medium text-fg-muted">{label}</p>
       <p className="text-gray-900 dark:text-gray-100 font-mono text-xs mt-0.5">{value}</p>
     </div>
   );
@@ -71,16 +71,16 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose }: {
         </div>
         {plugin.description && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</p>
+            <p className="text-xs font-medium text-fg-muted mb-1">Description</p>
             <p className="text-gray-900 dark:text-gray-100">{plugin.description}</p>
           </div>
         )}
         {plugin.keywords && plugin.keywords.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Keywords</p>
+            <p className="text-xs font-medium text-fg-muted mb-1">Keywords</p>
             <div className="flex flex-wrap gap-1">
               {plugin.keywords.map((k: string, i: number) => (
-                <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{k}</span>
+                <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted">{k}</span>
               ))}
             </div>
           </div>
@@ -96,7 +96,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose }: {
             )}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
+        <div className="grid grid-cols-2 gap-3 text-xs text-fg-muted">
           <div>Created: {formatDateTime(plugin.createdAt)}</div>
           <div>Updated: {formatDateTime(plugin.updatedAt)}</div>
         </div>

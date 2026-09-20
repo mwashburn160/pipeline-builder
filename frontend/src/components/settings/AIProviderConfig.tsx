@@ -172,15 +172,15 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
             const isEditing = editingProvider === id;
 
             return (
-              <div key={id} className="flex items-center gap-4 p-3 rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)]">
+              <div key={id} className="flex items-center gap-4 p-3 rounded-xl border border-default bg-surface-muted">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-[var(--pb-text)]">
+                    <span className="text-sm font-medium text-fg">
                       {displayName(id)}
                     </span>
                     <Badge color="green">Configured</Badge>
                     {status?.hint && (
-                      <span className="text-xs text-[var(--pb-text-muted)]">
+                      <span className="text-xs text-fg-muted">
                         Key: {status.hint}
                       </span>
                     )}
@@ -227,7 +227,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
                       </Button>
                     </div>
                   ) : (
-                    <p className="text-xs text-[var(--pb-text-muted)]">
+                    <p className="text-xs text-fg-muted">
                       Key ending in {status?.hint}
                     </p>
                   )}
@@ -239,13 +239,13 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
       )}
 
       {configuredIds.length === 0 && (
-        <p className="text-sm text-[var(--pb-text-muted)] mb-4">No AI providers configured yet.</p>
+        <p className="text-sm text-fg-muted mb-4">No AI providers configured yet.</p>
       )}
 
       {/* Add new provider — admin only */}
       {canEdit && availableProviders.length > 0 && (
-        <div className="border-t border-[var(--pb-border)] pt-4">
-          <h3 className="text-sm font-medium text-[var(--pb-text)] mb-3">Add provider</h3>
+        <div className="border-t border-default pt-4">
+          <h3 className="text-sm font-medium text-fg mb-3">Add provider</h3>
           <div className="flex items-end gap-3">
             <div className="flex-shrink-0">
               <FormField label="Provider">

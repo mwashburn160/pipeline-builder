@@ -41,7 +41,7 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
         {error ? (
           <div className="text-xs text-red-600 dark:text-red-400 text-center px-2">
             <div className="font-medium mb-1">Failed to load</div>
-            <div className="text-gray-500 dark:text-gray-400 break-words">{error.message}</div>
+            <div className="text-fg-muted break-words">{error.message}</div>
           </div>
         ) : loading ? (
           <div className="w-full space-y-2">
@@ -50,7 +50,7 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
             <Skeleton className="h-3 w-5/6" />
           </div>
         ) : empty ? (
-          <div className="text-xs text-gray-400 dark:text-gray-500">No data in this range</div>
+          <div className="text-xs text-fg-subtle">No data in this range</div>
         ) : (
           <div className="w-full">{children}</div>
         )}

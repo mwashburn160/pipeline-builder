@@ -66,7 +66,7 @@ export default function ArtifactKeyCombobox({
             let flatIndex = -1;
             return groups.map((group) => (
               <div key={group.category}>
-                <div className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 sticky top-0">
+                <div className="px-3 py-1 text-xs font-semibold text-fg-muted bg-gray-50 dark:bg-gray-900 sticky top-0">
                   {group.category}
                 </div>
                 {group.options.map((opt) => {
@@ -88,7 +88,7 @@ export default function ArtifactKeyCombobox({
                       <div className="flex justify-between items-center">
                         <span className="truncate text-gray-900 dark:text-gray-100">{opt.label}</span>
                       </div>
-                      <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{opt.key}</div>
+                      <div className="text-xs text-fg-subtle truncate">{opt.key}</div>
                     </button>
                   );
                 })}

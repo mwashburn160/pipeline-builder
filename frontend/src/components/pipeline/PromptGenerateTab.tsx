@@ -59,10 +59,10 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
-          <Plug className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <Plug className="w-4 h-4 text-fg-muted" />
           Review Plugins
         </span>
-        <ChevronDown className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
         <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
@@ -77,7 +77,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
           </div>
           {stages.map((stage, si) => (
             <div key={si}>
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+              <p className="text-xs font-semibold text-fg-muted mb-2">
                 Stage: {stage.stageName}
               </p>
               <div className="space-y-3 pl-3">
@@ -219,7 +219,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
       return (
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner size="md" className="mr-3" />
-          <span className="text-sm text-gray-500 dark:text-gray-400">Loading AI providers...</span>
+          <span className="text-sm text-fg-muted">Loading AI providers...</span>
         </div>
       );
     }
@@ -241,7 +241,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             maxLength={AI_MAX_PROMPT_LENGTH}
           />
           <div className="flex items-center justify-between mt-2">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-fg-muted">
               {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
             </p>
             <Button
@@ -338,7 +338,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             <pre className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
               {previewJson}
             </pre>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-xs text-fg-muted">
               Review the configuration above. Click &quot;Create&quot; to submit, or refine your prompt and regenerate.
             </p>
           </div>

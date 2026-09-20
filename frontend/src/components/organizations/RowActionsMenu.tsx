@@ -102,21 +102,21 @@ export function RowActionsMenu({
         >
           {canKms && (
             <button type="button" role="menuitem" onClick={run(onKms)} className={itemClass}>
-              <KeyRound className="w-3.5 h-3.5 text-gray-400" /> KMS config
+              <KeyRound className="w-3.5 h-3.5 text-fg-subtle" /> KMS config
             </button>
           )}
           {canIdp && (
             <button type="button" role="menuitem" onClick={run(onIdp)} className={itemClass}>
-              <ShieldCheck className="w-3.5 h-3.5 text-gray-400" /> SSO / IdP config
+              <ShieldCheck className="w-3.5 h-3.5 text-fg-subtle" /> SSO / IdP config
             </button>
           )}
           {onTier && (
             <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
-              <Layers className="w-3.5 h-3.5 text-gray-400" /> Change tier
+              <Layers className="w-3.5 h-3.5 text-fg-subtle" /> Change tier
             </button>
           )}
           <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
-            <FileDown className="w-3.5 h-3.5 text-gray-400" /> Namespace YAML
+            <FileDown className="w-3.5 h-3.5 text-fg-subtle" /> Namespace YAML
           </button>
           <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
           <button
@@ -127,7 +127,7 @@ export function RowActionsMenu({
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete organization
           </button>
-          <p className="px-3 pt-1 pb-1.5 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
+          <p className="px-3 pt-1 pb-1.5 text-2xs leading-snug text-fg-subtle">
             Removes all members from the org (users aren&apos;t deleted). Cannot be undone.
           </p>
         </div>

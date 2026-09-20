@@ -220,7 +220,7 @@ export default function CreatePipelineModal({
 
   const accessSlot = (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-      <label htmlFor="create-pipeline-visibility" className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Visibility</label>
+      <label htmlFor="create-pipeline-visibility" className="block text-sm font-medium text-fg-muted mb-3">Visibility</label>
       <VisibilitySelect
         id="create-pipeline-visibility"
         value={visibility}
@@ -228,7 +228,7 @@ export default function CreatePipelineModal({
         canPublish={canPublish}
         disabled={createLoading}
       />
-      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublish, 'pipelines:publish')}</p>
+      <p className="text-xs text-fg-subtle mt-1">{visibilityHint(canPublish, 'pipelines:publish')}</p>
     </div>
   );
 
@@ -256,7 +256,7 @@ export default function CreatePipelineModal({
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
         <button
           onClick={() => setShowPreview(false)}
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+          className="text-fg-subtle hover:text-fg text-sm transition-colors"
         >
           Close
         </button>
@@ -349,7 +349,7 @@ export default function CreatePipelineModal({
       {aiGated ? (
         <div className="space-y-2">
           <FeatureLock flag="ai_generation" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-fg-muted">
             Or use the <span className="font-medium">Upload</span> or <span className="font-medium">Wizard</span> tabs to build a pipeline without AI.
           </p>
         </div>
@@ -388,7 +388,7 @@ export default function CreatePipelineModal({
               <ShieldCheck className="w-4 h-4" />
               <span className="text-sm font-medium">Compliance Check ({complianceResult.rulesEvaluated} rules evaluated)</span>
             </div>
-            <button onClick={() => setComplianceResult(null)} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Dismiss</button>
+            <button onClick={() => setComplianceResult(null)} className="text-xs text-fg-subtle hover:text-fg">Dismiss</button>
           </div>
           {complianceResult.passed && complianceResult.warnings.length === 0 && (
             <p className="text-sm text-green-700 dark:text-green-300">All compliance checks passed.</p>

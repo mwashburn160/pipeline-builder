@@ -325,7 +325,7 @@ export function CommandPalette({
         >
           {/* Search input */}
           <div className="flex items-center gap-3 px-4 border-b border-gray-200 dark:border-gray-700">
-            <Search className="w-5 h-5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+            <Search className="w-5 h-5 text-fg-subtle flex-shrink-0" />
             <input
               ref={inputRef}
               type="text"
@@ -342,7 +342,7 @@ export function CommandPalette({
               aria-controls={LISTBOX_ID}
               aria-activedescendant={filtered.length > 0 ? optionId(selectedIndex) : undefined}
             />
-            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-2xs font-medium text-fg-subtle bg-gray-100 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
               ESC
             </kbd>
           </div>
@@ -350,11 +350,11 @@ export function CommandPalette({
           {/* Results */}
           <div ref={listRef} id={LISTBOX_ID} className="max-h-80 overflow-y-auto py-2" role="listbox" aria-label="Commands">
             {filtered.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No results found</p>
+              <p className="text-sm text-fg-muted text-center py-8">No results found</p>
             ) : (
               Array.from(sections.entries()).map(([section, items]) => (
                 <div key={section} role="group" aria-label={section}>
-                  <p className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                  <p className="px-4 pt-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
                     {section}
                   </p>
                   {items.map((item) => {
@@ -387,7 +387,7 @@ export function CommandPalette({
           </div>
 
           {/* Footer hint */}
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center gap-4 text-[11px] text-gray-400 dark:text-gray-500">
+          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center gap-4 text-2xs text-fg-subtle">
             <span className="flex items-center gap-1">
               <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">↑↓</kbd>
               navigate

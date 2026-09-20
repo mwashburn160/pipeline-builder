@@ -265,7 +265,7 @@ export default function DashboardPage() {
     return (
       <DashboardLayout title="Dashboard" subtitle="">
         <RetryError message={error.message} onRetry={refetch} />
-        <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
+        <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
   }
@@ -273,7 +273,7 @@ export default function DashboardPage() {
     return (
       <DashboardLayout title="Dashboard not found" subtitle="">
         <EmptyState icon={LayoutDashboard} title="Dashboard not found" description="It may have been deleted, or you no longer have access to it." />
-        <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
+        <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
   }

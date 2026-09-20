@@ -12,6 +12,7 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { publishSsoTestResult, SSO_TEST_CHANNEL } from '@/components/sso/test-channel';
 
 /**
  * SAML 2.0 sign-in landing page.
@@ -30,6 +31,10 @@ import { formatError } from '@/lib/constants';
  *   `?error=…`   — the assertion was refused. The code is one of a fixed set the
  *      backend is willing to state publicly; anything else arrives as
  *      `SAML_ERROR` and gets the generic message.
+ *   `?test=…`    — an admin's TEST CONNECTION: the ACS verified the assertion in
+ *      dry-run mode and parked a report. This popup only hands the test `state`
+ *      back to the settings page that opened it (which collects the report over
+ *      its own authenticated session) and closes — no session is minted here.
  *
  * The path is dictated by the backend (`samlLandingUrl` in platform
  * `services/saml-service.ts`), so this file MUST live at
@@ -64,6 +69,12 @@ const ERROR_MESSAGES: Record<string, string> = {
   SAML_PROTOCOL_MISMATCH: 'This organization does not sign in with SAML.',
   SAML_INCOMPLETE_CONFIG:
     'The SAML configuration for this organization is incomplete. Ask an administrator to finish it.',
+  SAML_ENCRYPTION_REQUIRED:
+    'This organization requires encrypted assertions, but your identity provider sent an unencrypted one. Ask an administrator to check the SAML encryption settings.',
+  SAML_UNEXPECTED_ENCRYPTION:
+    'Your identity provider sent an encrypted assertion this organization is not set up to receive. Ask an administrator to check the SAML encryption settings.',
+  SAML_INVALID_LOGOUT:
+    'The single-logout message from your identity provider could not be verified. You may still be signed in — sign out from Pipeline Builder to be sure.',
 };
 
 const GENERIC_ERROR = 'Single sign-on could not be completed. Please try again, or contact an administrator if it keeps happening.';
@@ -72,6 +83,8 @@ export default function SamlLandingPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  // A test-connection popup that has handed its state back to the settings page.
+  const [testDone, setTestDone] = useState(false);
   // The handoff is single-use — guard against React 18 strict-mode double-invoke.
   const started = useRef(false);
 
@@ -92,7 +105,14 @@ export default function SamlLandingPage() {
     const orgId = typeof router.query.orgId === 'string' ? router.query.orgId : '';
     const handoff = typeof router.query.handoff === 'string' ? router.query.handoff : '';
     const code = typeof router.query.error === 'string' ? router.query.error : '';
+    const test = typeof router.query.test === 'string' ? router.query.test : '';
 
+    if (test) {
+      publishSsoTestResult({ type: SSO_TEST_CHANNEL, state: test });
+      setTestDone(true);
+      window.close();
+      return;
+    }
     if (code) {
       setError(ERROR_MESSAGES[code] ?? GENERIC_ERROR);
       return;
@@ -114,18 +134,23 @@ export default function SamlLandingPage() {
           <Card className="p-8 text-center" role="status" aria-live="polite">
             {error ? (
               <>
-                <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
+                <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Single sign-on failed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">{error}</p>
+                <p className="text-sm text-fg-muted mt-1">{error}</p>
                 <LinkButton href="/" variant="primary" fullWidth className="text-sm mt-4">
                   Back to sign in
                 </LinkButton>
+              </>
+            ) : testDone ? (
+              <>
+                <p className="font-bold">Test complete</p>
+                <p className="text-sm text-fg-muted mt-1">The result is shown in the settings page. You can close this window.</p>
               </>
             ) : (
               <>
                 <LoadingSpinner />
                 <p className="font-bold mt-3">Completing single sign-on…</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+                <p className="text-sm text-fg-muted mt-1">
                   Verifying the response from your identity provider.
                 </p>
               </>

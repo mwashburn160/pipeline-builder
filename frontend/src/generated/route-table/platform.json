@@ -414,6 +414,26 @@
     ]
   },
   {
+    "method": "POST",
+    "path": "/admin/users/:id/mfa-reset",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "auth.mfa.direct_reset"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/audit",
     "auth": true,
@@ -757,6 +777,56 @@
   },
   {
     "method": "POST",
+    "path": "/auth/password/change-required",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.password.change",
+      "user.login"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/auth/recovery-codes",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/auth/recovery-codes",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.mfa.recovery_regenerate"
+    ]
+  },
+  {
+    "method": "POST",
     "path": "/auth/refresh",
     "auth": false,
     "permissions": [],
@@ -888,6 +958,40 @@
     "audit": []
   },
   {
+    "method": "GET",
+    "path": "/auth/sso/:orgId/saml/slo",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.saml.logout"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/auth/sso/:orgId/saml/slo",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.saml.logout"
+    ]
+  },
+  {
     "method": "POST",
     "path": "/auth/sso/discover",
     "auth": false,
@@ -901,6 +1005,23 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/auth/sso/logout",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.saml.logout"
+    ]
   },
   {
     "method": "POST",
@@ -1104,23 +1225,6 @@
     "scopes": [],
     "audit": [
       "user.totp.enrol"
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/auth/totp/recovery-codes",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": false,
-    "internalCallers": [],
-    "stepUp": true,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "user.totp.recovery_regenerate"
     ]
   },
   {
@@ -1534,7 +1638,10 @@
     "scopes": [],
     "audit": [
       "invitation.revoke"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -1559,7 +1666,10 @@
     "scopes": [],
     "audit": [
       "invitation.resend"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -1633,7 +1743,10 @@
     "scopes": [],
     "audit": [
       "invitation.send"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -2183,7 +2296,10 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -2414,6 +2530,54 @@
     "scopes": [],
     "audit": [
       "org.update"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/organization/:id/authenticator-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/organization/:id/authenticator-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.authenticator_policy.update"
     ]
   },
   {
@@ -2770,7 +2934,10 @@
     "scopes": [],
     "audit": [
       "org.idp.mapping.upsert"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -2795,7 +2962,10 @@
     "scopes": [],
     "audit": [
       "org.idp.mapping.delete"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PUT",
@@ -2820,6 +2990,107 @@
     "scopes": [],
     "audit": [
       "org.idp.mapping.upsert"
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/idp/metadata/import",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:idp"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.idp.metadata.import"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/organization/:id/idp/sp-info",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:idp"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/idp/test",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:idp"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.test"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/idp/test/complete",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:idp"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "sso.test"
     ]
   },
   {
@@ -2972,7 +3243,10 @@
     "scopes": [],
     "audit": [
       "org.member.add"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -2997,7 +3271,10 @@
     "scopes": [],
     "audit": [
       "org.member.remove"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PATCH",
@@ -3022,7 +3299,10 @@
     "scopes": [],
     "audit": [
       "org.member.activate"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PATCH",
@@ -3047,7 +3327,10 @@
     "scopes": [],
     "audit": [
       "org.member.deactivate"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -3087,7 +3370,10 @@
     "scopes": [],
     "audit": [
       "org.member.add"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -3138,6 +3424,107 @@
     ]
   },
   {
+    "method": "GET",
+    "path": "/organization/:id/mfa-resets",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "members:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/mfa-resets",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "members:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "auth.mfa.reset_requested"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/mfa-resets/:requestId/approve",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "members:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "auth.mfa.reset_approved"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/organization/:id/mfa-resets/:requestId/deny",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "members:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "auth.mfa.reset_denied"
+    ]
+  },
+  {
     "method": "POST",
     "path": "/organization/:id/move",
     "auth": true,
@@ -3168,6 +3555,54 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/organization/:id/password-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/organization/:id/password-policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.password_policy.update"
+    ]
   },
   {
     "method": "POST",
@@ -3232,7 +3667,10 @@
     "scopes": [],
     "audit": [
       "org.role.create"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -3257,7 +3695,10 @@
     "scopes": [],
     "audit": [
       "org.role.delete"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PUT",
@@ -3282,7 +3723,10 @@
     "scopes": [],
     "audit": [
       "org.role.update"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -3307,7 +3751,10 @@
     "scopes": [],
     "audit": [
       "org.role.member.add"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -3332,7 +3779,10 @@
     "scopes": [],
     "audit": [
       "org.role.member.remove"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PUT",
@@ -3407,7 +3857,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3505,7 +3955,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -3635,7 +4085,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -4045,7 +4495,10 @@
     "scopes": [],
     "audit": [
       "user.token.create"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "refuse"
+    }
   },
   {
     "method": "GET",
@@ -4077,7 +4530,10 @@
     "scopes": [],
     "audit": [
       "user.key.create"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "refuse"
+    }
   },
   {
     "method": "DELETE",
@@ -4303,7 +4759,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -4351,7 +4807,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -4376,7 +4832,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -4401,7 +4857,7 @@
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [

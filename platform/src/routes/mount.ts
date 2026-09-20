@@ -22,7 +22,7 @@ import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes,
-  scimRoutes,
+  scimRoutes, mfaResetAdminRoutes,
 } from './index.js';
 
 /**
@@ -85,6 +85,7 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/admin/orgs/:orgId/kms-config', orgKmsConfigRoutes);
   app.use('/admin/orgs/:orgId/k8s-namespace.yaml', orgNamespaceRoutes);
   app.use('/admin/users/:id/grants', userGrantsRoutes);
+  app.use('/admin/users/:id/mfa-reset', mfaResetAdminRoutes);
   app.use('/admin/summary', adminSummaryRoutes);
   app.use('/admin/impersonate', impersonateRoutes);
 }

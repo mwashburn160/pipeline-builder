@@ -41,9 +41,18 @@ export interface WebAuthnCredentialDocument extends Document {
   deviceType: string;
   /** Whether the credential is backed up / synced (a passkey in a keychain). */
   backedUp: boolean;
-  /** Authenticator model GUID — shown as nothing today, kept for a future
-   *  enterprise AAGUID allowlist. */
+  /** Authenticator model GUID (lowercase canonical form). Checked against the
+   *  org authenticator allowlist at registration, and carried onto passkey
+   *  sessions so the allowlist decides whether the sign-in counts as `aal: 2`
+   *  in the active org (see `helpers/authenticator-policy.ts`). All-zero when
+   *  the authenticator named no model. */
   aaguid?: string;
+  /** Attestation statement format the authenticator returned (`none` unless
+   *  the registrant's org allowlists models and so asked for `direct`). */
+  attestationFmt?: string;
+  /** The attestation chain was verified against the FIDO Metadata Service and
+   *  the model was on the allowlist at registration time. */
+  attestationVerified?: boolean;
   /** User-supplied label ("MacBook Touch ID"). */
   name: string;
   createdAt: Date;
@@ -60,6 +69,8 @@ const webAuthnCredentialSchema = new Schema<WebAuthnCredentialDocument>(
     deviceType: { type: String, default: 'singleDevice' },
     backedUp: { type: Boolean, default: false },
     aaguid: { type: String },
+    attestationFmt: { type: String },
+    attestationVerified: { type: Boolean, default: false },
     name: { type: String, required: true, maxlength: 64, trim: true },
     createdAt: { type: Date, default: Date.now },
     lastUsedAt: { type: Date, default: null },

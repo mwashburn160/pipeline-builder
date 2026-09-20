@@ -253,6 +253,16 @@ export interface JwtPayload {
    */
   mfaRequired?: boolean;
   /**
+   * The active org's "administrative actions require MFA" policy
+   * (`adminActionsRequireMfa`, strictest across the org and its ancestors).
+   * Present — and always `2` — only when the policy is on. It is resolved when
+   * the token is ISSUED, so services that can't read the org document still know
+   * the policy: `requireOrgAdminAssurance` refuses an `aal: 1` session on an
+   * administrative route when this claim is present. Changing the policy bumps
+   * every affected member's `tokenVersion`, so the claim can't go stale.
+   */
+  org_admin_aal?: 2;
+  /**
    * BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). Set only on a session opened by
    * the install's bootstrap admin (`BOOTSTRAP_SUPERADMIN_EMAILS`, system org)
    * while they still have no enrolled factor. Such a session is `aal: 1` and may
@@ -293,6 +303,16 @@ export interface JwtPayload {
    * a scoped token is minted with minimal role for least-privilege.
    */
   scope?: TokenScope;
+  /**
+   * The token's `permissions` were NARROWED to a catalog subset chosen when the
+   * credential was created (a permission-scoped personal access key or machine
+   * token). The claim is the record that `permissions` is the INTERSECTION of
+   * that subset with the holder's current Roles — not their full authority — so
+   * anything the token mints can only be narrower still, and it never carries
+   * `isSuperAdmin` or an admin `role` (both would bypass the subset). Only ever
+   * `true`; absent on unrestricted tokens.
+   */
+  permissionsRestricted?: boolean;
   /** Active organization ID (from UserOrganization membership) */
   organizationId?: string;
   /** Active organization name */

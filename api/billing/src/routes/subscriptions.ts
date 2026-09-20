@@ -4,6 +4,7 @@
 import {
   audited,
   requireAuth,
+  requireOrgAdminAssurance,
   requirePermission,
   requireStepUp,
   sendSuccess,
@@ -42,6 +43,14 @@ import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validatio
 const logger = createLogger('billing-subscriptions');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * The org policy "administrative actions require MFA" (the `org_admin_aal`
+ * claim). Changing what the org pays for is an administrative action; billing
+ * automation (API keys, service accounts) is legitimate, so machines pass and a
+ * person needs an `aal: 2` session while the policy is on.
+ */
+const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler;
 
 /**
  * Shared preflight for BOTH subscription-create entry points (hosted Checkout and
@@ -128,7 +137,7 @@ export function createSubscriptionRoutes(): Router {
   // `customer.subscription.created` webhook on completion (no cardless
   // `incomplete` orphan). Providers without Checkout (stub) fall back to the
   // direct create; Marketplace bills externally.
-  router.post('/subscriptions/checkout', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/checkout', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, withRoute(async ({ req, res, orgId }) => {
     const pre = await preflightCreate(req, res, orgId);
     if (!pre) return;
     const { planId, interval, plan, customerEmail } = pre;
@@ -165,7 +174,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.create'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.create'), withRoute(async ({ req, res, orgId }) => {
     const pre = await preflightCreate(req, res, orgId);
     if (!pre) return;
     const { planId, interval, plan, customerEmail, referralCode } = pre;
@@ -293,7 +302,7 @@ export function createSubscriptionRoutes(): Router {
 
   // `billing.addon.prune` rides along: a tier upgrade auto-drops any bundle the
   // destination tier now includes (applyTierIncludedAddonPrune → finalizePrunedAddons).
-  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.update', 'billing.addon.prune'), withRoute(async ({ req, res, orgId }) => {
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.update', 'billing.addon.prune'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -456,7 +465,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -528,7 +537,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({

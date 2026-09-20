@@ -106,13 +106,13 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
         </div>
 
         {scanning && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-fg-muted">
             Scanning tags that share the digest… {scanned}/{totalToScan}
           </div>
         )}
 
         {digest && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all flex items-center gap-2">
+          <div className="text-xs text-fg-muted font-mono break-all flex items-center gap-2">
             <span className="flex-1">digest: {digest}</span>
             <CopyButton text={digest} />
           </div>
@@ -139,12 +139,12 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
         })()}
 
         {!scanning && sharedTags.filter((t) => t !== tagRef).length === 0 && extraTagCount > 0 && (
-          <div className="text-xs italic text-gray-500 dark:text-gray-400">
+          <div className="text-xs italic text-fg-muted">
             {extraTagCount} additional tag(s) were not scanned — they may also share this digest.
           </div>
         )}
 
-        <div className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="text-xs text-fg-muted">
           Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
         </div>
 

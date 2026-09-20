@@ -45,7 +45,7 @@ export function AddMemberModal({
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter the email address of an existing user to add to your organization.</p>
+      <p className="text-sm text-fg-muted mb-4">Enter the email address of an existing user to add to your organization.</p>
       <Input
         type="email"
         placeholder="user@example.com"

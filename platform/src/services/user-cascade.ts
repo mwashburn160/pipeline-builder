@@ -5,7 +5,7 @@ import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { assertNotLastPrivilegedMember } from './roles-service.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
-import { JoinRequest, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
+import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
 
 /**
  * Delete a user account and everything keyed to it, inside the caller's
@@ -55,10 +55,14 @@ export async function deleteUserCascade(
   // unique `credentialId` reserved, so re-registering the same authenticator on a
   // re-created account would fail with a duplicate key.
   await WebAuthnCredential.deleteMany({ userId: uid }, { session });
-  // The authenticator-app enrolment: an encrypted secret and the recovery-code
-  // hashes, both meaningless once the account is gone — and the `userId` unique
-  // index would block a re-created account from enrolling at all.
+  // The authenticator-app enrolment (an encrypted secret) and the account's
+  // recovery-code hashes, both meaningless once the account is gone — and their
+  // `userId` unique indexes would block a re-created account from enrolling.
   await UserTotp.deleteMany({ userId: uid }, { session });
+  await MfaRecoveryCodes.deleteMany({ userId: uid }, { session });
+  // Pending MFA resets naming this account can no longer be carried out. The
+  // audit trail keeps what happened to them.
+  await MfaResetRequest.deleteMany({ targetUserId: uid }, { session });
   await UserPreferences.deleteMany({ userId: uid }, { session });
   await JoinRequest.deleteMany({ userId: uid }, { session });
   return { tokenVersion: deleted.tokenVersion ?? 0 };

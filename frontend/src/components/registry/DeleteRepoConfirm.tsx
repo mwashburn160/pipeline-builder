@@ -84,7 +84,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
         </div>
 
         {scanning && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-fg-muted">
             Scanning tags…
           </div>
         )}
@@ -103,7 +103,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
           </div>
         )}
 
-        <div className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="text-xs text-fg-muted">
           Note: every manifest is deleted by digest, so all tags stop resolving at once. Blob layers stay on disk as orphans until the registry&apos;s garbage collector runs. This action is audit-logged.
         </div>
 

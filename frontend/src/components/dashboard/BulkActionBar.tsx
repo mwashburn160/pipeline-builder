@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
+import { TOAST_OFFSET_CSS_VAR } from '@/lib/constants';
 
 /**
  * Row-selection state for a bulk-editable list (the pipelines and plugins
@@ -38,10 +39,41 @@ interface BulkActionBarProps {
  * selected rows — activate, deactivate, delete. Paired with a same-height
  * spacer ({@link BulkActionBarSpacer}) so the last rows aren't hidden under it.
  */
-export function BulkActionBar({ count, busy, onActivate, onDelete, onClear }: BulkActionBarProps) {
-  if (count === 0) return null;
+export function BulkActionBar(props: BulkActionBarProps) {
+  if (props.count === 0) return null;
+  return <VisibleBulkActionBar {...props} />;
+}
+
+/** Fallback when layout can't be measured (jsdom, a not-yet-painted bar). */
+const FALLBACK_BAR_HEIGHT = '4rem';
+
+/**
+ * Publishes the bar's height as {@link TOAST_OFFSET_CSS_VAR} while it is on
+ * screen, so the global toast stack lifts above it instead of covering its
+ * buttons; cleared when the bar goes away.
+ */
+function useRaiseToastsAbove(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = document.documentElement;
+    const publish = () => {
+      const h = ref.current?.offsetHeight ?? 0;
+      root.style.setProperty(TOAST_OFFSET_CSS_VAR, h > 0 ? `${h}px` : FALLBACK_BAR_HEIGHT);
+    };
+    publish();
+    const observer = typeof ResizeObserver !== 'undefined' && ref.current ? new ResizeObserver(publish) : null;
+    if (observer && ref.current) observer.observe(ref.current);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty(TOAST_OFFSET_CSS_VAR);
+    };
+  }, [ref]);
+}
+
+function VisibleBulkActionBar({ count, busy, onActivate, onDelete, onClear }: BulkActionBarProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useRaiseToastsAbove(ref);
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
+    <div ref={ref} className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
       <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {count} selected

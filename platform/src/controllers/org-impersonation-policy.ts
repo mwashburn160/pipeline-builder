@@ -10,13 +10,19 @@
  * The effective policy (strictest across the org and its ancestors) is consulted
  * on every impersonation request: `open` approves on creation, `consent` sends a
  * challenge, `denied` refuses all but sysadmin break-glass.
+ *
+ * LOOSENING needs an `aal: 2` session: moving to a less strict mode, or letting
+ * the impersonated person approve their own challenge, widens who can see the
+ * org's data. Tightening stays open to a single-factor admin. Directional, so it
+ * is checked here (`refuseWeakSession`) rather than on the route.
  */
 
-import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, requireAuth, withController } from '../helpers/controller-helper.js';
 import {
   canSelectDeniedPolicy,
+  IMPERSONATION_POLICIES,
   MIN_SYSADMINS_FOR_DENIED,
   resolveEffectiveImpersonationPolicy,
   resolveImpersonationPolicy,
@@ -27,6 +33,25 @@ import { Organization } from '../models/index.js';
 import { updateImpersonationPolicySchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-impersonation-policy');
+
+/** A resolved policy in the stored-document shape, so a partial update can be
+ *  laid over it and resolved again. */
+function previousResolvedAsDoc(p: ReturnType<typeof resolveImpersonationPolicy>) {
+  return { impersonationPolicy: p.policy, allowSelfApproval: p.allowSelfApproval };
+}
+
+/**
+ * Whether moving from `from` to `to` WEAKENS the policy: a less strict mode
+ * (`IMPERSONATION_POLICIES` is ordered open → consent → denied), or turning
+ * self-approval on.
+ */
+export function isLooseningImpersonation(
+  from: ReturnType<typeof resolveImpersonationPolicy>,
+  to: ReturnType<typeof resolveImpersonationPolicy>,
+): boolean {
+  return IMPERSONATION_POLICIES.indexOf(to.policy) < IMPERSONATION_POLICIES.indexOf(from.policy)
+    || (to.allowSelfApproval && !from.allowSelfApproval);
+}
 
 /** Add the stricter parent's display name next to `inheritedFrom`, so the UI
  *  needn't resolve an org the admin may not be able to read. */
@@ -83,6 +108,10 @@ export const updateImpersonationPolicy = withController('Update impersonation po
 
   const before = await Organization.findById(toOrgId(id)).select('impersonationPolicy allowSelfApproval').lean();
   if (!before) return sendError(res, 404, 'Organization not found');
+
+  const previousResolved = resolveImpersonationPolicy(before);
+  const requested = resolveImpersonationPolicy({ ...previousResolvedAsDoc(previousResolved), ...body });
+  if (isLooseningImpersonation(previousResolved, requested) && refuseWeakSession(req, res, { minAssurance: 2 })) return;
 
   const updated = await Organization.findByIdAndUpdate(
     toOrgId(id),

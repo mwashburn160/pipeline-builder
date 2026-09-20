@@ -133,13 +133,24 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     path: /^(GET|POST|DELETE) \/auth\/totp(\/|$)/,
     waive: 'permission',
-    reason: 'Self-service: every authenticator-app route acts on the CALLER\'S OWN factor, keyed by req.user.sub. Enrolment, removal and recovery-code regeneration add requireStepUp + requireInteractiveSession (no API key, scoped or impersonated session); there is no org permission over one\'s own sign-in credentials.',
+    reason: 'Self-service: every authenticator-app route acts on the CALLER\'S OWN factor, keyed by req.user.sub. Enrolment and removal add requireStepUp + requireInteractiveSession (no API key, scoped or impersonated session); there is no org permission over one\'s own sign-in credentials.',
+  },
+  {
+    path: /^(GET|POST) \/auth\/recovery-codes$/,
+    waive: 'permission',
+    reason: 'Self-service: the CALLER\'S OWN recovery codes (one set per account, shared by passkeys and the authenticator app), keyed by req.user.sub. Regeneration adds requireStepUp + requireInteractiveSession; there is no org permission over one\'s own sign-in credentials.',
   },
   {
     method: 'POST',
     path: '/auth/mfa/verify',
     waive: 'permission',
     reason: 'Second leg of a password sign-in — pre-auth by construction, exactly like /auth/login: the single-use challenge handle plus the authenticator code IS the authorization. Rate-limited per challenge, bounded by a per-account lockout, and every failure returns the same opaque 401.',
+  },
+  {
+    method: 'POST',
+    path: '/auth/password/change-required',
+    waive: 'permission',
+    reason: 'Last leg of a password sign-in whose password no longer meets the org password policy — pre-auth by construction, like /auth/login and /auth/mfa/verify: the single-use challenge handle (issued only after the old password, and any second factor, verified) IS the authorization. Under the /auth per-IP limiter.',
   },
   {
     path: /^(GET|POST) \/auth\/(logout|switch-org|step-up|onboarding)/,
@@ -160,7 +171,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     path: /^(GET|POST) \/auth\/sso\//,
     waive: 'permission',
-    reason: 'Per-org SSO login: discovery, the IdP authorize URL, and the code + id_token callback. Pre-auth by construction; the controllers enforce "SSO enabled AND the org is sso-entitled".',
+    reason: 'Per-org SSO login: discovery, the IdP authorize URL, the code + id_token callback, the SAML ACS/metadata/Single-Logout endpoints (driven by the IdP through the browser — authorized by the IdP\'s XML signature, pinned issuer and one-time state/request ids), and POST /logout, which acts only on the caller\'s OWN session (requireAuth). Pre-auth by construction; the controllers enforce "SSO enabled AND the org is sso-entitled" where a sign-in is involved.',
   },
   {
     method: 'POST',

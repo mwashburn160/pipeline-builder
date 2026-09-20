@@ -242,7 +242,7 @@ export function ResourceList<T>({
               disabled={loading}
               title="Refresh"
               aria-label="Refresh"
-              className="p-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50"
+              className="p-1.5 text-fg-muted hover:text-fg disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -304,7 +304,7 @@ export function ResourceList<T>({
 
         {/* Bounded-results hint (e.g. TagTable's ROW_CAP slice). */}
         {cappedHint && !error && (
-          <div className="p-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+          <div className="p-3 text-xs text-fg-muted border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
             {cappedHint}
           </div>
         )}

@@ -137,7 +137,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         {/* Distinct-digest summary — the count that describes what's
             actually being removed from the registry, since multiple tags
             often point at the same manifest. */}
-        <div className="text-xs text-gray-600 dark:text-gray-400">
+        <div className="text-xs text-fg-muted">
           {digestScanProgress ?? (
             distinctDigests === refs.length
               ? `All ${refs.length} tags point at distinct digests — ${refs.length} manifest${refs.length === 1 ? '' : 's'} will be deleted.`
@@ -145,7 +145,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
           )}
         </div>
 
-        <div className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="text-xs text-fg-muted">
           Distribution deletes manifests by digest — other tags pointing to the same digest will also stop working. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass). Each deletion is audit-logged.
         </div>
 
@@ -168,7 +168,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         )}
 
         {submitting && (
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div className="text-sm text-fg-muted">
             Deleting… {progress.done}/{refs.length}
             {progress.failed > 0 && <span className="text-red-600 dark:text-red-400"> ({progress.failed} failed)</span>}
           </div>

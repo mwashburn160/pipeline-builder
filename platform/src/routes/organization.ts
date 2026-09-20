@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -56,6 +56,12 @@ import {
   decideOrgJoinRequest,
 } from '../controllers/index.js';
 import {
+  approveMfaReset,
+  denyMfaReset,
+  listMfaResets,
+  requestMfaReset,
+} from '../controllers/mfa-reset.js';
+import {
   createOrgIdpGroupMapping,
   deleteOrgIdpGroupMapping,
   listOrgIdpGroupMappings,
@@ -66,6 +72,8 @@ import {
   putOwnOrgIdpConfig,
   patchOwnOrgIdpConfig,
   deleteOwnOrgIdpConfig,
+  getOwnOrgIdpSpInfo,
+  importOwnOrgIdpMetadata,
 } from '../controllers/org-idp-self.js';
 import {
   getImpersonationPolicy,
@@ -75,10 +83,30 @@ import {
   getMfaPolicy,
   updateMfaPolicy,
 } from '../controllers/org-mfa-policy.js';
+import {
+  getAuthenticatorPolicy,
+  getPasswordPolicy,
+  updateAuthenticatorPolicy,
+  updatePasswordPolicy,
+} from '../controllers/org-security-policy.js';
+import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
 const router: Router = Router();
+
+/**
+ * The org policy "administrative actions require MFA" (`adminActionsRequireMfa`,
+ * carried as the `org_admin_aal` claim). With it off this is a no-op. Every route
+ * it guards here is legitimately machine-callable — automation that manages
+ * members, roles and group mappings — so machine credentials pass (the policy is
+ * about how strongly a PERSON's session was opened); people need `aal: 2`.
+ */
+const adminMfa = requireOrgAdminAssurance({ machines: 'allow' });
+
+/** Always `aal: 2` (#8): the action mints a durable machine credential or hands
+ *  the org to someone else, whatever the org's policy says. */
+const mfaGrade = requireAssurance({ minAssurance: 2 });
 
 /** Per-user limiter for domain verification — each call triggers an outbound DNS
  *  TXT lookup, so bound it tighter than the global limiter (keyed per-user;
@@ -174,9 +202,24 @@ router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:im
  *  ordinary org-security setting an admin manages, not a separate authority. The
  *  WRITE additionally requires step-up: turning the requirement OFF removes a
  *  control for everyone in the org, so it must not be reachable from a session
- *  alone. Tenancy is `canAdministerOrg` in the controller, as on the siblings. */
+ *  alone. LOOSENING (requirement off, admin-actions policy off, "our IdP
+ *  enforces MFA" on) additionally needs an `aal: 2` session — checked in the
+ *  controller because tightening must stay open to an admin without MFA. The
+ *  same holds for the impersonation policy above. Tenancy is `canAdministerOrg`
+ *  in the controller, as on the siblings. */
 router.get('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), getMfaPolicy);
 router.patch('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
+
+/** GET/PATCH /organization/:id/password-policy — the org's minimum password
+ *  length (≥ the platform minimum, strictest wins down the org tree), and
+ *  GET/PATCH /organization/:id/authenticator-policy — the passkey models
+ *  (AAGUIDs) members may register and that count as MFA here. Same gating as
+ *  the MFA policy: `org:settings`, step-up on the write, `canAdministerOrg` and
+ *  an `aal: 2` session for LOOSENING in the controller. */
+router.get('/:id/password-policy', requireAuth, requirePermission('org:settings'), getPasswordPolicy);
+router.patch('/:id/password-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.password_policy.update'), updatePasswordPolicy);
+router.get('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), getAuthenticatorPolicy);
+router.patch('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.authenticator_policy.update'), updateAuthenticatorPolicy);
 
 // -- Domain-based join (P2b) — owner/admin manage verified domains + approve
 //    join requests. Gated by `org:settings` (capability) + `canAdministerOrg`
@@ -264,6 +307,23 @@ router.patch('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssur
 router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.delete'), deleteOwnOrgIdpConfig);
 
 /*
+ * SSO setup helpers (org:idp, own org / managed team, `sso`-entitled — checked
+ * in the controllers). None of these WRITES the connection, so none needs the
+ * step-up the writes above carry:
+ *   - sp-info: the values to register at the IdP, computed from server config;
+ *   - metadata/import: parse IdP metadata (XML, or an SSRF-guarded URL fetch)
+ *     into form fields the admin then saves through PUT/PATCH above;
+ *   - test + test/complete: a DRY-RUN round trip to the IdP that reports what a
+ *     sign-in would do and never creates a session, user or membership.
+ * "SSO required" itself is switched through PATCH /:id/idp (`ssoRequired`), so
+ * it inherits that route's assurance + strong step-up.
+ */
+router.get('/:id/idp/sp-info', requireAuth, requirePermission('org:idp'), getOwnOrgIdpSpInfo);
+router.post('/:id/idp/metadata/import', requireAuth, requirePermission('org:idp'), audited('org.idp.metadata.import'), importOwnOrgIdpMetadata);
+router.post('/:id/idp/test', requireAuth, requirePermission('org:idp'), audited('sso.test'), startSsoTest);
+router.post('/:id/idp/test/complete', requireAuth, requirePermission('org:idp'), audited('sso.test'), completeSsoTest);
+
+/*
  * IdP group → Role mappings (3a) — what the IdP's groups are worth inside the
  * org. Gated on `roles:manage`, NOT `org:idp`: a mapping grants Roles, so it
  * belongs to whoever manages Roles, and an org can delegate the login connection
@@ -276,12 +336,13 @@ router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssu
  * mints no secret and grants nothing the actor doesn't already hold.
  */
 router.get('/:id/idp/group-mappings', requireAuth, requirePermission('roles:manage'), listOrgIdpGroupMappings);
-router.post('/:id/idp/group-mappings', requireAuth, requirePermission('roles:manage'), audited('org.idp.mapping.upsert'), createOrgIdpGroupMapping);
-router.put('/:id/idp/group-mappings/:mappingId', requireAuth, requirePermission('roles:manage'), audited('org.idp.mapping.upsert'), updateOrgIdpGroupMapping);
-router.delete('/:id/idp/group-mappings/:mappingId', requireAuth, requirePermission('roles:manage'), audited('org.idp.mapping.delete'), deleteOrgIdpGroupMapping);
+router.post('/:id/idp/group-mappings', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.idp.mapping.upsert'), createOrgIdpGroupMapping);
+router.put('/:id/idp/group-mappings/:mappingId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.idp.mapping.upsert'), updateOrgIdpGroupMapping);
+router.delete('/:id/idp/group-mappings/:mappingId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.idp.mapping.delete'), deleteOrgIdpGroupMapping);
 
 /*
- * Organization Members (admin can manage any org)
+ * Organization Members (admin can manage any org). Every write is subject to
+ * the org's "administrative actions require MFA" policy (`adminMfa`).
  */
 
 /** GET /organization/:id/members - List organization members */
@@ -293,11 +354,11 @@ router.get('/:id/members', requireAuth, getOrganizationMembers);
 router.get('/:id/members/:userId/exists', requireAuth, checkOrganizationMembership);
 
 /** POST /organization/:id/members - Add member to organization (admin only) */
-router.post('/:id/members', requireAuth, requirePermission('members:manage'), audited('org.member.add'), addMemberToOrganization);
+router.post('/:id/members', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.add'), addMemberToOrganization);
 
 /** POST /organization/:id/members/bulk-add - Add one user to several teams in
  *  the org's subtree at once (admin/parent-admin only). */
-router.post('/:id/members/bulk-add', requireAuth, requirePermission('members:manage'), audited('org.member.add'), bulkAddMemberToTeams);
+router.post('/:id/members/bulk-add', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.add'), bulkAddMemberToTeams);
 
 /** GET /organization/:id/teams - Descendant team roster (no member context). */
 router.get('/:id/teams', requireAuth, getOrganizationTeams);
@@ -317,13 +378,38 @@ router.delete('/:id/teams/:teamId', requireAuth, requirePermission('org:settings
 router.get('/:id/member/:memberId/teams', requireAuth, getMemberTeams);
 
 /** DELETE /organization/:id/members/:userId - Remove member from organization (admin only) */
-router.delete('/:id/members/:userId', requireAuth, requirePermission('members:manage'), audited('org.member.remove'), removeMemberFromOrganization);
+router.delete('/:id/members/:userId', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.remove'), removeMemberFromOrganization);
 
 /** PATCH /organization/:id/members/:userId/deactivate - Deactivate member (admin only) */
-router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('members:manage'), audited('org.member.deactivate'), deactivateMember);
+router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.deactivate'), deactivateMember);
 
 /** PATCH /organization/:id/members/:userId/activate - Reactivate member (admin only) */
-router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('members:manage'), audited('org.member.activate'), activateMember);
+router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.activate'), activateMember);
+
+/*
+ * MFA recovery — the TWO-PERSON reset of a member's second factors (#8). An
+ * owner/admin REQUESTS it with a reason; a DIFFERENT owner/admin of the org or
+ * of a parent org, or a sysadmin, APPROVES it. `members:manage` is the
+ * capability; the controller adds `canAdministerOrg` (owner/admin of the org or
+ * an ancestor) and the two-person rule.
+ *
+ * Both halves ALWAYS need an `aal: 2` session and a step-up — removing someone
+ * else's factors must never be something a single-factor session can start, let
+ * alone finish — and the APPROVAL's step-up must be earned with a second factor.
+ * Denying (or withdrawing) only removes a pending action, so it needs neither.
+ */
+router.get('/:id/mfa-resets', requireAuth, requirePermission('members:manage'), listMfaResets);
+router.post('/:id/mfa-resets', requireAuth, requirePermission('members:manage'), mfaGrade, requireStepUp, audited('auth.mfa.reset_requested'), requestMfaReset);
+router.post(
+  '/:id/mfa-resets/:requestId/approve',
+  requireAuth,
+  requirePermission('members:manage'),
+  mfaGrade,
+  requireStepUp({ methods: STRONG_STEP_UP_METHODS }),
+  audited('auth.mfa.reset_approved'),
+  approveMfaReset,
+);
+router.post('/:id/mfa-resets/:requestId/deny', requireAuth, requirePermission('members:manage'), audited('auth.mfa.reset_denied'), denyMfaReset);
 
 /*
  * Permission Roles (first-class RBAC). Membership drives the cached
@@ -335,19 +421,19 @@ router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('me
 router.get('/:id/roles', requireAuth, getOrganizationRoles);
 
 /** POST /organization/:id/roles - Create a custom permission role (admin only) */
-router.post('/:id/roles', requireAuth, requirePermission('roles:manage'), audited('org.role.create'), createOrganizationRole);
+router.post('/:id/roles', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.create'), createOrganizationRole);
 
 /** PUT /organization/:id/roles/:roleId - Update a custom role (admin only) */
-router.put('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), audited('org.role.update'), updateOrganizationRole);
+router.put('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.update'), updateOrganizationRole);
 
 /** DELETE /organization/:id/roles/:roleId - Delete a custom role (admin only) */
-router.delete('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), audited('org.role.delete'), deleteOrganizationRole);
+router.delete('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.delete'), deleteOrganizationRole);
 
 /** POST /organization/:id/roles/:roleId/members - Add member to a role (admin only) */
-router.post('/:id/roles/:roleId/members', requireAuth, requirePermission('roles:manage'), audited('org.role.member.add'), addRoleMember);
+router.post('/:id/roles/:roleId/members', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.member.add'), addRoleMember);
 
 /** DELETE /organization/:id/roles/:roleId/members/:userId - Remove member from a role (admin only) */
-router.delete('/:id/roles/:roleId/members/:userId', requireAuth, requirePermission('roles:manage'), audited('org.role.member.remove'), removeRoleMember);
+router.delete('/:id/roles/:roleId/members/:userId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.member.remove'), removeRoleMember);
 
 /*
  * Service accounts (#2) — org-scoped non-human principals and their `pb_sa_…`
@@ -366,11 +452,14 @@ router.get('/:id/service-accounts', requireAuth, requirePermission('service_acco
 /** GET /organization/:id/service-accounts/:accountId - One account + its keys */
 router.get('/:id/service-accounts/:accountId', requireAuth, requirePermission('service_accounts:manage'), getOrganizationServiceAccount);
 
-/** POST /organization/:id/service-accounts - Create a service account */
+/** POST /organization/:id/service-accounts - Create a service account.
+ *  Always `aal: 2`: it (and the key mint below) creates a durable machine
+ *  credential, so the person minting it must have a second factor. */
 router.post(
   '/:id/service-accounts',
   requireAuth,
   requirePermission('service_accounts:manage'),
+  mfaGrade,
   requireStepUp,
   audited('org.service-account.create'),
   createOrganizationServiceAccount,
@@ -401,6 +490,7 @@ router.post(
   '/:id/service-accounts/:accountId/keys',
   requireAuth,
   requirePermission('service_accounts:manage'),
+  mfaGrade,
   requireStepUp,
   audited('org.service-account.key.create'),
   createOrganizationServiceAccountKey,
@@ -422,7 +512,8 @@ router.delete(
  * Ownership Transfer
  */
 
-/** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only) */
-router.patch('/:id/transfer-owner', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.ownership.transfer'), transferOrganizationOwnership);
+/** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only).
+ *  Always `aal: 2`: handing the org to someone else is irreversible by the actor. */
+router.patch('/:id/transfer-owner', requireAuth, requirePermission('org:settings'), mfaGrade, requireStepUp, audited('org.ownership.transfer'), transferOrganizationOwnership);
 
 export default router;

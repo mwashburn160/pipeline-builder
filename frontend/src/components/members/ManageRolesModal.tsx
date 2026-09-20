@@ -51,7 +51,7 @@ export function ManageRolesModal({
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+      <p className="text-sm text-fg-muted mb-3">
         A member&apos;s access is the union of their Roles. The Owner/Admin/Member badge is derived from these.
       </p>
       {rolesListError ? (
@@ -62,7 +62,7 @@ export function ManageRolesModal({
           <button type="button" onClick={() => void onRetry()} className="action-link">Retry</button>
         </div>
       ) : roles.length === 0 ? (
-        <p className="text-sm text-gray-400 dark:text-gray-500 italic">No roles exist in this organization yet.</p>
+        <p className="text-sm text-fg-subtle italic">No roles exist in this organization yet.</p>
       ) : (
         <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
           {roles.map((r) => (
@@ -75,7 +75,7 @@ export function ManageRolesModal({
               />
               <span className="min-w-0">
                 <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(r.name)}</span>
-                {r.description && <span className="block text-xs text-gray-400 dark:text-gray-500">{r.description}</span>}
+                {r.description && <span className="block text-xs text-fg-subtle">{r.description}</span>}
               </span>
             </label>
           ))}

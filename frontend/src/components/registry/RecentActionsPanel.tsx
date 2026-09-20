@@ -36,7 +36,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
         <>
           <History className="w-3.5 h-3.5" />
           <span>Recent actions ({actions.length})</span>
-          <span className="ml-auto text-gray-400 font-normal">this session</span>
+          <span className="ml-auto text-fg-subtle font-normal">this session</span>
         </>
       }
     >
@@ -46,7 +46,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
               // Stable key (kind+timestamp+digest) — this is a shifting ring buffer,
               // so an index key would bind a row's copy-state to the wrong entry.
               <li key={`${a.kind}-${a.at}-${a.digest}`} className="flex items-start gap-2 py-1 border-t border-gray-200 dark:border-gray-800 first:border-t-0">
-                <span className="text-gray-400 font-mono w-12 flex-shrink-0">
+                <span className="text-fg-subtle font-mono w-12 flex-shrink-0">
                   {new Date(a.at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
                 {a.kind === 'copy' ? (
@@ -55,7 +55,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
                       {a.isPromotion ? 'Promoted' : 'Copied'}
                     </span>{' '}
                     <span className="font-mono">{a.source}</span> → <span className="font-mono">{a.target}</span>
-                    {a.blobs !== undefined && <span className="text-gray-500"> ({a.blobs} blobs)</span>}
+                    {a.blobs !== undefined && <span className="text-fg-muted"> ({a.blobs} blobs)</span>}
                   </span>
                 ) : (
                   <span className="flex-1 break-all">
@@ -74,7 +74,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
                   rel="noopener noreferrer"
                   title="View this event type in Audit Activity"
                   aria-label="View in audit log"
-                  className="flex-shrink-0 inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"
+                  className="flex-shrink-0 inline-flex items-center gap-0.5 text-fg-muted hover:text-brand"
                 >
                   <ExternalLink className="w-3 h-3" />
                   <span className="hidden sm:inline">audit</span>

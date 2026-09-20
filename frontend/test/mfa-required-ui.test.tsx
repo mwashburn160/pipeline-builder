@@ -73,6 +73,17 @@ describe('MfaRequiredBanner', () => {
     expect(screen.getByRole('status').textContent).toMatch(/stop working the next time it is renewed/i);
   });
 
+  it('after an approved MFA reset, gives the person their OWN enrolment deadline', async () => {
+    const IN_TWO_DAYS = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    mockUser = { id: 'u1', mfaPolicy: { requireMfa: true, enforced: true, resetGraceUntil: IN_TWO_DAYS, aal: 1 } };
+    await act(async () => { render(<MfaRequiredBanner />); });
+    const text = screen.getByRole('status').textContent ?? '';
+    expect(text).toMatch(/was reset by your organization/i);
+    expect(text).toContain(new Date(IN_TWO_DAYS).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' }));
+    // Not the "your session is dying" copy — they are inside their grace.
+    expect(text).not.toMatch(/stop working the next time/i);
+  });
+
   it('cannot be dismissed — the worst case is being unable to sign in at all', async () => {
     mockUser = { id: 'u1', mfaPolicy: { requireMfa: true, enforced: true, aal: 1 } };
     await act(async () => { render(<MfaRequiredBanner />); });

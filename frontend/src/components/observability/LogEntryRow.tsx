@@ -30,8 +30,8 @@ const LEVEL_TEXT: Record<LogLevel | 'unknown', string> = {
   error: 'text-red-600 dark:text-red-400',
   warn: 'text-amber-600 dark:text-amber-400',
   info: 'text-emerald-700 dark:text-emerald-400',
-  debug: 'text-gray-500 dark:text-gray-400',
-  unknown: 'text-gray-500 dark:text-gray-400',
+  debug: 'text-fg-muted',
+  unknown: 'text-fg-muted',
 };
 
 /** Labels rendered as the inline prefix; the rest go in the detail table. */
@@ -62,7 +62,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex shrink-0 items-start pt-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          className="flex shrink-0 items-start pt-1 text-fg-subtle hover:text-fg"
           aria-expanded={open}
           aria-label={open ? 'Hide log entry details' : 'Show log entry details'}
         >
@@ -73,7 +73,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
           <time
             dateTime={new Date(entry.time).toISOString()}
             title={new Date(entry.time).toISOString()}
-            className="mr-2 text-gray-400 dark:text-gray-500"
+            className="mr-2 text-fg-subtle"
           >
             {new Date(entry.time).toLocaleTimeString([], { hour12: false })}
           </time>
@@ -121,11 +121,11 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
           </div>
 
           <dl className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-x-4 gap-y-1 font-mono text-xs">
-            <dt className="text-gray-500 dark:text-gray-400">timestamp</dt>
+            <dt className="text-fg-muted">timestamp</dt>
             <dd className="break-all text-gray-800 dark:text-gray-200">{new Date(entry.time).toISOString()}</dd>
             {Object.entries(entry.labels).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => (
               <div key={k} className="contents">
-                <dt className="text-gray-500 dark:text-gray-400">{k}</dt>
+                <dt className="text-fg-muted">{k}</dt>
                 <dd className="break-all text-gray-800 dark:text-gray-200">{v}</dd>
               </div>
             ))}

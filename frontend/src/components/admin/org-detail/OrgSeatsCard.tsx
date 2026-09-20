@@ -63,7 +63,7 @@ export function OrgSeatsCard({
     <Card>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Armchair className="w-5 h-5 text-gray-500" />
+          <Armchair className="w-5 h-5 text-fg-muted" />
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Seats</h3>
         </div>
         <button type="button" onClick={openEditor} className="action-link text-sm">Set limit</button>
@@ -71,18 +71,18 @@ export function OrgSeatsCard({
       {seatUsage ? (
         <dl className="text-sm space-y-1.5">
           <div className="flex justify-between">
-            <dt className="text-gray-500 dark:text-gray-400">Used</dt>
+            <dt className="text-fg-muted">Used</dt>
             <dd className="font-mono text-xs">
               {seatUsage.used} / {seatUsage.limit === -1 ? '∞' : seatUsage.limit}
             </dd>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">
+          <p className="text-xs text-fg-muted pt-1">
             Pooled across the whole account (active members + pending invites).
             {seatUsage.limit === -1 ? ' Seats are unlimited.' : ''}
           </p>
         </dl>
       ) : (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           Seat usage unavailable for this org. It may not be an account root,
           or the seat service didn&apos;t respond.
         </p>
@@ -97,7 +97,7 @@ export function OrgSeatsCard({
         >
           <div className="space-y-4">
             <ErrorAlert message={form.error} />
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-fg-muted">
               Sets the pooled seat cap for the whole account (applied to the root org).
               Seats count active members plus pending invites across every team.
             </p>

@@ -146,13 +146,13 @@ export default function OnboardingPage() {
     return (
       <>
         <Head><title>Welcome — Install the CLI</title></Head>
-        <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--pb-bg)]">
+        <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-canvas">
           <Card className="w-full max-w-lg p-6">
             <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="w-5 h-5 text-[var(--pb-brand)]" />
+              <Sparkles className="w-5 h-5 text-brand" />
               <h1 className="text-xl font-bold">You&apos;re all set</h1>
             </div>
-            <p className="text-sm text-[var(--pb-text-muted)] mb-5">
+            <p className="text-sm text-fg-muted mb-5">
               Your organization is ready. Install the CLI to start building pipelines.
             </p>
             <OrgSetupStep planTier={planTier} onDone={() => void goToDashboard()} />
@@ -165,29 +165,29 @@ export default function OnboardingPage() {
   return (
     <>
       <Head><title>Welcome — Set up your organization</title></Head>
-      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--pb-bg)]">
+      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-canvas">
         <Card className="w-full max-w-lg p-6">
           <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-5 h-5 text-[var(--pb-brand)]" />
+            <Sparkles className="w-5 h-5 text-brand" />
             <h1 className="text-xl font-bold">Welcome to Pipeline Builder</h1>
           </div>
-          <p className="text-sm text-[var(--pb-text-muted)] mb-5">
+          <p className="text-sm text-fg-muted mb-5">
             You signed up with a social account, so we created an organization for you.
             Give it a name{billingEnabled ? ' and pick a plan' : ''} to finish setting up.
           </p>
 
           {domainOrgs.length > 0 && (
-            <div className="mb-5 rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3">
+            <div className="mb-5 rounded-lg border border-default bg-surface-muted p-3">
               <div className="text-sm font-semibold mb-1">Join your team</div>
-              <p className="text-xs text-[var(--pb-text-muted)] mb-3">
+              <p className="text-xs text-fg-muted mb-3">
                 Your email domain matches {domainOrgs.length === 1 ? 'an organization' : 'organizations'} already on Pipeline Builder.
               </p>
               <div className="space-y-2">
                 {domainOrgs.map((org) => (
-                  <div key={org.orgId} className="flex items-center justify-between gap-3 rounded-md border border-[var(--pb-border)] p-2.5">
+                  <div key={org.orgId} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
                     <span className="font-medium text-sm truncate">{org.orgName}</span>
                     {requestedOrgIds.has(org.orgId) ? (
-                      <span className="text-xs text-[var(--pb-success)] shrink-0 text-right">Request sent ✓<br /><span className="text-[var(--pb-text-muted)]">An admin will review it.</span></span>
+                      <span className="text-xs text-success shrink-0 text-right">Request sent ✓<br /><span className="text-fg-muted">An admin will review it.</span></span>
                     ) : (
                       <Button
                         type="button"
@@ -201,7 +201,7 @@ export default function OnboardingPage() {
                   </div>
                 ))}
               </div>
-              <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mt-4">or set up your own</div>
+              <div className="text-2xs uppercase tracking-wide text-fg-muted mt-4">or set up your own</div>
             </div>
           )}
 
@@ -231,7 +231,7 @@ export default function OnboardingPage() {
                     />
                   ))}
                 </div>
-                <p className="text-xs text-[var(--pb-text-muted)] mt-1">Start free — change or upgrade anytime in Billing.</p>
+                <p className="text-xs text-fg-muted mt-1">Start free — change or upgrade anytime in Billing.</p>
               </div>
             )}
 

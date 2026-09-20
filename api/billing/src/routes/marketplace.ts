@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import {
   audited,
   requireAuth,
+  requireOrgAdminAssurance,
   requirePermission,
   sendSuccess,
   sendError,
@@ -184,6 +185,9 @@ export function createMarketplaceRoutes(): Router {
     '/marketplace/claim',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
+    // Binding a subscription to the org is an administrative action under the
+    // org's "administrative actions require MFA" policy (machines pass).
+    requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler,
     audited('billing.subscription.create'),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;

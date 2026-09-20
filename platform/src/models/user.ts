@@ -66,6 +66,13 @@ export interface RefreshSession {
   /** Capability scope of the tokens this slot mints (a narrow machine credential).
    *  Stored server-side so renewal can never widen it. */
   scope?: string;
+  /** Permission SUBSET of a permission-scoped machine token (catalog ids). Stored
+   *  server-side so renewal re-intersects it with the holder's current
+   *  permissions and can never widen it. Absent = full permissions. */
+  permissions?: string[];
+  /** AAGUID of the passkey that opened a `webauthn` session, so every issuance
+   *  can re-apply the active org's authenticator allowlist. */
+  aaguid?: string;
   /** Authentication methods of the sign-in that opened the slot (JWT `amr`). */
   amr: AuthMethod[];
   /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
@@ -180,6 +187,15 @@ export interface UserDocument extends Document {
    * with database access (`platform/src/scripts/mfa-recover.ts`), not a route.
    */
   mfaBootstrapClosedAt?: Date;
+  /**
+   * Per-user MFA ENROLMENT GRACE after an approved MFA reset
+   * (`services/mfa-recovery.ts`). Until it passes, the org's "require MFA"
+   * policy (own or inherited) does not refuse this person's single-factor
+   * sessions at issuance, so they can sign in and enrol a new factor — without
+   * the org's policy being weakened for anyone else. Cleared on the first new
+   * enrolment; never extends the admin-actions policy (`org_admin_aal`).
+   */
+  mfaResetGraceUntil?: Date;
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -272,6 +288,8 @@ const userSchema = new Schema<UserDocument>(
         createdAt: { type: Date, required: true },
         lastUsedAt: { type: Date, required: true },
         scope: { type: String },
+        permissions: { type: [String], default: undefined },
+        aaguid: { type: String },
         amr: { type: [String], required: true },
         aal: { type: Number, enum: [1, 2], required: true },
         mfaEnrollmentPending: { type: Boolean },
@@ -311,6 +329,11 @@ const userSchema = new Schema<UserDocument>(
     mfaBootstrapClosedAt: {
       type: Date,
     },
+    // Per-user MFA enrolment grace after an approved reset (see the interface
+    // JSDoc). Read on every issuance, like the field above.
+    mfaResetGraceUntil: {
+      type: Date,
+    },
     oauth: {
       'google': oauthProviderSchema,
       'github': oauthProviderSchema,
@@ -343,6 +366,10 @@ const userSchema = new Schema<UserDocument>(
  * Length minimum comes from `config.auth.passwordMinLength` so it's tunable
  * per environment without a code change.
  */
+/** Hard ceiling on any password (and on an org's minimum). bcrypt reads only
+ *  72 bytes, and an unbounded value is a hashing DoS. Not configurable. */
+export const PASSWORD_MAX_LENGTH = 128;
+
 export const PASSWORD_RULES: ReadonlyArray<{ test: RegExp; message: string }> = [
   { test: /[A-Z]/, message: 'Password must contain at least one uppercase letter' },
   { test: /[a-z]/, message: 'Password must contain at least one lowercase letter' },

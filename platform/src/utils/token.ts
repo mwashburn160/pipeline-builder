@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { API_KEY_TOKEN_TTL_SECONDS, createLogger, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
+import { API_KEY_TOKEN_TTL_SECONDS, createLogger, intersectPermissions, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
 import type { AssuranceLevel, AuthMethod, TokenScope, TokenUse, QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Types } from 'mongoose';
 import { verifyPlatformJwt, verifyRefreshJwt } from './jwt-options.js';
 import { config } from '../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
+import { applyAuthenticatorPolicy } from '../helpers/authenticator-policy.js';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
@@ -46,6 +47,9 @@ export interface MembershipContext {
   /** The requirement is past its grace period, so a session scoped to this org
    *  must be `aal: 2` or be refused at issuance. */
   mfaEnforced?: boolean;
+  /** The org (or an ancestor) requires MFA for administrative actions — carried
+   *  as the `org_admin_aal: 2` claim. */
+  adminActionsRequireMfa?: boolean;
 }
 
 /**
@@ -58,6 +62,14 @@ export interface SessionAuth {
   amr: AuthMethod[];
   aal: AssuranceLevel;
   authTime: Date;
+  /**
+   * The authenticator model (AAGUID) of the passkey that opened a `webauthn`
+   * session. Kept on the session slot so an org's authenticator allowlist is
+   * re-applied at EVERY issuance — sign-in, refresh and switch-org alike — and
+   * a passkey the org does not trust can never carry `aal: 2` into it (see
+   * {@link applyAuthenticatorPolicy}). Absent for every other method.
+   */
+  aaguid?: string;
 }
 
 /**
@@ -107,6 +119,12 @@ interface AccessTokenOptions {
   auth: SessionAuth;
   tokenUse: TokenUse;
   scope?: TokenScope;
+  /**
+   * Permission SUBSET the credential was created with (a permission-scoped PAT
+   * or machine token). The token carries the intersection of this list and the
+   * holder's current permissions — see {@link createAccessTokenPayload}.
+   */
+  permissions?: readonly string[];
   sessionId?: string;
   /** Bootstrap-admin enrolment session (#8) — see `JwtPayload.mfaEnrollmentPending`. */
   mfaEnrollmentPending?: boolean;
@@ -125,11 +143,18 @@ interface AccessTokenOptions {
 function createAccessTokenPayload(
   user: UserDocument,
   membership: MembershipContext | undefined,
-  { auth, tokenUse, scope, sessionId, mfaEnrollmentPending }: AccessTokenOptions,
+  { auth, tokenUse, scope, permissions: subset, sessionId, mfaEnrollmentPending }: AccessTokenOptions,
 ): AccessTokenPayload {
-  const role = scope ? 'member' : (membership?.role ?? 'member');
+  // A PERMISSION-SCOPED credential is narrowed exactly like a capability-scoped
+  // one on the two claims that would otherwise bypass its subset: an admin
+  // `role` (`isAdmin` gates) and `isSuperAdmin` (implicit-all). Its permissions
+  // are then the INTERSECTION of the subset and what the holder holds TODAY —
+  // re-derived at every issue, so a lost Role shrinks it and nothing grows it.
+  const restricted = !scope && subset !== undefined;
+  const role = scope || restricted ? 'member' : (membership?.role ?? 'member');
   const tier: QuotaTier = membership?.tier ?? 'developer';
-  const isSuperAdmin = scope ? false : user.isSuperAdmin === true;
+  const holderIsSuperAdmin = user.isSuperAdmin === true;
+  const isSuperAdmin = scope || restricted ? false : holderIsSuperAdmin;
   const overrides = user.featureOverrides
     ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
     : undefined;
@@ -165,13 +190,25 @@ function createAccessTokenPayload(
     // org (superadmin ⇒ all). `rolePermissions` is already that union — there
     // is no role-derived baseline. Enforced downstream via requirePermission().
     // Scoped machine tokens carry none (least privilege).
-    permissions: scope ? [] : resolveUserPermissions(membership?.rolePermissions, isSuperAdmin),
+    // Permission-scoped credentials: subset ∩ current (see above). The holder's
+    // superadmin flag still counts toward "current" — it is the SUBSET that
+    // bounds the token, never the flag.
+    permissions: scope
+      ? []
+      : restricted
+        ? intersectPermissions(resolveUserPermissions(membership?.rolePermissions, holderIsSuperAdmin), subset!)
+        : resolveUserPermissions(membership?.rolePermissions, isSuperAdmin),
     ...(scope ? { scope } : {}),
+    ...(restricted ? { permissionsRestricted: true } : {}),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
     // Org policy "require MFA" (#8), decided at issuance and carried so that no
     // service looks it up. Only ever `true`: an absent claim is the common case.
     ...(membership?.mfaRequired ? { mfaRequired: true } : {}),
+    // Org policy "administrative actions require MFA", decided at issuance so
+    // services that can't read the org enforce it (`requireOrgAdminAssurance`).
+    // Carried on PATs too: each route decides whether a machine may pass.
+    ...(membership?.adminActionsRequireMfa ? { org_admin_aal: 2 as const } : {}),
     // Bootstrap-admin enrolment session — the narrow, self-closing exception.
     ...(mfaEnrollmentPending ? { mfaEnrollmentPending: true } : {}),
     // The refresh-session slot this token was minted with — logout and
@@ -288,6 +325,7 @@ async function resolveOrgMembership(userId: string, orgId: string): Promise<Memb
     rolePermissions: await rolePermissionsForOrgs(userId, authority.permissionOrgIds),
     ...(mfa?.requireMfa ? { mfaRequired: true } : {}),
     ...(mfa?.enforced ? { mfaEnforced: true } : {}),
+    ...(mfa?.adminActionsRequireMfa ? { adminActionsRequireMfa: true } : {}),
     ...(await accountContext(orgId, org)),
   };
 }
@@ -396,10 +434,11 @@ async function mintTokens(
   user: UserDocument,
   sessionId: string,
   activeOrgId: string | undefined,
-  auth: SessionAuth,
+  sessionAuth: SessionAuth,
   expiresIn?: number,
   scope?: TokenScope,
   mfaEnrollmentPending?: boolean,
+  permissions?: readonly string[],
 ): Promise<MintedTokens> {
   let membership: MembershipContext | undefined;
   try {
@@ -411,6 +450,14 @@ async function mintTokens(
     logger.warn('Failed to resolve membership for token', { error });
   }
 
+  // ORG AUTHENTICATOR ALLOWLIST — applied BEFORE the MFA check below, at the
+  // same chokepoint, so a passkey the active org does not trust is `aal: 1` in
+  // that org on every issuance path (sign-in, refresh, switch-org). It still
+  // identifies the person; it just can't satisfy the org's MFA requirement.
+  const auth = membership
+    ? await applyAuthenticatorPolicy(sessionAuth, membership.organizationId)
+    : sessionAuth;
+
   // ORG POLICY "REQUIRE MFA" (#8) — THE enforcement point. Every user token for
   // a session goes through here (sign-in, refresh, renewal, switch-org), so a
   // session scoped to an org past its grace period either carries `aal: 2` or is
@@ -418,14 +465,18 @@ async function mintTokens(
   // policy total: it covers routes that don't exist yet, and services that never
   // learn the policy exists.
   //
-  // Two carve-outs, both deliberate:
+  // Three carve-outs, all deliberate:
   //   - a SCOPED machine credential (`reporting:ingest` and friends) is not a
   //     person's session; refusing it would take an org's automation down the
   //     moment an admin enabled the policy, and such a token is already
   //     least-privilege and refused by every `minAssurance` gate;
   //   - the BOOTSTRAP-ADMIN enrolment session, which exists precisely so the
   //     person can go and earn `aal: 2` (and cannot reach anything else).
-  if (membership?.mfaEnforced && !scope && !mfaEnrollmentPending && auth.aal < 2) {
+  //   - a PER-USER RESET GRACE (`mfaResetGraceUntil`), set when an MFA reset
+  //     was approved: the person has no factor left and must be able to sign in
+  //     to enrol a new one. It exempts THIS person only, for a bounded window,
+  //     from the org's policy — own or inherited — instead of weakening the org.
+  if (membership?.mfaEnforced && !scope && !mfaEnrollmentPending && auth.aal < 2 && !inResetGrace(user)) {
     throw new Error(MFA_REQUIRED_FOR_ORG);
   }
 
@@ -438,7 +489,7 @@ async function mintTokens(
   const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
 
   const accessToken = await signUserJwt(
-    createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, sessionId, mfaEnrollmentPending }) as unknown as Record<string, unknown>,
+    createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, permissions, sessionId, mfaEnrollmentPending }) as unknown as Record<string, unknown>,
     { expiresIn: tokenExpiresIn },
   );
   const refreshToken = await generateRefreshToken(user, sessionId);
@@ -456,6 +507,12 @@ async function mintTokens(
   };
 }
 
+/** Whether `user` is inside an approved MFA reset's enrolment grace. */
+function inResetGrace(user: Pick<UserDocument, 'mfaResetGraceUntil'>, now: Date = new Date()): boolean {
+  const until = user.mfaResetGraceUntil;
+  return !!until && new Date(until).getTime() > now.getTime();
+}
+
 /** A new refresh-session slot to open. */
 export interface NewSession {
   kind: RefreshSessionKind;
@@ -467,6 +524,12 @@ export interface NewSession {
   expiresIn?: number;
   /** Narrow capability scope (least-privilege machine token), fixed for the slot's life. */
   scope?: TokenScope;
+  /**
+   * Permission SUBSET (catalog ids) a permission-scoped machine token was opened
+   * with, fixed for the slot's life. Every renewal re-intersects it with the
+   * holder's CURRENT permissions, so it can only ever shrink.
+   */
+  permissions?: readonly string[];
   /**
    * Open this slot as a BOOTSTRAP-ADMIN ENROLMENT session (#8): `aal: 1`, flagged
    * `mfaEnrollmentPending`, reaching only enrolment, sign-out and the setup
@@ -516,6 +579,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
   const sessionId = crypto.randomBytes(12).toString('hex');
   const { tokens, refreshHash, historyEntry } = await mintTokens(
     user, sessionId, activeOrgId, session.auth, session.expiresIn, session.scope, session.mfaEnrollmentPending,
+    session.permissions,
   );
   const slot: RefreshSession = {
     id: sessionId,
@@ -524,10 +588,12 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     createdAt: historyEntry.createdAt,
     lastUsedAt: historyEntry.createdAt,
     ...(session.scope ? { scope: session.scope } : {}),
+    ...(session.permissions ? { permissions: [...session.permissions] } : {}),
     ...(session.mfaEnrollmentPending ? { mfaEnrollmentPending: true } : {}),
     amr: session.auth.amr,
     aal: session.auth.aal,
     authTime: session.auth.authTime,
+    ...(session.auth.aaguid ? { aaguid: session.auth.aaguid } : {}),
     ...(session.client?.userAgent ? { userAgent: session.client.userAgent } : {}),
     ...(session.client?.ip ? { lastIp: session.client.ip } : {}),
   };
@@ -551,6 +617,14 @@ export async function findRefreshSession(userId: Types.ObjectId | string, sessio
     { 'refreshSessions.$': 1 },
   ).lean();
   return (doc?.refreshSessions?.[0] as RefreshSession | undefined) ?? undefined;
+}
+
+/** Whether two permission subsets name the same set (`undefined` = no subset). */
+function samePermissionSet(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((p) => right.has(p));
 }
 
 /**
@@ -578,7 +652,7 @@ export async function renewSessionTokens(
   user: UserDocument,
   activeOrgId: string | undefined,
   slot: { sessionId: string; presentedToken?: string; kind?: RefreshSessionKind },
-  mint: { expiresIn?: number; scope?: TokenScope; client?: ClientInfo } = {},
+  mint: { expiresIn?: number; scope?: TokenScope; permissions?: readonly string[]; client?: ClientInfo } = {},
 ): Promise<IssuedTokens | null> {
   const current = await findRefreshSession(user._id, slot.sessionId);
   if (!current || (slot.kind && current.kind !== slot.kind)) return null;
@@ -586,10 +660,22 @@ export async function renewSessionTokens(
   if (mint.scope !== undefined && mint.scope !== slotScope) {
     throw new Error(TOKEN_SCOPE_ESCALATION);
   }
-  const auth: SessionAuth = { amr: current.amr, aal: current.aal, authTime: new Date(current.authTime) };
+  // The permission subset is fixed for the slot's life exactly like the scope:
+  // a requested one must name the SAME set (no widening, swapping or in-place
+  // narrowing — narrowing is a new credential, not a renewal).
+  const slotPermissions = current.permissions ?? undefined;
+  if (mint.permissions !== undefined && !samePermissionSet(mint.permissions, slotPermissions)) {
+    throw new Error(TOKEN_SCOPE_ESCALATION);
+  }
+  const auth: SessionAuth = {
+    amr: current.amr,
+    aal: current.aal,
+    authTime: new Date(current.authTime),
+    ...(current.aaguid ? { aaguid: current.aaguid } : {}),
+  };
 
   const { tokens, refreshHash, historyEntry } = await mintTokens(
-    user, slot.sessionId, activeOrgId, auth, mint.expiresIn, slotScope, current.mfaEnrollmentPending,
+    user, slot.sessionId, activeOrgId, auth, mint.expiresIn, slotScope, current.mfaEnrollmentPending, slotPermissions,
   );
   const slotMatch = {
     id: slot.sessionId,
@@ -622,7 +708,9 @@ export async function renewSessionTokens(
  * permissions — but `token_use: 'api_key'`, `jti` = the key's id, and a
  * {@link API_KEY_TOKEN_TTL_SECONDS} lifetime. `auth` is the assurance recorded
  * when the key was created (inherited, never raised); when `scope` is set the
- * token is forced to least-privilege (see {@link createAccessTokenPayload}).
+ * token is forced to least-privilege, and when `permissions` (the key's subset)
+ * is set it carries only subset ∩ the user's current permissions (see
+ * {@link createAccessTokenPayload}).
  *
  * Claims are re-derived from the user + membership on EVERY exchange, so a
  * privilege reduction reaches the key within one token lifetime — there is no
@@ -640,10 +728,11 @@ export async function signApiKeyToken(
   keyId: string,
   auth: SessionAuth,
   scope?: TokenScope,
+  permissions?: readonly string[],
   expiresInSeconds: number = API_KEY_TOKEN_TTL_SECONDS,
 ): Promise<string> {
   const payload: AccessTokenPayload = {
-    ...createAccessTokenPayload(user, membership, { auth, tokenUse: 'api_key', scope }),
+    ...createAccessTokenPayload(user, membership, { auth, tokenUse: 'api_key', scope, permissions }),
     jti: keyId,
   };
   return signUserJwt(payload as unknown as Record<string, unknown>, { expiresIn: expiresInSeconds });

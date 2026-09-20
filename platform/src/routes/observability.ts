@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireOrgAdminAssurance, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAlertDestinations,
@@ -83,8 +83,11 @@ router.get('/logs/volume', requireAuth, requirePermission('observability:read'),
 router.get('/logs/context', requireAuth, requirePermission('observability:read'), logContext);
 /** GET /observability/logs/raw  the caller's slice of one stream as text/plain */
 router.get('/logs/raw', requireAuth, requirePermission('observability:read'), logRaw);
-/** GET /observability/logs/export  streamed download (bytes + wall-clock capped) */
-router.get('/logs/export', requireAuth, requirePermission('logs:export'), logExport);
+/** GET /observability/logs/export  streamed download (bytes + wall-clock capped).
+ *  Subject to the org's "administrative actions require MFA" policy — a bulk
+ *  copy of the org's logs leaving the platform. Machine credentials pass (log
+ *  shipping from CI is a legitimate use); a person needs `aal: 2` while it's on. */
+router.get('/logs/export', requireAuth, requirePermission('logs:export'), requireOrgAdminAssurance({ machines: 'allow' }), logExport);
 
 /** GET /observability/catalog  list catalog keys (drives the editor's panel-add picker) */
 router.get('/catalog', requireAuth, requirePermission('observability:read'), observabilityCatalog);

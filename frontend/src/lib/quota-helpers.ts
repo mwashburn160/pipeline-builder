@@ -31,10 +31,10 @@ export function statusInfo(used: number, limit: number): { label: string; color:
 }
 
 export const statusStyles: Record<StatusColor, string> = {
-  green: 'bg-green-100 text-green-800',
-  yellow: 'bg-yellow-100 text-yellow-800',
-  red: 'bg-red-100 text-red-800',
-  purple: 'bg-purple-100 text-purple-800',
+  green: 'bg-success-bg text-success-strong',
+  yellow: 'bg-warning-bg text-warning-strong',
+  red: 'bg-danger-bg text-danger-strong',
+  purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
 };
 
 export const barStyles: Record<StatusColor, string> = {

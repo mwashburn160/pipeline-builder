@@ -37,6 +37,8 @@ import { ManageRolesModal } from '@/components/members/ManageRolesModal';
 import { TransferOwnershipModal } from '@/components/members/TransferOwnershipModal';
 import { buildMemberColumns } from '@/components/members/memberColumns';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { MfaResetPanel } from '@/components/members/MfaResetPanel';
+import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import type { OrganizationMember } from '@/types';
@@ -318,6 +320,12 @@ export default function MembersPage() {
 
   // Deactivating a member revokes their access, so it's confirmed first;
   // reactivation is harmless and applies immediately. Both paths toast.
+  // Two-person MFA reset: only an owner/admin (or a sysadmin) may file or decide
+  // one — the server checks `canAdministerOrg` on top of `members:manage`.
+  const canResetMfa = can('members:manage') && (isAdmin || isSuperAdmin);
+  const [resetMfaTarget, setResetMfaTarget] = useState<OrganizationMember | null>(null);
+  const [mfaResetsVersion, setMfaResetsVersion] = useState(0);
+
   const [deactivateTarget, setDeactivateTarget] = useState<OrganizationMember | null>(null);
   const [deactivateLoading, setDeactivateLoading] = useState(false);
 
@@ -384,9 +392,10 @@ export default function MembersPage() {
     onManageRoles: memberRoles.openManageRoles,
     onToggleActive: handleToggleActive,
     onRemove: (m) => removeMember.open(m),
+    ...(canResetMfa ? { onResetMfa: (m: OrganizationMember) => setResetMfaTarget(m) } : {}),
   }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles]);
+    [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -469,6 +478,14 @@ export default function MembersPage() {
         <Callout variant="neutral" className="mb-3">
           Couldn&apos;t load {teamsLoadWarning && seatLoadWarning ? 'the teams list and seat usage' : teamsLoadWarning ? 'the teams list' : 'seat usage'} — that section is hidden. Everything else works normally.
         </Callout>
+      )}
+
+      {/* Two-person MFA resets waiting on a second owner/admin (hidden when there
+          are none). Covers this org and its teams. */}
+      {orgId && canResetMfa && (
+        <div className="mb-4">
+          <MfaResetPanel orgId={orgId} currentUserId={user.id} readOnly={isReadOnly} refreshKey={mfaResetsVersion} />
+        </div>
       )}
 
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
@@ -622,6 +639,15 @@ export default function MembersPage() {
           loading={removeMember.loading}
           onConfirm={removeMember.confirm}
           onCancel={removeMember.close}
+        />
+      )}
+
+      {resetMfaTarget && orgId && (
+        <RequestMfaResetModal
+          orgId={orgId}
+          member={resetMfaTarget}
+          onClose={() => setResetMfaTarget(null)}
+          onRequested={() => setMfaResetsVersion((v) => v + 1)}
         />
       )}
 

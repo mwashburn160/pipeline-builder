@@ -158,7 +158,7 @@ export default function AlertsPage() {
       }
     >
       {loading && !data ? (
-        <div className="text-sm text-gray-500 dark:text-gray-400">Loading…</div>
+        <div className="text-sm text-fg-muted">Loading…</div>
       ) : error && !data ? (
         <RetryError message={formatError(error)} onRetry={refetch} />
       ) : (
@@ -200,9 +200,9 @@ export default function AlertsPage() {
                           <div className={`text-sm ${styles.text}`}>{a.annotations.summary}</div>
                         )}
                         {a.annotations.description && (
-                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">{a.annotations.description}</div>
+                          <div className="text-xs text-fg-muted mt-1">{a.annotations.description}</div>
                         )}
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 flex gap-3 flex-wrap">
+                        <div className="text-xs text-fg-muted mt-2 flex gap-3 flex-wrap">
                           <span>Since {formatRelativeTime(a.startsAt)}</span>
                           {Object.entries(a.labels)
                             .filter(([k]) => !['alertname', 'severity'].includes(k))
@@ -240,7 +240,7 @@ export default function AlertsPage() {
                       <div className="font-mono text-gray-700 dark:text-gray-300 truncate">
                         {s.matchers.map(m => `${m.name}="${m.value}"`).join(', ')}
                       </div>
-                      <div className="text-gray-500 dark:text-gray-400 mt-0.5">
+                      <div className="text-fg-muted mt-0.5">
                         {s.comment} — by {s.createdBy} — expires {formatRelativeTime(s.endsAt)}
                       </div>
                     </div>
@@ -345,13 +345,13 @@ function SilenceModal(props: {
     <Modal title="Silence alert" onClose={onClose} maxWidth="max-w-md" footer={footer}>
       <div className="space-y-4">
         <div>
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Matchers</div>
+          <div className="text-xs font-medium text-fg-muted mb-1">Matchers</div>
           <div className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
             {seedMatchers.map(m => `${m.name}="${m.value}"`).join(', ')}
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Duration</label>
           <Select
             value={durationMs}
             onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
@@ -360,8 +360,8 @@ function SilenceModal(props: {
           </Select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Reason <span className="text-red-500">*</span>
+          <label className="block text-xs font-medium text-fg-muted mb-1">
+            Reason <span className="text-danger">*</span>
           </label>
           <Textarea
             value={comment}

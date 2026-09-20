@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
+import { createLogger, refuseForOrgAdminAssurance, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
@@ -10,6 +10,7 @@ import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
+import { callerRestriction, resolveRequestedPermissions } from '../helpers/token-permissions.js';
 import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { apiKeyService, userProfileService, type PreferencesPatch } from '../services/index.js';
 import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
@@ -210,6 +211,9 @@ export const getUser = withController('Get user profile', async (req, res) => {
           requireMfa: true,
           enforced: mfaPolicy.enforced,
           ...(mfaPolicy.graceUntil ? { graceUntil: mfaPolicy.graceUntil.toISOString() } : {}),
+          // An approved MFA reset's per-user enrolment grace: the policy does not
+          // refuse THIS person until then, and the banner says by when to enrol.
+          ...(activeResetGrace(user) ? { resetGraceUntil: activeResetGrace(user) } : {}),
           // The session's own level, so the banner can say "you're covered"
           // rather than nagging someone who already signed in with a factor.
           aal: req.user?.aal ?? 1,
@@ -218,6 +222,14 @@ export const getUser = withController('Get user profile', async (req, res) => {
     },
   });
 }, profileErrorMap);
+
+/** The running MFA-reset enrolment grace (ISO), or undefined. */
+function activeResetGrace(user: unknown): string | undefined {
+  const until = (user as { mfaResetGraceUntil?: Date | string | null }).mfaResetGraceUntil;
+  if (!until) return undefined;
+  const at = new Date(until);
+  return at.getTime() > Date.now() ? at.toISOString() : undefined;
+}
 
 /** GET /user/organizations — all org memberships for the current user. */
 export const listUserOrganizations = withController('List user organizations', async (req, res) => {
@@ -289,9 +301,11 @@ const ALLOWED_TOKEN_SCOPES = new Set<string>(TOKEN_SCOPES);
 
 /**
  * POST /user/generate-token
- * Body: { expiresIn?: number, scope?: string } — token lifetime in seconds
- * (max 365 days); optional narrow capability scope (e.g. 'reporting:ingest' for
- * the AWS event-ingestion machine credential).
+ * Body: { expiresIn?: number, scope?: string, permissions?: string[] } — token
+ * lifetime in seconds (max 365 days); optional narrow capability scope (e.g.
+ * 'reporting:ingest' for the AWS event-ingestion machine credential); or an
+ * optional permission SUBSET (catalog ids ⊆ the caller's current permissions,
+ * see helpers/token-permissions.ts). Omitting both means full access.
  *
  * Mints a STORED MACHINE credential, never touching the caller's own login:
  *
@@ -346,14 +360,37 @@ export const generateToken = withController('Generate token', async (req, res) =
   // must not be able to mint a long-lived credential.
   const callerSlot = sessionId ? await findRefreshSession(userId, sessionId) : undefined;
   if (sessionId && !callerSlot) return sendError(res, 401, 'Session invalid');
+
+  // Optional permission SUBSET (catalog ids). OPENING a machine session
+  // validates it against the creator's current permissions (and inherits a
+  // restricted caller's own set); RENEWING one keeps the slot's stored subset,
+  // so a subset sent on renewal must name that same set (else 403).
+  let permissions: string[] | undefined;
+  if (callerSlot?.kind === 'machine') {
+    if (req.body?.permissions !== undefined && req.body.permissions !== null) {
+      if (!Array.isArray(req.body.permissions)) {
+        return sendError(res, 400, 'permissions must be an array of permission ids', 'INVALID_PERMISSIONS');
+      }
+      permissions = req.body.permissions.map(String);
+    }
+  } else {
+    const subset = await resolveRequestedPermissions(req, userId, req.body?.permissions, scope);
+    if (!subset.ok) return sendError(res, subset.status, subset.message, subset.code, subset.missing ? { missing: subset.missing } : undefined);
+    permissions = subset.permissions;
+  }
+  // The org's "administrative actions require MFA" policy governs OPENING a new
+  // machine credential (a person with `aal: 2`, never another credential) —
+  // not renewing one, which the unattended renewal must keep doing.
+  if (callerSlot?.kind !== 'machine' && refuseForOrgAdminAssurance(req, res, { machines: 'refuse' })) return;
   const issued = callerSlot?.kind === 'machine'
-    ? await renewSessionTokens(user, activeOrgId, { sessionId: sessionId!, kind: 'machine' }, { expiresIn, scope, client })
+    ? await renewSessionTokens(user, activeOrgId, { sessionId: sessionId!, kind: 'machine' }, { expiresIn, scope, permissions, client })
     : await issueTokens(user, activeOrgId, {
       kind: 'machine',
       auth: authFromClaims(req.user),
       client,
       expiresIn,
       scope,
+      ...(permissions ? { permissions } : {}),
     });
   if (!issued) return sendError(res, 401, 'Session invalid');
   const { accessToken, expiresIn: actual } = issued;
@@ -367,6 +404,9 @@ export const generateToken = withController('Generate token', async (req, res) =
       expiresIn: actual,
       session: callerSlot?.kind === 'machine' ? 'renewed' : 'opened',
       ...(scope ? { scope } : {}),
+      // The subset the credential was OPENED with (a renewal keeps the slot's);
+      // absent = full permissions.
+      ...(callerSlot?.kind !== 'machine' && permissions ? { permissions } : {}),
     },
   });
   // No refresh token: a machine session renews through THIS endpoint, never
@@ -425,7 +465,9 @@ export const listTokenHistory = withController('List token history', async (req,
 
 /**
  * POST /user/keys — create a named opaque access key.
- * Body: { name, expiresIn?: seconds (default 90d, max 365d), scope? }.
+ * Body: { name, expiresIn?: seconds (default 90d, max 365d), scope?, permissions? }.
+ * `permissions` narrows the key to a catalog subset ("Selected permissions");
+ * omitted, the key has "Full access" — the owner's current permissions.
  *
  * The raw key (`pb_pat_…`) is returned ONCE and is never stored — only its
  * SHA-256 hash, prefix and last four characters are kept, which is all the
@@ -465,17 +507,32 @@ export const createAccessKey = withController('Create access key', async (req, r
   }
   scope = effectiveScope;
 
+  // "Selected permissions" (a catalog subset ⊆ what the creator holds now) or
+  // "Full access" (omitted). Either way every exchange re-intersects with the
+  // owner's live permissions, so the key can only ever shrink.
+  const subset = await resolveRequestedPermissions(req, userId, req.body?.permissions, scope);
+  if (!subset.ok) return sendError(res, subset.status, subset.message, subset.code, subset.missing ? { missing: subset.missing } : undefined);
+  const permissions = subset.permissions;
+
   // The key records the creating session's assurance (`amr`/`aal`/`auth_time`)
   // so every token exchanged from it inherits — and never raises — it.
   const { key, view } = await apiKeyService.create(
     userId,
-    { name, expiresInSeconds: expiresIn, scope, client: clientInfoOf(req) },
+    { name, expiresInSeconds: expiresIn, scope, ...(permissions ? { permissions } : {}), client: clientInfoOf(req) },
     authFromClaims(req.user),
   );
   audit(req, 'user.key.create', {
     targetType: 'user',
     targetId: userId,
-    details: { keyId: view.id, name, expiresIn, prefix: view.prefix, ...(scope ? { scope } : {}) },
+    details: {
+      keyId: view.id,
+      name,
+      expiresIn,
+      prefix: view.prefix,
+      // A permission-scoped key records its subset; absent = full access.
+      ...(scope ? { scope } : {}),
+      ...(permissions ? { permissions } : {}),
+    },
   });
   sendSuccess(res, 201, { key, accessKey: view });
 }, profileErrorMap);
@@ -560,12 +617,12 @@ export const revokeAllTokens = withController('Revoke all tokens', async (req, r
 
   // Issue a fresh token at the new tokenVersion so the active session survives —
   // a new interactive slot (every old slot was just cleared), carrying the
-  // caller's own assurance and scope.
+  // caller's own assurance, scope and permission restriction (never widened).
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
     auth: authFromClaims(req.user),
     client: clientInfoOf(req),
-    scope: (req.user as { scope?: TokenScope }).scope,
+    ...callerRestriction(req),
   });
   // The surviving session's cookie is replaced here, so "sign out everywhere"
   // leaves THIS browser signed in exactly as it did before.

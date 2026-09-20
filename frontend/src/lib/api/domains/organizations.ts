@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, SsoSpInfo, SsoTestReport } from '@/types';
 
 /**
  * An org SERVICE ACCOUNT: a non-human principal owned by the org. It holds the
@@ -616,6 +616,36 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
+    /** GET /organization/:id/idp/sp-info — the values to register AT the IdP
+     *  (SAML entity ID / ACS / metadata / SLO URLs, OIDC redirect URI, SP
+     *  certificates), computed by the server from its public URL. */
+    getOwnOrgIdpSpInfo: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ sp: SsoSpInfo }>>(`/api/organization/${orgId}/idp/sp-info`, { signal: opts?.signal });
+    },
+
+    /** POST /organization/:id/idp/metadata/import — parse an IdP metadata
+     *  document (pasted/uploaded XML, or an https URL the server fetches under its
+     *  SSRF guard) into SAML form fields. Saves nothing. */
+    importIdpMetadata: async (orgId: string, source: { xml: string } | { url: string }) => {
+      return core.request<ApiResponse<{ metadata: ParsedIdpMetadata }>>(`/api/organization/${orgId}/idp/metadata/import`, {
+        method: 'POST', body: JSON.stringify(source),
+      });
+    },
+
+    /** POST /organization/:id/idp/test — start a TEST CONNECTION (dry run):
+     *  `{ url, state }`; open `url` in a popup. Works before SSO is enabled. */
+    startSsoTest: async (orgId: string) => {
+      return core.request<ApiResponse<{ url: string; state: string }>>(`/api/organization/${orgId}/idp/test`, { method: 'POST' });
+    },
+
+    /** POST /organization/:id/idp/test/complete — collect the dry-run report.
+     *  OIDC passes the IdP's `code` (or `error`); SAML only the `state`. */
+    completeSsoTest: async (orgId: string, params: { state: string; code?: string; error?: string }) => {
+      return core.request<ApiResponse<{ report: SsoTestReport }>>(`/api/organization/${orgId}/idp/test/complete`, {
+        method: 'POST', body: JSON.stringify(params),
+      });
+    },
+
     // -- IdP group → Role mappings (3a) --
     // What the IdP's groups are worth inside the org. Gated on `roles:manage`
     // (a mapping grants Roles), own-org only, `sso` entitlement server-side.
@@ -700,23 +730,91 @@ export function organizationsApi(core: ApiCore) {
     getMfaPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, { signal: opts?.signal });
     },
+
+    /** GET /organization/:id/password-policy — the org's minimum password length
+     *  (own and effective, with the platform floor and ceiling). */
+    getPasswordPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${orgId}/password-policy`, { signal: opts?.signal });
+    },
+    /** PATCH — `minLength: null` clears the org's own minimum. Step-up gated;
+     *  LOWERING it also needs a session opened with a second factor. */
+    updatePasswordPolicy: async (orgId: string, body: { minLength: number | null }, stepUpToken?: string) => {
+      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${orgId}/password-policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** GET /organization/:id/authenticator-policy — the passkey-model allowlist,
+     *  the FIDO MDS catalog for naming models, and members' compliance. */
+    getAuthenticatorPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${orgId}/authenticator-policy`, { signal: opts?.signal });
+    },
+    /** PATCH — an empty list clears it (any model). Step-up gated; WIDENING or
+     *  clearing an existing list also needs a session opened with a second factor. */
+    updateAuthenticatorPolicy: async (orgId: string, body: { allowedAaguids: string[] }, stepUpToken?: string) => {
+      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${orgId}/authenticator-policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
     /**
      * Turn the requirement on or off, set the grace period, or record that the
      * org's identity provider enforces MFA.
      *
      * `graceDays` only applies while turning the requirement ON — the deadline is
      * computed server-side from it, so the client never posts a date. Step-up
-     * gated: turning it OFF removes a control for everyone in the org.
+     * gated. LOOSENING (requirement off, admin-actions policy off, "our IdP
+     * enforces MFA" on) also needs a session opened with a second factor — a
+     * single-factor session gets 401 `MFA_REQUIRED`, which the shell turns into
+     * the enrol / sign-in-again dialog. Changing `adminActionsRequireMfa` ends
+     * every other member's session so the change applies at once.
      */
     updateMfaPolicy: async (
       orgId: string,
-      body: { requireMfa?: boolean; graceDays?: number; idpEnforcesMfa?: boolean },
+      body: { requireMfa?: boolean; graceDays?: number; idpEnforcesMfa?: boolean; adminActionsRequireMfa?: boolean },
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    // -- MFA recovery: the two-person reset -------------------------------------
+
+    /** Pending (first) and recently decided MFA reset requests for the org and
+     *  its teams. Owner/admin only. */
+    listMfaResets: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ requests: MfaResetRequest[] }>>(`/api/organization/${orgId}/mfa-resets`, { signal: opts?.signal });
+    },
+    /** Ask for a member's second factors to be reset. Needs a session opened
+     *  with a second factor and a step-up; ANOTHER admin must approve it. */
+    requestMfaReset: async (orgId: string, body: { userId: string; reason: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Approve someone else's request — removes the member's factors and recovery
+     *  codes, ends their sessions and grants an enrolment grace. Needs a step-up
+     *  earned with a passkey or an authenticator code. */
+    approveMfaReset: async (orgId: string, requestId: string, body: { graceHours?: number }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets/${requestId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Deny a request (or, as its requester, withdraw it). */
+    denyMfaReset: async (orgId: string, requestId: string, body: { note?: string } = {}) => {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets/${requestId}/deny`, {
+        method: 'POST',
+        body: JSON.stringify(body),
       });
     },
   };

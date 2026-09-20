@@ -461,7 +461,10 @@
     "scopes": [],
     "audit": [
       "billing.subscription.create"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",
@@ -567,7 +570,10 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -630,7 +636,10 @@
     "scopes": [],
     "audit": [
       "billing.subscription.create"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "PUT",
@@ -656,7 +665,10 @@
     "audit": [
       "billing.subscription.update",
       "billing.addon.prune"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -682,7 +694,10 @@
     "audit": [
       "billing.addon.add",
       "billing.combo.expired"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -708,7 +723,10 @@
     "audit": [
       "billing.addon.remove",
       "billing.combo.expired"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -756,7 +774,10 @@
     "scopes": [],
     "audit": [
       "billing.subscription.cancel"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -781,7 +802,10 @@
     "scopes": [],
     "audit": [
       "billing.discount.apply"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -806,7 +830,10 @@
     "scopes": [],
     "audit": [
       "billing.discount.remove"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "POST",
@@ -854,7 +881,10 @@
     "scopes": [],
     "audit": [
       "billing.subscription.reactivate"
-    ]
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "DELETE",
@@ -909,7 +939,10 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
   },
   {
     "method": "GET",

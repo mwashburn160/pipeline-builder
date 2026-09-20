@@ -41,7 +41,7 @@ export function CreateOrgModal({
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Create a <strong>team</strong> nested under <strong>{activeOrg?.name}</strong>. It gets
         its own members, quotas, and secrets, and you&apos;ll be its owner.
         <br />
@@ -63,7 +63,7 @@ export function CreateOrgModal({
             disabled={form.loading}
           />
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-fg-muted">
           The team inherits <strong>{activeOrg?.name}</strong>&apos;s plan
           {activeOrg?.tier ? ` (${activeOrg.tier})` : ''} and its quotas are pooled under the parent organization.
         </p>

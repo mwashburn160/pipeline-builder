@@ -20,6 +20,8 @@ import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
+import { PasswordPolicySettings } from '@/components/settings/PasswordPolicySettings';
+import { AuthenticatorPolicySettings } from '@/components/settings/AuthenticatorPolicySettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -184,10 +186,10 @@ export default function SettingsPage() {
               </div>
             </Callout>
           )}
-          {verify.error && <p className="text-xs text-[var(--pb-danger)]">{verify.error}</p>}
-          {verify.success && <p className="text-xs text-[var(--pb-success)]">{verify.success}</p>}
-          {markVerify.error && <p className="text-xs text-[var(--pb-danger)]">{markVerify.error}</p>}
-          {markVerify.success && <p className="text-xs text-[var(--pb-success)]">{markVerify.success}</p>}
+          {verify.error && <p className="text-xs text-danger">{verify.error}</p>}
+          {verify.success && <p className="text-xs text-success">{verify.success}</p>}
+          {markVerify.error && <p className="text-xs text-danger">{markVerify.error}</p>}
+          {markVerify.success && <p className="text-xs text-success">{markVerify.success}</p>}
 
           <SessionStartedRow />
         </FormSection>
@@ -198,7 +200,7 @@ export default function SettingsPage() {
           icon={Trash2}
           title="Delete account"
           description="Permanently delete your account and all associated data. This cannot be undone."
-          className="border-[var(--pb-danger)]/40"
+          className="border-danger/40"
         >
           <Button variant="danger" onClick={() => setPendingDelete(true)} readOnly={isReadOnly}>
             Delete account
@@ -232,6 +234,17 @@ export default function SettingsPage() {
               <MfaPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
+            {/* Security policy: password minimum + approved authenticator models.
+                Same capability as the two-factor requirement; both writes are
+                step-up gated server-side, and LOOSENING either also needs a
+                session opened with a second factor. */}
+            {can('org:settings') && user.organizationId && (
+              <PasswordPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+            {can('org:settings') && user.organizationId && (
+              <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+
             {/* AI Providers */}
             <AIProviderConfig canEdit={can('org:settings')} />
           </div>
@@ -252,7 +265,7 @@ export default function SettingsPage() {
                 Your account, its organizations where you are the only owner, and everything they
                 contain are removed. Anything authenticating as you stops working.
               </p>
-              <p className="text-red-600 dark:text-red-400">This cannot be undone.</p>
+              <p className="text-danger">This cannot be undone.</p>
             </>
           )}
           onConfirmed={executeDelete}
@@ -380,7 +393,7 @@ function SessionStartedRow() {
   return (
     <Callout variant="neutral" icon={Clock}>
       Current session started{' '}
-      <strong className="text-[var(--pb-text)]">
+      <strong className="text-fg">
         <RelativeTime value={issuedAt} live />
       </strong>
       . If this looks wrong, sign out everywhere from{' '}

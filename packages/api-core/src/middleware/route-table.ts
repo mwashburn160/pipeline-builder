@@ -22,6 +22,17 @@
 import express from 'express';
 import type { Permission } from '../types/permissions.js';
 
+/**
+ * What a MACHINE credential (PAT, service account) meets on a route gated by
+ * `requireOrgAdminAssurance` while the org's admin-MFA policy is on:
+ *   - `allow`  — the route is legitimately machine-callable (automation that
+ *                manages members, roles, billing…); the policy is about how
+ *                strongly a PERSON's session was opened, so it does not apply;
+ *   - `refuse` — only a person may do this while the policy is on (403
+ *                `HUMAN_SESSION_REQUIRED`), e.g. minting another credential.
+ */
+export type OrgAdminAssuranceMachines = 'allow' | 'refuse';
+
 /** One requirement a gate middleware enforces. */
 export type RouteGate =
   | { kind: 'auth' }
@@ -34,6 +45,10 @@ export type RouteGate =
   /** The whole SESSION must be MFA-grade (`requireAuth({ minAssurance })`), and
    *  optionally no older than `maxAge` seconds. */
   | { kind: 'assurance'; minAssurance: 1 | 2; maxAge?: number }
+  /** The session must be MFA-grade WHEN the org's `adminActionsRequireMfa`
+   *  policy is on (`requireOrgAdminAssurance`). `machines` says what a machine
+   *  credential meets on the route while the policy is on. */
+  | { kind: 'orgAdminAssurance'; machines: OrgAdminAssuranceMachines }
   | { kind: 'feature'; feature: string }
   | { kind: 'scope'; scope: string }
   | { kind: 'audit'; actions: readonly string[] };
@@ -141,6 +156,13 @@ export interface RouteTableEntry {
   minAssurance: 0 | 1 | 2;
   /** Tightest `maxAge` (seconds) any assurance gate in the chain demands. */
   maxAge?: number;
+  /**
+   * Present when the route requires an MFA-grade session WHEN the org's
+   * `adminActionsRequireMfa` policy is on (`requireOrgAdminAssurance`), with
+   * what a machine credential meets there. Absent (not `false`) otherwise, so
+   * the table of a service that uses no such gate is unchanged.
+   */
+  orgAdminAssurance?: { machines: OrgAdminAssuranceMachines };
   features: string[];
   scopes: string[];
   audit: string[];
@@ -207,6 +229,12 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
         // Several gates may apply; the STRICTEST wins, since every one of them runs.
         if (g.minAssurance > entry.minAssurance) entry.minAssurance = g.minAssurance;
         if (g.maxAge !== undefined) entry.maxAge = entry.maxAge === undefined ? g.maxAge : Math.min(entry.maxAge, g.maxAge);
+        break;
+      case 'orgAdminAssurance':
+        // Strictest wins: one `refuse` in the chain refuses machines.
+        entry.orgAdminAssurance = {
+          machines: entry.orgAdminAssurance?.machines === 'refuse' || g.machines === 'refuse' ? 'refuse' : 'allow',
+        };
         break;
       case 'feature': if (!entry.features.includes(g.feature)) entry.features.push(g.feature); break;
       case 'scope': if (!entry.scopes.includes(g.scope)) entry.scopes.push(g.scope); break;

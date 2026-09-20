@@ -46,10 +46,10 @@ type ByOrgRow = AdminBillingSummary['byOrg'][number];
 const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
   { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-gray-800 dark:text-gray-200 break-all', render: (o) => o.orgId },
   { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-gray-700 dark:text-gray-300', render: (o) => formatCents(o.grossBilledCents) },
-  { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => formatCents(o.discountsCents) },
-  { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => formatCents(o.creditsCents) },
+  { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.discountsCents) },
+  { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.creditsCents) },
   { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-gray-900 dark:text-gray-100', render: (o) => formatCents(o.netBilledCents) },
-  { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => o.invoiceCount },
+  { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => o.invoiceCount },
 ];
 
 /** Badge color per subscription status. */
@@ -243,7 +243,7 @@ export default function BillingAdminPage() {
     {
       id: 'plan',
       header: 'Plan',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (s) => s.planName ?? s.planId,
       render: (s) => <span className="font-mono text-xs">{s.planName ?? s.planId}</span>,
     },
@@ -256,14 +256,14 @@ export default function BillingAdminPage() {
     {
       id: 'interval',
       header: 'Interval',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (s) => s.interval,
       render: (s) => <span className="capitalize">{s.interval}</span>,
     },
     {
       id: 'periodEnd',
       header: 'Period End',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (s) => s.currentPeriodEnd ? new Date(s.currentPeriodEnd) : null,
       render: (s) => <RelativeTime value={s.currentPeriodEnd} />,
     },
@@ -310,10 +310,10 @@ export default function BillingAdminPage() {
       {notEnabled ? (
         <Card className="flex flex-col items-center text-center py-14">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
-            <ShieldAlert className="w-9 h-9 text-gray-400 dark:text-gray-500" />
+            <ShieldAlert className="w-9 h-9 text-fg-subtle" />
           </div>
           <h3 className="mt-4 text-base font-semibold text-gray-900 dark:text-gray-100">Billing is not enabled</h3>
-          <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+          <p className="mt-1.5 text-sm text-fg-muted max-w-sm">
             The billing service is disabled in this deployment, so there is nothing to administer here.
           </p>
         </Card>
@@ -325,11 +325,11 @@ export default function BillingAdminPage() {
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Platform Finance</h3>
               <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400">From</label>
+                  <label className="block text-2xs font-medium text-fg-muted">From</label>
                   <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="text-sm" />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400">To</label>
+                  <label className="block text-2xs font-medium text-fg-muted">To</label>
                   <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm" />
                 </div>
                 <Button variant="secondary" onClick={applyRange} loading={summaryLoading}>
@@ -347,7 +347,7 @@ export default function BillingAdminPage() {
                   <SummaryStat label="Net billed" value={formatCents(summary.totals.netBilledCents)} accent />
                   <SummaryStat label="Amount paid" value={formatCents(summary.totals.amountPaidCents)} />
                 </div>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-xs text-fg-muted">
                   {summary.invoiceCount} invoice{summary.invoiceCount !== 1 ? 's' : ''} across {summary.byOrg.length} account{summary.byOrg.length !== 1 ? 's' : ''}.
                 </p>
 
@@ -367,7 +367,7 @@ export default function BillingAdminPage() {
             ) : summaryError ? (
               <RetryError className="mt-4" message={summaryError} onRetry={loadSummary} />
             ) : (
-              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-4 text-sm text-fg-muted">
                 {summaryLoading ? 'Loading summary…' : 'No billing ledger data for this window.'}
               </p>
             )}
@@ -423,7 +423,7 @@ export default function BillingAdminPage() {
             />
           }
         >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          <p className="text-sm text-fg-muted mb-4">
             Admin override for <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{editSub.orgId}</span>.
             A plan or status change resyncs the org’s tier/entitlements. A status change into a terminal state does
             <strong> not</strong> stop provider billing — use the normal cancel flow for that.
@@ -509,7 +509,7 @@ export default function BillingAdminPage() {
             />
           }
         >
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-fg-muted">
             Seed the billing ledger from the payment provider’s historical invoices. This is idempotent —
             already-ingested invoices are skipped — and safe to re-run. It may take a moment for large fleets.
           </p>
@@ -523,7 +523,7 @@ export default function BillingAdminPage() {
 function SummaryStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 px-3 py-2.5">
-      <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{label}</div>
+      <div className="text-2xs font-medium text-fg-muted">{label}</div>
       <div className={`mt-0.5 text-sm font-semibold ${accent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
     </div>
   );

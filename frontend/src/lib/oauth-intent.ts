@@ -16,6 +16,7 @@
  */
 
 import { api } from './api';
+import { DEFAULT_POST_SIGN_IN_PATH, sanitizeReturnPath } from './return-to';
 
 /** sessionStorage key holding the pending {@link OAuthIntent}. */
 export const OAUTH_INTENT_KEY = 'pb_oauth_intent';
@@ -69,11 +70,12 @@ export function storeOAuthIntent(intent: OAuthIntent, required: boolean): void {
  * navigating away. Throws when the provider URL can't be obtained, so callers
  * can surface it and re-enable their button.
  */
-export async function startOAuthLogin(provider: string, returnUrl = '/dashboard'): Promise<void> {
+export async function startOAuthLogin(provider: string, returnUrl: string = DEFAULT_POST_SIGN_IN_PATH): Promise<void> {
   const res = await api.getOAuthUrl(provider);
   const url = res.data?.url;
   const state = res.data?.state;
   if (!url || !state) throw new Error('Could not start sign-in with this provider');
-  storeOAuthIntent({ state, kind: 'login', returnUrl }, false);
+  // Sanitized on the way in as well as out (the callback re-checks it).
+  storeOAuthIntent({ state, kind: 'login', returnUrl: sanitizeReturnPath(returnUrl) ?? DEFAULT_POST_SIGN_IN_PATH }, false);
   window.location.href = url;
 }

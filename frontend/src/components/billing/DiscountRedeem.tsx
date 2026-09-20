@@ -120,14 +120,14 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
 
   return (
     <Card>
-      <h2 className="text-lg font-semibold text-[var(--pb-text)] mb-1">Discount</h2>
-      <p className="text-sm text-[var(--pb-text-muted)] mb-4">
+      <h2 className="h2 mb-1">Discount</h2>
+      <p className="text-sm text-fg-muted mb-4">
         Have a discount code? Apply it as a usage credit against your bill.
       </p>
 
       {recurring && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-md bg-green-50 dark:bg-green-900/30 px-3 py-2">
-          <div className="text-sm text-green-700 dark:text-green-300">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md bg-success-bg px-3 py-2">
+          <div className="text-sm text-success">
             <span className="font-medium">Active recurring discount</span>
             <span className="ml-2">{recurringLabel}</span>
           </div>
@@ -173,23 +173,23 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
       </div>
 
       {preview && (
-        <div className="mt-4 rounded-md border border-[var(--pb-border)] p-3">
-          <p className="text-sm text-[var(--pb-text)]">
+        <div className="mt-4 rounded-md border border-default p-3">
+          <p className="text-sm text-fg">
             Applies as: <span className="font-medium">{preview.applied}</span>
           </p>
           <dl className="mt-2 space-y-1">
             {(preview.priceBreakdown.items ?? []).map((item, i) => (
               <div key={i} className="flex items-center justify-between gap-4 text-sm">
-                <dt className="text-[var(--pb-text-muted)]">{item.label}</dt>
-                <dd className="text-[var(--pb-text)] tabular-nums text-right">{formatCents(item.cents)}</dd>
+                <dt className="text-fg-muted">{item.label}</dt>
+                <dd className="text-fg tabular-nums text-right">{formatCents(item.cents)}</dd>
               </div>
             ))}
-            <div className="flex items-center justify-between gap-4 text-sm border-t border-[var(--pb-border)] pt-1 mt-1 font-medium">
-              <dt className="text-[var(--pb-text)]">Total ({preview.priceBreakdown.interval})</dt>
-              <dd className="text-[var(--pb-text)] tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
+            <div className="flex items-center justify-between gap-4 text-sm border-t border-default pt-1 mt-1 font-medium">
+              <dt className="text-fg">Total ({preview.priceBreakdown.interval})</dt>
+              <dd className="text-fg tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
             </div>
             {preview.priceBreakdown.creditRemainingCents > 0 && (
-              <div className="flex items-center justify-between gap-4 text-xs text-[var(--pb-text-muted)]">
+              <div className="flex items-center justify-between gap-4 text-xs text-fg-muted">
                 <dt>Credit remaining</dt>
                 <dd className="tabular-nums text-right">{formatCents(preview.priceBreakdown.creditRemainingCents)}</dd>
               </div>
@@ -199,7 +199,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
       )}
 
       {!canManage && (
-        <p className="mt-3 text-sm text-[var(--pb-text-muted)]">
+        <p className="mt-3 text-sm text-fg-muted">
           Contact an organization admin to redeem a discount code.
         </p>
       )}

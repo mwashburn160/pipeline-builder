@@ -288,19 +288,19 @@ export default function InvitationsPage() {
     {
       id: 'invitedBy',
       header: 'Invited By',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (inv) => <>{inv.inviterName || inv.invitedBy || 'Unknown'}</>,
     },
     {
       id: 'createdAt',
       header: 'Created',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (inv) => <RelativeTime value={inv.createdAt} />,
     },
     {
       id: 'expiresAt',
       header: 'Expires',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (inv) => <RelativeTime value={inv.expiresAt} />,
     },
     {
@@ -472,7 +472,7 @@ export default function InvitationsPage() {
             />
           }
         >
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          <p className="text-xs text-fg-muted mb-3">
             Paste one or many emails — separated by newlines, commas, or spaces. Each email gets its own invitation.
           </p>
 
@@ -503,7 +503,7 @@ export default function InvitationsPage() {
                 disabled={sendLoading}
               />
               {sendEmail.trim() && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-fg-muted">
                   Will send to <strong>{parseEmailList(sendEmail).length}</strong> address{parseEmailList(sendEmail).length === 1 ? '' : 'es'}.
                 </p>
               )}

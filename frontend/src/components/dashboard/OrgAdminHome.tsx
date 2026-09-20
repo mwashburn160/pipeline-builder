@@ -15,6 +15,8 @@
  *   2. Pending invitations + member count (+ team count when the org parents teams)
  *   3. Compliance pulse — last 3 blocked entries (if any)
  *   4. Billing snapshot — current plan + period days elapsed
+ *   5. Organization security — MFA requirement, members without a second
+ *      factor, SSO, IdP-enforced MFA (holders of `org:settings` only)
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -28,6 +30,9 @@ import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
+import { useAuth } from '@/hooks/useAuth';
+import { OrgSecurityCard } from '@/components/security/OrgSecurityCard';
+import { hasPermission } from '@/lib/auth-helpers';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
@@ -62,6 +67,8 @@ export function OrgAdminHome({ organizationId }: Props) {
   // Hierarchy tiles render only where they mean something: a team count when
   // the org parents teams, a "pooled" note when it IS a team.
   const { isChildOrg, hasChildOrgs, childOrgCount } = useOrgHierarchy();
+  const { user } = useAuth();
+  const canSeeOrgSecurity = !!organizationId && hasPermission(user, 'org:settings');
   const [quotas, setQuotas] = useState<OrgQuotaResponse | null>(null);
   const [pendingInvites, setPendingInvites] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -129,13 +136,13 @@ export function OrgAdminHome({ organizationId }: Props) {
       {/* Quota health row — the most important admin-facing signal. */}
       <Card className="mb-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
-            <BarChart3 className="w-4 h-4 text-gray-400" />
+          <h3 className="h3 inline-flex items-center gap-1.5">
+            <BarChart3 className="w-4 h-4 text-fg-subtle" />
             Quota health
           </h3>
           <div className="flex items-center gap-3">
             {isChildOrg && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">Pooled across the parent organization</span>
+              <span className="text-xs text-fg-muted">Pooled across the parent organization</span>
             )}
             <Link href="/dashboard/quotas" className="action-link text-xs">Manage →</Link>
           </div>
@@ -149,21 +156,21 @@ export function OrgAdminHome({ organizationId }: Props) {
               const tone = quotaTone(q.used, q.limit, q.unlimited);
               const pct = q.unlimited || q.limit <= 0 ? null : Math.round((q.used / q.limit) * 100);
               return (
-                <div key={type} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+                <div key={type} className="rounded-lg border border-default px-3 py-2">
                   <div className="flex items-baseline justify-between gap-1">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{QUOTA_LABELS[type]}</span>
+                    <span className="text-xs text-fg-muted">{QUOTA_LABELS[type]}</span>
                     {pct !== null && (
                       <Badge color={tone}>{pct}%</Badge>
                     )}
                     {pct === null && <Badge color="gray">unlimited</Badge>}
                   </div>
-                  <div className="mt-1 text-xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                  <div className="mt-1 text-xl font-semibold text-fg tabular-nums">
                     {fmtNum(q.used)}
                     {!q.unlimited && (
-                      <span className="text-sm text-gray-400 dark:text-gray-500 font-normal"> / {fmtNum(q.limit)}</span>
+                      <span className="text-sm text-fg-subtle font-normal"> / {fmtNum(q.limit)}</span>
                     )}
                   </div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="text-2xs text-fg-muted mt-1">
                     resets <RelativeTime value={q.resetAt} />
                   </div>
                 </div>
@@ -178,16 +185,16 @@ export function OrgAdminHome({ organizationId }: Props) {
         {/* Team / invitations */}
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
-              <Mail className="w-4 h-4 text-gray-400" />
+            <h3 className="h3 inline-flex items-center gap-1.5">
+              <Mail className="w-4 h-4 text-fg-subtle" />
               Members
             </h3>
             <Link href="/dashboard/members" className="action-link text-xs">Manage members →</Link>
           </div>
           <div className={`grid ${hasChildOrgs ? 'grid-cols-3' : 'grid-cols-2'} gap-3 text-sm`}>
-            <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Pending invitations</div>
-              <div className={`mt-1 text-2xl font-semibold ${pendingInvites > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-gray-100'}`}>
+            <div className="rounded-md bg-surface-muted px-3 py-2">
+              <div className="text-xs text-fg-muted">Pending invitations</div>
+              <div className={`mt-1 text-2xl font-semibold ${pendingInvites > 0 ? 'text-warning' : 'text-fg'}`}>
                 {pendingInvites}
               </div>
               {pendingInvites > 0 && (
@@ -196,18 +203,18 @@ export function OrgAdminHome({ organizationId }: Props) {
                 </Link>
               )}
             </div>
-            <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Members</div>
-              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">
+            <div className="rounded-md bg-surface-muted px-3 py-2">
+              <div className="text-xs text-fg-muted">Members</div>
+              <div className="mt-1 text-2xl font-semibold text-fg">
                 {memberCount ?? '—'}
               </div>
             </div>
             {hasChildOrgs && (
-              <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-                <div className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+              <div className="rounded-md bg-surface-muted px-3 py-2">
+                <div className="text-xs text-fg-muted inline-flex items-center gap-1">
                   <Building2 className="w-3 h-3" aria-hidden="true" /> Teams
                 </div>
-                <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{childOrgCount}</div>
+                <div className="mt-1 text-2xl font-semibold text-fg">{childOrgCount}</div>
                 <Link href="/dashboard/members" className="action-link text-xs inline-flex items-center gap-1 mt-1">
                   View <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -219,27 +226,27 @@ export function OrgAdminHome({ organizationId }: Props) {
         {/* Compliance pulse */}
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
-              <Shield className="w-4 h-4 text-gray-400" />
+            <h3 className="h3 inline-flex items-center gap-1.5">
+              <Shield className="w-4 h-4 text-fg-subtle" />
               Compliance pulse
             </h3>
             <Link href="/dashboard/compliance" className="action-link text-xs">All rules →</Link>
           </div>
           {blockedEntries.length === 0 ? (
-            <div className="rounded-md bg-green-50 dark:bg-green-900/20 px-3 py-3 text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
+            <div className="rounded-md bg-success-bg px-3 py-3 text-sm text-success flex items-center gap-2">
               <Shield className="w-4 h-4" /> No recent compliance violations.
             </div>
           ) : (
             <ul className="space-y-1.5">
               {blockedEntries.map((e) => (
                 <li key={e.id} className="text-sm flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-gray-800 dark:text-gray-200 truncate">
+                    <div className="text-fg truncate">
                       <code className="text-xs">{e.action}</code>
-                      {e.entityName && <span className="text-gray-500 dark:text-gray-400"> on {e.entityName}</span>}
+                      {e.entityName && <span className="text-fg-muted"> on {e.entityName}</span>}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <div className="text-xs text-fg-muted">
                       <RelativeTime value={e.createdAt} />
                       {e.violations.length > 0 && <span> · {e.violations.length} violation{e.violations.length === 1 ? '' : 's'}</span>}
                     </div>
@@ -251,33 +258,37 @@ export function OrgAdminHome({ organizationId }: Props) {
         </Card>
       </div>
 
+      {canSeeOrgSecurity && organizationId && (
+        <OrgSecurityCard orgId={organizationId} canReadIdp={hasPermission(user, 'org:idp')} />
+      )}
+
       {/* Billing snapshot */}
       {subscription && (
         <Card className="mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
-              <CreditCard className="w-4 h-4 text-gray-400" />
+            <h3 className="h3 inline-flex items-center gap-1.5">
+              <CreditCard className="w-4 h-4 text-fg-subtle" />
               Billing
             </h3>
             <Link href="/dashboard/billing" className="action-link text-xs">Manage plan →</Link>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-            <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Plan</div>
-              <div className="text-base font-medium text-gray-900 dark:text-gray-100">{subscription.planName || subscription.planId}</div>
+            <div className="rounded-md bg-surface-muted px-3 py-2">
+              <div className="text-xs text-fg-muted">Plan</div>
+              <div className="text-base font-medium text-fg">{subscription.planName || subscription.planId}</div>
             </div>
-            <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Status</div>
-              <div className="text-base font-medium text-gray-900 dark:text-gray-100 capitalize">
+            <div className="rounded-md bg-surface-muted px-3 py-2">
+              <div className="text-xs text-fg-muted">Status</div>
+              <div className="text-base font-medium text-fg capitalize">
                 {subscription.status}
                 {subscription.cancelAtPeriodEnd && (
                   <Badge color="yellow">cancels at period end</Badge>
                 )}
               </div>
             </div>
-            <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400">Next billing</div>
-              <div className="text-base font-medium text-gray-900 dark:text-gray-100">
+            <div className="rounded-md bg-surface-muted px-3 py-2">
+              <div className="text-xs text-fg-muted">Next billing</div>
+              <div className="text-base font-medium text-fg">
                 <RelativeTime value={subscription.currentPeriodEnd} />
               </div>
             </div>
@@ -287,8 +298,8 @@ export function OrgAdminHome({ organizationId }: Props) {
 
       {/* Quick-links — common org-admin tasks */}
       <Card className="mb-4">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 inline-flex items-center gap-1.5">
-          <Activity className="w-4 h-4 text-gray-400" />
+        <h3 className="h3 mb-3 inline-flex items-center gap-1.5">
+          <Activity className="w-4 h-4 text-fg-subtle" />
           Common tasks
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">

@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
 import { startOAuthLogin } from '@/lib/oauth-intent';
+import { peekReturnPath } from '@/lib/return-to';
 import { formatError, providerLabel } from '@/lib/constants';
 import { browserSupportsWebAuthn, browserSupportsWebAuthnAutofill, cancelPasskeyCeremony } from '@/lib/passkeys';
 import { webauthnErrorMessage } from '@/lib/webauthn';
@@ -54,29 +55,29 @@ function NavBar() {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
       scrolled || mobileOpen
-        ? 'bg-[var(--pb-surface)]/90 backdrop-blur-lg border-b border-[var(--pb-border)] shadow-sm'
+        ? 'bg-surface/90 backdrop-blur-lg border-b border-default shadow-sm'
         : 'bg-transparent'
     }`}>
       <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-        <a href="#top" className="font-serif text-lg font-bold text-[var(--pb-text)]" aria-label="Pipeline Builder home">
+        <a href="#top" className="font-serif text-lg font-bold text-fg" aria-label="Pipeline Builder home">
           Pipeline Builder
         </a>
         <div className="flex items-center gap-2">
-          <button onClick={toggleDark} className="p-2 text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors" aria-label="Toggle dark mode">
+          <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Toggle dark mode">
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <Link href="/auth/register" className="hidden sm:inline-flex btn btn-primary text-sm px-4 py-1.5">
             Get Started
           </Link>
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="sm:hidden p-2 text-[var(--pb-text-muted)]" aria-label="Menu">
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="sm:hidden p-2 text-fg-muted" aria-label="Menu">
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="sm:hidden border-t border-[var(--pb-border)] bg-[var(--pb-surface)] px-6 py-4 space-y-3">
-          <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-[var(--pb-text-muted)]">Sign in</a>
+        <div className="sm:hidden border-t border-default bg-surface px-6 py-4 space-y-3">
+          <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Sign in</a>
           <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get Started</Link>
         </div>
       )}
@@ -104,9 +105,8 @@ function emailDomain(identifier: string): string | null {
   return domain.includes('.') && !domain.includes(' ') ? domain : null;
 }
 
-/** The operator command that recovers an account with no factors left. Named
- *  here because it is the ONLY recovery there is — it is deliberately not a
- *  route (platform `src/scripts/mfa-recover.ts`). */
+/** The operator command for the case the dashboard can't reach — nobody able to
+ *  sign in to approve a reset (platform `src/scripts/mfa-recover.ts`). */
 const MFA_RECOVER_COMMAND = 'node scripts/mfa-recover.js --email <your address>';
 
 /**
@@ -115,30 +115,37 @@ const MFA_RECOVER_COMMAND = 'node scripts/mfa-recover.js --email <your address>'
  * Shown on demand at the two places the dead end is actually reached: under the
  * code step (the app is gone AND the recovery codes are gone) and under the
  * org-policy refusal (the requirement bites and there is no factor to meet it).
- * Recovery is an operator command rather than a link, so the honest answer is
- * WHO to ask and WHAT they run — not a button that would be a standing bypass
- * of the factor it removes.
+ * Recovery is never self-service — anything that removed a factor on request
+ * would be a way around it — so the honest answer is WHO to ask: two admins of
+ * the organization (one requests, a different one approves), a platform
+ * administrator for an org with no second admin, or the operator command when
+ * nobody can sign in at all.
  */
 function LostFactorHelp() {
   return (
-    <div className="rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3 text-left space-y-2">
-      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
+    <div className="rounded-xl border border-default bg-surface-muted p-3 text-left space-y-2">
+      <p className="text-xs font-normal leading-relaxed text-fg-muted">
         Two-factor authentication can’t be turned off from a sign-in page — there is
         deliberately no self-service route, because anything that removed your second
         factor on request would be a way around it.
       </p>
-      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
-        Ask an owner or admin of your organization, or whoever operates Pipeline Builder
-        for you: on the platform itself they run
+      <p className="text-xs font-normal leading-relaxed text-fg-muted">
+        Ask an owner or admin of your organization to reset your two-factor authentication
+        from its Members page; a <strong>second</strong> owner or admin approves it. If your
+        organization has no second admin, a platform administrator can reset it instead.
       </p>
-      <code className="block p-2 rounded-lg text-[11px] font-mono bg-[var(--pb-surface)] text-[var(--pb-text)] break-all">
+      <p className="text-xs font-normal leading-relaxed text-fg-muted">
+        The reset removes every passkey, the authenticator app and the recovery codes, signs
+        the account out everywhere, and is recorded in the audit trail under the people who
+        did it. You then have a few days to sign in with your password and enrol a new factor
+        — your organization&apos;s policy is not relaxed for anyone else.
+      </p>
+      <p className="text-xs font-normal leading-relaxed text-fg-muted">
+        If nobody can sign in to do that, whoever operates Pipeline Builder runs:
+      </p>
+      <code className="block p-2 rounded-lg text-2xs font-mono bg-surface text-fg break-all">
         {MFA_RECOVER_COMMAND}
       </code>
-      <p className="text-xs font-normal leading-relaxed text-[var(--pb-text-muted)]">
-        It removes every passkey and the authenticator enrolment, signs the account out
-        everywhere, and is recorded in the audit trail under the operator who ran it.
-        You enrol a new factor the next time you sign in.
-      </p>
     </div>
   );
 }
@@ -148,7 +155,7 @@ function LostFactorHelp() {
 // ---------------------------------------------------------------------------
 
 function Hero() {
-  const { login, completeMfaLogin, loginWithPasskey, isLoading } = useAuth();
+  const { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isLoading } = useAuth();
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -167,19 +174,31 @@ function Hero() {
   // without a factor. A red error would be misleading — nothing was wrong with
   // what they typed — so it gets its own panel naming who can unblock them.
   const [mfaPolicyBlocked, setMfaPolicyBlocked] = useState<string | null>(null);
-  // Enterprise SSO. `ssoDomain` is what DISCOVERY found (the domain is federated
-  // — we are told nothing else about it); `ssoAccount` is what a refused password
-  // attempt named (`SSO_REQUIRED` carries the org, so the flow can start against
-  // it directly and the button can name the provider). Either one means: no
-  // password path here.
+  // Set when the password was right but no longer meets the org's password
+  // policy: no session was opened, and the card asks for a NEW password.
+  const [pwChange, setPwChange] = useState<{ challengeId: string; minLength: number } | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [pwChangeBusy, setPwChangeBusy] = useState(false);
+  // Enterprise SSO. `ssoDomain` is what DISCOVERY found (an org's IdP serves the
+  // domain — and, per the cache below, whether the org REQUIRES it; we are told
+  // nothing else); `ssoAccount` is what a refused password attempt named
+  // (`SSO_REQUIRED` carries the org, so the flow can start against it directly
+  // and the button can name the provider). A required domain or a refused
+  // attempt means: no password path here — except the owner BREAK-GLASS below.
   const [ssoDomain, setSsoDomain] = useState<string | null>(null);
+  // "Organization owner? Sign in with a password": owners are exempt from their
+  // org's "SSO required" policy, but discovery can't say who is an owner (that
+  // would tell an anonymous caller), so the page offers the password path on
+  // request and the server decides — a non-owner gets SSO_REQUIRED back.
+  const [breakGlass, setBreakGlass] = useState(false);
   const [ssoAccount, setSsoAccount] = useState<{ orgId: string; provider?: string } | null>(null);
   const [ssoBusy, setSsoBusy] = useState(false);
   // One answer per domain per page load — typing an address must not spend the
   // pre-auth rate-limit budget a keystroke at a time. A failed lookup caches
   // `false`: discovery is a hint, and the password path still refuses a covered
   // account with SSO_REQUIRED, which surfaces the same SSO action.
-  const ssoByDomain = useRef(new Map<string, boolean>());
+  const ssoByDomain = useRef(new Map<string, 'required' | 'offered' | 'none'>());
   // Latest identifier, read by the in-flight lookup so an answer that arrives
   // after the person has typed on is discarded rather than applied.
   const identifierRef = useRef(identifier);
@@ -217,16 +236,17 @@ function Hero() {
     if (!domain) { setSsoDomain(null); return; }
 
     const known = ssoByDomain.current.get(domain);
-    if (known !== undefined) { setSsoDomain(known ? domain : null); return; }
+    if (known !== undefined) { setSsoDomain(known !== 'none' ? domain : null); return; }
 
-    let sso = false;
+    let mode: 'required' | 'offered' | 'none' = 'none';
     try {
       const res = await api.discoverSso(value.trim());
-      sso = res.data?.sso === true;
+      if (res.data?.sso === true) mode = res.data.required === true ? 'required' : 'offered';
     } catch {
       // Fail soft — never block a sign-in on a hint.
     }
-    ssoByDomain.current.set(domain, sso);
+    ssoByDomain.current.set(domain, mode);
+    const sso = mode !== 'none';
     // The person may have typed on: only apply an answer that still matches.
     setSsoDomain((current) => (emailDomain(identifierRef.current) === domain ? (sso ? domain : null) : current));
   }, []);
@@ -291,6 +311,9 @@ function Hero() {
         setMfaCode('');
         setLostFactorOpen(false);
         setMfaChallengeId(result.challengeId);
+      } else if (result.status === 'password_change_required') {
+        setPassword('');
+        setPwChange({ challengeId: result.challengeId, minLength: result.minLength });
       }
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;
@@ -352,7 +375,12 @@ function Hero() {
     if (!mfaChallengeId || !mfaCode.trim()) { setError('Enter the code from your authenticator app'); return; }
     setMfaBusy(true);
     try {
-      await completeMfaLogin(mfaChallengeId, mfaCode.trim());
+      const result = await completeMfaLogin(mfaChallengeId, mfaCode.trim());
+      if (result?.status === 'password_change_required') {
+        setMfaChallengeId(null);
+        setMfaCode('');
+        setPwChange({ challengeId: result.challengeId, minLength: result.minLength });
+      }
     } catch (err) {
       // A dead challenge is the one refusal that isn't opaque, and the one case
       // where retrying the code is pointless — drop back to the password form
@@ -362,6 +390,35 @@ function Hero() {
     } finally {
       setMfaBusy(false);
     }
+  };
+
+  /** Last leg of a sign-in whose password is below the org policy: a new one. */
+  const handlePasswordChangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!pwChange) return;
+    if (newPassword.length < pwChange.minLength) {
+      setError(`Your organization requires at least ${pwChange.minLength} characters`);
+      return;
+    }
+    if (newPassword !== confirmNewPassword) { setError('Passwords do not match'); return; }
+    setPwChangeBusy(true);
+    try {
+      await completeRequiredPasswordChange(pwChange.challengeId, newPassword);
+    } catch (err) {
+      // A dead handle can't be retried — back to the password form.
+      if ((err as { code?: string } | null)?.code === 'PASSWORD_CHANGE_CHALLENGE_INVALID') setPwChange(null);
+      setError(formatError(err, 'Could not change your password'));
+    } finally {
+      setPwChangeBusy(false);
+    }
+  };
+
+  const cancelPasswordChange = () => {
+    setPwChange(null);
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setError(null);
   };
 
   /** Abandon the code step and start over with the password. */
@@ -389,9 +446,14 @@ function Hero() {
     }
   };
 
-  // Both signals mean the same thing to this card: this identifier signs in at
-  // an identity provider, so there is no password to collect.
-  const ssoRequired = ssoAccount !== null || ssoDomain !== null;
+  // Either signal means the same thing to this card: this identifier signs in
+  // at an identity provider, so there is no password to collect — unless the
+  // person asked for the owner break-glass path on a REQUIRED domain.
+  const ssoMode = ssoDomain ? ssoByDomain.current.get(ssoDomain) : undefined;
+  const ssoRequired = ssoAccount !== null || (ssoMode === 'required' && !breakGlass);
+  // SSO is available but not required (or an owner took the password path):
+  // offer it next to the password form.
+  const ssoOffered = !ssoRequired && ssoDomain !== null && ssoAccount === null;
   // A refused attempt names the provider ("Continue with Okta"); discovery
   // deliberately doesn't, and a SAML config has no provider name at all — both
   // fall back to the plain phrase rather than inventing one.
@@ -406,7 +468,7 @@ function Hero() {
     setError(null);
     setOauthBusy(provider);
     try {
-      await startOAuthLogin(provider);
+      await startOAuthLogin(provider, peekReturnPath() ?? undefined);
     } catch (err) {
       setError(formatError(err, `Could not sign in with ${providerLabel(provider)}`));
       setOauthBusy(null);
@@ -419,12 +481,12 @@ function Hero() {
         {/* Left — 3 cols */}
         <div className="lg:col-span-3 pt-2">
           <motion.div
-            className="inline-flex items-center gap-1.5 mb-3 px-3 py-1 rounded-full text-xs font-medium bg-[var(--pb-surface)] border border-[var(--pb-border)] text-[var(--pb-text-muted)]"
+            className="inline-flex items-center gap-1.5 mb-3 px-3 py-1 rounded-full text-xs font-medium bg-surface border border-default text-fg-muted"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
           >
-            <Sparkles className="w-3.5 h-3.5 text-[var(--pb-brand)]" strokeWidth={2} />
+            <Sparkles className="w-3.5 h-3.5 text-brand" strokeWidth={2} />
             Self-service CI/CD for AWS
           </motion.div>
           <motion.h1
@@ -434,10 +496,10 @@ function Hero() {
             transition={{ duration: 0.4, delay: 0.05 }}
           >
             CI/CD pipelines from code or{' '}
-            <span className="text-[var(--pb-brand)]">AI</span>
+            <span className="text-brand">AI</span>
           </motion.h1>
           <motion.p
-            className="text-[var(--pb-text-muted)] text-sm mb-4 leading-relaxed max-w-lg"
+            className="text-fg-muted text-sm mb-4 leading-relaxed max-w-lg"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
@@ -452,10 +514,10 @@ function Hero() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.18 }}
           >
-            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--pb-text-muted)] mb-5">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-fg-muted mb-5">
               {['Dashboard', 'AI Prompt', 'CLI', 'REST API', 'CDK'].map((t) => (
                 <span key={t} className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-[var(--pb-success)]" strokeWidth={2} />
+                  <Check className="w-3.5 h-3.5 text-success" strokeWidth={2} />
                   {t}
                 </span>
               ))}
@@ -465,7 +527,7 @@ function Hero() {
                 Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
               </Link>
               <a href="#how" className="btn btn-secondary px-5 py-2 text-sm">See how it works</a>
-              <span className="text-xs text-[var(--pb-text-muted)]">
+              <span className="text-xs text-fg-muted">
                 Apache-2.0 · No credit card
               </span>
             </div>
@@ -481,11 +543,11 @@ function Hero() {
           transition={{ duration: 0.4, delay: 0.1 }}
         >
           <Card className="p-5">
-            <h2 className="font-bold mb-4">{mfaChallengeId ? 'Two-factor authentication' : 'Sign in'}</h2>
+            <h2 className="font-bold mb-4">{pwChange ? 'Choose a new password' : mfaChallengeId ? 'Two-factor authentication' : 'Sign in'}</h2>
 
-            {sessionExpired && !error && !mfaChallengeId && (
+            {sessionExpired && !error && !mfaChallengeId && !pwChange && (
               <div className="alert-warning mb-3" role="status" aria-live="polite">
-                <p>Session expired. Please sign in again.</p>
+                <p>Your session expired. Sign in again and we&apos;ll take you back to where you were.</p>
               </div>
             )}
             <ErrorAlert message={error} className="mb-3" />
@@ -500,19 +562,19 @@ function Hero() {
                   <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                   <span>{mfaPolicyBlocked}</span>
                 </p>
-                <ul className="mt-2 space-y-1.5 text-sm text-[var(--pb-text)] list-disc pl-8">
+                <ul className="mt-2 space-y-1.5 text-sm text-fg list-disc pl-8">
                   <li>
                     If you already have a passkey on this device, use{' '}
                     <strong>Sign in with a passkey</strong> below — it satisfies the requirement
                     on its own.
                   </li>
                   <li>
-                    Otherwise an owner or admin of your organization can lift the requirement,
-                    or extend its grace period, long enough for you to enrol.
+                    If you saved recovery codes when you set up a passkey, sign in again — you
+                    will be asked for one.
                   </li>
                   <li>
-                    If you had factors and have lost them all, they need the recovery command
-                    below.
+                    Otherwise two owners or admins of your organization can reset your two-factor
+                    authentication, which gives you a few days to sign in and enrol — see below.
                   </li>
                 </ul>
                 <div className="mt-3">
@@ -524,20 +586,64 @@ function Hero() {
             {/* Second factor. Replaces the whole card body rather than appearing
                 below it: the password is already proven and re-showing the field
                 only invites people to retype it. */}
-            {mfaChallengeId ? (
+            {pwChange ? (
+              <form onSubmit={handlePasswordChangeSubmit} className="space-y-3">
+                <p className="text-sm text-fg-muted flex items-start gap-2">
+                  <KeyRound className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Your organization now requires passwords of at least <strong>{pwChange.minLength}</strong> characters,
+                    and yours is shorter. Choose a new one to continue — it also signs you out everywhere else.
+                  </span>
+                </p>
+                <Input
+                  id="signin-new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  autoFocus
+                  minLength={pwChange.minLength}
+                  placeholder={`New password (${pwChange.minLength}+ characters)`}
+                  aria-label="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  disabled={pwChangeBusy}
+                />
+                <Input
+                  id="signin-new-password-confirm"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  placeholder="Confirm new password"
+                  aria-label="Confirm new password"
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  disabled={pwChangeBusy}
+                />
+                <Button type="submit" fullWidth disabled={pwChangeBusy || !newPassword || !confirmNewPassword} className="text-sm">
+                  {pwChangeBusy
+                    ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</>
+                    : <><LogIn className="w-4 h-4 mr-1.5" /> Change password and sign in</>
+                  }
+                </Button>
+                <Button type="button" variant="secondary" fullWidth onClick={cancelPasswordChange} disabled={pwChangeBusy} className="text-sm">
+                  <ArrowLeft className="w-4 h-4 mr-1.5" /> Use a different account
+                </Button>
+              </form>
+            ) : mfaChallengeId ? (
               <form onSubmit={handleMfaSubmit} className="space-y-3">
-                <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2">
+                <p className="text-sm text-fg-muted flex items-start gap-2">
                   <Smartphone className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                   <span>Enter the 6-digit code from your authenticator app.</span>
                 </p>
                 {/* The recovery code is named HERE, in the sentence, not left to
                     a placeholder that vanishes the moment anyone types: this is
                     the exact point where someone discovers their phone is gone. */}
-                <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2">
+                <p className="text-sm text-fg-muted flex items-start gap-2">
                   <KeyRound className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                   <span>
-                    Phone lost or wiped? Use one of the recovery codes you saved when you turned
-                    two-factor authentication on — they go in this same box, and each one works once.
+                    Phone lost or wiped — or you sign in with a passkey you no longer have? Use one of
+                    the recovery codes you saved when you set up two-factor authentication — they go in
+                    this same box, and each one works once.
                   </span>
                 </p>
                 <Input
@@ -579,7 +685,7 @@ function Hero() {
                   type="button"
                   onClick={() => setLostFactorOpen((v) => !v)}
                   aria-expanded={lostFactorOpen}
-                  className="w-full inline-flex items-center justify-center gap-1.5 text-xs text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)] rounded py-1"
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-xs text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-brand rounded py-1"
                 >
                   <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
                   Lost your phone and your codes?
@@ -603,6 +709,7 @@ function Hero() {
                   setIdentifier(e.target.value);
                   // What a refused attempt told us belonged to the OLD address.
                   if (ssoAccount) setSsoAccount(null);
+                  if (breakGlass) setBreakGlass(false);
                   if (mfaPolicyBlocked) setMfaPolicyBlocked(null);
                 }}
                 // Anyone who tabs straight past gets the answer now rather than
@@ -615,7 +722,7 @@ function Hero() {
                   offering one only produces a rejection the person can't act on. */}
               {ssoRequired ? (
                 <>
-                  <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2" role="status">
+                  <p className="text-sm text-fg-muted flex items-start gap-2" role="status">
                     <Building2 className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                     <span>
                       {ssoAccount
@@ -628,6 +735,15 @@ function Hero() {
                       ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
                       : <><LogIn className="w-4 h-4 mr-1.5" /> Continue with {ssoProviderName}</>}
                   </Button>
+                  {!ssoAccount && (
+                    <button
+                      type="button"
+                      onClick={() => setBreakGlass(true)}
+                      className="w-full text-xs text-fg-muted hover:text-fg underline py-1"
+                    >
+                      Organization owner? Sign in with your password or passkey
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -650,7 +766,7 @@ function Hero() {
                       disabled={isLoading}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
                       aria-pressed={showPassword}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-brand"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                     </button>
@@ -661,6 +777,13 @@ function Hero() {
                       : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in</>
                     }
                   </Button>
+                  {ssoOffered && (
+                    <Button type="button" variant="secondary" fullWidth disabled={ssoBusy} className="text-sm" onClick={(e) => { void startSso(e); }}>
+                      {ssoBusy
+                        ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
+                        : <><Building2 className="w-4 h-4 mr-1.5" /> Continue with single sign-on</>}
+                    </Button>
+                  )}
                 </>
               )}
             </form>
@@ -669,11 +792,11 @@ function Hero() {
             {/* Passkeys and social sign-in are bypasses for a federated account —
                 the backend refuses both with the same SSO_REQUIRED — so they go
                 away with the password field. */}
-            {!mfaChallengeId && !ssoRequired && (passkeySupported || providers.length > 0) && (
+            {!mfaChallengeId && !pwChange && !ssoRequired && (passkeySupported || providers.length > 0) && (
               <div className="mt-4">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="flex-1 h-px bg-[var(--pb-border)]" />
-                  <span className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)]">or</span>
+                  <span className="text-2xs uppercase tracking-wide text-fg-muted">or</span>
                   <span className="flex-1 h-px bg-[var(--pb-border)]" />
                 </div>
                 <div className="space-y-2">
@@ -713,10 +836,10 @@ function Hero() {
               </div>
             )}
 
-            {!mfaChallengeId && (
-              <p className="text-xs text-[var(--pb-text-muted)] mt-4 text-center">
+            {!mfaChallengeId && !pwChange && (
+              <p className="text-xs text-fg-muted mt-4 text-center">
                 New here?{' '}
-                <Link href="/auth/register" className="text-[var(--pb-brand)] hover:underline">
+                <Link href="/auth/register" className="text-brand hover:underline">
                   Create account
                 </Link>
               </p>
@@ -752,7 +875,7 @@ const strengths = [
 
 function Strengths() {
   return (
-    <section className="py-12 px-6 bg-[var(--pb-surface-muted)]">
+    <section className="py-12 px-6 bg-surface-muted">
       <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
         {strengths.map((s, i) => (
           <motion.div
@@ -764,9 +887,9 @@ function Strengths() {
             viewport={{ once: true }}
             custom={i}
           >
-            <s.icon className="w-6 h-6 text-[var(--pb-brand)]" strokeWidth={1.5} />
-            <h3 className="font-semibold text-[var(--pb-text)]">{s.title}</h3>
-            <p className="text-sm text-[var(--pb-text-muted)] leading-relaxed">{s.text}</p>
+            <s.icon className="w-6 h-6 text-brand" strokeWidth={1.5} />
+            <h3 className="font-semibold text-fg">{s.title}</h3>
+            <p className="text-sm text-fg-muted leading-relaxed">{s.text}</p>
           </motion.div>
         ))}
       </div>
@@ -796,16 +919,16 @@ function AI() {
           viewport={{ once: true }}
           transition={{ duration: 0.4 }}
         >
-          <div className="text-[11px] uppercase tracking-wide text-[var(--pb-brand)] font-semibold mb-2">How it works</div>
+          <div className="text-2xs uppercase tracking-wide text-brand font-semibold mb-2">How it works</div>
           <h2 className="text-2xl font-bold mb-3">Paste a Git URL, get a pipeline</h2>
-          <p className="text-sm text-[var(--pb-text-muted)] mb-4 leading-relaxed">
+          <p className="text-sm text-fg-muted mb-4 leading-relaxed">
             AI reads your repo, picks the right plugins, and wires up build, test, and
             deploy stages. You review the plan and ship — no YAML to hand-write.
           </p>
           <div className="flex flex-wrap gap-2">
             {aiProviders.map((p) => (
-              <span key={p.name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-[var(--pb-surface)] border border-[var(--pb-border)]">
-                <p.icon className="w-3 h-3 text-[var(--pb-brand)]" strokeWidth={1.5} />
+              <span key={p.name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-surface border border-default">
+                <p.icon className="w-3 h-3 text-brand" strokeWidth={1.5} />
                 {p.name}
               </span>
             ))}
@@ -872,7 +995,7 @@ function Features() {
         >
           Everything you get
         </motion.h2>
-        <p className="text-sm text-[var(--pb-text-muted)] text-center mb-8">
+        <p className="text-sm text-fg-muted text-center mb-8">
           Generate, deploy, govern, and measure — in one self-service platform.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -887,13 +1010,13 @@ function Features() {
             >
               <Card className="h-full p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <g.icon className="w-5 h-5 text-[var(--pb-brand)]" strokeWidth={1.5} />
+                  <g.icon className="w-5 h-5 text-brand" strokeWidth={1.5} />
                   <h3 className="font-semibold">{g.title}</h3>
                 </div>
                 <ul className="space-y-2">
                   {g.items.map((item) => (
-                    <li key={item} className="flex items-start gap-1.5 text-sm text-[var(--pb-text-muted)]">
-                      <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[var(--pb-success)]" strokeWidth={2} />
+                    <li key={item} className="flex items-start gap-1.5 text-sm text-fg-muted">
+                      <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-success" strokeWidth={2} />
                       {item}
                     </li>
                   ))}
@@ -913,10 +1036,10 @@ function Features() {
 
 function CTA() {
   return (
-    <section className="py-16 px-6 bg-[var(--pb-surface-muted)]">
+    <section className="py-16 px-6 bg-surface-muted">
       <div className="max-w-md mx-auto text-center">
         <h2 className="text-2xl font-bold mb-3">Ship your first pipeline today</h2>
-        <p className="text-sm text-[var(--pb-text-muted)] mb-5">
+        <p className="text-sm text-fg-muted mb-5">
           Generate it from a repo or a prompt — deployed in your own AWS account, governed from day one.
         </p>
         <Link href="/auth/register" className="btn btn-primary px-6 py-2.5 text-sm">
@@ -933,9 +1056,9 @@ function CTA() {
 
 function Footer() {
   return (
-    <footer className="border-t border-[var(--pb-border)] py-6 px-6">
-      <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-[var(--pb-text-muted)]">
-        <span className="font-serif font-bold text-sm text-[var(--pb-text)]">Pipeline Builder</span>
+    <footer className="border-t border-default py-6 px-6">
+      <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-fg-muted">
+        <span className="font-serif font-bold text-sm text-fg">Pipeline Builder</span>
         <span>Apache 2.0</span>
       </div>
     </footer>
@@ -948,14 +1071,14 @@ function Footer() {
 
 function TerminalBlock({ title, code }: { title: string; code: string }) {
   return (
-    <div className="rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface)] overflow-hidden shadow-sm">
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--pb-border)] bg-[var(--pb-surface-muted)]">
+    <div className="rounded-lg border border-default bg-surface overflow-hidden shadow-sm">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-default bg-surface-muted">
         <span className="w-2 h-2 rounded-full bg-red-400/60" />
         <span className="w-2 h-2 rounded-full bg-yellow-400/60" />
         <span className="w-2 h-2 rounded-full bg-green-400/60" />
-        <span className="ml-2 text-[10px] text-[var(--pb-text-muted)]">{title}</span>
+        <span className="ml-2 text-2xs text-fg-muted">{title}</span>
       </div>
-      <pre className="p-3 text-[11px] leading-relaxed font-mono text-[var(--pb-text-muted)] overflow-x-auto">
+      <pre className="p-3 text-2xs leading-relaxed font-mono text-fg-muted overflow-x-auto">
         <code>{code}</code>
       </pre>
     </div>

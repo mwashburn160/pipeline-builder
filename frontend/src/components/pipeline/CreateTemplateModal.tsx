@@ -264,7 +264,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   return (
     <Modal title="Create template" onClose={onClose} maxWidth="max-w-lg" tall footer={footer} dirty={dirty}>
       <div className="space-y-4">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           Save a pipeline&apos;s configuration as a reusable golden-path starter. Teams instantiate it to spin up a governed pipeline in a few fields.
         </p>
 
@@ -288,7 +288,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         )}
 
         {sourceLoading && (
-          <p className="text-xs text-gray-400 flex items-center gap-1.5"><LoadingSpinner size="sm" /> Loading pipeline config…</p>
+          <p className="text-xs text-fg-subtle flex items-center gap-1.5"><LoadingSpinner size="sm" /> Loading pipeline config…</p>
         )}
 
         <div className="grid grid-cols-2 gap-4">
@@ -321,11 +321,11 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
               </Button>
             </div>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          <p className="text-xs text-fg-muted mb-2">
             Each input becomes a <code>{'{{ vars.<name> }}'}</code> value. Set <strong>Replaces</strong> to the current value in this pipeline the input should substitute (e.g. the repo URL) — “Parameterize repository” auto-detects it.
           </p>
           {inputs.length === 0 ? (
-            <p className="text-xs text-gray-400">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
+            <p className="text-xs text-fg-subtle">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
           ) : (
             <div className="space-y-2">
               {inputs.map((row, i) => (
@@ -338,7 +338,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
                       <option value="number">number</option>
                       <option value="boolean">boolean</option>
                     </Select>
-                    <Button type="button" variant="ghost" size="xs" onClick={() => removeInput(i)} aria-label="Remove input" disabled={saving} className="text-red-600 shrink-0">
+                    <Button type="button" variant="ghost" size="xs" onClick={() => removeInput(i)} aria-label="Remove input" disabled={saving} className="text-danger shrink-0">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -346,7 +346,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
                     <Input value={row.default} onChange={(e) => updateInput(i, { default: e.target.value })} placeholder="default (optional)" aria-label="Input default" disabled={saving} className="text-sm" />
                     <Input value={row.options} onChange={(e) => updateInput(i, { options: e.target.value })} placeholder="options: a,b,c (optional)" aria-label="Input options" disabled={saving} className="text-sm" />
                     <Input value={row.replaces} onChange={(e) => updateInput(i, { replaces: e.target.value })} placeholder="replaces value in config" aria-label="Value to replace" disabled={saving} className="text-sm" />
-                    <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap shrink-0">
+                    <label className="flex items-center gap-1 text-xs text-fg-muted whitespace-nowrap shrink-0">
                       <Checkbox checked={row.required} onChange={(e) => updateInput(i, { required: e.target.checked })} disabled={saving} className="h-4 w-4" /> req
                     </label>
                   </div>

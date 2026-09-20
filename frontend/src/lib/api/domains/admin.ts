@@ -200,6 +200,20 @@ export function adminApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Sysadmin DIRECT MFA reset — the single-person path for an org with no
+     * second admin to approve a two-person request. Removes every passkey, the
+     * authenticator app and the recovery codes, ends every session and grants an
+     * enrolment grace. Needs a session opened with a second factor, a step-up
+     * earned with one, and a reason (audited as a direct reset).
+     */
+    resetUserMfa: async (id: string, body: { reason: string; graceHours?: number }, stepUpToken: string) => {
+      return core.request<ApiResponse<{ reset: { userId: string; email: string; passkeysRemoved: number; totpRemoved: boolean; recoveryCodesRemoved: boolean; graceUntil: string } }>>(
+        `/api/admin/users/${id}/mfa-reset`,
+        { method: 'POST', body: JSON.stringify(body), headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
     /** Deletes the whole account (platform admins only); requires a fresh password check. */
     deleteUserById: async (id: string, stepUpToken: string) => {
       return core.request<ApiResponse<{ message: string }>>(`/api/users/${id}`, {

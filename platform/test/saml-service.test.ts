@@ -14,15 +14,41 @@
  *   - replay: the same assertion presented twice;
  *   - IdP-initiated (no InResponseTo) refused before any parsing;
  *   - certificate ROTATION OVERLAP: a trust list holding the new and the old
- *     certificate accepts assertions signed by either.
+ *     certificate accepts assertions signed by either;
+ *   - SIGNED AuthnRequests (per-org opt-in) and SP metadata publishing the SP
+ *     keys + both SLO bindings;
+ *   - ENCRYPTED assertions: decrypted when required, a plaintext one refused
+ *     when encryption is required, an encrypted one refused when it isn't;
+ *   - SINGLE LOGOUT: our signed LogoutRequest, the IdP's LogoutRequest on both
+ *     bindings (unsigned / wrong key / replay refused), its LogoutResponse;
+ *   - IdP METADATA import parsing;
+ *   - DRY-RUN isolation: a test AuthnRequest's assertion can't answer a
+ *     sign-in, and vice versa.
  *
  * The roadmap also asks for a live Keycloak run; that stays a manual exercise
  * (see the fixture module's header for why it isn't the CI gate).
  */
 
+import zlib from 'zlib';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { buildSamlResponse, generateIdpKeyPair, requestIdFromAuthorizeUrl, type IdpKeyPair } from './helpers/saml-fixture.js';
+import {
+  buildEncryptedSamlResponse,
+  buildPostLogoutRequest,
+  buildRedirectLogoutRequest,
+  buildRedirectLogoutResponse,
+  buildSamlResponse,
+  generateIdpKeyPair,
+  generateSpKeys,
+  requestIdFromAuthorizeUrl,
+  requestIdFromLogoutUrl,
+  type IdpKeyPair,
+} from './helpers/saml-fixture.js';
+
+const SP_KEYS = generateSpKeys();
+jest.unstable_mockModule('../src/services/saml-sp-keys.js', () => ({
+  getSamlSpKeys: async () => SP_KEYS,
+}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 
@@ -49,10 +75,15 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 const {
   __resetSamlCaches,
   buildSamlAuthorizeUrl,
+  buildSamlLogoutRequestUrl,
+  buildSamlLogoutResponseUrl,
   buildSamlMetadata,
   isSpInitiatedResponse,
+  parseIdpMetadata,
   samlAcsUrl,
+  samlSloUrl,
   samlSpEntityId,
+  validateSamlLogoutMessage,
   validateSamlResponse,
 } = await import('../src/services/saml-service.js');
 
@@ -60,6 +91,8 @@ const ORG = 'org-saml-1';
 const IDP_ENTITY = 'https://idp.test/saml/metadata';
 const SP_ENTITY = `https://pb.test/api/auth/sso/${ORG}/saml/metadata`;
 const ACS = `https://pb.test/api/auth/sso/${ORG}/saml/acs`;
+const SLO = `https://pb.test/api/auth/sso/${ORG}/saml/slo`;
+const IDP_SLO = 'https://idp.test/slo/saml';
 
 let keys: IdpKeyPair;
 
@@ -71,6 +104,8 @@ function cfg(overrides: Partial<Parameters<typeof validateSamlResponse>[0]> = {}
     certificates: [keys.certificate],
     attributes: {},
     allowedEmailDomains: [],
+    signAuthnRequests: false,
+    encryptAssertions: false,
     ...overrides,
   };
 }
@@ -118,13 +153,32 @@ describe('service-provider identity', () => {
     expect(samlAcsUrl(ORG)).toBe(ACS);
   });
 
-  it('publishes SP metadata naming the ACS with the HTTP-POST binding', () => {
-    const xml = buildSamlMetadata(ORG);
+  it('publishes SP metadata naming the ACS with the HTTP-POST binding', async () => {
+    const xml = await buildSamlMetadata(ORG, { signAuthnRequests: false, encryptAssertions: false });
     expect(xml).toContain(`entityID="${SP_ENTITY}"`);
     expect(xml).toContain(ACS);
     expect(xml).toContain('urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST');
-    // First release: no single logout anywhere, including in what we advertise.
-    expect(xml).not.toContain('SingleLogoutService');
+  });
+
+  it('publishes the SLO endpoint on both bindings and the signing certificate', async () => {
+    const xml = await buildSamlMetadata(ORG, { signAuthnRequests: false, encryptAssertions: false });
+    expect(samlSloUrl(ORG)).toBe(SLO);
+    expect(xml).toMatch(new RegExp(`SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="${SLO}"`));
+    expect(xml).toMatch(new RegExp(`SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="${SLO}"`));
+    expect(xml).toContain('use="signing"');
+    // AuthnRequestsSigned states the org's real choice, not "a key exists".
+    expect(xml).toContain('AuthnRequestsSigned="false"');
+    // No encryption key is offered to an org that hasn't asked for encryption —
+    // several IdPs start encrypting the moment one is published.
+    expect(xml).not.toContain('use="encryption"');
+  });
+
+  it('advertises signed requests and the encryption key when the org turns them on', async () => {
+    const xml = await buildSamlMetadata(ORG, { signAuthnRequests: true, encryptAssertions: true });
+    expect(xml).toContain('AuthnRequestsSigned="true"');
+    expect(xml).toContain('use="encryption"');
+    const encCert = SP_KEYS.encryption.certificate.replace(/-----(BEGIN|END) CERTIFICATE-----|\s+/g, '');
+    expect(xml.replace(/\s+/g, '')).toContain(encCert);
   });
 });
 
@@ -140,6 +194,25 @@ describe('SP-initiated authorize request', () => {
   it('refuses to build a request for an incomplete configuration', async () => {
     await expect(buildSamlAuthorizeUrl(cfg({ certificates: [] }), 's')).rejects.toThrow('SAML_INCOMPLETE_CONFIG');
   });
+
+  it('leaves the AuthnRequest unsigned by default', async () => {
+    const params = new URL(await buildSamlAuthorizeUrl(cfg(), 's')).searchParams;
+    expect(params.get('Signature')).toBeNull();
+    expect(params.get('SigAlg')).toBeNull();
+  });
+
+  it('signs the AuthnRequest with the SP signing key when the org opts in', async () => {
+    const url = new URL(await buildSamlAuthorizeUrl(cfg({ signAuthnRequests: true }), 'state-s'));
+    const sigAlg = url.searchParams.get('SigAlg');
+    const signature = url.searchParams.get('Signature');
+    expect(sigAlg).toBe('http://www.w3.org/2001/04/xmldsig-more#rsa-sha256');
+    expect(signature).toBeTruthy();
+    // Verify exactly as an IdP does: over the encoded SAMLRequest/RelayState/SigAlg octets.
+    const raw = url.search.slice(1).split('&').filter((p) => !p.startsWith('Signature=')).join('&');
+    const ok = (await import('crypto')).default.createVerify('RSA-SHA256').update(raw)
+      .verify(SP_KEYS.signing.certificate, signature!, 'base64');
+    expect(ok).toBe(true);
+  });
 });
 
 describe('validateSamlResponse — accepting a good assertion', () => {
@@ -151,6 +224,12 @@ describe('validateSamlResponse — accepting a good assertion', () => {
       email: 'ada@acme.test',
       name: 'Ada Lovelace',
       groups: ['Engineering', 'Admins'],
+      // The IdP's handle on the sign-in, kept for Single Logout.
+      session: {
+        nameID: 'ada@acme.test',
+        nameIDFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+        sessionIndex: expect.any(String),
+      },
     });
   });
 
@@ -290,5 +369,198 @@ describe('certificate rotation overlap', () => {
     const trustNewOnly = cfg({ certificates: [incoming.certificate] });
     await expect(validateSamlResponse(trustNewOnly, await solicited(), 's', 's'))
       .rejects.toThrow('SAML_INVALID_ASSERTION');
+  });
+});
+
+describe('encrypted assertions', () => {
+  it('decrypts an assertion encrypted to the SP key when the org requires encryption', async () => {
+    const response = await buildEncryptedSamlResponse(keys, {
+      issuer: IDP_ENTITY,
+      audience: SP_ENTITY,
+      destination: ACS,
+      nameId: 'ada@acme.test',
+      attributes: { email: 'ada@acme.test', groups: ['Engineering'] },
+      inResponseTo: await mintRequestId(),
+    }, SP_KEYS.encryption.certificate);
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's'))
+      .resolves.toMatchObject({ email: 'ada@acme.test', groups: ['Engineering'] });
+  });
+
+  it('refuses a PLAINTEXT assertion when the org requires encryption (no downgrade)', async () => {
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), await solicited(), 's', 's'))
+      .rejects.toThrow('SAML_ENCRYPTION_REQUIRED');
+  });
+
+  it('refuses an ENCRYPTED assertion when the org has not turned encryption on', async () => {
+    const response = await buildEncryptedSamlResponse(keys, {
+      issuer: IDP_ENTITY,
+      audience: SP_ENTITY,
+      destination: ACS,
+      nameId: 'ada@acme.test',
+      inResponseTo: await mintRequestId(),
+    }, SP_KEYS.encryption.certificate);
+    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_UNEXPECTED_ENCRYPTION');
+  });
+
+  it('refuses an assertion encrypted to some OTHER key', async () => {
+    const other = generateSpKeys();
+    const response = await buildEncryptedSamlResponse(keys, {
+      issuer: IDP_ENTITY,
+      audience: SP_ENTITY,
+      destination: ACS,
+      nameId: 'ada@acme.test',
+      inResponseTo: await mintRequestId(),
+    }, other.encryption.certificate);
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's'))
+      .rejects.toThrow('SAML_INVALID_ASSERTION');
+  });
+});
+
+describe('dry-run (test connection) isolation', () => {
+  it('accepts a test assertion only through the test path', async () => {
+    const testRequestId = requestIdFromAuthorizeUrl(await buildSamlAuthorizeUrl(cfg(), 'ssotest.x', { test: true }));
+    const response = goodResponse({ inResponseTo: testRequestId });
+    // The SIGN-IN path has never heard of this request id.
+    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    // A fresh assertion answering the same test request is accepted by the test path.
+    const again = goodResponse({ inResponseTo: testRequestId });
+    await expect(validateSamlResponse(cfg(), again, 's', 's', { test: true })).resolves.toMatchObject({ email: 'ada@acme.test' });
+  });
+
+  it('never lets a sign-in assertion satisfy the test path', async () => {
+    const response = await solicited();
+    await expect(validateSamlResponse(cfg(), response, 's', 's', { test: true })).rejects.toThrow('SAML_INVALID_ASSERTION');
+  });
+});
+
+describe('single logout — SP-initiated', () => {
+  const session = { nameID: 'ada@acme.test', nameIDFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', sessionIndex: '_sess-1' };
+
+  it('builds a SIGNED LogoutRequest to the IdP SLO url naming NameID + SessionIndex', async () => {
+    const url = new URL(await buildSamlLogoutRequestUrl(cfg({ sloUrl: IDP_SLO }), session, ''));
+    expect(`${url.origin}${url.pathname}`).toBe(IDP_SLO);
+    expect(url.searchParams.get('Signature')).toBeTruthy();
+    const xml = zlib.inflateRawSync(Buffer.from(url.searchParams.get('SAMLRequest')!, 'base64')).toString('utf8');
+    expect(xml).toContain('LogoutRequest');
+    expect(xml).toContain('ada@acme.test');
+    expect(xml).toContain('_sess-1');
+    expect(xml).toContain(`<saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">${SP_ENTITY}</saml:Issuer>`);
+  });
+
+  it('refuses without an IdP SLO url', async () => {
+    await expect(buildSamlLogoutRequestUrl(cfg(), session, '')).rejects.toThrow('SAML_SLO_NOT_CONFIGURED');
+  });
+
+  it('accepts the IdP\'s signed LogoutResponse answering our request — once', async () => {
+    const url = await buildSamlLogoutRequestUrl(cfg({ sloUrl: IDP_SLO }), session, '');
+    const inResponseTo = requestIdFromLogoutUrl(url);
+    const msg = buildRedirectLogoutResponse(keys, { issuer: IDP_ENTITY, destination: SLO, inResponseTo });
+    await expect(validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }))
+      .resolves.toEqual({ kind: 'response' });
+    // Consumed: the same response can't be replayed.
+    await expect(validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }))
+      .rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('refuses a LogoutResponse answering a request we never sent', async () => {
+    const msg = buildRedirectLogoutResponse(keys, { issuer: IDP_ENTITY, destination: SLO, inResponseTo: '_never' });
+    await expect(validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }))
+      .rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+});
+
+describe('single logout — IdP-initiated', () => {
+  const base = { issuer: IDP_ENTITY, destination: SLO, nameId: 'ada@acme.test', sessionIndex: '_sess-9' };
+
+  it('accepts a signed redirect-binding LogoutRequest and reports whose session', async () => {
+    const msg = buildRedirectLogoutRequest(keys, { ...base, relayState: 'rs-1' });
+    const out = await validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg });
+    expect(out).toMatchObject({ kind: 'request', session: { nameID: 'ada@acme.test', sessionIndex: '_sess-9' } });
+  });
+
+  it('REFUSES an unsigned redirect-binding LogoutRequest (node-saml alone would accept it)', async () => {
+    const msg = buildRedirectLogoutRequest(keys, { ...base, unsigned: true });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('refuses a LogoutRequest signed by a key the org does not trust', async () => {
+    const attacker = generateIdpKeyPair();
+    const msg = buildRedirectLogoutRequest(keys, { ...base, signWith: attacker.privateKey });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('refuses a LogoutRequest from another issuer', async () => {
+    const msg = buildRedirectLogoutRequest(keys, { ...base, issuer: 'https://evil.test/idp' });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('refuses a replayed LogoutRequest', async () => {
+    const msg = buildRedirectLogoutRequest(keys, { ...base, id: '_fixed-logout' });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).resolves.toMatchObject({ kind: 'request' });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('accepts a signed POST-binding LogoutRequest and refuses a forged one', async () => {
+    const good = buildPostLogoutRequest(keys, base);
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'post', body: { SAMLRequest: good } }))
+      .resolves.toMatchObject({ kind: 'request', session: { nameID: 'ada@acme.test' } });
+    const forged = buildPostLogoutRequest(keys, { ...base, signWith: generateIdpKeyPair().privateKey });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'post', body: { SAMLRequest: forged } }))
+      .rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('answers with a SIGNED LogoutResponse to the IdP SLO url', async () => {
+    const url = new URL(await buildSamlLogoutResponseUrl(cfg({ sloUrl: IDP_SLO }), '_req-77', true, 'rs-1'));
+    expect(`${url.origin}${url.pathname}`).toBe(IDP_SLO);
+    expect(url.searchParams.get('RelayState')).toBe('rs-1');
+    expect(url.searchParams.get('Signature')).toBeTruthy();
+    const xml = zlib.inflateRawSync(Buffer.from(url.searchParams.get('SAMLResponse')!, 'base64')).toString('utf8');
+    expect(xml).toContain('InResponseTo="_req-77"');
+    expect(xml).toContain('urn:oasis:names:tc:SAML:2.0:status:Success');
+  });
+});
+
+describe('IdP metadata import', () => {
+  const cert = 'MIIC' + 'A'.repeat(120);
+  const metadata = (over: { sso?: string; slo?: string; use?: string; extraIdp?: boolean } = {}) => `<?xml version="1.0"?>
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" entityID="https://idp.acme.test/entity">
+  <md:IDPSSODescriptor WantAuthnRequestsSigned="true" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:KeyDescriptor${over.use ? ` use="${over.use}"` : ' use="signing"'}><ds:KeyInfo><ds:X509Data><ds:X509Certificate>
+      ${cert}
+    </ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>
+    <md:KeyDescriptor use="encryption"><ds:KeyInfo><ds:X509Data><ds:X509Certificate>MIIENCRYPTIONONLY${'B'.repeat(80)}</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>
+    <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="${over.slo ?? 'https://idp.acme.test/slo'}"/>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://idp.acme.test/sso/post"/>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="${over.sso ?? 'https://idp.acme.test/sso/redirect'}"/>
+  </md:IDPSSODescriptor>
+</md:EntityDescriptor>`;
+
+  it('extracts entityID, the Redirect SSO/SLO endpoints and the SIGNING certificates only', async () => {
+    const parsed = await parseIdpMetadata(metadata());
+    expect(parsed).toEqual({
+      entityId: 'https://idp.acme.test/entity',
+      ssoUrl: 'https://idp.acme.test/sso/redirect',
+      sloUrl: 'https://idp.acme.test/slo',
+      certificates: [expect.stringContaining(cert.slice(0, 40))],
+      wantsSignedRequests: true,
+    });
+    expect(parsed.certificates[0]).toMatch(/^-----BEGIN CERTIFICATE-----\n/);
+    expect(parsed.certificates.join('')).not.toContain('ENCRYPTIONONLY');
+  });
+
+  it('treats a KeyDescriptor with no `use` as a signing key', async () => {
+    const parsed = await parseIdpMetadata(metadata({ use: '' }).replace(' use=""', ''));
+    expect(parsed.certificates).toHaveLength(1);
+  });
+
+  it('refuses a non-https SSO endpoint, a non-metadata document, and garbage', async () => {
+    await expect(parseIdpMetadata(metadata({ sso: 'http://idp.acme.test/sso' }))).rejects.toThrow('SAML_METADATA_INVALID');
+    await expect(parseIdpMetadata('<foo/>')).rejects.toThrow('SAML_METADATA_INVALID');
+    await expect(parseIdpMetadata('not xml <<<')).rejects.toThrow('SAML_METADATA_INVALID');
+  });
+
+  it('drops a non-https SLO endpoint rather than storing it', async () => {
+    const parsed = await parseIdpMetadata(metadata({ slo: 'http://idp.acme.test/slo' }));
+    expect(parsed.sloUrl).toBeUndefined();
   });
 });

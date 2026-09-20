@@ -7,7 +7,7 @@ import { MAX_VERSION_ROWS } from './constants';
 import type { PluginVersion } from './types';
 
 const VERSION_COLUMNS: Column<PluginVersion>[] = [
-  { id: 'name', header: 'Plugin', cellClassName: 'text-gray-900 dark:text-gray-100', render: (v) => v.name },
+  { id: 'name', header: 'Plugin', cellClassName: 'text-fg', render: (v) => v.name },
   { id: 'versions', header: 'Versions', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (v) => v.version_count },
   { id: 'latest', header: 'Latest', headerClassName: 'text-right', cellClassName: 'text-right font-mono text-xs', render: (v) => v.latest_version },
   {
@@ -40,12 +40,12 @@ export function PluginVersions({ loading, pluginVersions }: PluginVersionsProps)
   return (
     <>
       {stalePlugins.length > 0 && (
-        <Card className="border-amber-200/60 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-900/10">
+        <Card className="border-warning-border bg-warning-bg">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-sm font-medium text-amber-800 dark:text-amber-300">{stalePlugins.length} plugin{stalePlugins.length !== 1 ? 's' : ''} without a default version</h3>
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{stalePlugins.map(p => p.name).join(', ')}</p>
+              <h3 className="text-sm font-medium text-warning-strong">{stalePlugins.length} plugin{stalePlugins.length !== 1 ? 's' : ''} without a default version</h3>
+              <p className="text-xs text-warning mt-1">{stalePlugins.map(p => p.name).join(', ')}</p>
             </div>
           </div>
         </Card>

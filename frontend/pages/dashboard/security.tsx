@@ -50,12 +50,14 @@ import { RetryError } from '@/components/ui/RetryError';
 import { Select } from '@/components/ui/Select';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { SecretReveal } from '@/components/ui/SecretReveal';
+import { SecurityPostureStrip } from '@/components/security/SecurityPostureStrip';
 import { AccessKeysSection } from '@/components/settings/AccessKeysSection';
 import { PasskeySection } from '@/components/settings/PasskeySection';
 import { ServiceAccountsSection } from '@/components/settings/ServiceAccountsSection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
 import { TotpSection } from '@/components/settings/TotpSection';
-import { MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS } from '@/components/settings/token-scopes';
+import { MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS, readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
+import { TokenPermissionPicker, permissionsForRequest } from '@/components/settings/TokenPermissionPicker';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -100,9 +102,11 @@ export default function SecurityPage() {
     <DashboardLayout
       title="Security"
       subtitle="Sign-in factors, sessions, and the keys your machines use"
-      titleExtra={<ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+      titleExtra={<ShieldCheck className="w-5 h-5 text-brand" />}
     >
       <div className="space-y-6">
+        {/* Posture at a glance — each item links to the tab that changes it. */}
+        <SecurityPostureStrip user={user} />
         <TabBar items={[...tabs]} activeId={activeTab} onSelect={(id) => changeTab(id as SecurityTab)} />
         {/* Everything here is a write the backend's read-only guard rejects
             during impersonation, on every tab — including the org's service
@@ -126,7 +130,7 @@ export default function SecurityPage() {
 
         {activeTab === 'keys' && (
           <div className="space-y-6">
-            <MachineTokenSection readOnly={isReadOnly} />
+            <MachineTokenSection readOnly={isReadOnly} held={user?.permissions ?? []} />
             <Anchor id="token-history"><TokenHistorySection /></Anchor>
             <Anchor id="access-keys"><AccessKeysSection readOnly={isReadOnly} /></Anchor>
           </div>
@@ -236,25 +240,39 @@ const DEFAULT_TOKEN_DAYS = 30;
  *
  * It opens its own machine session rather than replacing this tab's, and shows
  * up under Sessions → Machine credentials, where renewal can be stopped. The
- * person picks its lifetime (1–365 days, the API's bounds) and, optionally, ONE
+ * person picks its lifetime (1–365 days, the API's bounds) and either ONE
  * capability scope — a scoped token carries none of their permissions, only
- * that capability, which is what an automation that does one thing should hold.
+ * that capability — or, without a scope, "Selected permissions" (the default,
+ * seeded read-only) versus "Full access". The subset is fixed for the session's
+ * life and re-intersected with the person's roles at every renewal.
  */
-function MachineTokenSection({ readOnly }: { readOnly: boolean }) {
+function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: readonly string[] }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<{ value: string; expiresIn: number; scope: string } | null>(null);
+  const [token, setToken] = useState<{ value: string; expiresIn: number; scope: string; permissions?: string[] } | null>(null);
   const [days, setDays] = useState<number>(DEFAULT_TOKEN_DAYS);
   const [scope, setScope] = useState('');
+  const [permMode, setPermMode] = useState<PermissionMode>('selected');
+  const [selectedPerms, setSelectedPerms] = useState<Set<string> | null>(null);
+  const selected = selectedPerms ?? new Set(readOnlyPreset(held));
+  const permissions = scope ? undefined : permissionsForRequest(permMode, selected);
 
   const generate = async () => {
+    if (permissions && permissions.length === 0) {
+      setError('Choose at least one permission, or full access');
+      return;
+    }
     setGenerating(true);
     setError(null);
     setToken(null);
     try {
-      const res = await api.generateNewToken({ expiresIn: days * 86400, ...(scope ? { scope } : {}) });
+      const res = await api.generateNewToken({
+        expiresIn: days * 86400,
+        ...(scope ? { scope } : {}),
+        ...(permissions ? { permissions } : {}),
+      });
       if (!res.success || !res.data?.accessToken) throw new Error('Failed to generate token');
-      setToken({ value: res.data.accessToken, expiresIn: res.data.expiresIn, scope });
+      setToken({ value: res.data.accessToken, expiresIn: res.data.expiresIn, scope, ...(permissions ? { permissions } : {}) });
       // A new issuance belongs in the history list below.
       window.dispatchEvent(new Event(TOKEN_ISSUED_EVENT));
     } catch (err) {
@@ -289,7 +307,7 @@ function MachineTokenSection({ readOnly }: { readOnly: boolean }) {
           className="min-w-[260px] flex-1"
           hint={scope
             ? 'Least privilege: the token can do only this, and carries none of your permissions.'
-            : 'The token acts with your full permissions in the active organization.'}
+            : 'The token acts with your permissions in the active organization — all of them, or the ones selected below.'}
         >
           <Select value={scope} onChange={(e) => setScope(e.target.value)} disabled={generating || readOnly}>
             <option value="">Your permissions (no scope)</option>
@@ -301,11 +319,29 @@ function MachineTokenSection({ readOnly }: { readOnly: boolean }) {
         </Button>
       </div>
 
+      {/* Without a capability scope the token carries permissions — pick which. */}
+      {!scope && (
+        <div className="mt-4">
+          <TokenPermissionPicker
+            mode={permMode}
+            onModeChange={setPermMode}
+            selected={selected}
+            onSelectedChange={setSelectedPerms}
+            held={held}
+            disabled={generating || readOnly}
+          />
+        </div>
+      )}
+
       {token && (
         <>
-          <p className="mt-4 text-sm text-[var(--pb-text-muted)]">
+          <p className="mt-4 text-sm text-fg-muted">
             Valid for {Math.round(token.expiresIn / 86400)} day{Math.round(token.expiresIn / 86400) === 1 ? '' : 's'}
-            {token.scope ? <> · scoped to <code className="text-xs">{token.scope}</code></> : ' · full permissions'}.
+            {token.scope
+              ? <> · scoped to <code className="text-xs">{token.scope}</code></>
+              : token.permissions
+                ? ` · ${token.permissions.length} selected permission${token.permissions.length === 1 ? '' : 's'}`
+                : ' · full permissions'}.
           </p>
           <SecretReveal
             value={token.value}
@@ -363,13 +399,13 @@ function TokenHistorySection() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-[var(--pb-text-muted)]">
+              <tr className="text-left text-xs uppercase tracking-wide text-fg-muted">
                 <th className="py-2 pr-4 font-medium">Issued</th>
                 <th className="py-2 pr-4 font-medium">Expires</th>
                 <th className="py-2 font-medium">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--pb-border)]">
+            <tbody className="divide-y divide-default">
               {data.map((t) => (
                 <tr key={t.id}>
                   <td className="py-2 pr-4">{formatDateTime(t.createdAt)}</td>
@@ -423,7 +459,7 @@ function CurrentTokenSection() {
   if (!token) {
     return (
       <SectionCard title="This session's access token">
-        <p className="text-sm text-[var(--pb-text-muted)]">No token available</p>
+        <p className="text-sm text-fg-muted">No token available</p>
       </SectionCard>
     );
   }
@@ -443,7 +479,7 @@ function CurrentTokenSection() {
         value: (
           <span className="font-mono text-xs leading-5">
             {formattedTime ? (
-              <span>{formattedTime}<span className="ml-2 text-[var(--pb-text-muted)]">({String(value)})</span></span>
+              <span>{formattedTime}<span className="ml-2 text-fg-muted">({String(value)})</span></span>
             ) : typeof value === 'object' ? (
               JSON.stringify(redactDetails(value))
             ) : (
@@ -481,7 +517,7 @@ function CurrentTokenSection() {
             <div>
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center text-xs font-semibold text-[var(--pb-text-muted)] uppercase tracking-wider hover:text-[var(--pb-text)] transition-colors"
+                className="flex items-center text-xs font-semibold text-fg-muted uppercase tracking-wider hover:text-fg transition-colors"
               >
                 <ChevronRight className={`w-3.5 h-3.5 mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`} />
                 Header
@@ -490,17 +526,17 @@ function CurrentTokenSection() {
             </div>
 
             <div>
-              <p className="text-xs font-semibold text-[var(--pb-text-muted)] uppercase tracking-wider mb-1">Payload</p>
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-1">Payload</p>
               <DescriptionList items={payloadItems} />
             </div>
           </div>
         ) : (
-          <p className="text-sm text-[var(--pb-danger)]">Failed to decode token</p>
+          <p className="text-sm text-danger">Failed to decode token</p>
         )}
       </SectionCard>
 
       <SectionCard title="Refresh token">
-        <p className="text-sm text-[var(--pb-text-muted)]">
+        <p className="text-sm text-fg-muted">
           Your refresh token is stored in an HttpOnly cookie scoped to the refresh endpoint,
           so no script — including this page — can read it. That is what keeps a stolen script
           from walking off with a 30-day credential. The browser presents it automatically when

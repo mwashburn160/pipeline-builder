@@ -9,6 +9,7 @@ import { deleteUserCascade } from './user-cascade.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -98,7 +99,7 @@ class UserProfileService {
       // it to /api/user/profile so the frontend can gate sysadmin-only
       // sidebar entries. Without it in the projection, the API always
       // returned isSuperAdmin: false regardless of mongo state.
-      .select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion')
+      .select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion mfaResetGraceUntil')
       .lean();
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
 
@@ -260,6 +261,9 @@ class UserProfileService {
     if (!user || !user.password) throw new Error(PROFILE_USER_NOT_FOUND);
 
     if (!await user.comparePassword(currentPassword)) throw new Error(PROFILE_INVALID_CREDENTIALS);
+    // Org password policy (strictest across the person's orgs) + the
+    // breached-password check — throws a 400-shaped PasswordPolicyServiceError.
+    await assertNewPasswordAcceptable(newPassword, { userId });
 
     user.password = newPassword;
     user.tokenVersion += 1;
@@ -362,6 +366,8 @@ class UserProfileService {
       userAgent: slot.userAgent ?? null,
       lastIp: slot.lastIp ?? null,
       scope: slot.scope ?? null,
+      // A permission-scoped machine token's subset (null = full permissions).
+      permissions: Array.isArray(slot.permissions) ? [...slot.permissions] : null,
       amr: slot.amr ?? [],
     };
   }

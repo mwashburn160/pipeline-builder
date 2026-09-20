@@ -7,7 +7,12 @@
  * Covers what the editor is actually responsible for, as opposed to what the
  * server re-checks anyway:
  *   - showing the service-provider values an administrator needs BEFORE the
- *     connection exists (otherwise configuring the IdP is a deadlock);
+ *     connection exists (otherwise configuring the IdP is a deadlock) — from the
+ *     SERVER's sp-info, never the browser's origin, each with a copy button;
+ *   - importing IdP metadata to pre-fill the form (nothing saved until Save);
+ *   - the SLO URL and the sign-requests / encrypted-assertions switches;
+ *   - wizard mode: no protocol selector, SAML selected, a new connection
+ *     created DISABLED;
  *   - the protocol selector, and that saving here never sends the OIDC fields —
  *     the two editors share one config and must not wipe each other;
  *   - CREATE with PUT when no connection exists, otherwise PATCH only what
@@ -23,14 +28,28 @@ import type { OrgIdpConfigDto } from '../src/types';
 
 const putOwnOrgIdpConfig = jest.fn();
 const patchOwnOrgIdpConfig = jest.fn();
+const getOwnOrgIdpSpInfo = jest.fn();
+const importIdpMetadata = jest.fn();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     putOwnOrgIdpConfig: (...a: unknown[]) => putOwnOrgIdpConfig(...a),
     patchOwnOrgIdpConfig: (...a: unknown[]) => patchOwnOrgIdpConfig(...a),
+    getOwnOrgIdpSpInfo: (...a: unknown[]) => getOwnOrgIdpSpInfo(...a),
+    importIdpMetadata: (...a: unknown[]) => importIdpMetadata(...a),
   },
 }));
+
+const SP = {
+  entityId: 'https://pb.public/api/auth/sso/org-1/saml/metadata',
+  acsUrl: 'https://pb.public/api/auth/sso/org-1/saml/acs',
+  metadataUrl: 'https://pb.public/api/auth/sso/org-1/saml/metadata',
+  sloUrl: 'https://pb.public/api/auth/sso/org-1/saml/slo',
+  oidcRedirectUri: 'https://pb.public/auth/sso/org-1/callback',
+  signingCertificate: 'SIGNING-CERT',
+  encryptionCertificate: 'ENCRYPTION-CERT',
+};
 
 // The step-up dialog is exercised in its own suite; here it confirms with a
 // fixed token (and renders what it was given, so the consequences are visible).
@@ -58,13 +77,11 @@ const samlConfig: OrgIdpConfigDto = {
   samlSsoUrl: 'https://idp.example.com/sso/saml',
   samlCertificates: [CERT_A],
   samlAttributes: { email: 'email', groups: 'groups' },
-  samlSp: {
-    entityId: 'https://pb.test/api/auth/sso/org-1/saml/metadata',
-    acsUrl: 'https://pb.test/api/auth/sso/org-1/saml/acs',
-    metadataUrl: 'https://pb.test/api/auth/sso/org-1/saml/metadata',
-  },
+  samlSignAuthnRequests: false,
+  samlEncryptAssertions: false,
   allowedEmailDomains: [],
   enabled: true,
+  ssoRequired: false,
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
@@ -72,17 +89,73 @@ beforeEach(() => {
   jest.clearAllMocks();
   putOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: samlConfig } });
   patchOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: samlConfig } });
+  getOwnOrgIdpSpInfo.mockResolvedValue({ success: true, data: { sp: SP } });
 });
 
 const noop = () => undefined;
 
 describe('OrgSamlSettings', () => {
-  it('shows the service-provider values before any config exists', () => {
+  it('shows the SERVER\'s service-provider values, with copy buttons, before any config exists', async () => {
     render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={noop} />);
-    // Derived from the page origin when the server has nothing stored yet — an
-    // admin needs these to create the application at the IdP in the first place.
-    expect(screen.getByText(/\/api\/auth\/sso\/org-1\/saml\/acs/)).toBeInTheDocument();
-    expect(screen.getAllByText(/\/api\/auth\/sso\/org-1\/saml\/metadata/).length).toBeGreaterThan(0);
+    // From sp-info (the deployment's public URL) — never window.location, which
+    // differs whenever the dashboard is reached through another hostname.
+    expect(await screen.findByText(SP.acsUrl)).toBeInTheDocument();
+    expect(screen.getByText(SP.sloUrl)).toBeInTheDocument();
+    expect(screen.getAllByText(SP.metadataUrl).length).toBe(2); // entity ID + metadata URL
+    expect(getOwnOrgIdpSpInfo).toHaveBeenCalledWith('org-1', expect.anything());
+    // Every value copyable — the metadata URL included.
+    expect(screen.getAllByRole('button', { name: /copy to clipboard/i }).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('pre-fills the form from imported IdP metadata, saving nothing until Save', async () => {
+    importIdpMetadata.mockResolvedValue({
+      success: true,
+      data: { metadata: { entityId: 'https://idp.new/entity', ssoUrl: 'https://idp.new/sso', sloUrl: 'https://idp.new/slo', certificates: [CERT_B], wantsSignedRequests: true } },
+    });
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    fireEvent.change(screen.getByLabelText('Metadata URL'), { target: { value: 'https://idp.new/metadata' } });
+    fireEvent.click(screen.getByRole('button', { name: /Import metadata/i }));
+
+    await waitFor(() => expect(screen.getByLabelText(/Identity provider entity ID/i)).toHaveValue('https://idp.new/entity'));
+    expect(importIdpMetadata).toHaveBeenCalledWith('org-1', { url: 'https://idp.new/metadata' });
+    expect(screen.getByLabelText(/Identity provider SSO URL/i)).toHaveValue('https://idp.new/sso');
+    expect(screen.getByLabelText(/single-logout URL/i)).toHaveValue('https://idp.new/slo');
+    expect(screen.getByRole('checkbox', { name: /Sign AuthnRequests/i })).toBeChecked();
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalled());
+    const [, patch] = patchOwnOrgIdpConfig.mock.calls[0] as [string, Record<string, unknown>];
+    expect(patch).toMatchObject({
+      samlEntityId: 'https://idp.new/entity',
+      samlSsoUrl: 'https://idp.new/sso',
+      samlSloUrl: 'https://idp.new/slo',
+      samlCertificates: [CERT_B],
+      samlSignAuthnRequests: true,
+    });
+  });
+
+  it('sends the encrypted-assertions switch', async () => {
+    render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /encrypts assertions/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalled());
+    expect(patchOwnOrgIdpConfig.mock.calls[0][1]).toEqual({ samlEncryptAssertions: true });
+  });
+
+  it('in the wizard: no protocol selector, SAML selected, a new connection created DISABLED', async () => {
+    render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={noop} wizard={{ presetAttributes: { email: 'mail' }, submitLabel: 'Save and continue' }} />);
+    expect(screen.queryByLabelText(/^Protocol$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Email attribute/i)).toHaveValue('mail');
+    fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: 'https://idp.example.com/saml/metadata' } });
+    fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), { target: { value: 'https://idp.example.com/sso/saml' } });
+    fireEvent.change(screen.getByLabelText(/Signing certificate/i), { target: { value: CERT_A } });
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(putOwnOrgIdpConfig).toHaveBeenCalled());
+    expect(putOwnOrgIdpConfig.mock.calls[0][1]).toMatchObject({ protocol: 'saml', enabled: false });
   });
 
   it('says the SAML fields are unused while the org is on OIDC', () => {
@@ -183,9 +256,12 @@ describe('OrgSamlSettings', () => {
     expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
-  it('states that single logout is not supported', () => {
+  it('refuses a non-https single-logout URL', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
-    expect(screen.getByText(/Single logout is not supported/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/single-logout URL/i), { target: { value: 'http://idp.example.com/slo' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
+    expect(await screen.findByText(/^The single-logout URL must use https$/i)).toBeInTheDocument();
+    expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
   it('disables every control for a read-only (impersonated) session', () => {

@@ -266,14 +266,14 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         {/* Transcript */}
         <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
           {messages.length === 0 && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3">
+            <div className="text-sm text-fg-muted space-y-3">
               <p>Ask how to use the platform — deployments, pipelines, plugins, billing, and more.</p>
               <div className="space-y-2">
                 {EXAMPLES.map((ex) => (
                   <button
                     key={ex}
                     onClick={() => send(ex)}
-                    className="block w-full text-left px-3 py-2 rounded-lg border border-[var(--pb-border)] hover:border-[var(--pb-brand)] hover:text-[var(--pb-brand)] transition-colors"
+                    className="block w-full text-left px-3 py-2 rounded-lg border border-default hover:border-brand hover:text-brand transition-colors"
                   >
                     {ex}
                   </button>
@@ -298,7 +298,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                 </div>
                 {m.sources && m.sources.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1">
-                    <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Sources</p>
+                    <p className="text-2xs uppercase tracking-wide text-fg-muted">Sources</p>
                     {m.sources.map((s) => (
                       <div key={s.id} className="text-xs text-gray-600 dark:text-gray-300">
                         {s.title ?? s.id}
@@ -312,16 +312,16 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   const Icon = meta.icon;
                   const ready = proposalReady(m.proposal);
                   return (
-                    <div className="mt-2 rounded-xl border border-[var(--pb-border)] p-3 bg-[var(--pb-surface)]">
+                    <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
                       <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
                         <Icon className="w-4 h-4" style={{ color: 'var(--pb-brand)' }} /> {meta.label}
                       </div>
                       {m.proposal.description && (
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{m.proposal.description}</p>
+                        <p className="mt-1 text-xs text-fg-muted">{m.proposal.description}</p>
                       )}
                       {/* Full drafted spec — review before creating (nothing is committed sight-unseen). */}
                       <details className="mt-2 text-xs">
-                        <summary className="cursor-pointer select-none text-gray-500 dark:text-gray-400 hover:text-[var(--pb-brand)]">
+                        <summary className="cursor-pointer select-none text-fg-muted hover:text-brand">
                           Review full spec
                         </summary>
                         <div className="mt-2">
@@ -331,7 +331,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                       {m.proposalStatus === 'created' ? (
                         <div className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                           <Check className="w-3.5 h-3.5" />{' '}
-                          <Link href={meta.href} onClick={onClose} className="underline hover:text-[var(--pb-brand)]">{meta.createdText}</Link>
+                          <Link href={meta.href} onClick={onClose} className="underline hover:text-brand">{meta.createdText}</Link>
                         </div>
                       ) : (
                         <div className="mt-2 flex items-center gap-2">
@@ -345,7 +345,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                               ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
                               : meta.createLabel}
                           </button>
-                          <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                          <span className="text-2xs text-fg-muted">
                             {ready ? 'Review before creating' : 'Draft incomplete'}
                           </span>
                         </div>
@@ -370,7 +370,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
 
         {/* Composer */}
         <form
-          className="mt-3 pt-3 border-t border-[var(--pb-border)]"
+          className="mt-3 pt-3 border-t border-default"
           onSubmit={(e) => { e.preventDefault(); send(input); }}
         >
           <div className="flex items-end gap-2">
@@ -384,7 +384,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               rows={2}
               placeholder="Ask a question…"
               disabled={busy}
-              className="flex-1 resize-none rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--pb-brand)] disabled:opacity-60"
+              className="flex-1 resize-none rounded-lg border border-default bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-60"
             />
             <button
               type="submit"
@@ -396,9 +396,9 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
             <span>Read-only · nothing is changed</span>
-            <Link href="/dashboard/help" onClick={onClose} className="inline-flex items-center gap-1 hover:text-[var(--pb-brand)]">
+            <Link href="/dashboard/help" onClick={onClose} className="inline-flex items-center gap-1 hover:text-brand">
               <BookOpen className="w-3.5 h-3.5" /> Browse all help
             </Link>
           </div>

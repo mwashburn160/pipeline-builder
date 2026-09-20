@@ -250,4 +250,71 @@ suite('access keys (real Mongo)', () => {
     expect((await apiKeyService.exchange(a.key)).ok).toBe(false);
     expect((await apiKeyService.exchange(b.key)).ok).toBe(false);
   });
+
+  // -- Catalog-scoped keys ("Selected permissions") ---------------------------
+
+  describe('permission-scoped keys', () => {
+    let roleId: unknown;
+
+    beforeEach(async () => {
+      for (const model of [m.Role, m.RoleAssignment]) await model.deleteMany({});
+      const role = await m.Role.create({
+        organizationId: new mongoose.Types.ObjectId(orgId),
+        name: 'Builders',
+        permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'],
+      });
+      roleId = role._id;
+      await m.RoleAssignment.create({
+        userId: new mongoose.Types.ObjectId(userId), roleId, organizationId: new mongoose.Types.ObjectId(orgId),
+      });
+    });
+
+    it('stores the subset, lists it, and exchanges for subset ∩ current permissions', async () => {
+      const { key, view } = await createKey({ permissions: ['pipelines:read', 'billing:read'] });
+      expect(view.permissions).toEqual(['pipelines:read', 'billing:read']);
+      expect((await apiKeyService.list(userId))[0].permissions).toEqual(['pipelines:read', 'billing:read']);
+
+      const claims = token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken);
+      // billing:read is in the subset but no Role grants it — it never appears.
+      expect(claims.permissions).toEqual(['pipelines:read']);
+      expect(claims.permissionsRestricted).toBe(true);
+      // The admin role label would bypass the subset through isAdmin gates.
+      expect(claims.role).toBe('member');
+    });
+
+    it('a lost Role shrinks the key at its next exchange; a new Role never grows it', async () => {
+      const { key } = await createKey({ permissions: ['pipelines:read', 'plugins:read'] });
+      expect(token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken).permissions)
+        .toEqual(['pipelines:read', 'plugins:read']);
+
+      await m.Role.updateOne({ _id: roleId }, { $set: { permissions: ['plugins:read', 'org:settings', 'billing:manage'] } });
+      expect(token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken).permissions)
+        .toEqual(['plugins:read']);
+    });
+
+    it('an unscoped key still carries the owner\'s full current permissions', async () => {
+      const { key, view } = await createKey();
+      expect(view.permissions).toBeNull();
+      const claims = token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken);
+      expect(claims.permissions).toEqual(['pipelines:read', 'pipelines:write', 'plugins:read']);
+      expect(claims.permissionsRestricted).toBeUndefined();
+    });
+
+    it('a machine session keeps its subset across renewals and refuses a different one', async () => {
+      const user = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
+      const issued = await token.issueTokens(user, orgId, { kind: 'machine', auth: AUTH, permissions: ['plugins:read'] });
+      const sid = token.verifyAccessToken(issued.accessToken).sid;
+      expect(token.verifyAccessToken(issued.accessToken).permissions).toEqual(['plugins:read']);
+
+      const renewed = await token.renewSessionTokens(user, orgId, { sessionId: sid, kind: 'machine' });
+      expect(token.verifyAccessToken(renewed.accessToken).permissions).toEqual(['plugins:read']);
+
+      const { TOKEN_SCOPE_ESCALATION } = await import('../src/services/auth-errors.js');
+      await expect(token.renewSessionTokens(user, orgId, { sessionId: sid, kind: 'machine' }, { permissions: ['pipelines:write'] }))
+        .rejects.toThrow(TOKEN_SCOPE_ESCALATION);
+      // Asking for full access on a narrowed slot is a widening, too.
+      await expect(token.renewSessionTokens(user, orgId, { sessionId: sid, kind: 'machine' }, { permissions: ['pipelines:read', 'plugins:read'] }))
+        .rejects.toThrow(TOKEN_SCOPE_ESCALATION);
+    });
+  });
 });

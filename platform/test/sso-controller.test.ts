@@ -6,10 +6,11 @@
  *   - state/nonce lifecycle: getSsoAuthUrl mints a one-time state bound to the
  *     org + nonce; handleSsoCallback consumes it once; a replay is rejected.
  *   - callback org binding: a state minted for org A can't be replayed on org B.
- *   - discover: returns ONLY `{ sso: boolean }` — never the internal orgId /
+ *   - discover: returns ONLY `{ sso, required }` — never the internal orgId /
  *     provider (the enumeration-oracle fix, C2), and never `true` for a
- *     bootstrap admin, whose password path must stay open.
- *   - startSsoLogin: the login page's by-EMAIL initiate — resolves the enforcing
+ *     bootstrap admin, whose password path must stay open. `required` is the
+ *     DOMAIN's "SSO required" policy (the owner exemption is never revealed).
+ *   - startSsoLogin: the login page's by-EMAIL initiate — resolves the covering
  *     org server-side so the same `{ url, state }` comes back without discover
  *     ever having to name a tenant.
  *
@@ -22,7 +23,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetEnforcedIdpProtocol = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'oidc');
-const mockFindSsoEnforcementForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockFindSsoCoverageForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIsBootstrapSuperAdmin = jest.fn<(...a: unknown[]) => boolean>(() => false);
 const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
@@ -63,7 +64,7 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   // path, so the dispatch always answers `oidc`.
   getEnforcedIdpProtocol: (...a: unknown[]) => mockGetEnforcedIdpProtocol(...a),
   getEnforcedSamlConfig: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
-  findSsoEnforcementForEmail: (...a: unknown[]) => mockFindSsoEnforcementForEmail(...a),
+  findSsoCoverageForEmail: (...a: unknown[]) => mockFindSsoCoverageForEmail(...a),
   assertSsoIdentityTrusted: (...a: unknown[]) => mockAssertSsoIdentityTrusted(...a),
   rejectIfSsoEnforced: async () => false,
 }));
@@ -127,6 +128,12 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
         return res.status(500).json({ success: false, message: e?.message });
       }
     },
+}));
+
+// The SAML leg is its own module (controllers/saml.ts, tested separately); this
+// suite drives the OIDC path, so a SAML dispatch never happens here.
+jest.unstable_mockModule('../src/controllers/saml.js', () => ({
+  beginSamlLogin: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
 }));
 
 const { getSsoAuthUrl, handleSsoCallback, discoverSso, startSsoLogin } = await import('../src/controllers/sso.js');
@@ -314,21 +321,28 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
 });
 
 describe('discoverSso (enumeration-oracle fix, C2)', () => {
-  it('returns { sso: true } WITHOUT leaking orgId/provider when enforced', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta' });
+  it('returns { sso, required } WITHOUT leaking orgId/provider when SSO is required', async () => {
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta', protocol: 'oidc', required: true });
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@corp.com' } }, res);
     const body = (res.json as jest.Mock).mock.calls[0][0];
-    expect(body).toEqual({ sso: true });
+    expect(body).toEqual({ sso: true, required: true });
     expect(JSON.stringify(body)).not.toContain('secret-org');
     expect(JSON.stringify(body)).not.toContain('okta');
   });
 
-  it('returns { sso: false } when no org enforces the domain', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue(null);
+  it('reports SSO as available-but-optional when the org does not require it', async () => {
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'o', provider: 'okta', protocol: 'oidc', required: false });
+    const res = makeRes();
+    await (discoverSso as any)({ body: { email: 'a@corp.com' } }, res);
+    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: true, required: false });
+  });
+
+  it('returns { sso: false } when no org serves the domain', async () => {
+    mockFindSsoCoverageForEmail.mockResolvedValue(null);
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@personal.com' } }, res);
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false });
+    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false, required: false });
   });
 
   it('never hides the password field from a bootstrap admin (SSO refuses them)', async () => {
@@ -336,16 +350,16 @@ describe('discoverSso (enumeration-oracle fix, C2)', () => {
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'admin@corp.com' } }, res);
 
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false });
+    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false, required: false });
     // Not even looked up: both sign-in paths closing would leave no way in.
-    expect(mockFindSsoEnforcementForEmail).not.toHaveBeenCalled();
+    expect(mockFindSsoCoverageForEmail).not.toHaveBeenCalled();
     mockIsBootstrapSuperAdmin.mockReturnValue(false);
   });
 });
 
 describe('startSsoLogin (the login page starts by EMAIL)', () => {
   it('resolves the org server-side and returns the IdP redirect, naming no org', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta', protocol: 'oidc' });
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta', protocol: 'oidc' });
     mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'okta' });
     mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
     const res = makeRes();
@@ -359,7 +373,7 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
   });
 
   it('mints a state the callback accepts for that org', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
     mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'okta' });
     mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
     const startRes = makeRes();
@@ -374,8 +388,17 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('starts SSO for a domain whose org OFFERS it without requiring it', async () => {
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc', required: false });
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'okta' });
+    mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
+    const res = makeRes();
+    await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
+    expect((res.json as jest.Mock).mock.calls[0][0].url).toBe('https://idp.test/authorize');
+  });
+
   it('refuses a domain no org federates, rather than becoming a second oracle', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue(null);
+    mockFindSsoCoverageForEmail.mockResolvedValue(null);
     const res = makeRes();
 
     await (startSsoLogin as any)({ body: { email: 'a@personal.com' } }, res);
@@ -385,7 +408,7 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
   });
 
   it('surfaces a disabled/unentitled config as its typed OIDC status', async () => {
-    mockFindSsoEnforcementForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
+    mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'org-1', provider: 'okta', protocol: 'oidc' });
     mockGetEnforcedIdpProtocol.mockRejectedValueOnce(new Error('OIDC_DISABLED'));
     const res = makeRes();
 

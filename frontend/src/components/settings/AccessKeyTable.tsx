@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { AccessKeyMeta } from '@/lib/api/domains/auth';
+import { describeCredentialAuthority } from '@/components/settings/token-scopes';
 
 /** A key row with the service account that owns it (absent for a personal key). */
 export interface KeyRow extends AccessKeyMeta {
@@ -69,27 +70,37 @@ export function AccessKeyTable({
           <span>
             {k.name}
             {showOwner && k.kind === 'service_account' && (
-              <span className="ml-1 text-xs text-gray-400">
+              <span className="ml-1 text-xs text-fg-subtle">
                 (service account{k.serviceAccountName ? `: ${k.serviceAccountName}` : ''})
               </span>
             )}
           </span>
-          <span className="font-mono text-xs text-gray-400">{k.display}</span>
+          <span className="font-mono text-xs text-fg-subtle">{k.display}</span>
         </div>
       ),
     },
     {
       id: 'scope',
-      header: 'Scope',
+      header: 'Access',
       render: (k) => (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 max-w-xs">
           {k.scope
             ? <span className="font-mono text-xs">{k.scope}</span>
-            : <span className="text-xs text-gray-400">full account access</span>}
+            : k.kind === 'service_account'
+              // A service account's authority is its Roles, shown on its own card.
+              ? <span className="text-xs text-fg-subtle">the account&apos;s roles</span>
+              : k.permissions
+                ? (
+                  <span className="text-xs" title={describeCredentialAuthority(k)}>
+                    <Badge color="blue">{k.permissions.length} selected</Badge>{' '}
+                    <span className="text-fg-muted">{describeCredentialAuthority(k)}</span>
+                  </span>
+                )
+                : <span className="text-xs text-fg-subtle">full access (your current permissions)</span>}
           {/* An IP allowlist narrows a key as much as a scope does; it was only
               ever shown on the service-accounts page. */}
           {k.ipAllowlist && k.ipAllowlist.length > 0 && (
-            <span className="text-xs text-gray-400">IPs: {k.ipAllowlist.join(', ')}</span>
+            <span className="text-xs text-fg-subtle">IPs: {k.ipAllowlist.join(', ')}</span>
           )}
         </div>
       ),
@@ -120,7 +131,7 @@ export function AccessKeyTable({
       render: (k) => (
         <div className="flex flex-col gap-0.5">
           <RelativeTime value={k.createdAt} />
-          {k.createdFrom && <span className="text-xs text-gray-400">{k.createdFrom}</span>}
+          {k.createdFrom && <span className="text-xs text-fg-subtle">{k.createdFrom}</span>}
         </div>
       ),
     },
@@ -128,7 +139,7 @@ export function AccessKeyTable({
     {
       id: 'lastUsed',
       header: 'Last used',
-      render: (k) => (k.lastUsedAt ? <RelativeTime value={k.lastUsedAt} /> : <span className="text-gray-400">never</span>),
+      render: (k) => (k.lastUsedAt ? <RelativeTime value={k.lastUsedAt} /> : <span className="text-fg-subtle">never</span>),
     },
     {
       id: 'actions',
@@ -141,7 +152,7 @@ export function AccessKeyTable({
           onClick={() => onRevoke(k)}
           readOnly={readOnly}
           disabled={disabled || revokingId === k.id}
-          className="gap-1 text-red-600 hover:text-red-700"
+          className="gap-1 text-danger hover:text-danger-strong"
         >
           <Trash2 className="w-3.5 h-3.5" /> Revoke
         </Button>

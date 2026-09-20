@@ -9,6 +9,7 @@ import { deleteUserCascade } from './user-cascade.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
@@ -187,6 +188,10 @@ class UserAdminService {
     // created org-less. Fail fast before any DB work. (The zod schema enforces
     // the same rule; this guards direct service callers.)
     if (input.roleIds?.length && !input.organizationId) throw new Error(UA_ROLES_NEED_ORG);
+    // The org it joins may set a stricter minimum; and no breached password.
+    await assertNewPasswordAcceptable(input.password, {
+      ...(input.organizationId ? { extraOrgIds: [input.organizationId] } : {}),
+    });
 
     // User + (optional) membership + role assignments are written together so a
     // failed insert (e.g. bad org/role) can't leave an orphaned user behind.
@@ -296,6 +301,16 @@ class UserAdminService {
     },
   ) {
     const changes: string[] = [];
+    // An admin RESET is a password being set: the person's org policy
+    // (strictest across their orgs, plus a target org being assigned) and the
+    // breached-password check apply — checked BEFORE the transaction, so the
+    // breach lookup's network round-trip never holds one open.
+    if (typeof body.password === 'string') {
+      await assertNewPasswordAcceptable(body.password, {
+        userId: id,
+        ...(body.organizationId ? { extraOrgIds: [body.organizationId] } : {}),
+      });
+    }
 
     // The reads + writes below interleave across User + UserOrganization +
     // Organization, so run them in a single transaction: a partial apply (e.g.

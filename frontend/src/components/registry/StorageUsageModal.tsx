@@ -66,7 +66,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           Rolls up total unique blob bytes under a single repo namespace prefix
           (e.g. <code className="font-mono">org-acme/</code>) so you can see which
           namespaces are heavy before running GC. The trailing slash is added
@@ -109,15 +109,15 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
                 <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{formatBytes(storageResult.bytes)}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">total</div>
+                <div className="text-xs text-fg-muted">total</div>
               </div>
               <div>
                 <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.repos)}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">repos</div>
+                <div className="text-xs text-fg-muted">repos</div>
               </div>
               <div>
                 <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.blobs)}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">unique blobs</div>
+                <div className="text-xs text-fg-muted">unique blobs</div>
               </div>
             </div>
             {storageResult.incomplete && (
@@ -125,7 +125,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
                 Scan was incomplete — a repo, manifest, or blob could not be read, so this total UNDER-counts actual usage.
               </div>
             )}
-            <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+            <div className="mt-3 text-xs text-fg-subtle">
               Computed {formatDateTime(storageResult.computedAt)}
             </div>
           </div>

@@ -11,8 +11,8 @@
  *
  * The OIDC enforcement runtime that reads this collection IS shipped:
  * `services/oidc-service.ts` (discovery + JWKS-validated id_token),
- * `helpers/sso-enforcement.ts` (entitlement + `allowedEmailDomains` domain
- * gating), `controllers/sso.ts` + `routes/sso.ts` (the `/auth/sso/*` login
+ * `helpers/sso-enforcement.ts` (entitlement, verified-domain coverage and the
+ * "SSO required" policy), `controllers/sso.ts` + `routes/sso.ts` (the `/auth/sso/*` login
  * flow). Config is managed from two surfaces: the superadmin fleet routes
  * (`/admin/org-idp`) and org-admin self-service (`controllers/org-idp-self.ts`,
  * gated on `org:settings`). Users are account-linked by verified email
@@ -78,6 +78,17 @@ export interface SamlAttributeMapping {
   groups?: string;
 }
 
+/** The outcome of the last test connection, as persisted on the config. */
+export interface IdpTestRecord {
+  at: Date;
+  ok: boolean;
+  protocol: IdpProtocol;
+  /** Stable failure code when `ok` is false. */
+  reason?: string;
+  /** Who ran it. */
+  actorId: string;
+}
+
 export interface OrgIdpConfigDocument extends Document {
   /** Org this config applies to. One config per org max  enforced by unique index. */
   orgId: string;
@@ -93,8 +104,8 @@ export interface OrgIdpConfigDocument extends Document {
   /** OIDC client id  public, never encrypted. Unused for SAML. */
   clientId?: string;
   /** JSON-stringified EncryptedBlob. NEVER returned plaintext via CRUD.
-   *  Unused for SAML — SP-initiated SAML with unsigned AuthnRequests needs no
-   *  client credential; the trust is the IdP's signing certificate. */
+   *  Unused for SAML — SAML needs no client credential; the trust is the IdP's
+   *  signing certificate (and, for signed requests, the deployment SP key). */
   clientSecretEncrypted?: string;
 
   /** SAML: the IdP's `entityID` (its `Issuer`). Every assertion must carry it,
@@ -118,6 +129,20 @@ export interface OrgIdpConfigDocument extends Document {
 
   /** SAML: per-org attribute names for email / name / groups. */
   samlAttributes?: SamlAttributeMapping;
+
+  /** SAML: the IdP's Single Logout endpoint (HTTP-Redirect binding). When set,
+   *  signing out of a SAML session also sends a signed LogoutRequest there. */
+  samlSloUrl?: string;
+
+  /** SAML: sign AuthnRequests with this deployment's SP signing key
+   *  (services/saml-sp-keys.ts). Off by default — most IdPs accept unsigned
+   *  requests, and turning it on requires the IdP to hold the SP certificate. */
+  samlSignAuthnRequests: boolean;
+
+  /** SAML: the IdP ENCRYPTS assertions to the SP encryption key. When on, a
+   *  response carrying a plaintext assertion is refused; when off, an encrypted
+   *  one is (there is no key to decrypt it with). */
+  samlEncryptAssertions: boolean;
 
   /** OIDC discovery URL (https://issuer/.well-known/openid-configuration).
    * Required for `generic-oidc`. For `cognito` it is DERIVED from region +
@@ -146,17 +171,37 @@ export interface OrgIdpConfigDocument extends Document {
   groupsClaim?: string;
 
   /**
-   * If set, only IdP users whose email matches one of these domains are
-   * allowed to sign in to this org. Defense against an over-broad IdP that
-   * authenticates anyone in a corporate domain  pinning to `acme.com`
-   * keeps `evil-contractor.com` users out even if they have an account on
-   * the same IdP.
+   * Narrows which of the org's DNS-VERIFIED domains this connection serves.
+   * Empty = every verified domain of the org (or its account root). Each entry
+   * must itself be verified — the write path refuses anything else
+   * (`IDP_DOMAIN_NOT_VERIFIED`), so this is a picker over verified domains, not
+   * free text. Only IdP users whose email is in a served domain may sign in to
+   * this org (defense against an over-broad IdP: pinning to `acme.com` keeps
+   * `evil-contractor.com` users out even if they have an account on the same
+   * IdP), and it is the set the "SSO required" policy governs.
    */
   allowedEmailDomains: string[];
 
   /** Soft on/off  disabled configs are kept around so re-enabling doesn't
    * require re-entering credentials. */
   enabled: boolean;
+
+  /**
+   * ORG POLICY "SSO required". When on (and the IdP is enabled + entitled),
+   * people whose email domain the org has DNS-VERIFIED must sign in through this
+   * IdP: password, passkey and social sign-in are refused for them with
+   * `SSO_REQUIRED`. Organization OWNERS are exempt (the break-glass path — see
+   * helpers/sso-enforcement.ts). Can only be switched ON once a test connection
+   * has succeeded against the current connection settings (`lastTest`).
+   */
+  ssoRequired: boolean;
+
+  /**
+   * The most recent dry-run "test connection" (controllers/sso-test.ts). Cleared
+   * whenever a connection-affecting field changes, so a success always speaks
+   * for the settings that are actually saved.
+   */
+  lastTest?: IdpTestRecord;
 
   createdBy: string;
   updatedBy: string;
@@ -191,12 +236,25 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
       groups: { type: String },
     }, { _id: false }),
   },
+  samlSloUrl: { type: String },
+  samlSignAuthnRequests: { type: Boolean, default: false },
+  samlEncryptAssertions: { type: Boolean, default: false },
   discoveryUrl: { type: String },
   region: { type: String },
   userPoolId: { type: String },
   groupsClaim: { type: String },
   allowedEmailDomains: { type: [String], default: [] },
   enabled: { type: Boolean, default: true },
+  ssoRequired: { type: Boolean, default: false },
+  lastTest: {
+    type: new Schema<IdpTestRecord>({
+      at: { type: Date, required: true },
+      ok: { type: Boolean, required: true },
+      protocol: { type: String, enum: IDP_PROTOCOLS as unknown as string[], required: true },
+      reason: { type: String },
+      actorId: { type: String, required: true },
+    }, { _id: false }),
+  },
   createdBy: { type: String, required: true },
   updatedBy: { type: String, required: true },
 },

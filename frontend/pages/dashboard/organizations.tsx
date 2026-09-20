@@ -207,7 +207,7 @@ export default function OrganizationsPage() {
             {org.pendingDeletion && <Badge color="red">Pending deletion</Badge>}
           </div>
           {org.description && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{org.description}</div>
+            <div className="text-sm text-fg-muted truncate max-w-xs">{org.description}</div>
           )}
         </div>
       ),
@@ -215,13 +215,13 @@ export default function OrganizationsPage() {
     {
       id: 'members',
       header: 'Members',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (org) => <>{org.memberCount} member{org.memberCount !== 1 ? 's' : ''}</>,
     },
     {
       id: 'created',
       header: 'Created',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (org) => <RelativeTime value={org.createdAt} />,
     },
     {
@@ -231,7 +231,7 @@ export default function OrganizationsPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (org) => (
         org.id === 'system' ? (
-          <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
+          <span className="text-fg-subtle text-xs">Protected</span>
         ) : org.pendingDeletion ? (
           // Soft-deleted: only Details + Restore make sense (the destructive
           // actions are moot on a tombstoned org).

@@ -38,7 +38,7 @@ export function AddToTeamModal({
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Enter the email of an existing user to add to the <strong>{target.orgName}</strong> team.
       </p>
       <Input

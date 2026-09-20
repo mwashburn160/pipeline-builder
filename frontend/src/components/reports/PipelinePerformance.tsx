@@ -9,14 +9,14 @@ import type { DurationStat, StageBottleneck } from './types';
 import { formatDuration } from '@/lib/format';
 
 const EXECUTION_COLUMNS: Column<ExecutionCountRow>[] = [
-  { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (p) => p.pipeline_name || p.project },
+  { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-fg truncate max-w-[200px]', render: (p) => p.pipeline_name || p.project },
   { id: 'total', header: 'Total', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (p) => p.total },
-  { id: 'pass', header: 'Pass', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-green-600 dark:text-green-400', render: (p) => p.succeeded },
-  { id: 'fail', header: 'Fail', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-red-600 dark:text-red-400', render: (p) => p.failed },
+  { id: 'pass', header: 'Pass', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-success', render: (p) => p.succeeded },
+  { id: 'fail', header: 'Fail', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-danger', render: (p) => p.failed },
 ];
 
 const DURATION_COLUMNS: Column<DurationStat>[] = [
-  { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (d) => d.pipeline_name || d.project },
+  { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-fg truncate max-w-[200px]', render: (d) => d.pipeline_name || d.project },
   { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.avg_ms) },
   { id: 'p95', header: 'P95', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.p95_ms) },
   { id: 'runs', header: 'Runs', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => d.executions },
@@ -28,12 +28,12 @@ const BOTTLENECK_COLUMNS: Column<StageBottleneck>[] = [
     header: 'Stage',
     render: (b) => (
       <>
-        <span className="text-gray-900 dark:text-gray-100 truncate block max-w-[160px]">{b.stage_name}</span>
-        {b.pipeline_name && <span className="text-xs text-gray-400 dark:text-gray-500">{b.pipeline_name}</span>}
+        <span className="text-fg truncate block max-w-[160px]">{b.stage_name}</span>
+        {b.pipeline_name && <span className="text-xs text-fg-subtle">{b.pipeline_name}</span>}
       </>
     ),
   },
-  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-amber-600 dark:text-amber-400', render: (b) => formatDuration(b.avg_ms) },
+  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-warning', render: (b) => formatDuration(b.avg_ms) },
   { id: 'max', header: 'Max', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (b) => formatDuration(b.max_ms) },
 ];
 

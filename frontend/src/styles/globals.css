@@ -6,8 +6,87 @@
    CSP (`style-src 'self'`, `font-src 'self' data:`), so it cost a render-blocking
    third-party request and delivered nothing. */
 
-/* Class-based dark mode (override default media-query) */
+/* Class-based dark mode (override default media-query). `useDarkMode` toggles
+   `.dark` on <html>; the `--pb-*` tokens below are redefined under `.dark`, so
+   every token utility flips with it — no `dark:` sibling needed. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/* Design tokens                                                       */
+/* ------------------------------------------------------------------ */
+/*
+   Source of truth: the `--pb-*` custom properties in `@layer base` (light on
+   :root, dark on .dark). `@theme inline` exposes them as Tailwind utilities
+   that reference the variable directly, so they re-resolve per theme.
+
+   Text        text-fg          primary text / headings        (--pb-text)
+               text-fg-muted    secondary text, descriptions   (--pb-text-muted)
+               text-fg-subtle   tertiary/meta: timestamps,     (--pb-text-subtle)
+                                captions, placeholders, icons
+   Surfaces    bg-canvas        page background                (--pb-bg)
+               bg-surface       cards, panels, table bodies    (--pb-surface)
+               bg-surface-muted insets, table heads, wells     (--pb-surface-muted)
+   Borders     border-default / divide-default                 (--pb-border)
+   Brand       text|bg|border-brand, -brand-strong, -accent
+   Status      for each of success | warning | danger | info:
+               text-{s}         status text / icons / links    (--pb-{s}-fg)
+               text-{s}-strong  hover / emphasis               (--pb-{s}-fg-strong)
+               bg-{s}-bg        soft tinted background         (--pb-{s}-bg)
+               border-{s}-border  tinted border                (--pb-{s}-border)
+               (--pb-success / --pb-danger stay the solid button fills.)
+   Type        text-2xs         11px micro labels / badges
+               .h1 .h2 .h3      page / section / card titles (components layer)
+
+   Chart data colours are deliberately NOT tokenised.
+*/
+@theme inline {
+  --color-canvas: var(--pb-bg);
+  --color-surface: var(--pb-surface);
+  --color-surface-muted: var(--pb-surface-muted);
+
+  --color-fg: var(--pb-text);
+  --color-fg-muted: var(--pb-text-muted);
+  --color-fg-subtle: var(--pb-text-subtle);
+
+  --color-brand: var(--pb-brand);
+  --color-brand-strong: var(--pb-brand-strong);
+  --color-accent: var(--pb-accent);
+
+  --color-success: var(--pb-success-fg);
+  --color-success-strong: var(--pb-success-fg-strong);
+  --color-success-bg: var(--pb-success-bg);
+  --color-success-border: var(--pb-success-border);
+
+  --color-warning: var(--pb-warning-fg);
+  --color-warning-strong: var(--pb-warning-fg-strong);
+  --color-warning-bg: var(--pb-warning-bg);
+  --color-warning-border: var(--pb-warning-border);
+
+  --color-danger: var(--pb-danger-fg);
+  --color-danger-strong: var(--pb-danger-fg-strong);
+  --color-danger-bg: var(--pb-danger-bg);
+  --color-danger-border: var(--pb-danger-border);
+
+  --color-info: var(--pb-info-fg);
+  --color-info-strong: var(--pb-info-fg-strong);
+  --color-info-bg: var(--pb-info-bg);
+  --color-info-border: var(--pb-info-border);
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+}
+
+/* Neutral border colour. A dedicated utility (rather than a theme colour) so
+   it doesn't also mint confusing `text-default` / `bg-default` utilities. */
+@utility border-default {
+  border-color: var(--pb-border);
+}
+
+@utility divide-default {
+  & > :not(:last-child) {
+    border-color: var(--pb-border);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Base                                                                */
@@ -25,28 +104,64 @@
     --pb-border: rgba(12, 20, 33, 0.12);
     --pb-text: #0f172a;
     --pb-text-muted: #475569;
+    --pb-text-subtle: #64748b;
     --pb-brand: #0f6fff;
     --pb-brand-strong: #0b5fe0;
     --pb-accent: #efb64c;
     --pb-success: #1f9d6d;
     --pb-danger: #e24b4b;
     --pb-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+
+    --pb-success-fg: #15803d;
+    --pb-success-fg-strong: #166534;
+    --pb-success-bg: #f0fdf4;
+    --pb-success-border: #bbf7d0;
+    --pb-warning-fg: #b45309;
+    --pb-warning-fg-strong: #92400e;
+    --pb-warning-bg: #fffbeb;
+    --pb-warning-border: #fde68a;
+    --pb-danger-fg: #dc2626;
+    --pb-danger-fg-strong: #b91c1c;
+    --pb-danger-bg: #fef2f2;
+    --pb-danger-border: #fecaca;
+    --pb-info-fg: #1d4ed8;
+    --pb-info-fg-strong: #1e40af;
+    --pb-info-bg: #eff6ff;
+    --pb-info-border: #bfdbfe;
   }
 
   .dark {
     color-scheme: dark;
     --pb-bg: #0b0f14;
     --pb-surface: #111827;
-    --pb-surface-muted: #0f172a;
+    --pb-surface-muted: #1a2230;
     --pb-border: rgba(148, 163, 184, 0.22);
     --pb-text: #e2e8f0;
     --pb-text-muted: #94a3b8;
+    --pb-text-subtle: #7c8aa0;
     --pb-brand: #63a6ff;
     --pb-brand-strong: #3b82f6;
     --pb-accent: #f5c85c;
     --pb-success: #22c58b;
     --pb-danger: #f07171;
     --pb-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+
+    --pb-success-fg: #4ade80;
+    --pb-success-fg-strong: #86efac;
+    --pb-success-bg: rgba(34, 197, 94, 0.12);
+    --pb-success-border: rgba(34, 197, 94, 0.32);
+    --pb-warning-fg: #fbbf24;
+    --pb-warning-fg-strong: #fcd34d;
+    --pb-warning-bg: rgba(245, 158, 11, 0.12);
+    --pb-warning-border: rgba(245, 158, 11, 0.32);
+    --pb-danger-fg: #f87171;
+    --pb-danger-fg-strong: #fca5a5;
+    --pb-danger-bg: rgba(239, 68, 68, 0.12);
+    --pb-danger-border: rgba(239, 68, 68, 0.32);
+    --pb-info-fg: #60a5fa;
+    --pb-info-fg-strong: #93c5fd;
+    --pb-info-bg: rgba(59, 130, 246, 0.12);
+    --pb-info-border: rgba(59, 130, 246, 0.32);
   }
 
   body {
@@ -91,7 +206,7 @@
     @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium
            rounded-xl transition-all duration-150
            focus:outline-none focus:ring-2 focus:ring-offset-2
-           focus:ring-offset-[var(--pb-bg)]
+           focus:ring-offset-canvas
            disabled:opacity-50 disabled:pointer-events-none;
   }
 
@@ -105,28 +220,28 @@
     background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-brand) 92%, #fff 8%), var(--pb-brand-strong));
     color: #fff;
     box-shadow: 0 12px 26px rgba(15, 111, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:var(--pb-brand)] hover:brightness-105;
+    @apply focus:ring-brand hover:brightness-105;
   }
 
   .btn-secondary {
     background-color: var(--pb-surface-muted);
     color: var(--pb-text);
     border: 1px solid var(--pb-border);
-    @apply hover:brightness-105 focus:ring-[color:var(--pb-brand)];
+    @apply hover:brightness-105 focus:ring-brand;
   }
 
   .btn-danger {
     background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-danger) 90%, #fff 10%), var(--pb-danger));
     color: #fff;
     box-shadow: 0 10px 22px rgba(226, 75, 75, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:var(--pb-danger)] hover:brightness-105;
+    @apply focus:ring-danger hover:brightness-105;
   }
 
   .btn-success {
     background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-success) 90%, #fff 10%), var(--pb-success));
     color: #fff;
     box-shadow: 0 10px 22px rgba(31, 157, 109, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    @apply focus:ring-[color:var(--pb-success)] hover:brightness-105;
+    @apply focus:ring-success hover:brightness-105;
   }
 
   /* Indigo "experimental" accent — dry-run / preview-impact / scan-trigger
@@ -170,8 +285,8 @@
   }
 
   .btn-ghost {
-    @apply bg-transparent hover:bg-[color:var(--pb-surface-muted)]
-           focus:ring-[color:var(--pb-brand)];
+    @apply bg-transparent hover:bg-surface-muted
+           focus:ring-brand;
     color: var(--pb-text-muted);
   }
 
@@ -180,7 +295,7 @@
     border: 1px solid color-mix(in srgb, var(--pb-danger) 40%, var(--pb-border) 60%);
     background-color: transparent;
     @apply hover:bg-[color:color-mix(in_srgb,var(--pb-danger)_8%,transparent_92%)]
-           focus:ring-[color:var(--pb-danger)];
+           focus:ring-danger;
   }
 
   /* Bordered muted pill (the old CopyButton look): transparent bg, muted
@@ -189,8 +304,8 @@
     color: var(--pb-text-muted);
     border: 1px solid var(--pb-border);
     background-color: transparent;
-    @apply rounded-lg hover:bg-[color:var(--pb-surface-muted)]
-           focus:ring-[color:var(--pb-brand)];
+    @apply rounded-lg hover:bg-surface-muted
+           focus:ring-brand;
   }
 
   /* -- Size variants -- */
@@ -218,9 +333,9 @@
     background-color: color-mix(in srgb, var(--pb-surface) 92%, transparent);
     border: 1px solid var(--pb-border);
     color: var(--pb-text);
-    @apply block w-full px-3 py-2 text-sm rounded-xl placeholder:text-[color:var(--pb-text-muted)]
-           shadow-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]/35
-           focus:border-[color:var(--pb-brand)];
+    @apply block w-full px-3 py-2 text-sm rounded-xl placeholder:text-fg-subtle
+           shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/35
+           focus:border-brand;
   }
 
   .input-lg {
@@ -295,7 +410,7 @@
   }
 
   .data-table tbody {
-    @apply divide-y divide-[color:var(--pb-border)];
+    @apply divide-y divide-default;
   }
 
   .data-table td {
@@ -303,7 +418,7 @@
   }
 
   .data-table tbody tr {
-    @apply transition-colors hover:bg-[color:var(--pb-surface-muted)];
+    @apply transition-colors hover:bg-surface-muted;
   }
 
   .data-table-row:nth-child(odd) {
@@ -332,9 +447,9 @@
     border: 1px solid var(--pb-border);
     color: var(--pb-text);
     @apply block w-full pl-10 pr-3 py-1.5 text-sm rounded-xl
-           placeholder:text-[color:var(--pb-text-muted)]
-           focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]/35
-           focus:border-[color:var(--pb-brand)];
+           placeholder:text-fg-subtle
+           focus:outline-none focus:ring-2 focus:ring-brand/35
+           focus:border-brand;
   }
 
   .filter-select {
@@ -342,8 +457,8 @@
     border: 1px solid var(--pb-border);
     color: var(--pb-text);
     @apply block px-3 py-1.5 text-sm rounded-xl
-           focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]/35
-           focus:border-[color:var(--pb-brand)];
+           focus:outline-none focus:ring-2 focus:ring-brand/35
+           focus:border-brand;
   }
 
   /* ---- Alert banners ---- */
@@ -416,12 +531,12 @@
 
   .sidebar-nav-item-default {
     color: var(--pb-text-muted);
-    @apply hover:bg-[color:var(--pb-surface-muted)] hover:text-[color:var(--pb-text)];
+    @apply hover:bg-surface-muted hover:text-fg;
   }
 
   .sidebar-section-label {
     color: var(--pb-text-muted);
-    @apply text-[11px] font-semibold uppercase tracking-wider px-4 mb-1 mt-5;
+    @apply text-2xs font-semibold uppercase tracking-wider px-4 mb-1 mt-5;
   }
 
   .action-link {
@@ -429,11 +544,11 @@
   }
 
   .action-link-muted {
-    @apply text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors;
+    @apply text-sm text-fg-muted hover:text-fg transition-colors;
   }
 
   .action-link-danger {
-    @apply text-sm font-medium text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors;
+    @apply text-sm font-medium text-danger hover:text-danger-strong transition-colors;
   }
 
   .skeleton {
@@ -456,8 +571,28 @@
     @apply space-y-4;
   }
 
-  .section-title {
-    @apply text-lg font-semibold text-gray-900 dark:text-gray-100;
+  /* ---- Headings ----
+     Page title (.h1, rendered once by DashboardLayout), section/card titles
+     (.h2) and sub-section / card titles (.h3). Apply to the heading element
+     that matches the document outline; the class only sets the visual size. */
+  .h1,
+  .h2,
+  .h3 {
+    font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
+    letter-spacing: -0.01em;
+    @apply text-fg;
+  }
+
+  .h1 {
+    @apply text-xl font-bold;
+  }
+
+  .h2 {
+    @apply text-lg font-semibold;
+  }
+
+  .h3 {
+    @apply text-sm font-semibold;
   }
 
 }

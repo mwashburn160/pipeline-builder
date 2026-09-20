@@ -15,6 +15,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { VerifiedDomainPicker } from '@/components/sso/VerifiedDomainPicker';
 
 interface Props {
   org: Organization;
@@ -34,8 +35,8 @@ type Provider = 'generic-oidc' | 'cognito' | 'google' | 'github';
  *
  * For `generic-oidc`, `discoveryUrl` is required (the .well-known/openid-
  * configuration URL); google/github use built-in endpoints and the field
- * is optional. `allowedEmailDomains` is a comma-separated list — empty
- * means "any email domain accepted by the IdP."
+ * is optional. `allowedEmailDomains` is picked from the org's VERIFIED domains;
+ * picking none means every verified domain of the org.
  */
 export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [discoveryUrl, setDiscoveryUrl] = useState('');
   const [region, setRegion] = useState('');
   const [userPoolId, setUserPoolId] = useState('');
-  const [allowedEmailDomains, setAllowedEmailDomains] = useState('');
+  const [allowedEmailDomains, setAllowedEmailDomains] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   // Remove-config confirmation (in-app modal, replacing the native confirm()).
@@ -73,7 +74,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         setDiscoveryUrl(c.discoveryUrl || '');
         setRegion(c.region || '');
         setUserPoolId(c.userPoolId || '');
-        setAllowedEmailDomains((c.allowedEmailDomains || []).join(', '));
+        setAllowedEmailDomains(c.allowedEmailDomains || []);
         setEnabled(c.enabled);
       }
     }).catch((err) => {
@@ -100,10 +101,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       setError('Region and User Pool ID are required for cognito'); return;
     }
 
-    const domains = allowedEmailDomains
-      .split(',')
-      .map((d) => d.trim())
-      .filter(Boolean);
+    const domains = allowedEmailDomains;
 
     // For cognito the server derives the discovery URL from region + userPoolId,
     // so only send those; other providers send discoveryUrl and never region/pool.
@@ -185,7 +183,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           {existing && (
             <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
               <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current config</div>
-              <div className="text-gray-600 dark:text-gray-400">
+              <div className="text-fg-muted">
                 Provider: <code className="text-xs">{existing.provider}</code> ·
                 {' '}Secret: {existing.hasClientSecret ? 'on file' : <em>not set</em>} ·
                 {' '}Enabled: {existing.enabled ? 'yes' : 'no'} ·
@@ -223,7 +221,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           <div>
             <label className="label">
               Client Secret
-              {existing && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
+              {existing && <span className="text-xs text-fg-muted ml-2">(leave empty to keep existing)</span>}
             </label>
             <Input
               type="password"
@@ -234,7 +232,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
               disabled={submitting}
               autoComplete="new-password"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-fg-muted">
               Encrypted at rest under the org&apos;s key provider. Never echoed back on read.
             </p>
           </div>
@@ -276,27 +274,21 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
                   className="font-mono text-sm"
                   disabled={submitting}
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-fg-muted">
                   The discovery URL is derived server-side from the region and user pool.
                 </p>
               </div>
             </>
           )}
 
-          <div>
-            <label className="label">Allowed Email Domains</label>
-            <Input
-              type="text"
-              value={allowedEmailDomains}
-              onChange={(e) => setAllowedEmailDomains(e.target.value)}
-              placeholder="example.com, acme.io"
-              className="text-sm"
-              disabled={submitting}
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Comma-separated. Empty = any email the IdP authenticates.
-            </p>
-          </div>
+          {/* Only the org's DNS-verified domains are eligible (the server refuses
+              anything else), so this is the same picker the org's own SSO setup uses. */}
+          <VerifiedDomainPicker
+            orgId={org.id}
+            value={allowedEmailDomains}
+            onChange={setAllowedEmailDomains}
+            disabled={submitting}
+          />
 
           <label className="flex items-center gap-2 text-sm">
             <Checkbox

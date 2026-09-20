@@ -150,7 +150,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
     return (
       <div className="flex items-center justify-center py-12">
         <LoadingSpinner size="md" className="mr-3" />
-        <span className="text-sm text-gray-500 dark:text-gray-400">Loading AI providers...</span>
+        <span className="text-sm text-fg-muted">Loading AI providers...</span>
       </div>
     );
   }
@@ -172,7 +172,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           maxLength={AI_MAX_PROMPT_LENGTH}
         />
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
           </p>
           <Button
@@ -213,12 +213,12 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
       {/* Build progress log */}
       {requestId && events.length > 0 && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-48 overflow-y-auto">
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Build Log</p>
+          <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
           {events.map((event, i) => (
             <div key={i} className={`text-xs font-mono py-0.5 ${
               event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
               event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
-              'text-gray-600 dark:text-gray-400'
+              'text-fg-muted'
             }`}>
               {event.message}
             </div>
@@ -300,7 +300,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
                 )}
               </Button>
             </div>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-xs text-fg-muted">
               This will build a Docker image from the generated Dockerfile and save the plugin to your organization.
             </p>
           </div>

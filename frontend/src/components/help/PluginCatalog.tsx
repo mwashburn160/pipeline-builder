@@ -20,8 +20,8 @@ const CATALOG_COLUMNS: Column<CatalogEntry>[] = [
       </span>
     ),
   },
-  { id: 'description', header: 'Description', headerClassName: 'hidden sm:table-cell', cellClassName: 'hidden sm:table-cell text-gray-600 dark:text-gray-400', render: (p) => p.description },
-  { id: 'secrets', header: 'Secrets', cellClassName: 'text-gray-500 dark:text-gray-400 font-mono text-xs', render: (p) => (p.secrets.length > 0 ? p.secrets.join(', ') : '—') },
+  { id: 'description', header: 'Description', headerClassName: 'hidden sm:table-cell', cellClassName: 'hidden sm:table-cell text-fg-muted', render: (p) => p.description },
+  { id: 'secrets', header: 'Secrets', cellClassName: 'text-fg-muted font-mono text-xs', render: (p) => (p.secrets.length > 0 ? p.secrets.join(', ') : '—') },
 ];
 
 /** Searchable, filterable plugin catalog table. */
@@ -63,7 +63,7 @@ export function PluginCatalog() {
       </div>
 
       {/* Results count */}
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-fg-muted">
         {filtered.length} plugin{filtered.length !== 1 ? 's' : ''} found
       </p>
 

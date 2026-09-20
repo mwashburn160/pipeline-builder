@@ -41,6 +41,8 @@ const policy = (over: Partial<OrgMfaPolicy> = {}): OrgMfaPolicy => ({
   enforced: false,
   own: false,
   idpEnforcesMfa: false,
+  adminActionsRequireMfa: false,
+  adminActionsOwn: false,
   defaultGraceDays: 14,
   ...over,
 });
@@ -53,7 +55,7 @@ beforeEach(() => {
 async function renderPanel(p: OrgMfaPolicy) {
   getMfaPolicy.mockResolvedValue({ success: true, data: p });
   render(<MfaPolicySettings orgId="org-1" readOnly={false} />);
-  await screen.findByText(/require two-factor authentication/i);
+  await screen.findByText(/^require two-factor authentication$/i);
 }
 
 describe('MfaPolicySettings — who is ready', () => {
@@ -81,7 +83,7 @@ describe('MfaPolicySettings — who is ready', () => {
 
   it('repeats the cost in the confirmation, where the decision is actually made', async () => {
     await renderPanel(policy({ enrolment: { members: 10, enrolled: 3 } }));
-    fireEvent.click(screen.getByRole('switch', { name: /require two-factor authentication/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /^require two-factor authentication$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => expect(stepUpDetails).not.toBeNull());
@@ -99,5 +101,33 @@ describe('MfaPolicySettings — inherited requirement', () => {
   it('falls back to generic copy when the parent\'s name is absent', async () => {
     await renderPanel(policy({ requireMfa: true, enforced: true, inheritedFrom: 'root-1' }));
     expect(screen.getByText(/a parent organization already requires two-factor authentication/i)).toBeInTheDocument();
+  });
+});
+
+describe('MfaPolicySettings — administrative actions require MFA', () => {
+  it('offers the toggle with honest copy about what it covers and who is signed out', async () => {
+    await renderPanel(policy());
+    expect(screen.getByRole('switch', { name: /administrative actions/i })).toBeInTheDocument();
+    expect(screen.getByText(/managing roles, members, invitations/i)).toHaveTextContent(/signs every other member/i);
+  });
+
+  it('turning it ON is a tightening — no "weakens" warning', async () => {
+    await renderPanel(policy());
+    fireEvent.click(screen.getByRole('switch', { name: /administrative actions/i }));
+    expect(screen.queryByText(/weakens your organization/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(stepUpDetails).not.toBeNull());
+    expect(screen.getByTestId('stepup-details')).toHaveTextContent(/every other member is signed out/i);
+  });
+
+  it('turning it OFF warns that a two-factor session is needed', async () => {
+    await renderPanel(policy({ adminActionsRequireMfa: true, adminActionsOwn: true }));
+    fireEvent.click(screen.getByRole('switch', { name: /administrative actions/i }));
+    expect(screen.getByText(/weakens your organization/i)).toBeInTheDocument();
+  });
+
+  it('names a parent that imposes it', async () => {
+    await renderPanel(policy({ adminActionsRequireMfa: true, adminActionsOwn: false, adminActionsInheritedFrom: 'root-1', adminActionsInheritedFromName: 'Acme Corp' }));
+    expect(screen.getByText('Acme Corp').closest('div')!).toHaveTextContent(/for administrative actions/i);
   });
 });

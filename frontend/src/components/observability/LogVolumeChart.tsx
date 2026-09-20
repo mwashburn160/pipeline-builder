@@ -71,7 +71,7 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
   }
   if (buckets.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center rounded border border-dashed border-gray-200 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+      <div className="flex h-24 items-center justify-center rounded border border-dashed border-gray-200 text-xs text-fg-muted dark:border-gray-700">
         No log volume in this window
       </div>
     );
@@ -82,7 +82,7 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
 
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between text-xs text-gray-500 dark:text-gray-400">
+      <div className="mb-1 flex items-baseline justify-between text-xs text-fg-muted">
         <span><span className="font-medium text-gray-700 dark:text-gray-200">{total.toLocaleString()}</span> lines</span>
         <div className="flex items-center gap-3">
           {LEVEL_ORDER.map((level) => (
@@ -132,7 +132,7 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
         })}
       </div>
 
-      <div className="mt-1 flex justify-between text-[11px] text-gray-400 dark:text-gray-500">
+      <div className="mt-1 flex justify-between text-2xs text-fg-subtle">
         <span>{new Date(first).toLocaleTimeString([], { hour12: false })}</span>
         <span>{new Date(last).toLocaleTimeString([], { hour12: false })}</span>
       </div>

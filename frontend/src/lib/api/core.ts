@@ -390,13 +390,12 @@ export class ApiCore {
     } catch { return false; }
   }
 
-  /** The impersonated user's id (sub) from the current token, or null. */
-  getImpersonatedUserId(): string | null {
+  /** The server-side request id of the current impersonation session, or null.
+   *  Shown in the banner so the operator can cite it; also what `endImpersonation`
+   *  revokes. */
+  getImpersonationRequestId(): string | null {
     if (!this.isImpersonating()) return null;
-    try {
-      const payload = JSON.parse(base64UrlDecode(this.accessToken!.split('.')[1]));
-      return typeof payload.sub === 'string' ? payload.sub : null;
-    } catch { return null; }
+    return readStore('session', IMPERSONATION_REQUEST_KEY);
   }
 
   /**

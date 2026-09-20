@@ -19,13 +19,19 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { IDP_OIDC_INCOMPLETE, IDP_SAML_INCOMPLETE, IGM_PROVIDER_UNSUPPORTED } from './idp-mapping-errors.js';
+import {
+  IDP_OIDC_INCOMPLETE,
+  IDP_SAML_INCOMPLETE,
+  IDP_SSO_REQUIRED_UNTESTED,
+  IGM_PROVIDER_UNSUPPORTED,
+} from './idp-mapping-errors.js';
 import type { OidcLoginConfig } from './oidc-service.js';
-import { type SamlLoginConfig, samlAcsUrl, samlSpEntityId } from './saml-service.js';
+import type { SamlLoginConfig } from './saml-service.js';
 import { providerSupportsGroups } from '../helpers/idp-claims.js';
 import OrgIdpConfig, {
   type IdpProtocol,
   type IdpProvider,
+  type IdpTestRecord,
   type OrgIdpConfigDocument,
   type SamlAttributeMapping,
 } from '../models/org-idp-config.js';
@@ -52,9 +58,12 @@ export interface OrgIdpConfigDto {
   samlCertificates: string[];
   /** SAML: per-org attribute names for email / name / groups. */
   samlAttributes?: SamlAttributeMapping;
-  /** SAML: the service-provider values an IdP administrator needs. Derived, not
-   *  stored — returned so the settings page can show them without a second call. */
-  samlSp?: { entityId: string; acsUrl: string; metadataUrl: string };
+  /** SAML: the IdP's Single Logout endpoint. */
+  samlSloUrl?: string;
+  /** SAML: AuthnRequests are signed with the deployment SP key. */
+  samlSignAuthnRequests: boolean;
+  /** SAML: the IdP encrypts assertions (and must). */
+  samlEncryptAssertions: boolean;
   discoveryUrl?: string;
   /** AWS Cognito region — present only for `provider: 'cognito'`. */
   region?: string;
@@ -65,6 +74,11 @@ export interface OrgIdpConfigDto {
   groupsClaim?: string;
   allowedEmailDomains: string[];
   enabled: boolean;
+  /** Org policy: people in the org's verified domains must sign in via this IdP. */
+  ssoRequired: boolean;
+  /** The last test connection, or absent when none has run against the
+   *  settings currently saved. */
+  lastTest?: { at: string; ok: boolean; protocol: IdpProtocol; reason?: string };
   updatedAt: string;
 }
 
@@ -80,6 +94,9 @@ export interface OrgIdpConfigCreate {
   samlSsoUrl?: string;
   samlCertificates?: string[];
   samlAttributes?: SamlAttributeMapping;
+  samlSloUrl?: string;
+  samlSignAuthnRequests?: boolean;
+  samlEncryptAssertions?: boolean;
   discoveryUrl?: string;
   region?: string;
   userPoolId?: string;
@@ -98,12 +115,17 @@ export interface OrgIdpConfigUpdate {
   samlSsoUrl?: string;
   samlCertificates?: string[];
   samlAttributes?: SamlAttributeMapping;
+  samlSloUrl?: string;
+  samlSignAuthnRequests?: boolean;
+  samlEncryptAssertions?: boolean;
   discoveryUrl?: string;
   region?: string;
   userPoolId?: string;
   groupsClaim?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
+  /** Org policy "SSO required" — see {@link IDP_SSO_REQUIRED_UNTESTED}. */
+  ssoRequired?: boolean;
 }
 
 /** Normalize email domains to lowercase so the login-time domain gate (which
@@ -188,6 +210,65 @@ function assertProtocolComplete(doc: Pick<OrgIdpConfigDocument,
   }
 }
 
+/**
+ * Everything that decides whether a sign-in through this connection WORKS — the
+ * values a successful test connection vouches for. When any of them changes the
+ * last test result no longer speaks for the saved settings and is cleared, so
+ * "SSO required" can never be switched on against an untested connection.
+ * The client secret enters as its ciphertext; the write path avoids re-wrapping
+ * an unchanged secret precisely so this comparison stays meaningful.
+ */
+function connectionFingerprint(doc: Pick<OrgIdpConfigDocument,
+'protocol' | 'provider' | 'clientId' | 'clientSecretEncrypted' | 'discoveryUrl' | 'region' | 'userPoolId'
+| 'samlEntityId' | 'samlSsoUrl' | 'samlCertificates' | 'samlSignAuthnRequests' | 'samlEncryptAssertions'>): string {
+  return JSON.stringify([
+    doc.protocol ?? 'oidc', doc.provider, doc.clientId, doc.clientSecretEncrypted, doc.discoveryUrl, doc.region,
+    doc.userPoolId, doc.samlEntityId, doc.samlSsoUrl, [...(doc.samlCertificates ?? [])],
+    !!doc.samlSignAuthnRequests, !!doc.samlEncryptAssertions,
+  ]);
+}
+
+/**
+ * Apply the post-write invariants shared by upsert and patch:
+ *   - a connection change clears `lastTest` (see {@link connectionFingerprint});
+ *   - switching "SSO required" ON needs an enabled IdP and a SUCCESSFUL test of
+ *     the current settings, on the current protocol. Leaving it on, or turning
+ *     it off, is never refused.
+ */
+function applyInvariants(doc: OrgIdpConfigDocument, before: { fingerprint: string; ssoRequired: boolean }): void {
+  if (connectionFingerprint(doc) !== before.fingerprint) doc.lastTest = undefined;
+  if (doc.ssoRequired && !before.ssoRequired) {
+    const test = doc.lastTest;
+    if (!doc.enabled || !test?.ok || test.protocol !== (doc.protocol ?? 'oidc')) {
+      throw new Error(IDP_SSO_REQUIRED_UNTESTED);
+    }
+  }
+}
+
+/** Re-wrap the client secret only when it actually changed, so an edit that
+ *  re-sends the stored secret leaves its ciphertext — and the test result that
+ *  vouches for it — alone. */
+async function secretBlobFor(orgId: string, plaintext: string, existingBlob: string | undefined): Promise<string> {
+  if (existingBlob) {
+    try {
+      if (await unwrapEncrypted(existingBlob, orgId, 'org-idp.clientSecret') === plaintext) return existingBlob;
+    } catch {
+      // Unreadable stored blob — replace it.
+    }
+  }
+  return wrapEncrypted(plaintext, orgId);
+}
+
+function testRecordDto(test: IdpTestRecord | undefined): OrgIdpConfigDto['lastTest'] {
+  if (!test) return undefined;
+  return {
+    at: new Date(test.at).toISOString(),
+    ok: test.ok,
+    protocol: test.protocol,
+    ...(test.reason ? { reason: test.reason } : {}),
+  };
+}
+
 function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
   const protocol = doc.protocol ?? 'oidc';
   return {
@@ -200,19 +281,17 @@ function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
     samlSsoUrl: doc.samlSsoUrl,
     samlCertificates: doc.samlCertificates ?? [],
     samlAttributes: doc.samlAttributes,
-    // Always present: an admin needs the SP values to configure their IdP BEFORE
-    // the connection works, so they can't be conditional on it working.
-    samlSp: {
-      entityId: samlSpEntityId(doc.orgId),
-      acsUrl: samlAcsUrl(doc.orgId),
-      metadataUrl: samlSpEntityId(doc.orgId),
-    },
+    samlSloUrl: doc.samlSloUrl,
+    samlSignAuthnRequests: !!doc.samlSignAuthnRequests,
+    samlEncryptAssertions: !!doc.samlEncryptAssertions,
     discoveryUrl: doc.discoveryUrl,
     region: doc.region,
     userPoolId: doc.userPoolId,
     groupsClaim: doc.groupsClaim,
     allowedEmailDomains: doc.allowedEmailDomains,
     enabled: doc.enabled,
+    ssoRequired: !!doc.ssoRequired,
+    ...(doc.lastTest ? { lastTest: testRecordDto(doc.lastTest) } : {}),
     updatedAt: doc.updatedAt.toISOString(),
   };
 }
@@ -243,16 +322,20 @@ export class OrgIdpService {
   async upsert(actor: string, input: OrgIdpConfigCreate): Promise<OrgIdpConfigDto> {
     const existing = await OrgIdpConfig.findOne({ orgId: input.orgId });
     if (existing) {
+      const before = { fingerprint: connectionFingerprint(existing), ssoRequired: !!existing.ssoRequired };
       if (input.protocol !== undefined) existing.protocol = input.protocol;
       if (input.provider !== undefined) existing.provider = input.provider;
       if (input.clientId !== undefined) existing.clientId = input.clientId;
       if (input.clientSecret) {
-        existing.clientSecretEncrypted = await wrapEncrypted(input.clientSecret, input.orgId);
+        existing.clientSecretEncrypted = await secretBlobFor(input.orgId, input.clientSecret, existing.clientSecretEncrypted);
       }
       if (input.samlEntityId !== undefined) existing.samlEntityId = input.samlEntityId.trim();
       if (input.samlSsoUrl !== undefined) existing.samlSsoUrl = input.samlSsoUrl.trim();
       if (input.samlCertificates !== undefined) existing.samlCertificates = normalizeCertificates(input.samlCertificates);
       if (input.samlAttributes !== undefined) existing.samlAttributes = normalizeSamlAttributes(input.samlAttributes);
+      if (input.samlSloUrl !== undefined) existing.samlSloUrl = input.samlSloUrl.trim() || undefined;
+      if (input.samlSignAuthnRequests !== undefined) existing.samlSignAuthnRequests = input.samlSignAuthnRequests;
+      if (input.samlEncryptAssertions !== undefined) existing.samlEncryptAssertions = input.samlEncryptAssertions;
       if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
       if (input.region !== undefined) existing.region = input.region;
       if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
@@ -266,6 +349,7 @@ export class OrgIdpService {
       existing.enabled = input.enabled ?? true;
       existing.updatedBy = actor;
       assertProtocolComplete(existing);
+      applyInvariants(existing, before);
       await existing.save();
       logger.info('OrgIdpConfig updated', { orgId: input.orgId, protocol: existing.protocol, provider: existing.provider });
       return toDto(existing);
@@ -281,6 +365,9 @@ export class OrgIdpService {
       samlSsoUrl: input.samlSsoUrl?.trim(),
       samlCertificates: normalizeCertificates(input.samlCertificates),
       samlAttributes: normalizeSamlAttributes(input.samlAttributes),
+      samlSloUrl: input.samlSloUrl?.trim() || undefined,
+      samlSignAuthnRequests: input.samlSignAuthnRequests ?? false,
+      samlEncryptAssertions: input.samlEncryptAssertions ?? false,
       discoveryUrl: input.discoveryUrl,
       region: input.region,
       userPoolId: input.userPoolId,
@@ -301,17 +388,21 @@ export class OrgIdpService {
   async patch(orgId: string, actor: string, input: OrgIdpConfigUpdate): Promise<OrgIdpConfigDto | null> {
     const existing = await OrgIdpConfig.findOne({ orgId });
     if (!existing) return null;
+    const before = { fingerprint: connectionFingerprint(existing), ssoRequired: !!existing.ssoRequired };
 
     if (input.protocol !== undefined) existing.protocol = input.protocol;
     if (input.provider !== undefined) existing.provider = input.provider;
     if (input.clientId !== undefined) existing.clientId = input.clientId;
     if (input.clientSecret !== undefined && input.clientSecret.length > 0) {
-      existing.clientSecretEncrypted = await wrapEncrypted(input.clientSecret, orgId);
+      existing.clientSecretEncrypted = await secretBlobFor(orgId, input.clientSecret, existing.clientSecretEncrypted);
     }
     if (input.samlEntityId !== undefined) existing.samlEntityId = input.samlEntityId.trim();
     if (input.samlSsoUrl !== undefined) existing.samlSsoUrl = input.samlSsoUrl.trim();
     if (input.samlCertificates !== undefined) existing.samlCertificates = normalizeCertificates(input.samlCertificates);
     if (input.samlAttributes !== undefined) existing.samlAttributes = normalizeSamlAttributes(input.samlAttributes);
+    if (input.samlSloUrl !== undefined) existing.samlSloUrl = input.samlSloUrl.trim() || undefined;
+    if (input.samlSignAuthnRequests !== undefined) existing.samlSignAuthnRequests = input.samlSignAuthnRequests;
+    if (input.samlEncryptAssertions !== undefined) existing.samlEncryptAssertions = input.samlEncryptAssertions;
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
     if (input.region !== undefined) existing.region = input.region;
     if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
@@ -328,10 +419,30 @@ export class OrgIdpService {
     }
     if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
     if (input.enabled !== undefined) existing.enabled = input.enabled;
+    if (input.ssoRequired !== undefined) existing.ssoRequired = input.ssoRequired;
     existing.updatedBy = actor;
     assertProtocolComplete(existing);
+    applyInvariants(existing, before);
     await existing.save();
     return toDto(existing);
+  }
+
+  /**
+   * Record a test connection's outcome — but only while the config is still the
+   * one that was tested: `testedUpdatedAt` is the config's `updatedAt` when the
+   * test began, so a save that landed mid-test leaves the (now stale) result
+   * unrecorded rather than vouching for settings nobody tested. Returns whether
+   * it was recorded.
+   */
+  async recordTestResult(orgId: string, testedUpdatedAt: string, record: IdpTestRecord): Promise<boolean> {
+    const res = await OrgIdpConfig.updateOne(
+      { orgId, updatedAt: new Date(testedUpdatedAt), protocol: record.protocol },
+      // `timestamps: false` — recording a test is not an edit of the connection,
+      // and bumping `updatedAt` would invalidate the very guard above.
+      { $set: { lastTest: record } },
+      { timestamps: false },
+    );
+    return (res.modifiedCount ?? 0) > 0;
   }
 
   /** Hard delete  IdP config has no audit-history requirement that a
@@ -398,23 +509,40 @@ export class OrgIdpService {
         groups: doc.samlAttributes?.groups,
       },
       allowedEmailDomains: doc.allowedEmailDomains ?? [],
+      ...(doc.samlSloUrl ? { sloUrl: doc.samlSloUrl } : {}),
+      signAuthnRequests: !!doc.samlSignAuthnRequests,
+      encryptAssertions: !!doc.samlEncryptAssertions,
       enabled: doc.enabled,
     };
   }
 
   /**
-   * Enabled configs whose `allowedEmailDomains` cover `domain` (matched
-   * case-insensitively). Used by password-login domain gating to force covered
-   * users through SSO. Returns only the orgIds — the enforcement layer resolves
-   * the login config + verifies the `sso` entitlement per candidate.
+   * ENABLED configs that may cover `domain`: those belonging to `ownerOrgIds`
+   * (the org that DNS-verified the domain — a verified domain belongs to exactly
+   * one org), plus any whose `allowedEmailDomains` names it explicitly (a team
+   * relying on its account root's verified domain). The enforcement layer then
+   * re-checks domain authority, the allowed list and the `sso` entitlement per
+   * candidate.
    */
-  async findEnabledOrgIdsByDomain(domain: string): Promise<string[]> {
+  async findEnabledCandidatesForDomain(domain: string, ownerOrgIds: readonly string[]): Promise<Array<{
+    orgId: string;
+    protocol: IdpProtocol;
+    provider?: IdpProvider;
+    ssoRequired: boolean;
+    allowedEmailDomains: string[];
+  }>> {
     const needle = domain.toLowerCase();
     const docs = await OrgIdpConfig.find({
       enabled: true,
-      allowedEmailDomains: needle,
-    }).select('orgId').lean();
-    return docs.map((d) => String(d.orgId));
+      $or: [{ orgId: { $in: [...ownerOrgIds] } }, { allowedEmailDomains: needle }],
+    }).select('orgId protocol provider ssoRequired allowedEmailDomains').lean();
+    return docs.map((d) => ({
+      orgId: String(d.orgId),
+      protocol: d.protocol ?? 'oidc',
+      ...(d.provider ? { provider: d.provider } : {}),
+      ssoRequired: !!d.ssoRequired,
+      allowedEmailDomains: d.allowedEmailDomains ?? [],
+    }));
   }
 
 }

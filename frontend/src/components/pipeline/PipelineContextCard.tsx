@@ -58,8 +58,8 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
   }, [pipeline.id]);
 
   const posture = (() => {
-    if (checking) return <span className="text-xs text-gray-400">Checking…</span>;
-    if (checkFailed || !compliance) return <span className="text-xs text-gray-400">Unavailable</span>;
+    if (checking) return <span className="text-xs text-fg-subtle">Checking…</span>;
+    if (checkFailed || !compliance) return <span className="text-xs text-fg-subtle">Unavailable</span>;
     if (compliance.blocked) return <Badge color="red">Blocked · {compliance.violations.length} violation{compliance.violations.length === 1 ? '' : 's'}</Badge>;
     if (compliance.warnings.length > 0) return <Badge color="yellow">{compliance.warnings.length} warning{compliance.warnings.length === 1 ? '' : 's'}</Badge>;
     return <Badge color="green">Passing</Badge>;
@@ -69,7 +69,7 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
     <Card>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Puzzle className="w-5 h-5 text-gray-500" />
+          <Puzzle className="w-5 h-5 text-fg-muted" />
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Plugins &amp; compliance</h3>
         </div>
         <Link href="/dashboard/plugins" className="action-link text-xs">View plugins →</Link>
@@ -77,25 +77,25 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
 
       <div className="text-sm">
         <div className="flex items-center justify-between mb-2">
-          <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+          <span className="flex items-center gap-1.5 text-fg-muted">
             <ShieldCheck className="w-4 h-4" /> Compliance posture
           </span>
           {posture}
         </div>
         {compliance && compliance.rulesEvaluated > 0 && (
-          <p className="text-[11px] text-gray-400 mb-3">{compliance.rulesEvaluated} rule{compliance.rulesEvaluated === 1 ? '' : 's'} evaluated</p>
+          <p className="text-2xs text-fg-subtle mb-3">{compliance.rulesEvaluated} rule{compliance.rulesEvaluated === 1 ? '' : 's'} evaluated</p>
         )}
 
         <dl>
-          <dt className="text-gray-500 dark:text-gray-400 mb-1">Plugins used ({plugins.length})</dt>
+          <dt className="text-fg-muted mb-1">Plugins used ({plugins.length})</dt>
           <dd className="flex flex-wrap gap-1">
             {plugins.length === 0
-              ? <span className="text-gray-400 text-xs">None referenced</span>
+              ? <span className="text-fg-subtle text-xs">None referenced</span>
               : plugins.map((name) => (
                   <Link
                     key={name}
                     href={`/dashboard/plugins?q=${encodeURIComponent(name)}`}
-                    className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-colors"
+                    className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted font-mono hover:bg-blue-50 hover:text-brand dark:hover:bg-blue-900/30 transition-colors"
                     title={`View ${name} in the plugin catalog`}
                   >
                     {name}

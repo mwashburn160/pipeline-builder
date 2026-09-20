@@ -15,9 +15,9 @@ interface BuildHealthPanelProps {
 
 /** Success-rate pill color band: green ≥90%, amber ≥70%, red below. */
 function rateClass(pct: number): string {
-  if (pct >= 90) return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-  if (pct >= 70) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
-  return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+  if (pct >= 90) return 'bg-success-bg text-success';
+  if (pct >= 70) return 'bg-warning-bg text-warning';
+  return 'bg-danger-bg text-danger';
 }
 
 /**
@@ -35,7 +35,7 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
       <div className="flex items-center justify-between mb-3">
         <SectionHeading>Build Health</SectionHeading>
         {buildHealth && buildHealth.totals.runs > 0 && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+          <span className="text-xs text-fg-subtle tabular-nums">
             {buildHealth.totals.runs} stage {buildHealth.totals.runs === 1 ? 'run' : 'runs'} &middot; {buildHealth.totals.failureRate}% failed
           </span>
         )}
@@ -48,7 +48,7 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+              <tr className="text-left text-xs text-fg-subtle border-b border-default">
                 <th scope="col" className="py-2 pr-3 font-medium">Stage</th>
                 <th scope="col" className="py-2 pr-3 font-medium text-right">Runs</th>
                 <th scope="col" className="py-2 pr-3 font-medium text-right">Success</th>
@@ -59,22 +59,22 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
             </thead>
             <tbody>
               {buildHealth.stages.map((s) => (
-                <tr key={s.stage} className="border-b border-gray-50 dark:border-gray-800/50 last:border-0">
-                  <td className="py-2 pr-3 font-medium text-gray-700 dark:text-gray-200 truncate max-w-[14rem]" title={s.stage}>{s.stage}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-600 dark:text-gray-300">
+                <tr key={s.stage} className="border-b border-default last:border-0">
+                  <td className="py-2 pr-3 font-medium text-fg truncate max-w-[14rem]" title={s.stage}>{s.stage}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">
                     {s.runs}
                     {s.failures > 0 && (
-                      <span className="text-red-500 dark:text-red-400"> ({s.failures} failed)</span>
+                      <span className="text-danger"> ({s.failures} failed)</span>
                     )}
                   </td>
                   <td className="py-2 pr-3 text-right">
-                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${rateClass(s.successRate)}`}>
+                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-medium tabular-nums ${rateClass(s.successRate)}`}>
                       {s.successRate}%
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p50Ms == null ? '—' : formatDuration(s.p50Ms)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p90Ms == null ? '—' : formatDuration(s.p90Ms)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p99Ms == null ? '—' : formatDuration(s.p99Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{s.p50Ms == null ? '—' : formatDuration(s.p50Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{s.p90Ms == null ? '—' : formatDuration(s.p90Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{s.p99Ms == null ? '—' : formatDuration(s.p99Ms)}</td>
                 </tr>
               ))}
             </tbody>

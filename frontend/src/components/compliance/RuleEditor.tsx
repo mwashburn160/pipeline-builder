@@ -270,7 +270,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <button onClick={onCancel} aria-label="Back to rules" className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <button onClick={onCancel} aria-label="Back to rules" className="p-1.5 rounded-lg text-fg-subtle hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -284,11 +284,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Basic info */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="rule-name" className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+            <label htmlFor="rule-name" className="block text-xs font-medium text-fg-muted mb-1">Name *</label>
             <Input id="rule-name" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Rule name" />
           </div>
           <div>
-            <label htmlFor="rule-target" className="block text-xs font-medium text-gray-500 mb-1">Target *</label>
+            <label htmlFor="rule-target" className="block text-xs font-medium text-fg-muted mb-1">Target *</label>
             <Select id="rule-target" value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} disabled={isEdit}>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
@@ -297,23 +297,23 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         </div>
         {isSuperAdmin && (
           <div>
-            <label htmlFor="rule-scope" className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
+            <label htmlFor="rule-scope" className="block text-xs font-medium text-fg-muted mb-1">Scope</label>
             <Select id="rule-scope" value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} disabled={isEdit}>
               <option value="org">Org — private to your organization</option>
               <option value="published">Published — shared catalog, other orgs can subscribe</option>
             </Select>
-            {isEdit && <p className="mt-1 text-xs text-gray-500">Scope is set at creation and cannot be changed.</p>}
+            {isEdit && <p className="mt-1 text-xs text-fg-muted">Scope is set at creation and cannot be changed.</p>}
           </div>
         )}
         <div>
-          <label htmlFor="rule-description" className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+          <label htmlFor="rule-description" className="block text-xs font-medium text-fg-muted mb-1">Description</label>
           <Textarea id="rule-description" value={form.description} onChange={e => set('description', e.target.value)} rows={2} placeholder="Optional description" />
         </div>
 
         {/* Severity, priority, tags */}
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label htmlFor="rule-severity" className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
+            <label htmlFor="rule-severity" className="block text-xs font-medium text-fg-muted mb-1">Severity</label>
             <Select id="rule-severity" value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)}>
               <option value="warning">Warning</option>
               <option value="error">Error</option>
@@ -321,11 +321,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </Select>
           </div>
           <div>
-            <label htmlFor="rule-priority" className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
+            <label htmlFor="rule-priority" className="block text-xs font-medium text-fg-muted mb-1">Priority</label>
             <Input id="rule-priority" type="number" value={form.priority} onChange={e => set('priority', parseInt(e.target.value) || 0)} />
           </div>
           <div>
-            <label htmlFor="rule-tags" className="block text-xs font-medium text-gray-500 mb-1">Tags (comma-separated)</label>
+            <label htmlFor="rule-tags" className="block text-xs font-medium text-fg-muted mb-1">Tags (comma-separated)</label>
             <Input id="rule-tags" value={form.tags} onChange={e => set('tags', e.target.value)} placeholder="security, naming" />
           </div>
         </div>
@@ -333,11 +333,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Date range & notification */}
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label htmlFor="rule-effective-from" className="block text-xs font-medium text-gray-500 mb-1">Effective From</label>
+            <label htmlFor="rule-effective-from" className="block text-xs font-medium text-fg-muted mb-1">Effective From</label>
             <Input id="rule-effective-from" type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} />
           </div>
           <div>
-            <label htmlFor="rule-effective-until" className="block text-xs font-medium text-gray-500 mb-1">Effective Until</label>
+            <label htmlFor="rule-effective-until" className="block text-xs font-medium text-fg-muted mb-1">Effective Until</label>
             <Input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} />
           </div>
           <div className="flex items-end pb-2">
@@ -359,11 +359,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           <div className="flex items-center gap-4 mb-3">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Rule Mode:</label>
             <label className="flex items-center gap-1.5 text-sm">
-              <input type="radio" checked={!form.useConditions} onChange={() => set('useConditions', false)} className="text-blue-600" />
+              <input type="radio" checked={!form.useConditions} onChange={() => set('useConditions', false)} className="text-brand" />
               Single Field
             </label>
             <label className="flex items-center gap-1.5 text-sm">
-              <input type="radio" checked={form.useConditions} onChange={() => set('useConditions', true)} className="text-blue-600" />
+              <input type="radio" checked={form.useConditions} onChange={() => set('useConditions', true)} className="text-brand" />
               Multi-Condition
             </label>
           </div>
@@ -371,18 +371,18 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           {!form.useConditions ? (
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Field</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Field</label>
                 <Input value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Operator</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Operator</label>
                 <Select value={form.operator} onChange={e => set('operator', e.target.value as RuleOperator)}>
                   {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
               </div>
               {!NO_VALUE_OPS.has(form.operator) && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Value (JSON)</label>
+                  <label className="block text-xs font-medium text-fg-muted mb-1">Value (JSON)</label>
                   <Input value={form.value} onChange={e => set('value', e.target.value)} placeholder='"required-prefix"' />
                 </div>
               )}
@@ -390,7 +390,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           ) : (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <label className="text-xs font-medium text-gray-500">Match:</label>
+                <label className="text-xs font-medium text-fg-muted">Match:</label>
                 <Select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm">
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
@@ -400,7 +400,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 </Button>
               </div>
               {form.conditions.length === 0 && (
-                <div className="text-center py-4 text-sm text-gray-400">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
+                <div className="text-center py-4 text-sm text-fg-subtle">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
               )}
               {form.conditions.map((cond, idx) => (
                 <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
@@ -428,7 +428,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                       placeholder="Value (JSON)"
                     />
                   )}
-                  <button onClick={() => removeCondition(idx)} aria-label={`Remove condition ${idx + 1}`} className="p-1 text-gray-400 hover:text-red-600">
+                  <button onClick={() => removeCondition(idx)} aria-label={`Remove condition ${idx + 1}`} className="p-1 text-fg-subtle hover:text-danger">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -440,7 +440,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Dry-run validation */}
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-2 mb-2">
-            <FlaskConical className="h-4 w-4 text-indigo-600" />
+            <FlaskConical className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Dry-Run Validation</span>
           </div>
           <div className="flex gap-2">
@@ -459,16 +459,16 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm">
               <div className="flex items-center gap-4 mb-2">
                 <span className="flex items-center gap-1">
-                  {dryRunResult.passed ? <CheckCircle className="h-4 w-4 text-green-600" /> : <XCircle className="h-4 w-4 text-red-600" />}
+                  {dryRunResult.passed ? <CheckCircle className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-danger" />}
                   {dryRunResult.passed ? 'Passed' : 'Failed'}
                 </span>
-                <span className="text-xs text-gray-500">{dryRunResult.rulesEvaluated} rules evaluated</span>
+                <span className="text-xs text-fg-muted">{dryRunResult.rulesEvaluated} rules evaluated</span>
               </div>
               {dryRunResult.violations.length > 0 && (
                 <div className="space-y-1">
                   {dryRunResult.violations.map((v, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
-                      <XCircle className="h-3 w-3 text-red-500 shrink-0" />
+                      <XCircle className="h-3 w-3 text-danger shrink-0" />
                       <span className="text-red-700 dark:text-red-400">{v.ruleName}: {v.message}</span>
                     </div>
                   ))}
@@ -478,7 +478,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 <div className="space-y-1 mt-1">
                   {dryRunResult.warnings.map((w, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
-                      <AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0" />
+                      <AlertTriangle className="h-3 w-3 text-warning shrink-0" />
                       <span className="text-yellow-700 dark:text-yellow-400">{w.ruleName}: {w.message}</span>
                     </div>
                   ))}
@@ -493,7 +493,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-indigo-600" />
+                <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Impact Preview</span>
               </div>
               <Button variant="indigo" size="sm" onClick={handlePreviewImpact} disabled={impactLoading} className="gap-1.5">
@@ -501,14 +501,14 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 Preview impact
               </Button>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            <p className="text-xs text-fg-muted mb-2">
               Counts your existing {form.target}s that would fail this rule as currently saved.
             </p>
             {impactResult && (
               <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Impact on your existing entities</span>
-                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                  <span className="text-xs text-fg-muted">
                     <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
                       {impactResult.wouldFail}
                     </span>
@@ -522,12 +522,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                         <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
                         <span>
                           <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
-                          {s.messages[0] && <span className="text-gray-600 dark:text-gray-400"> — {s.messages[0]}</span>}
+                          {s.messages[0] && <span className="text-fg-muted"> — {s.messages[0]}</span>}
                         </span>
                       </li>
                     ))}
                     {impactResult.wouldFail > impactResult.samples.length && (
-                      <li className="text-xs text-gray-500 italic">+ {impactResult.wouldFail - impactResult.samples.length} more</li>
+                      <li className="text-xs text-fg-muted italic">+ {impactResult.wouldFail - impactResult.samples.length} more</li>
                     )}
                   </ul>
                 )}

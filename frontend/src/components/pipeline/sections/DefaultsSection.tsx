@@ -66,7 +66,7 @@ export default function DefaultsSection({
             checked={defaults.enabled}
             onChange={(e) => onEnabledChange(e.target.checked)}
             disabled={disabled}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+            className="h-4 w-4 text-brand focus:ring-blue-500"
           />
           <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
             Configure pipeline-level CodeBuild defaults

@@ -90,3 +90,27 @@ describe('OrgSwitcher — inherited (via-parent) teams', () => {
     expect(within(item).getByText('via parent')).toBeInTheDocument();
   });
 });
+
+describe('OrgSwitcher — header pill on narrow screens', () => {
+  const LONG = 'Acme Corporation International Holdings Platform Engineering';
+
+  it('truncates the visible name but keeps the full name in the title and accessible name', () => {
+    mockAuth = {
+      user: { organizationId: 'own' },
+      organizations: [org({ name: LONG }), org({ id: 'other', name: 'Other' })],
+      switchOrganization: jest.fn(),
+    };
+    render(<OrgSwitcher variant="header" className="min-w-0 shrink" />);
+    const pill = screen.getByRole('button', { name: `Switch organization (current: ${LONG})` });
+    expect(pill).toHaveAttribute('title', LONG);
+    expect(within(pill).getByText(LONG).className).toMatch(/\btruncate\b/);
+    // The pill may shrink below its content width instead of pushing the header.
+    expect(pill.className).toMatch(/\bmin-w-0\b/);
+  });
+
+  it('names the org for a single-org user, whose pill is not a menu', () => {
+    mockAuth = { user: { organizationId: 'own' }, organizations: [org({ name: LONG })], switchOrganization: jest.fn() };
+    render(<OrgSwitcher variant="header" />);
+    expect(screen.getByRole('button', { name: `Organization: ${LONG}` })).toHaveAttribute('title', LONG);
+  });
+});

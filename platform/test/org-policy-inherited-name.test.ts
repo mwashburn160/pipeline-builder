@@ -30,6 +30,8 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: (...a: unknown[]) => mockGetOrgName(...a) }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+// Only reached when the admin-actions policy changes; stubbed so its graph stays out.
+jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({ refreshAdminPolicyClaims: jest.fn(async () => 0) }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
   DEFAULT_MFA_GRACE_DAYS: 14,
@@ -38,6 +40,7 @@ jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
   canSelectDeniedPolicy: async () => true,
+  IMPERSONATION_POLICIES: ['open', 'consent', 'denied'],
   MIN_SYSADMINS_FOR_DENIED: 2,
   resolveEffectiveImpersonationPolicy: (...a: unknown[]) => mockImpPolicy(...a),
   resolveImpersonationPolicy: jest.fn(),

@@ -44,7 +44,7 @@ jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({
 jest.unstable_mockModule('../src/middleware/rate-limit-keys.js', () => ({ extractClientIp: () => 'ip' }));
 
 const TOTP_CONTROLLERS = [
-  'activateTotp', 'disableTotp', 'enrolTotp', 'regenerateRecoveryCodes',
+  'activateTotp', 'disableTotp', 'enrolTotp',
   'totpStatus', 'stepUpVerifyTotp', 'verifyMfaLogin',
 ];
 jest.unstable_mockModule('../src/controllers/totp.js', () => Object.fromEntries(TOTP_CONTROLLERS.map((c) => [c, tagged(c)])));
@@ -59,6 +59,16 @@ jest.unstable_mockModule('../src/controllers/step-up-reauth.js', () => ({
   startStepUpReauth: tagged('startStepUpReauth'), completeStepUpReauth: tagged('completeStepUpReauth'),
 }));
 jest.unstable_mockModule('../src/controllers/step-up.js', () => ({ stepUpVerify: tagged('stepUpVerify') }));
+// `routes/auth.ts` also mounts the account's recovery codes (/auth/recovery-codes).
+jest.unstable_mockModule('../src/controllers/recovery-codes.js', () => ({
+  recoveryCodeStatus: tagged('recoveryCodeStatus'), regenerateRecoveryCodes: tagged('regenerateRecoveryCodes'),
+}));
+// routes/auth.ts also mounts the forced-password-change leg and the
+// per-account login throttle; stubbed so this suite loads neither graph.
+jest.unstable_mockModule('../src/controllers/password-change-required.js', () => ({
+  completeRequiredPasswordChange: tagged('completeRequiredPasswordChange'),
+}));
+jest.unstable_mockModule('../src/middleware/login-limiter.js', () => ({ loginAccountLimiter: tagged('limiter:login-account') }));
 jest.unstable_mockModule('../src/controllers/token-exchange.js', () => ({
   exchangeToken: tagged('exchangeToken'),
   rotateKey: tagged('rotateKey'),
@@ -73,6 +83,8 @@ jest.unstable_mockModule('../src/controllers/webauthn.js', () => Object.fromEntr
 const totpRouter = (await import('../src/routes/totp.js')).default as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const authRouter = (await import('../src/routes/auth.js')).default as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const recoveryRouter = (await import('../src/routes/recovery-codes.js')).default as any;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function chain(router: any, method: string, path: string): string[] {
@@ -86,7 +98,6 @@ describe('TOTP route gates', () => {
   it.each([
     ['post', '/enrol'],
     ['delete', '/'],
-    ['post', '/recovery-codes'],
   ])('%s %s requires step-up and an interactive session, after auth', (method, path) => {
     const mw = chain(totpRouter, method, path);
     expect(mw).toContain('requireStepUp');
@@ -106,11 +117,30 @@ describe('TOTP route gates', () => {
     expect(chain(totpRouter, 'get', '/status')).toEqual(['requireAuth', 'totpStatus']);
   });
 
-  it('audits both ends of the factor\'s life, and the recovery-code re-key', () => {
+  it('audits both ends of the factor\'s life', () => {
     expect(chain(totpRouter, 'post', '/enrol')).toContain('audited:user.totp.enrol');
     expect(chain(totpRouter, 'post', '/activate')).toContain('audited:user.totp.enrol,user.login.failed');
     expect(chain(totpRouter, 'delete', '/')).toContain('audited:user.totp.disable');
-    expect(chain(totpRouter, 'post', '/recovery-codes')).toContain('audited:user.totp.recovery_regenerate');
+  });
+
+  it('no longer owns the recovery codes (they belong to the account)', () => {
+    const layer = totpRouter.stack.find((l: { route?: { path: string } }) => l.route?.path === '/recovery-codes');
+    expect(layer).toBeUndefined();
+  });
+});
+
+describe('recovery-code routes (/auth/recovery-codes)', () => {
+
+  it('regeneration requires step-up and an interactive session, and is audited', () => {
+    const mw = chain(recoveryRouter, 'post', '/');
+    expect(mw).toContain('requireStepUp');
+    expect(mw).toContain('requireInteractiveSession');
+    expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    expect(mw).toContain('audited:user.mfa.recovery_regenerate');
+  });
+
+  it('status is a plain authenticated read', () => {
+    expect(chain(recoveryRouter, 'get', '/')).toEqual(['requireAuth', 'recoveryCodeStatus']);
   });
 });
 

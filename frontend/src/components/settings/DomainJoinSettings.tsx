@@ -78,7 +78,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
       {read.error ? (
         <RetryError message={formatError(read.error, 'Could not load domains')} onRetry={read.refetch} />
       ) : loading ? (
-        <div className="flex items-center gap-2 text-sm text-[var(--pb-text-muted)] py-4">
+        <div className="flex items-center gap-2 text-sm text-fg-muted py-4">
           <LoadingSpinner size="sm" /> Loading domains…
         </div>
       ) : (
@@ -104,19 +104,19 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
 
           {/* Domain list */}
           <div className="space-y-3">
-            {domains.length === 0 && <p className="text-sm text-[var(--pb-text-muted)]">No domains registered yet.</p>}
+            {domains.length === 0 && <p className="text-sm text-fg-muted">No domains registered yet.</p>}
             {domains.map((d) => (
-              <div key={d.id} className="rounded-lg border border-[var(--pb-border)] p-3">
+              <div key={d.id} className="rounded-lg border border-default p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-medium text-sm">{d.domain}</span>
                   <div className="flex items-center gap-2">
                     {d.verified
-                      ? <span className="inline-flex items-center gap-1 text-xs text-[var(--pb-success)]"><Check className="w-3.5 h-3.5" /> Verified</span>
-                      : <span className="text-xs text-[var(--pb-text-muted)]">Unverified</span>}
+                      ? <span className="inline-flex items-center gap-1 text-xs text-success"><Check className="w-3.5 h-3.5" /> Verified</span>
+                      : <span className="text-xs text-fg-muted">Unverified</span>}
                     <button
                       type="button"
                       aria-label={`Delete ${d.domain}`}
-                      className="text-[var(--pb-text-muted)] hover:text-[var(--pb-danger)]"
+                      className="text-fg-muted hover:text-danger"
                       disabled={busy}
                       onClick={() => setPendingDelete(d)}
                     >
@@ -126,8 +126,8 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
                 </div>
 
                 {!d.verified && d.verification && (
-                  <div className="mt-2 rounded-md bg-[var(--pb-surface-muted)] p-2.5 text-xs">
-                    <p className="text-[var(--pb-text-muted)] mb-1">Publish this DNS TXT record, then verify:</p>
+                  <div className="mt-2 rounded-md bg-surface-muted p-2.5 text-xs">
+                    <p className="text-fg-muted mb-1">Publish this DNS TXT record, then verify:</p>
                     <code className="block break-all">{d.verification.host} TXT &quot;{d.verification.value}&quot;</code>
                     <Button type="button" variant="secondary" className="mt-2" disabled={busy}
                       onClick={() => void run(() => api.verifyOrgDomain(orgId, d.id), 'Domain verified')}>
@@ -138,7 +138,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
 
                 {d.verified && (
                   <div className="mt-2 flex items-center gap-2">
-                    <label className="text-xs text-[var(--pb-text-muted)]" htmlFor={`mode-${d.id}`}>Who can join</label>
+                    <label className="text-xs text-fg-muted" htmlFor={`mode-${d.id}`}>Who can join</label>
                     <Select
                       id={`mode-${d.id}`}
                       className="text-sm"
@@ -162,7 +162,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
               <h4 className="text-sm font-semibold mb-2">Pending join requests ({requests.length})</h4>
               <div className="space-y-2">
                 {requests.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-[var(--pb-border)] p-2.5">
+                  <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
                     <span className="text-sm truncate">{r.email}</span>
                     <div className="flex items-center gap-2 shrink-0">
                       <Button type="button" disabled={busy} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'approve'), 'Request approved')}>Approve</Button>

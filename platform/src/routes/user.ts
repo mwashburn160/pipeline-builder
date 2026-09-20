@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireOrgAdminAssurance, requireStepUp, tagRouteGate } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   changePassword,
@@ -48,7 +48,18 @@ router.get('/organizations', requireAuth, listUserOrganizations);
  *  renews that session in place. NOT step-up gated: the unattended token-renewal
  *  Lambda and `pipeline-manager infra store-token` call it with no password. A
  *  scoped caller can only re-mint its own scope. */
-router.post('/generate-token', requireAuth, audited('user.token.create'), generateToken);
+router.post(
+  '/generate-token',
+  requireAuth,
+  audited('user.token.create'),
+  // The org's "administrative actions require MFA" policy applies to OPENING a
+  // new machine credential, and only a person may do that while it is on
+  // (`machines: 'refuse'`). RENEWING an existing machine session is exempt — the
+  // unattended renewal would otherwise stop the day the policy is enabled. That
+  // split needs the caller's slot, so the controller applies the check
+  // (`refuseForOrgAdminAssurance`); the tag puts it on the route table.
+  tagRouteGate(generateToken, { kind: 'orgAdminAssurance', machines: 'refuse' }),
+);
 
 /** GET /user/tokens - List the user's recent token-issuance history (with computed status). */
 router.get('/tokens', requireAuth, listTokenHistory);
@@ -66,8 +77,10 @@ router.delete('/sessions/:id', requireAuth, requireStepUp, audited('user.session
  *  (`pb_pat_…`), shown once at creation and stored only as a hash.
  *  Creation is step-up gated: minting a long-lived bearer credential is at least
  *  as sensitive as change-password / revoke-all, and step-up also blocks
- *  key-chaining (a key can't produce the step-up token creating a new one needs). */
-router.post('/keys', requireAuth, requireStepUp, audited('user.key.create'), createAccessKey);
+ *  key-chaining (a key can't produce the step-up token creating a new one needs).
+ *  While the org's "administrative actions require MFA" policy is on, creating a
+ *  key also needs an `aal: 2` session, and no machine credential may do it. */
+router.post('/keys', requireAuth, requireOrgAdminAssurance({ machines: 'refuse' }), requireStepUp, audited('user.key.create'), createAccessKey);
 router.get('/keys', requireAuth, listAccessKeys);
 router.delete('/keys/:id', requireAuth, audited('user.key.revoke'), revokeAccessKey);
 

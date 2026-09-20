@@ -66,25 +66,25 @@ export function MfaRequiredDialog({ code, message, onClose }: Props) {
   return (
     <Modal
       title={stale ? 'Please sign in again' : 'Two-factor authentication required'}
-      titleIcon={<ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />}
+      titleIcon={<ShieldAlert className="h-5 w-5 text-warning shrink-0" />}
       onClose={onClose}
     >
       <div className="space-y-4">
         <p className="text-sm text-gray-700 dark:text-gray-300">{message}</p>
 
         {stale ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             This action needs a recent sign-in. Your session is fine for everything else —
             sign in again and retry.
           </p>
         ) : needsEnrolment ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             This account has no second factor yet. Add a passkey (a fingerprint, face or
             security key) or an authenticator app, then sign in again — signing in with the
             new factor is what makes the session strong enough.
           </p>
         ) : (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             You signed in with a single factor this time. Sign in again with your passkey or
             authenticator code and retry — refreshing the session cannot raise it.
           </p>

@@ -246,12 +246,12 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
               (requestId set) and SSE events start arriving. */}
           {requestId && events.length > 0 && (
             <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-48 overflow-y-auto">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Build Log</p>
+              <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
               {events.map((event, i) => (
                 <div key={i} className={`text-xs font-mono py-0.5 ${
                   event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
                   event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
-                  'text-gray-600 dark:text-gray-400'
+                  'text-fg-muted'
                 }`}>
                   {event.message}
                 </div>
@@ -272,21 +272,21 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                 <label className="label">Plugin File (.zip or .tar.gz)</label>
                 <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
                   <div className="space-y-1 text-center">
-                    <Upload className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-                    <div className="flex text-sm text-gray-600 dark:text-gray-400">
+                    <Upload className="mx-auto h-12 w-12 text-fg-subtle" />
+                    <div className="flex text-sm text-fg-muted">
                       <label htmlFor={fileInputId} className="relative cursor-pointer rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                         <span>Select a file</span>
                         <input id={fileInputId} name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={uploadDisabled} />
                       </label>
                       <p className="pl-1">or drag and drop</p>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">ZIP or TAR.GZ up to 100MB</p>
+                    <p className="text-xs text-fg-muted">ZIP or TAR.GZ up to 100MB</p>
                   </div>
                 </div>
                 {file && (
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  <p className="mt-2 text-sm text-fg-muted">
                     Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
-                    <span className="text-gray-400 dark:text-gray-500 ml-2">({formatBytes(file.size)})</span>
+                    <span className="text-fg-subtle ml-2">({formatBytes(file.size)})</span>
                   </p>
                 )}
               </div>
@@ -312,7 +312,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
         // need AI, instead of rendering a builder that dead-ends.
         <div className="space-y-3">
           <FeatureLock flag="ai_generation" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-fg-muted">
             The <span className="font-medium">Wizard</span> and <span className="font-medium">Upload</span> tabs build a
             plugin without AI.
           </p>

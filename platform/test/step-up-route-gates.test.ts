@@ -21,6 +21,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   ), { __mw: 'requireStepUp' }),
   requirePermission: () => tagged('requirePermission'),
   requireAssurance: () => tagged('requireAssurance'),
+  requireOrgAdminAssurance: () => tagged('requireOrgAdminAssurance'),
+  tagRouteGate: <T>(fn: T) => fn,
   STRONG_STEP_UP_METHODS: ['webauthn', 'totp'],
   // Route-table audit declaration — a tagged pass-through, so it shows up in the
   // middleware chain this test inspects without affecting the step-up ordering.
@@ -50,12 +52,17 @@ const HANDLERS = [
 ];
 const handlers = (names: string[]) => Object.fromEntries(names.map((h) => [h, tagged(h)]));
 jest.unstable_mockModule('../src/controllers/index.js', () => handlers(HANDLERS));
-jest.unstable_mockModule('../src/controllers/org-idp-self.js', () => handlers(['getOwnOrgIdpConfig', 'putOwnOrgIdpConfig', 'patchOwnOrgIdpConfig', 'deleteOwnOrgIdpConfig']));
+jest.unstable_mockModule('../src/controllers/org-idp-self.js', () => handlers(['getOwnOrgIdpConfig', 'putOwnOrgIdpConfig', 'patchOwnOrgIdpConfig', 'deleteOwnOrgIdpConfig', 'getOwnOrgIdpSpInfo', 'importOwnOrgIdpMetadata']));
+jest.unstable_mockModule('../src/controllers/sso-test.js', () => handlers(['startSsoTest', 'completeSsoTest']));
 jest.unstable_mockModule('../src/controllers/org-idp-mappings.js', () => handlers([
   'listOrgIdpGroupMappings', 'createOrgIdpGroupMapping', 'updateOrgIdpGroupMapping', 'deleteOrgIdpGroupMapping',
 ]));
 jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () => handlers(['getImpersonationPolicy', 'updateImpersonationPolicy']));
 jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => handlers(['getMfaPolicy', 'updateMfaPolicy']));
+jest.unstable_mockModule('../src/controllers/org-security-policy.js', () => handlers([
+  'getPasswordPolicy', 'updatePasswordPolicy', 'getAuthenticatorPolicy', 'updateAuthenticatorPolicy',
+]));
+jest.unstable_mockModule('../src/controllers/mfa-reset.js', () => handlers(['listMfaResets', 'requestMfaReset', 'approveMfaReset', 'denyMfaReset']));
 jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({ createLimiter: () => tagged('limiter'), userOrIpKey: () => 'k' }));
 
 const usersRouter = (await import('../src/routes/users.js')).default as any;

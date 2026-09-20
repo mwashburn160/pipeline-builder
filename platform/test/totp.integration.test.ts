@@ -39,7 +39,7 @@ suite('TOTP enrolment (real Mongo replica set)', () => {
     process.env.MONGODB_URI = replSet.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
     m = await import('../src/models/index.js');
-    for (const model of [m.User, m.UserTotp, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.PersonalAccessToken, m.UserPreferences, m.Organization, m.WebAuthnCredential]) {
+    for (const model of [m.User, m.UserTotp, m.MfaRecoveryCodes, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.PersonalAccessToken, m.UserPreferences, m.Organization, m.WebAuthnCredential]) {
       await model.createCollection().catch(() => undefined);
     }
     await m.UserTotp.syncIndexes();
@@ -57,7 +57,7 @@ suite('TOTP enrolment (real Mongo replica set)', () => {
 
   let userId: string;
   beforeEach(async () => {
-    for (const model of [m.User, m.UserTotp, m.UserOrganization, m.Role, m.RoleAssignment, m.Organization]) await model.deleteMany({});
+    for (const model of [m.User, m.UserTotp, m.MfaRecoveryCodes, m.UserOrganization, m.Role, m.RoleAssignment, m.Organization]) await model.deleteMany({});
     const user = await m.User.create({ username: 'enrollee', email: 'enrollee@acme.com', password: 'Passw0rdPassw0rd', isEmailVerified: true });
     userId = String(user._id);
   });
@@ -107,8 +107,9 @@ suite('TOTP enrolment (real Mongo replica set)', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
 
-    const doc = await m.UserTotp.findOne({ userId }).select('+recoveryCodes').lean();
-    expect(doc.recoveryCodes.filter((c: { usedAt?: Date }) => c.usedAt)).toHaveLength(1);
+    // One set per account, in its own collection (shared with passkeys).
+    const doc = await m.MfaRecoveryCodes.findOne({ userId }).select('+codes').lean();
+    expect(doc.codes.filter((c: { usedAt?: Date }) => c.usedAt)).toHaveLength(1);
   });
 
   it('honours a generated code exactly once under CONCURRENT use', async () => {

@@ -59,11 +59,11 @@ export default function ApiCatalogPage() {
     <DashboardLayout title="API Catalog" subtitle="Services, their gateway routes, and how to call them">
       <div className="space-y-6">
         <SectionCard icon={KeyRound} title="Authentication">
-          <p className="text-sm text-[var(--pb-text-muted)]">
+          <p className="text-sm text-fg-muted">
             All endpoints are reached through the gateway under <EndpointChip>/api/*</EndpointChip>. Authenticate with a bearer token and scope the request to your organization:
           </p>
           <CodeBlock className="mt-3" language="http" code={'Authorization: Bearer <token>\nx-org-id: <your-organization-id>'} />
-          <p className="mt-3 text-sm text-[var(--pb-text-muted)]">
+          <p className="mt-3 text-sm text-fg-muted">
             Create a token on the <Link href="/dashboard/security?tab=keys" className="action-link">Security → Access keys</Link> page. Full endpoint details are in the{' '}
             <Link href="/dashboard/help" className="action-link">API Reference</Link>.
           </p>
@@ -83,7 +83,7 @@ export default function ApiCatalogPage() {
         </SectionCard>
 
         <SectionCard icon={BookOpen} title="Machine-readable spec">
-          <p className="text-sm text-[var(--pb-text-muted)]">
+          <p className="text-sm text-fg-muted">
             Each service generates an OpenAPI 3.1 spec from its request schemas, served at <EndpointChip>/docs/openapi.json</EndpointChip> on the service
             (with an interactive Swagger UI at <EndpointChip>/docs</EndpointChip> in non-production deployments). Point your client generator at those specs, or
             browse the hand-written reference in <Link href="/dashboard/help" className="action-link">Help → API Reference</Link>.

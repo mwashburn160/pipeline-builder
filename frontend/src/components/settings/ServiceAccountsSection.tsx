@@ -392,7 +392,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       {data.roles.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Roles for the new service account">
           {data.roles.map((role) => (
-            <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-[var(--pb-text-muted)]">
+            <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
               <input
                 type="checkbox"
                 checked={roleIds.includes(role.id)}
@@ -432,18 +432,18 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
             const stored = account.roles.map((r) => r.id);
             const rolesDirty = !sameRoleSet(draft, stored);
             return (
-              <div key={account.id} className="rounded-lg border border-[var(--pb-border)] p-3">
+              <div key={account.id} className="rounded-lg border border-default p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-col gap-0.5">
                     <span className="font-medium text-sm">
                       {account.name}
                       {account.disabled && <Badge color="red" className="ml-2">disabled</Badge>}
                     </span>
-                    <span className="text-xs text-[var(--pb-text-muted)]">
+                    <span className="text-xs text-fg-muted">
                       {account.description || 'No description'} · created by {account.createdByEmail ?? 'unknown'}
                       {account.lastUsedAt ? <> · last used <RelativeTime value={account.lastUsedAt} /></> : ' · never used'}
                     </span>
-                    <span className="text-xs text-[var(--pb-text-muted)]">
+                    <span className="text-xs text-fg-muted">
                       {account.tokenBudget === -1
                         ? 'Unlimited token exchanges'
                         : `${account.usage.exchanges} / ${account.tokenBudget} token exchanges this period`}
@@ -498,7 +498,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                     <Button
                       variant="ghost"
                       size="xs"
-                      className="gap-1 text-red-600 hover:text-red-700"
+                      className="gap-1 text-danger hover:text-danger-strong"
                       readOnly={readOnly}
                       disabled={busy}
                       onClick={() => setPending({
@@ -511,7 +511,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                 </div>
 
                 {detailsDraft?.accountId === account.id && (
-                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md bg-[var(--pb-surface-muted)] p-2">
+                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md bg-surface-muted p-2">
                     <FormField label="Description" className="flex-1 min-w-[180px]" hint="Leave empty to clear it.">
                       <Input
                         value={detailsDraft.description}
@@ -537,7 +537,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                 {/* Roles — the account's authority, edited as a SET and saved once. */}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {data.roles.map((role) => (
-                    <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-[var(--pb-text-muted)]">
+                    <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
                       <input
                         type="checkbox"
                         checked={draft.includes(role.id)}
@@ -602,7 +602,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
 
       {/* New-key form (per account) */}
       {keyDraft && (
-        <div className="mt-4 rounded-lg border border-[var(--pb-border)] p-3">
+        <div className="mt-4 rounded-lg border border-default p-3">
           <div className="flex flex-wrap items-end gap-2">
             <FormField label="Key name" className="flex-1 min-w-[160px]">
               <Input value={keyDraft.name} onChange={(e) => setKeyDraft({ ...keyDraft, name: e.target.value })} maxLength={100} />

@@ -38,7 +38,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {topic.title}
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+          <p className="text-xs text-fg-muted truncate">
             {topic.description}
           </p>
         </div>
@@ -47,7 +47,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
           transition={{ duration: 0.2 }}
           className="flex-shrink-0"
         >
-          <ChevronDown className="w-5 h-5 text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-fg-subtle" />
         </motion.div>
       </button>
 

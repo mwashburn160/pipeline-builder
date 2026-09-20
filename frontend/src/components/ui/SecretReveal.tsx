@@ -41,7 +41,7 @@ export function SecretReveal({
     <Callout variant="warning" icon={KeyRound} title={`${label} created`} className={className}>
       <p>{note}</p>
       <div className="mt-2 flex items-center gap-2">
-        <code className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-mono text-xs text-[var(--pb-text)] dark:border-amber-900/60 dark:bg-gray-900">
+        <code className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-mono text-xs text-fg dark:border-amber-900/60 dark:bg-gray-900">
           {value}
         </code>
       </div>

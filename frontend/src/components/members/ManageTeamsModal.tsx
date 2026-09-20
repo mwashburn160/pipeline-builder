@@ -45,15 +45,15 @@ export function ManageTeamsModal({
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Select which teams <strong>{target.username}</strong> belongs to.
         A member can be on multiple teams; each membership keeps its own role.
       </p>
       {error && <p className="text-sm text-red-600 dark:text-red-400 mb-3 whitespace-pre-line">{error}</p>}
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading teams…</p>
+        <p className="text-sm text-fg-muted">Loading teams…</p>
       ) : roster.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">This organization has no teams yet.</p>
+        <p className="text-sm text-fg-muted">This organization has no teams yet.</p>
       ) : (
         <div className="space-y-1 max-h-72 overflow-y-auto">
           {roster.map((t) => {

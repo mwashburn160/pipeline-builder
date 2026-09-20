@@ -21,6 +21,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { CreateUserModal } from '@/components/users/CreateUserModal';
 import { EditUserModal } from '@/components/users/EditUserModal';
 import { BreakglassModal } from '@/components/users/BreakglassModal';
+import { DirectMfaResetModal } from '@/components/users/DirectMfaResetModal';
 import Link from 'next/link';
 import { buildUserColumns } from '@/components/users/userColumns';
 import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
@@ -139,6 +140,9 @@ export default function UsersPage() {
   const [impersonateTarget, setImpersonateTarget] = useState<UserListItem | null>(null);
   // Emergency access: pick the target, collect a justification, THEN step up.
   const [breakglassTarget, setBreakglassTarget] = useState<UserListItem | null>(null);
+  // Sysadmin DIRECT MFA reset — for an org with no second admin to approve a
+  // two-person request.
+  const [resetMfaTarget, setResetMfaTarget] = useState<UserListItem | null>(null);
   const [breakglassJustification, setBreakglassJustification] = useState<string | null>(null);
   // A request that is waiting on someone else. Not an error — it's the consent
   // flow working — so it gets its own notice rather than the error banner.
@@ -441,6 +445,7 @@ export default function UsersPage() {
     onEdit: handleEditUser,
     onToggleSuperAdmin: toggleSuperAdmin,
     onDelete: (u) => setPendingDelete(u),
+    onResetMfa: (u) => setResetMfaTarget(u),
   }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible]);
@@ -606,6 +611,14 @@ export default function UsersPage() {
           requireStrongFactor
           onConfirmed={executeImpersonate}
           onClose={() => setImpersonateTarget(null)}
+        />
+      )}
+
+      {resetMfaTarget && (
+        <DirectMfaResetModal
+          target={resetMfaTarget}
+          onClose={() => setResetMfaTarget(null)}
+          onDone={() => list.refresh()}
         />
       )}
 

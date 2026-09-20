@@ -10,9 +10,11 @@
  *   POST   /auth/totp/enrol                (step-up + interactive session)
  *   POST   /auth/totp/activate
  *   DELETE /auth/totp                      (step-up + interactive session)
- *   POST   /auth/totp/recovery-codes       (step-up + interactive session)
  *   POST   /auth/step-up/totp              — the standard step-up token
  *   POST   /auth/mfa/verify                (public) — finish a password sign-in
+ *
+ * Recovery codes belong to the account, not to this factor — they are managed
+ * at `/auth/recovery-codes` (controllers/recovery-codes.ts).
  *
  * Gating mirrors passkeys exactly, and for the same reason: enrolling or
  * removing TOTP changes what it takes to get into the account, so both take a
@@ -37,6 +39,8 @@ import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { consumeMfaChallenge, peekMfaChallenge } from '../services/mfa-challenge.js';
+import { clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
+import { verifyRecoveryCode } from '../services/recovery-codes-service.js';
 import {
   TOTP_ALREADY_ENROLLED,
   TOTP_INVALID_CHALLENGE,
@@ -146,15 +150,18 @@ export const activateTotp = withController('TOTP activate', async (req, res) => 
   audit(req, 'user.totp.enrol', {
     targetType: 'user',
     targetId: userId,
-    details: { stage: 'activated', recoveryCodes: result.recoveryCodes.length },
+    details: { stage: 'activated', recoveryCodesMinted: result.recoveryCodes.length },
   });
+  await clearResetGraceOnEnrolment(userId);
   // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
   // good, even if this authenticator is later removed. Awaited, not
   // fire-and-forget: the very next request may be the one that must no longer be
   // limited, and the write is a single conditional update.
   await closeBootstrapExceptionOnEnrolment(req, userId);
   meter('activate', 'success');
-  // The codes are shown ONCE — only their hashes are stored.
+  // Recovery codes are minted only with the account's FIRST factor, and shown
+  // ONCE (only their hashes are stored). An account that already had a set —
+  // from a passkey — keeps it and gets an empty list here.
   sendSuccess(res, 201, { recoveryCodes: result.recoveryCodes });
 }, TOTP_ERROR_MAP);
 
@@ -164,18 +171,6 @@ export const disableTotp = withController('TOTP disable', async (req, res) => {
   await totp.disable(userId);
   audit(req, 'user.totp.disable', { targetType: 'user', targetId: userId });
   sendSuccess(res, 200, { disabled: true });
-}, TOTP_ERROR_MAP);
-
-/** POST /auth/totp/recovery-codes — replace the recovery-code sheet (step-up gated). */
-export const regenerateRecoveryCodes = withController('TOTP recovery codes', async (req, res) => {
-  const userId = req.user!.sub;
-  const { recoveryCodes } = await totp.regenerateRecoveryCodes(userId);
-  audit(req, 'user.totp.recovery_regenerate', {
-    targetType: 'user',
-    targetId: userId,
-    details: { count: recoveryCodes.length },
-  });
-  sendSuccess(res, 201, { recoveryCodes });
 }, TOTP_ERROR_MAP);
 
 // -- Step-up ------------------------------------------------------------------
@@ -272,9 +267,15 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     return sendError(res, 401, TOTP_ERROR_MAP[TOTP_INVALID_CHALLENGE].message, TOTP_INVALID_CHALLENGE);
   }
 
-  let verification;
+  // A RECOVERY-ONLY challenge (a passkey account whose org policy refused the
+  // password alone) accepts nothing but one of the account's recovery codes,
+  // under their own lockout; otherwise it is the authenticator app's code or a
+  // recovery code, under the enrolment's.
+  let verification: totp.TotpVerification;
   try {
-    verification = await totp.verifyCode(pending.userId, body.code);
+    verification = pending.recoveryOnly
+      ? { method: 'recovery', recoveryCodesRemaining: await verifyRecoveryCode(pending.userId, body.code) }
+      : await totp.verifyCode(pending.userId, body.code);
   } catch (err) {
     return deny(err instanceof Error ? err.message : 'unknown', pending.userId);
   }
@@ -298,6 +299,32 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
 
   if (verification.method === 'recovery') auditRecoveryUsed(req, pending.userId, 'login', verification.recoveryCodesRemaining);
 
+  // The password verified in the first leg no longer meets the person's org
+  // password policy: both factors are proven, but the sign-in owes a password
+  // change before any session opens (services/password-change-challenge.ts).
+  // The change leg inherits THIS leg's assurance (`pwd` + `mfa`, aal 2).
+  if (pending.passwordChangeMinLength) {
+    const { createPasswordChangeChallenge } = await import('../services/password-change-challenge.js');
+    const challenge = await createPasswordChangeChallenge({
+      userId: pending.userId,
+      ...(pending.orgId ? { orgId: pending.orgId } : {}),
+      amr: ['pwd', 'mfa'],
+      aal: 2,
+      minLength: pending.passwordChangeMinLength,
+    });
+    audit(req, 'user.password.change_required', {
+      targetType: 'user',
+      targetId: pending.userId,
+      details: { minLength: pending.passwordChangeMinLength },
+    });
+    incCounter('platform_password_change_required_total');
+    return sendSuccess(res, 200, {
+      passwordChangeRequired: true,
+      ...challenge,
+      ...(verification.method === 'recovery' && { recoveryCodesRemaining: verification.recoveryCodesRemaining }),
+    });
+  }
+
   // Identical to the password path, with `mfa` added to `amr` — and `aal: 2`,
   // since a password plus an authenticator code (or a recovery code, which is
   // the same factor's fallback) is exactly what MFA-grade means (#8).
@@ -310,7 +337,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
   audit(req, 'user.login', {
     targetType: 'user',
     targetId: pending.userId,
-    details: { method: 'pwd+totp', via: verification.method },
+    details: { method: pending.recoveryOnly ? 'pwd+recovery' : 'pwd+totp', via: verification.method },
   });
   incCounter('platform_logins_total');
   meter('login', verification.method === 'recovery' ? 'recovery' : 'success');
@@ -323,16 +350,16 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
 
 /** A recovery code was spent. Its own action, because burning one is a signal an
  *  operator wants to see even when the sign-in itself was legitimate. */
-function auditRecoveryUsed(
+export function auditRecoveryUsed(
   req: Parameters<typeof audit>[0],
   userId: string,
   context: 'login' | 'step-up',
   remaining: number,
 ): void {
-  audit(req, 'user.totp.recovery_used', {
+  audit(req, 'user.mfa.recovery_used', {
     targetType: 'user',
     targetId: userId,
     details: { context, remaining },
   });
-  logger.warn('TOTP recovery code used', { userId, context, remaining });
+  logger.warn('Recovery code used', { userId, context, remaining });
 }

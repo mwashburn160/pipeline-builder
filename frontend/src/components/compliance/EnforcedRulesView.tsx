@@ -50,7 +50,7 @@ export default function EnforcedRulesView() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-green-600" />
+          <Shield className="h-5 w-5 text-success" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">All Enforced Rules ({rules.length})</h2>
         </div>
         <FilterSelect
@@ -72,7 +72,7 @@ export default function EnforcedRulesView() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-green-600" /></div>
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-success" /></div>
       ) : rules.length === 0 ? (
         <TextEmptyState>No rules are currently enforced. Create org rules or activate subscribed rules.</TextEmptyState>
       ) : (
@@ -102,7 +102,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
     render: (rule) => (
       <>
         <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-        {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
+        {rule.description && <div className="text-xs text-fg-muted truncate max-w-xs">{rule.description}</div>}
         {rule.inherited && <div className="mt-1"><InheritedBadge rule={rule} /></div>}
       </>
     ),
@@ -120,13 +120,13 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
   {
     id: 'field',
     header: 'Field',
-    cellClassName: 'text-sm text-gray-600 dark:text-gray-400 font-mono',
+    cellClassName: 'text-sm text-fg-muted font-mono',
     render: (rule) => rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-'),
   },
   {
     id: 'priority',
     header: 'Priority',
-    cellClassName: 'text-sm text-gray-600 dark:text-gray-400',
+    cellClassName: 'text-sm text-fg-muted',
     render: (rule) => rule.priority,
   },
 ];

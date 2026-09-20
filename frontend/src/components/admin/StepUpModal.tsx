@@ -235,7 +235,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
   return (
     <Modal
       title={title ?? "Confirm it's you"}
-      titleIcon={<ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />}
+      titleIcon={<ShieldAlert className="h-5 w-5 text-warning shrink-0" />}
       onClose={handleClose}
       initialFocusRef={focusRef}
     >
@@ -248,7 +248,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
         {details && <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">{details}</div>}
 
         {!factors ? (
-          <p className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="flex items-center gap-2 text-xs text-fg-muted">
             <LoadingSpinner size="sm" /> Checking how you can confirm…
           </p>
         ) : (
@@ -257,7 +257,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                 that takes a touch rather than a typed secret. */}
             {hasPasskeys && (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-fg-muted">
                   Confirm with a passkey. This protects against accidental
                   destructive actions on a left-open session.
                 </p>
@@ -280,7 +280,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                 why the field is not digit-constrained. */}
             {hasTotp && (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-fg-muted">
                   {hasPasskeys
                     ? 'Or enter the code from your authenticator app:'
                     : 'Enter the code from your authenticator app. A recovery code works too.'}
@@ -313,7 +313,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
 
             {hasPassword && (
               <>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-fg-muted">
                   {hasPasskeys || hasTotp
                     ? 'Or re-enter your password:'
                     : 'Re-enter your password to confirm. This protects against accidental destructive actions on a left-open session.'}
@@ -334,7 +334,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
 
             {providers.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-fg-muted">
                   {hasPassword || hasPasskeys || hasTotp
                     ? 'Or confirm by signing in again:'
                     : 'Sign in again with your provider to confirm. A window opens for the sign-in.'}
@@ -362,14 +362,14 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
             )}
 
             {requireStrongFactor && (hasPasskeys || hasTotp) && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-fg-muted">
                 This action can only be confirmed with a passkey or an authenticator code —
                 a password isn&apos;t accepted here.
               </p>
             )}
 
             {requireStrongFactor && !hasPasskeys && !hasTotp && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-fg-muted">
                 This action can only be confirmed with a passkey or an authenticator app, and
                 this account has neither. Add one from{' '}
                 <a href={PASSKEY_ENROLMENT_HREF} className="action-link">
@@ -380,7 +380,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
             )}
 
             {!requireStrongFactor && !hasPassword && !hasPasskeys && !hasTotp && providers.length === 0 && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-fg-muted">
                 This account has no way to confirm sensitive actions. Add a passkey
                 from{' '}
                 <a href={PASSKEY_ENROLMENT_HREF} className="action-link">

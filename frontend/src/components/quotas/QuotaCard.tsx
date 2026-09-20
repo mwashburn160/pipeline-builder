@@ -53,7 +53,7 @@ export function QuotaCard({
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{meta.description}</p>
+          <p className="text-xs text-fg-muted mt-0.5">{meta.description}</p>
         </div>
         <StatusBadge used={quota.used} limit={quota.limit} />
       </div>
@@ -62,7 +62,7 @@ export function QuotaCard({
         <span className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
           {fmtNum(quota.used)}
         </span>
-        <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
+        <span className="text-sm text-fg-muted tabular-nums">
           / {fmtNum(quota.limit)}
         </span>
       </div>
@@ -74,7 +74,7 @@ export function QuotaCard({
         />
       </div>
 
-      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex justify-between text-xs text-fg-muted">
         <span className="font-medium text-gray-600 dark:text-gray-300">
           {quota.unlimited ? 'No limit' : `${fmtNum(quota.remaining)} remaining`}
         </span>
@@ -86,7 +86,7 @@ export function QuotaCard({
       {canManage && (
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
               Edit limit
             </span>
             <button
@@ -96,7 +96,7 @@ export function QuotaCard({
               className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
                 isUnlimited
                   ? 'border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               {isUnlimited ? '✓ Unlimited' : '∞ Set unlimited'}

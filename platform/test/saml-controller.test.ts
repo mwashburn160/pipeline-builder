@@ -15,7 +15,11 @@
  *   - JIT membership + group→Role sync run BEFORE the session is minted;
  *   - IdP-initiated responses and replays are refused AND audited;
  *   - the ACS never issues tokens — it parks a one-time, org-bound handoff that
- *     the landing page redeems.
+ *     the landing page redeems;
+ *   - a RelayState carrying the dry-run marker is a TEST CONNECTION: it is handed
+ *     to the test path and never reaches any sign-in logic;
+ *   - redeeming the handoff records the IdP's NameID/SessionIndex for Single
+ *     Logout, keyed by the new session.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -32,6 +36,10 @@ const mockProvisionJit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockAudit = jest.fn();
 const mockIncCounter = jest.fn();
+const mockRecordSamlSession = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockHandleTest = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockFindByOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockBuildMetadata = jest.fn<(...a: unknown[]) => Promise<string>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json(data); return res; },
@@ -79,9 +87,20 @@ jest.unstable_mockModule('../src/services/saml-service.js', () => ({
     SAML_INVALID_ASSERTION: { status: 401, message: 'invalid assertion' },
   },
   buildSamlAuthorizeUrl: (...a: unknown[]) => mockBuildSamlAuthorizeUrl(...a),
-  buildSamlMetadata: (orgId: string) => `<EntityDescriptor entityID="sp-${orgId}"/>`,
+  buildSamlMetadata: (...a: unknown[]) => mockBuildMetadata(...a),
   samlLandingUrl: (orgId: string) => `https://pb.test/auth/sso/${orgId}/saml`,
   validateSamlResponse: (...a: unknown[]) => mockValidateSamlResponse(...a),
+}));
+
+jest.unstable_mockModule('../src/controllers/saml-slo.js', () => ({
+  recordSamlSession: (...a: unknown[]) => mockRecordSamlSession(...a),
+}));
+jest.unstable_mockModule('../src/controllers/sso-test.js', () => ({
+  isTestState: (s: unknown) => typeof s === 'string' && s.startsWith('ssotest.'),
+  handleSamlTestAssertion: (...a: unknown[]) => mockHandleTest(...a),
+}));
+jest.unstable_mockModule('../src/services/org-idp-service.js', () => ({
+  orgIdpService: { findByOrg: (...a: unknown[]) => mockFindByOrg(...a) },
 }));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
@@ -173,8 +192,16 @@ beforeEach(() => {
   __resetSamlControllerStores();
   mockGetEnforcedSamlConfig.mockResolvedValue({ orgId: ORG, entityId: 'https://idp.test', certificates: ['cert'] });
   mockValidateSamlResponse.mockResolvedValue({
-    subject: 'ada@acme.test', issuer: 'https://idp.test', email: 'ada@acme.test', name: 'Ada', groups: ['Engineering'],
+    subject: 'ada@acme.test',
+    issuer: 'https://idp.test',
+    email: 'ada@acme.test',
+    name: 'Ada',
+    groups: ['Engineering'],
+    session: { nameID: 'ada@acme.test', sessionIndex: '_s1' },
   });
+  mockRecordSamlSession.mockResolvedValue(undefined);
+  mockFindByOrg.mockResolvedValue(null);
+  mockBuildMetadata.mockImplementation(async (orgId: unknown) => `<EntityDescriptor entityID="sp-${orgId}"/>`);
   mockAssertSsoIdentityTrusted.mockResolvedValue(undefined);
   mockAssertSeat.mockResolvedValue(undefined);
   mockProvisionJit.mockResolvedValue({ membershipCreated: false, matchedGroups: [], rolesAdded: [], rolesRemoved: [] });
@@ -189,9 +216,28 @@ describe('metadata', () => {
     await (getSamlMetadata as any)({ params: { orgId: ORG } }, res);
     expect(res.type).toHaveBeenCalledWith('application/samlmetadata+xml');
     expect(res.status).toHaveBeenCalledWith(200);
-    // Derived from the org id alone — no config lookup, so an admin can fetch it
-    // before the connection exists.
+    // No ENFORCED config is needed, so an admin can fetch it before the
+    // connection exists (or is enabled) — an unknown org reads as all-off.
     expect(mockGetEnforcedSamlConfig).not.toHaveBeenCalled();
+    expect(mockBuildMetadata).toHaveBeenCalledWith(ORG, { signAuthnRequests: false, encryptAssertions: false });
+  });
+
+  it('reflects the org\'s signing and encryption switches', async () => {
+    mockFindByOrg.mockResolvedValue({ samlSignAuthnRequests: true, samlEncryptAssertions: true });
+    await (getSamlMetadata as any)({ params: { orgId: ORG } }, makeRes());
+    expect(mockBuildMetadata).toHaveBeenCalledWith(ORG, { signAuthnRequests: true, encryptAssertions: true });
+  });
+});
+
+describe('ACS — a test-connection assertion', () => {
+  it('is handed to the dry-run path and never reaches sign-in logic', async () => {
+    const res = makeRes();
+    await (handleSamlAcs as any)({ params: { orgId: ORG }, body: { SAMLResponse: 'r', RelayState: 'ssotest.abc.sig' } }, res);
+    expect(mockHandleTest).toHaveBeenCalledWith(res, ORG, 'r', 'ssotest.abc.sig');
+    expect(mockValidateSamlResponse).not.toHaveBeenCalled();
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(mockProvisionJit).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 });
 
@@ -346,6 +392,18 @@ describe('completing the sign-in', () => {
     expect(auditedActions()).toContain('user.login');
     expect(mockIncCounter).toHaveBeenCalledWith('platform_saml_signins_total', { result: 'success' });
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('records the IdP session handle for Single Logout against the new session', async () => {
+    const handoff = await acsHandoff();
+    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, makeRes());
+    expect(mockRecordSamlSession).toHaveBeenCalledWith({
+      userId: 'user-1',
+      orgId: ORG,
+      accessToken: 'a',
+      issuer: 'https://idp.test',
+      session: { nameID: 'ada@acme.test', sessionIndex: '_s1' },
+    });
   });
 
   it('consumes the handoff once', async () => {

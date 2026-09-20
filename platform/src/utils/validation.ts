@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
 import { MAX_MFA_GRACE_DAYS } from '../helpers/mfa-policy.js';
-import { PASSWORD_RULES } from '../models/user.js';
+import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../models/user.js';
 
 /**
  * Validate data against a Zod schema.
@@ -59,7 +59,7 @@ export const emailSchema = z.string().regex(EMAIL_PATTERN, 'Invalid email addres
  */
 const passwordSchema = PASSWORD_RULES.reduce(
   (schema, rule) => schema.regex(rule.test, rule.message),
-  z.string().min(config.auth.passwordMinLength).max(128),
+  z.string().min(config.auth.passwordMinLength).max(PASSWORD_MAX_LENGTH),
 );
 
 // Auth Schemas
@@ -71,6 +71,9 @@ export const registerSchema = z.object({
   password: passwordSchema,
   organizationName: z.string().min(2).max(100).optional(),
   planId: z.string().optional(),
+  /** Registering to accept an invitation: the inviting org's password policy
+   *  applies to the new password (see helpers/password-policy.ts). */
+  invitationToken: z.string().min(1).max(256).optional(),
 });
 
 /** First-run onboarding completion (social-signup users): name the auto-created
@@ -236,18 +239,48 @@ export const updateImpersonationPolicySchema = z
  * `graceDays` is only meaningful while TURNING the requirement on — it is what
  * the deadline is computed from, server-side, so a client can never post a
  * deadline of its own choosing (or one in the past). Omitting it takes the
- * default; `0` makes the requirement bite immediately.
+ * default; `0` makes the requirement bite immediately. `adminActionsRequireMfa`
+ * is the separate "administrative actions require MFA" policy.
  */
 export const updateMfaPolicySchema = z
   .object({
     requireMfa: z.boolean().optional(),
     graceDays: z.number().int().min(0).max(MAX_MFA_GRACE_DAYS).optional(),
     idpEnforcesMfa: z.boolean().optional(),
+    adminActionsRequireMfa: z.boolean().optional(),
   })
   .strict()
-  .refine((d) => d.requireMfa !== undefined || d.idpEnforcesMfa !== undefined, {
-    message: 'Provide requireMfa or idpEnforcesMfa to update',
+  .refine((d) => d.requireMfa !== undefined || d.idpEnforcesMfa !== undefined || d.adminActionsRequireMfa !== undefined, {
+    message: 'Provide requireMfa, idpEnforcesMfa or adminActionsRequireMfa to update',
   });
+
+/**
+ * Second leg of a sign-in whose password no longer meets the org policy: the
+ * challenge handle plus the NEW password (platform rules here; the org minimum
+ * and the breach check run in the controller).
+ */
+export const requiredPasswordChangeSchema = z.object({
+  challengeId: z.string().min(1).max(256),
+  newPassword: passwordSchema,
+}).strict();
+
+/**
+ * PATCH /organization/:id/password-policy. `minLength: null` clears the org's
+ * own minimum (back to the platform floor, or an ancestor's). The floor is the
+ * platform minimum, the ceiling the platform maximum.
+ */
+export const updatePasswordPolicySchema = z.object({
+  minLength: z.number().int().min(config.auth.passwordMinLength).max(PASSWORD_MAX_LENGTH).nullable(),
+}).strict();
+
+/**
+ * PATCH /organization/:id/authenticator-policy. An empty list clears the
+ * allowlist (any passkey model). Entries are AAGUIDs; normalization and the
+ * all-zero refusal happen in the controller (`normalizeAaguid`).
+ */
+export const updateAuthenticatorPolicySchema = z.object({
+  allowedAaguids: z.array(z.string().trim().min(1).max(64)).max(100),
+}).strict();
 
 /** Owner/admin self-serve org identity update (name and/or slug). At least one
  *  field must be present so an empty PATCH is rejected rather than silently
@@ -419,6 +452,12 @@ const samlAttributesSchema = z.object({
   groups: samlAttributeNameSchema.optional(),
 }).strict();
 
+/** The IdP's Single Logout endpoint — https, or `''` to clear it. */
+const samlSloUrlSchema = z.union([
+  z.string().trim().url().refine((u) => u.startsWith('https://'), { message: 'The identity provider single-logout URL must use https' }),
+  z.literal(''),
+]);
+
 /**
  * Per-protocol required fields.
  *
@@ -455,6 +494,9 @@ export const orgIdpCreateSchema = z.object({
   samlSsoUrl: samlSsoUrlSchema.optional(),
   samlCertificates: samlCertificatesSchema.optional(),
   samlAttributes: samlAttributesSchema.optional(),
+  samlSloUrl: samlSloUrlSchema.optional(),
+  samlSignAuthnRequests: z.boolean().optional(),
+  samlEncryptAssertions: z.boolean().optional(),
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
@@ -488,6 +530,9 @@ export const orgIdpPatchSchema = z.object({
   samlSsoUrl: samlSsoUrlSchema.optional(),
   samlCertificates: samlCertificatesSchema.optional(),
   samlAttributes: samlAttributesSchema.optional(),
+  samlSloUrl: samlSloUrlSchema.optional(),
+  samlSignAuthnRequests: z.boolean().optional(),
+  samlEncryptAssertions: z.boolean().optional(),
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
@@ -495,6 +540,9 @@ export const orgIdpPatchSchema = z.object({
   groupsClaim: z.union([groupsClaimSchema, z.literal('')]).optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
+  /** Org policy "SSO required" (#5). Switching it ON is gated server-side on an
+   *  enabled IdP, a verified domain and a successful test connection. */
+  ssoRequired: z.boolean().optional(),
 }).refine(
   data => !data.groupsClaim || data.protocol === 'saml' || (data.provider !== 'google' && data.provider !== 'github'),
   { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
@@ -516,6 +564,13 @@ export const samlAcsSchema = z.object({
   SAMLResponse: z.string().min(1).max(500_000),
   RelayState: z.string().max(512).optional(),
 });
+
+/** IdP metadata import: a pasted/uploaded XML document OR a URL to fetch —
+ *  exactly one. The XML cap matches the fetch cap in controllers/org-idp-self.ts. */
+export const idpMetadataImportSchema = z.union([
+  z.object({ xml: z.string().min(1).max(512 * 1024) }).strict(),
+  z.object({ url: z.string().trim().url().refine((u) => u.startsWith('https://'), { message: 'The metadata URL must use https' }) }).strict(),
+]);
 
 /** The landing page redeeming the ACS's one-time handoff. */
 export const samlCompleteSchema = z.object({

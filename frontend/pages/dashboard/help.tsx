@@ -93,7 +93,7 @@ export default function HelpPage() {
                   <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
                     Nothing matches <span className="font-medium">&quot;{query}&quot;</span>.
                   </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-xs text-fg-muted">
                     Search covers titles, section headings, body text, code samples and table cells.
                   </p>
                   <button

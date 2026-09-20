@@ -26,19 +26,19 @@ export function DescriptionList({ items, variant = 'rows', className = '' }: Des
       <dl className={['grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3', className].filter(Boolean).join(' ')}>
         {items.map((it, i) => (
           <div key={i} className="min-w-0">
-            <dt className="text-xs font-medium uppercase tracking-wide text-[var(--pb-text-muted)]">{it.label}</dt>
-            <dd className="mt-1 break-words text-sm text-[var(--pb-text)]">{it.value}</dd>
+            <dt className="text-xs font-medium uppercase tracking-wide text-fg-muted">{it.label}</dt>
+            <dd className="mt-1 break-words text-sm text-fg">{it.value}</dd>
           </div>
         ))}
       </dl>
     );
   }
   return (
-    <dl className={['divide-y divide-[var(--pb-border)]', className].filter(Boolean).join(' ')}>
+    <dl className={['divide-y divide-default', className].filter(Boolean).join(' ')}>
       {items.map((it, i) => (
         <div key={i} className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-          <dt className="shrink-0 text-sm text-[var(--pb-text-muted)]">{it.label}</dt>
-          <dd className="min-w-0 break-words text-sm text-[var(--pb-text)] sm:text-right">{it.value}</dd>
+          <dt className="shrink-0 text-sm text-fg-muted">{it.label}</dt>
+          <dd className="min-w-0 break-words text-sm text-fg sm:text-right">{it.value}</dd>
         </div>
       ))}
     </dl>

@@ -73,7 +73,7 @@ export default function AuditActivityRedirect() {
     return (
       <DashboardLayout title="Audit Activity" subtitle="">
         <RetryError message={formatError(error)} onRetry={refetch} />
-        <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
+        <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
   }

@@ -32,6 +32,7 @@ const mockApi = {
   onSessionExpired: jest.fn(() => () => { /* unsubscribe */ }),
   login: jest.fn(),
   verifyMfaLogin: jest.fn(),
+  completeRequiredPasswordChange: jest.fn(),
 };
 class ApiError extends Error {
   statusCode: number;
@@ -130,6 +131,48 @@ describe('useAuth.completeMfaLogin', () => {
 
     await expect(act(async () => { await result.current.completeMfaLogin('chal-1', '000000'); }))
       .rejects.toThrow('Invalid credentials');
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
+describe('a password below the org password policy', () => {
+  const CHANGE = { passwordChangeRequired: true, challengeId: 'pw-1', expiresAt: 5, minLength: 14 };
+
+  it('login reports the owed change and opens nothing', async () => {
+    mockApi.login.mockResolvedValue({ success: true, data: CHANGE });
+    const result = await mounted();
+    let outcome: unknown;
+    await act(async () => { outcome = await result.current.login('ada@example.com', 'short'); });
+    expect(outcome).toEqual({ status: 'password_change_required', challengeId: 'pw-1', expiresAt: 5, minLength: 14 });
+    expect(mockApi.getProfile).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('completeMfaLogin reports it too, after the second factor', async () => {
+    mockApi.verifyMfaLogin.mockResolvedValue({ success: true, data: CHANGE });
+    const result = await mounted();
+    let outcome: unknown;
+    await act(async () => { outcome = await result.current.completeMfaLogin('chal-1', '123456'); });
+    expect(outcome).toMatchObject({ status: 'password_change_required', challengeId: 'pw-1' });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('completeRequiredPasswordChange opens the session and routes on', async () => {
+    mockApi.completeRequiredPasswordChange.mockResolvedValue({ success: true, data: { accessToken: 'a', expiresIn: 900 } });
+    const result = await mounted();
+    let outcome: unknown;
+    await act(async () => { outcome = await result.current.completeRequiredPasswordChange('pw-1', 'LongEnoughPassw0rd'); });
+    expect(mockApi.completeRequiredPasswordChange).toHaveBeenCalledWith({ challengeId: 'pw-1', newPassword: 'LongEnoughPassw0rd' });
+    expect(outcome).toEqual({ status: 'complete' });
+    expect(mockApi.getProfile).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('completeRequiredPasswordChange throws on a refused password', async () => {
+    mockApi.completeRequiredPasswordChange.mockResolvedValue({ success: false, message: 'This password has appeared in a known data breach.' });
+    const result = await mounted();
+    await expect(act(async () => { await result.current.completeRequiredPasswordChange('pw-1', 'Passw0rd12345'); }))
+      .rejects.toThrow('known data breach');
     expect(mockPush).not.toHaveBeenCalled();
   });
 });

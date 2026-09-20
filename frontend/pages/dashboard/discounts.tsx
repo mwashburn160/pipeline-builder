@@ -143,7 +143,7 @@ export default function DiscountsPage() {
             {!d.isActive && <Badge color="gray">Inactive</Badge>}
           </div>
           {d.appliesToTiers && d.appliesToTiers.length > 0 && (
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <div className="text-xs text-fg-muted mt-0.5">
               Tiers: {d.appliesToTiers.join(', ')}
             </div>
           )}
@@ -153,29 +153,29 @@ export default function DiscountsPage() {
     {
       id: 'campaign',
       header: 'Campaign / Alias',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (d) => (
         <div>
           {d.campaign && <div className="text-gray-700 dark:text-gray-300">{d.campaign}</div>}
           {d.alias && <div className="font-mono text-xs">{d.alias}</div>}
-          {!d.campaign && !d.alias && <span className="text-gray-400 dark:text-gray-500">—</span>}
+          {!d.campaign && !d.alias && <span className="text-fg-subtle">—</span>}
         </div>
       ),
     },
     {
       id: 'targetOrg',
       header: 'Target Org',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (d) => (
         d.targetOrgId
           ? <span className="font-mono text-xs">{d.targetOrgId}</span>
-          : <span className="text-gray-400 dark:text-gray-500">Any</span>
+          : <span className="text-fg-subtle">Any</span>
       ),
     },
     {
       id: 'redemptions',
       header: 'Redemptions',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (d) => (
         <>{d.timesRedeemed}{d.maxRedemptions != null ? ` / ${d.maxRedemptions}` : ''}</>
       ),
@@ -183,10 +183,10 @@ export default function DiscountsPage() {
     {
       id: 'redeemBy',
       header: 'Redeem By',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (d) => d.redeemBy
         ? <RelativeTime value={d.redeemBy} />
-        : <span className="text-gray-400 dark:text-gray-500">No expiry</span>,
+        : <span className="text-fg-subtle">No expiry</span>,
     },
     {
       id: 'status',
@@ -315,7 +315,7 @@ export default function DiscountsPage() {
             </div>
           }
         >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+          <p className="text-sm text-fg-muted mb-3">
             This opaque code redeems the discount. It is a <strong className="text-gray-700 dark:text-gray-300">bearer credential</strong> —
             anyone who has it can redeem it, so share it carefully. It is shown once here.
           </p>

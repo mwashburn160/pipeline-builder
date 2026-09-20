@@ -88,14 +88,14 @@ function AttachmentItem({ att }: { att: MessageAttachment }) {
         <img src={previewUrl} alt={att.filename} loading="lazy" className="max-h-48 rounded mb-1 object-contain" />
       )}
       <div className="flex items-center gap-2 text-xs">
-        <Paperclip className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+        <Paperclip className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
         <span className="truncate flex-1 text-gray-700 dark:text-gray-300" title={att.filename}>{att.filename}</span>
-        <span className="text-gray-400 shrink-0">{formatBytes(att.sizeBytes)}</span>
+        <span className="text-fg-subtle shrink-0">{formatBytes(att.sizeBytes)}</span>
         <button
           type="button"
           onClick={download}
           disabled={downloading}
-          className={`shrink-0 disabled:opacity-50 ${downloadFailed ? 'text-red-500' : 'text-gray-400 hover:text-blue-600'}`}
+          className={`shrink-0 disabled:opacity-50 ${downloadFailed ? 'text-danger' : 'text-fg-subtle hover:text-brand'}`}
           aria-label={`Download ${att.filename}`}
           title={downloadFailed ? 'Download failed — click to retry' : `Download ${att.filename}`}
         >

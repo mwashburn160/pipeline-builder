@@ -7,7 +7,7 @@
  *   GET  /auth/sso/:orgId/authorize  → { url, state }  (initiate — redirect to IdP)
  *   POST /auth/sso/start             → { url, state }  (same, resolved from an email)
  *   POST /auth/sso/:orgId/callback   → tokens          (exchange code + validate id_token)
- *   POST /auth/sso/discover          → { sso }          (is this email forced through SSO?)
+ *   POST /auth/sso/discover          → { sso, required } (does SSO serve this email's domain? is it required?)
  *
  * `authorize` serves BOTH protocols: it resolves the org's `protocol` and hands
  * a SAML org to `controllers/saml.ts` (#4), returning the same `{ url, state }`
@@ -35,7 +35,7 @@ import { withController } from '../helpers/controller-helper.js';
 import { idpEnforcesMfa, MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
-import { assertSsoIdentityTrusted, findSsoEnforcementForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
+import { assertSsoIdentityTrusted, findSsoCoverageForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
 import { authService } from '../services/index.js';
@@ -113,13 +113,14 @@ export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
  * has only what the person typed.
  *
  * This exists so the sign-in form can offer SSO without ever being told which
- * org backs the domain: the enforcement lookup happens here, and the response is
+ * org backs the domain: the coverage lookup happens here, and the response is
  * the same `{ url, state }` the by-org route returns. `discover` therefore stays
- * a bare `{ sso: boolean }` (C2, the enumeration-oracle fix) — the org handle is
- * never handed to an anonymous caller, only baked into a redirect the person
- * asked for by clicking.
+ * a bare yes/no pair (C2, the enumeration-oracle fix) — the org handle is never
+ * handed to an anonymous caller, only baked into a redirect the person asked
+ * for by clicking.
  *
- * A domain no enabled + entitled IdP covers is refused: it is the password
+ * Works for every domain an enabled + entitled IdP SERVES (whether or not the
+ * org also REQUIRES SSO). A domain no IdP serves is refused: it is the password
  * path's job to sign those people in, and answering with anything else here
  * would make this a second, quieter discovery oracle.
  */
@@ -127,13 +128,13 @@ export const startSsoLogin = withController('Start SSO', async (req, res) => {
   const body = validateBody(ssoDiscoverSchema, req.body, res);
   if (!body) return;
 
-  const enforcement = await findSsoEnforcementForEmail(body.email);
-  if (!enforcement) {
-    sendError(res, 404, 'Single sign-on is not available for this email address.', 'SSO_NOT_ENFORCED');
+  const coverage = await findSsoCoverageForEmail(body.email);
+  if (!coverage) {
+    sendError(res, 404, 'Single sign-on is not available for this email address.', 'SSO_NOT_AVAILABLE');
     return;
   }
 
-  sendSuccess(res, 200, await beginSsoLogin(enforcement.orgId));
+  sendSuccess(res, 200, await beginSsoLogin(coverage.orgId));
 }, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /** Label a failed provisioning attempt for the audit row + metric. Only the seat
@@ -276,8 +277,14 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 
 /**
  * POST /auth/sso/discover — public (UNAUTHENTICATED) helper for the login page.
- * Given an email, report ONLY whether an enabled + entitled org IdP FORCES that
- * user through SSO — a bare `{ sso: boolean }`.
+ * Given an email, report ONLY whether an enabled + entitled org IdP SERVES that
+ * domain (`sso`) and whether the org REQUIRES it (`required`) — two booleans.
+ *
+ * `required` is about the DOMAIN's policy, not the person: the owner break-glass
+ * exemption is never reflected here (that would tell an anonymous caller which
+ * addresses own the org). The login page therefore leads with SSO when
+ * `required` is set and keeps a quiet "sign in with a password instead" path for
+ * the owners the backend will still admit.
  *
  * It deliberately does NOT leak the internal `orgId` or IdP `provider`: this
  * endpoint is anonymous, so returning those turned it into an enumeration oracle
@@ -300,8 +307,8 @@ export const discoverSso = withController('Discover SSO', async (req, res) => {
   // password field for this address would close BOTH sign-in paths and leave the
   // install with no way in. Reflects a decision about the CALLER'S OWN address;
   // it reveals nothing they did not already type.
-  const enforcement = isBootstrapSuperAdminEmail(body.email)
+  const coverage = isBootstrapSuperAdminEmail(body.email)
     ? null
-    : await findSsoEnforcementForEmail(body.email);
-  sendSuccess(res, 200, { sso: !!enforcement });
+    : await findSsoCoverageForEmail(body.email);
+  sendSuccess(res, 200, { sso: !!coverage, required: !!coverage?.required });
 });

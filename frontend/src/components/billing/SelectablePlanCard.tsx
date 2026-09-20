@@ -37,17 +37,17 @@ export function SelectablePlanCard({
         aria-pressed={selected}
         className={`w-full flex items-center justify-between rounded-lg border p-3 text-left transition-all ${
           selected
-            ? 'border-[var(--pb-brand)] ring-2 ring-[color:var(--pb-brand)]'
-            : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
+            ? 'border-brand ring-2 ring-brand'
+            : 'border-default hover:border-fg-muted'
         }`}
       >
         <span>
           <span className="font-semibold text-sm">{plan.name}</span>
-          <span className="block text-xs text-[var(--pb-text-muted)]">{plan.description}</span>
+          <span className="block text-xs text-fg-muted">{plan.description}</span>
         </span>
         <span className="flex items-center gap-2 shrink-0">
-          <span className="text-sm font-bold text-[var(--pb-brand)]">{price}</span>
-          {selected && <Check className="w-4 h-4 text-[var(--pb-brand)]" />}
+          <span className="text-sm font-bold text-brand">{price}</span>
+          {selected && <Check className="w-4 h-4 text-brand" />}
         </span>
       </button>
     );
@@ -61,25 +61,25 @@ export function SelectablePlanCard({
       aria-pressed={selected}
       className={`relative flex flex-col rounded-xl border p-3 text-left transition-all ${
         selected
-          ? 'border-[var(--pb-brand)] ring-2 ring-[color:var(--pb-brand)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)]'
-          : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
+          ? 'border-brand ring-2 ring-brand bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)]'
+          : 'border-default hover:border-fg-muted'
       }`}
     >
       {popular && (
-        <span className="absolute -top-2 right-3 rounded-full bg-[var(--pb-brand)] text-white text-[10px] font-semibold px-2 py-0.5">
+        <span className="absolute -top-2 right-3 rounded-full bg-brand text-white text-2xs font-semibold px-2 py-0.5">
           Popular
         </span>
       )}
       <div className="flex items-center justify-between">
         <span className="font-bold text-sm">{plan.name}</span>
-        {selected && <Check className="w-3.5 h-3.5 text-[var(--pb-brand)] shrink-0" />}
+        {selected && <Check className="w-3.5 h-3.5 text-brand shrink-0" />}
       </div>
-      <div className="text-[var(--pb-brand)] font-bold text-sm mt-0.5">{price}</div>
-      <p className="text-xs text-[var(--pb-text-muted)] mt-1 leading-snug">{plan.description}</p>
+      <div className="text-brand font-bold text-sm mt-0.5">{price}</div>
+      <p className="text-xs text-fg-muted mt-1 leading-snug">{plan.description}</p>
       <ul className="mt-2 space-y-1">
         {plan.features.slice(0, 4).map((f) => (
-          <li key={f} className="flex items-start gap-1.5 text-[11px] text-[var(--pb-text-muted)]">
-            <Check className="w-3 h-3 mt-0.5 shrink-0 text-[var(--pb-success)]" strokeWidth={2.5} />
+          <li key={f} className="flex items-start gap-1.5 text-2xs text-fg-muted">
+            <Check className="w-3 h-3 mt-0.5 shrink-0 text-success" strokeWidth={2.5} />
             <span>{f}</span>
           </li>
         ))}

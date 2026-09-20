@@ -230,12 +230,12 @@ export function DataTable<T>({
               aria-label="Toggle column visibility"
               aria-haspopup="menu"
               aria-expanded={showColumnMenu}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:text-fg rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               <Columns3 className="w-3.5 h-3.5" />
               Columns
               {hiddenColumns.size > 0 && (
-                <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-[var(--pb-brand)] text-white">
+                <span className="inline-flex items-center justify-center w-4 h-4 text-2xs font-bold rounded-full bg-brand text-white">
                   {hiddenColumns.size}
                 </span>
               )}
@@ -261,7 +261,7 @@ export function DataTable<T>({
                         type="checkbox"
                         checked={!hiddenColumns.has(col.id)}
                         onChange={() => toggleColumn(col.id)}
-                        className="rounded border-gray-300 dark:border-gray-600 text-[var(--pb-brand)] focus:ring-[var(--pb-brand)]"
+                        className="rounded border-gray-300 dark:border-gray-600 text-brand focus:ring-brand"
                       />
                       {col.header}
                     </label>
@@ -299,7 +299,7 @@ export function DataTable<T>({
                     {sortable ? (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-fg transition-colors"
                         onClick={() => handleSort(col.id)}
                       >
                         {col.header}

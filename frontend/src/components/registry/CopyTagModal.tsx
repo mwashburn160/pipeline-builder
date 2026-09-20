@@ -149,12 +149,12 @@ export function CopyTagModal({
     <Modal title="Copy Tag" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-4">
         <div>
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Source</div>
+          <div className="text-xs font-medium text-fg-muted mb-1">Source</div>
           <div className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">{source}</div>
         </div>
 
         <div>
-          <label htmlFor="copy-target-repo" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target repo</label>
+          <label htmlFor="copy-target-repo" className="block text-xs font-medium text-fg-muted mb-1">Target repo</label>
           <Input
             id="copy-target-repo"
             type="text"
@@ -171,7 +171,7 @@ export function CopyTagModal({
         </div>
 
         <div>
-          <label htmlFor="copy-target-ref" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target ref</label>
+          <label htmlFor="copy-target-ref" className="block text-xs font-medium text-fg-muted mb-1">Target ref</label>
           <Input
             id="copy-target-ref"
             type="text"
@@ -180,7 +180,7 @@ export function CopyTagModal({
             placeholder={sourceRef}
             className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep <code>{sourceRef}</code>.</div>
+          <div className="text-xs text-fg-muted mt-1">Leave blank to keep <code>{sourceRef}</code>.</div>
         </div>
 
         {/* Inline validation hints — render only when relevant. */}
@@ -240,7 +240,7 @@ export function CopyTagModal({
         {/* Share-link affordance — copy a URL that re-opens this modal
             pre-filled, so the operator can hand the action off to a
             teammate without having to re-find the source tag. */}
-        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2 text-xs text-fg-muted">
           <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">Need someone else to do this? Copy a share link.</span>
           <CopyButton text={shareLink} />

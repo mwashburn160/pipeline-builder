@@ -24,20 +24,20 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 // Muted-gray icon at rest; the tone only drives the HOVER colour, matching the
 // row-action pattern repeated across members/roles/etc.
 const TONE_CLASS: Record<IconButtonTone, string> = {
-  default: 'hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-gray-800',
-  primary: 'hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20',
+  default: 'hover:text-fg hover:bg-gray-100 dark:hover:bg-gray-800',
+  primary: 'hover:text-brand hover:bg-blue-50 dark:hover:bg-blue-900/20',
   indigo: 'hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/20',
   purple: 'hover:text-purple-600 hover:bg-purple-50 dark:hover:text-purple-400 dark:hover:bg-purple-900/20',
-  danger: 'hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20',
-  warn: 'hover:text-amber-600 hover:bg-amber-50 dark:hover:text-amber-400 dark:hover:bg-amber-900/20',
+  danger: 'hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/20',
+  warn: 'hover:text-warning hover:bg-amber-50 dark:hover:bg-amber-900/20',
   orange: 'hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/20',
-  success: 'hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/20',
+  success: 'hover:text-success hover:bg-green-50 dark:hover:bg-green-900/20',
 };
 
 // Coloured icon AT REST + hover backdrop only (no hover text-shift) — for
 // stateful/always-coloured actions (active toggle, approve/reject).
 const REST_CLASS: Record<IconButtonTone, string> = {
-  default: 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
+  default: 'text-fg-subtle hover:bg-gray-100 dark:hover:bg-gray-800',
   primary: 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20',
   indigo: 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20',
   purple: 'text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20',
@@ -49,7 +49,7 @@ const REST_CLASS: Record<IconButtonTone, string> = {
 
 /**
  * Compact icon-only action button (table rows, card headers). Replaces the
- * `p-1.5 rounded-lg text-gray-400 hover:text-…` class string hand-pasted ~10×
+ * `p-1.5 rounded-lg text-fg-subtle hover:text-…` class string hand-pasted ~10×
  * per page. Requires an `aria-label`. Use `restTone` for stateful/coloured
  * actions (toggles, approve/reject); otherwise `tone` for a muted-at-rest icon.
  */
@@ -57,13 +57,13 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   { tone = 'default', restTone, type = 'button', className = '', children, ...props },
   ref,
 ) {
-  const colour = restTone ? REST_CLASS[restTone] : `text-gray-400 ${TONE_CLASS[tone]}`;
+  const colour = restTone ? REST_CLASS[restTone] : `text-fg-subtle ${TONE_CLASS[tone]}`;
   // Keyboard focus MUST be visible: this is the app's most common row action and
   // its only styling was a hover tone, so tabbing through a table moved an
   // invisible cursor. Ring token matches `.btn` (globals.css).
   const classes = [
     'p-1.5 rounded-lg transition-colors',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--pb-bg)]',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
     colour,
     className,
   ].filter(Boolean).join(' ');

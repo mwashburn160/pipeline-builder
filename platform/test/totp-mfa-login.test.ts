@@ -66,6 +66,20 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   },
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
+const mockVerifyRecoveryCode = jest.fn<(...a: unknown[]) => Promise<number>>();
+const mockHasUnspentRecoveryCodes = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/services/recovery-codes-service.js', () => ({
+  verifyRecoveryCode: (...a: unknown[]) => mockVerifyRecoveryCode(...a),
+  hasUnspentRecoveryCodes: (...a: unknown[]) => mockHasUnspentRecoveryCodes(...a),
+}));
+// The org password-policy check on the login leg says "fine" here — this suite
+// is about the second factor.
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  passwordShortfall: async () => null,
+  assertNewPasswordAcceptable: async () => undefined,
+  invitationOrgForRegistration: async () => undefined,
+}));
+jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   verifyCode: (...a: unknown[]) => mockVerifyCode(...a),
   hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),
@@ -176,7 +190,7 @@ describe('POST /auth/mfa/verify', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data.recoveryCodesRemaining).toBe(4);
-    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.totp.recovery_used', expect.objectContaining({
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.mfa.recovery_used', expect.objectContaining({
       details: { context: 'login', remaining: 4 },
     }));
   });
@@ -234,5 +248,69 @@ describe('POST /auth/login — first leg', () => {
     expect(mockIssueTokens).toHaveBeenCalled();
     expect((mockIssueTokens.mock.calls[0][2] as { auth: { amr: string[] } }).auth.amr).toEqual(['pwd']);
     expect(res.json.mock.calls[0][0].data).toMatchObject({ accessToken: 'access.jwt' });
+  });
+});
+
+describe('recovery codes for a passkey account (no authenticator app)', () => {
+  it('login offers a RECOVERY-ONLY challenge when the org policy refuses the password alone', async () => {
+    mockHasActiveTotp.mockResolvedValue(false);
+    mockHasUnspentRecoveryCodes.mockResolvedValue(true);
+    mockIssueTokens.mockRejectedValueOnce(new Error('MFA_REQUIRED_FOR_ORG'));
+    mockFindByCredentials.mockResolvedValue({
+      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' },
+    });
+    const { login } = await import('../src/controllers/auth.js');
+    const res = makeRes();
+
+    await login(body({ identifier: 'person@example.com', password: 'hunter2hunter2' }), res);
+
+    const payload = res.json.mock.calls[0][0].data;
+    expect(payload).toMatchObject({ mfaRequired: true, methods: ['recovery'] });
+    expect(payload.accessToken).toBeUndefined();
+    expect(await peekMfaChallenge(payload.challengeId)).toMatchObject({ userId: USER, recoveryOnly: true });
+  });
+
+  it('login still refuses (401 MFA_REQUIRED) when there are no recovery codes to offer', async () => {
+    mockHasActiveTotp.mockResolvedValue(false);
+    mockHasUnspentRecoveryCodes.mockResolvedValue(false);
+    mockIssueTokens.mockRejectedValueOnce(new Error('MFA_REQUIRED_FOR_ORG'));
+    mockFindByCredentials.mockResolvedValue({
+      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' },
+    });
+    const { login } = await import('../src/controllers/auth.js');
+    const res = makeRes();
+
+    await login(body({ identifier: 'person@example.com', password: 'hunter2hunter2' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('a recovery-only challenge is finished by a recovery code, at aal 2, and never asks the authenticator', async () => {
+    mockVerifyRecoveryCode.mockResolvedValue(7);
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true });
+    const res = makeRes();
+
+    await verifyMfaLogin(body({ challengeId, code: 'ABCDE-FGHIJ' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockVerifyCode).not.toHaveBeenCalledWith(USER, 'ABCDE-FGHIJ');
+    expect(mockVerifyRecoveryCode).toHaveBeenCalledWith(USER, 'ABCDE-FGHIJ');
+    expect((mockIssueTokens.mock.calls[0][2] as { auth: { amr: string[] } }).auth.amr).toEqual(['pwd', 'mfa']);
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.mfa.recovery_used', expect.objectContaining({
+      details: { context: 'login', remaining: 7 },
+    }));
+    expect(await peekMfaChallenge(challengeId)).toBeNull();
+  });
+
+  it('a wrong recovery code is the same opaque 401 and does not spend the challenge', async () => {
+    mockVerifyRecoveryCode.mockRejectedValue(new Error(TOTP_INVALID_CODE));
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true });
+    const res = makeRes();
+
+    await verifyMfaLogin(body({ challengeId, code: 'ZZZZZ-ZZZZZ' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(await peekMfaChallenge(challengeId)).not.toBeNull();
   });
 });

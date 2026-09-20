@@ -82,6 +82,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // The user-delete cascade also removes the account's passkeys.
   WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   UserTotp: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), exists: jest.fn(async () => null) },
+  MfaRecoveryCodes: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  MfaResetRequest: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
@@ -90,6 +92,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { create: (...a: unknown[]) => mockUserOrgCreate(...a) },
   Role: { findOne: (...a: unknown[]) => mockGroupFindOne(...a) },
   RoleAssignment: { updateOne: (...a: unknown[]) => mockGroupMembershipUpdateOne(...a) },
+}));
+
+// The password-policy helper reads platform config at import; these suites
+// don't exercise password rules, so it is stubbed like the other services.
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  assertNewPasswordAcceptable: jest.fn(async () => undefined),
 }));
 
 const { userAdminService } = await import('../src/services/user-admin-service.js');

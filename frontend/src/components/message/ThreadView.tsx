@@ -276,21 +276,21 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           aria-label="Back"
           className="lg:hidden"
         >
-          <ArrowLeft className="w-5 h-5 text-gray-500" />
+          <ArrowLeft className="w-5 h-5 text-fg-muted" />
         </IconButton>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {rootMessage.messageType === 'announcement' ? (
-              <Megaphone className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              <Megaphone className="w-4 h-4 text-warning flex-shrink-0" />
             ) : (
-              <MessageCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
+              <MessageCircle className="w-4 h-4 text-brand flex-shrink-0" />
             )}
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
               {rootMessage.messageType === 'announcement' ? 'Announcement' : counterpartyName}
             </h2>
             {rootMessage.recipientUserId && (
               <span
-                className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0"
+                className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0"
                 title="Direct message — targeted at a specific user"
               >
                 <User className="w-2.5 h-2.5" />
@@ -299,7 +299,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             )}
             <PriorityBadge priority={rootMessage.priority} />
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+          <p className="text-xs text-fg-muted truncate">
             {rootMessage.subject}
           </p>
         </div>
@@ -349,7 +349,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                       : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                   } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
                 >
-                  <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                  <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-fg-muted'}`}>
                     <span>{msg.createdBy} ({msg.orgName || msg.orgId})</span>
                     {canEdit && !isEditing && (
                       <button
@@ -389,7 +389,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                   {/* Optimistic bubbles hold no server id yet, so skip the
                       attachment fetch until the real row lands. */}
                   {!isSending && !isFailed && !isEditing && <MessageAttachments messageId={msg.id} attachments={msg.attachments} />}
-                  <div className={`text-xs mt-1 flex items-center gap-1 ${isMine ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                  <div className={`text-xs mt-1 flex items-center gap-1 ${isMine ? 'text-blue-200' : 'text-fg-subtle'}`}>
                     <span>{isSending ? 'Sending…' : formatDateTime(msg.createdAt)}</span>
                     {msg.editedAt && !isSending && <span className="italic">(edited)</span>}
                     {seenByRecipient && (
@@ -424,10 +424,10 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           <ul className="mb-2 space-y-1">
             {replyAttachments.map((a) => (
               <li key={a.id} className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1">
-                <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
+                <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
                 <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
-                <span className="text-gray-400 shrink-0">{formatBytes(a.sizeBytes)}</span>
-                <button type="button" onClick={() => removeReplyAttachment(a.id)} className="text-gray-400 hover:text-red-600 shrink-0" aria-label={`Remove ${a.filename}`}>
+                <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
+                <button type="button" onClick={() => removeReplyAttachment(a.id)} className="text-fg-subtle hover:text-danger shrink-0" aria-label={`Remove ${a.filename}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </li>
@@ -449,7 +449,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             disabled={uploading}
             aria-label="Attach files"
             title={uploading ? 'Uploading…' : 'Attach files'}
-            className="p-2.5 rounded-xl text-gray-500 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
           </button>

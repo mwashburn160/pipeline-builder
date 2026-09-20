@@ -71,15 +71,15 @@ export class ErrorBoundary extends Component<Props, State> {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
               Something went wrong
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
+            <p className="text-fg-muted mb-4">
               An unexpected error occurred. Please try again.
             </p>
             <Button onClick={this.handleRetry}>
               Try again
             </Button>
             {this.state.error && process.env.NODE_ENV !== 'production' && (
-              <details className="mt-4 text-left text-sm text-gray-500 dark:text-gray-400">
-                <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+              <details className="mt-4 text-left text-sm text-fg-muted">
+                <summary className="cursor-pointer hover:text-fg">
                   Error details
                 </summary>
                 <pre className="mt-2 overflow-auto rounded bg-gray-100 p-2 dark:bg-gray-800 text-xs">

@@ -60,12 +60,22 @@ jest.unstable_mockModule('../src/controllers/step-up-reauth.js', () => ({
   startStepUpReauth: tagged('startStepUpReauth'), completeStepUpReauth: tagged('completeStepUpReauth'),
 }));
 jest.unstable_mockModule('../src/controllers/step-up.js', () => ({ stepUpVerify: tagged('stepUpVerify') }));
+// `routes/auth.ts` also mounts the account's recovery codes (/auth/recovery-codes).
+jest.unstable_mockModule('../src/controllers/recovery-codes.js', () => ({
+  recoveryCodeStatus: tagged('recoveryCodeStatus'), regenerateRecoveryCodes: tagged('regenerateRecoveryCodes'),
+}));
 // `routes/auth.ts` also mounts the TOTP surface; stubbing its controller keeps
 // this suite from loading the enrolment service graph it says nothing about.
 jest.unstable_mockModule('../src/controllers/totp.js', () => Object.fromEntries(
-  ['activateTotp', 'disableTotp', 'enrolTotp', 'regenerateRecoveryCodes', 'totpStatus', 'stepUpVerifyTotp', 'verifyMfaLogin']
+  ['activateTotp', 'disableTotp', 'enrolTotp', 'totpStatus', 'stepUpVerifyTotp', 'verifyMfaLogin']
     .map((c) => [c, tagged(c)]),
 ));
+// The forced-password-change leg and the per-account login throttle are
+// mounted by `routes/auth.ts` too; stubbed for the same reason.
+jest.unstable_mockModule('../src/controllers/password-change-required.js', () => ({
+  completeRequiredPasswordChange: tagged('completeRequiredPasswordChange'),
+}));
+jest.unstable_mockModule('../src/middleware/login-limiter.js', () => ({ loginAccountLimiter: tagged('limiter:login-account') }));
 jest.unstable_mockModule('../src/controllers/token-exchange.js', () => ({
   exchangeToken: tagged('exchangeToken'),
   rotateKey: tagged('rotateKey'),

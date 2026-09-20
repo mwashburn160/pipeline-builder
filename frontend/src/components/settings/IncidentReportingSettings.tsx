@@ -244,7 +244,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const incidentsError = incidentsFetchError ? formatError(incidentsFetchError, 'Failed to load incidents') : null;
 
   const incidentColumns: Column<IncidentListItem>[] = [
-    { id: 'incidentId', header: 'Incident', cellClassName: 'font-mono text-xs text-[var(--pb-text)]', render: (i) => i.incidentId },
+    { id: 'incidentId', header: 'Incident', cellClassName: 'font-mono text-xs text-fg', render: (i) => i.incidentId },
     { id: 'environment', header: 'Environment', render: (i) => i.environment },
     { id: 'severity', header: 'Severity', render: (i) => <Badge color="gray">{i.severity}</Badge> },
     {
@@ -254,8 +254,8 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
     {
       id: 'correlated', header: 'Correlated deploy',
       render: (i) => (i.correlatedExecutionId
-        ? <span className="font-mono text-xs text-[var(--pb-text-muted)]">{i.correlatedExecutionId}</span>
-        : <span className="text-xs text-[var(--pb-text-muted)]">none</span>),
+        ? <span className="font-mono text-xs text-fg-muted">{i.correlatedExecutionId}</span>
+        : <span className="text-xs text-fg-muted">none</span>),
     },
     { id: 'openedAt', header: 'Opened', render: (i) => (i.openedAt ? <RelativeTime value={i.openedAt} /> : '—') },
   ];
@@ -284,11 +284,11 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
       <SectionCard icon={Webhook} title="Webhook endpoints">
         <div className="space-y-3">
           <div>
-            <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">Generic (PagerDuty / Datadog / any JSON)</p>
+            <p className="text-xs font-medium text-fg-muted mb-1">Generic (PagerDuty / Datadog / any JSON)</p>
             <CodeBlock code={genericUrl} language="POST" />
           </div>
           <div>
-            <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">Alertmanager adapter (native webhook payload)</p>
+            <p className="text-xs font-medium text-fg-muted mb-1">Alertmanager adapter (native webhook payload)</p>
             <CodeBlock code={alertmanagerUrl} language="POST" />
           </div>
         </div>
@@ -346,9 +346,9 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
             <option value="generic">Generic (JSON)</option>
           </Select>
         </FormField>
-        <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">{guide.label} — POST to:</p>
+        <p className="text-xs font-medium text-fg-muted mb-1">{guide.label} — POST to:</p>
         <CodeBlock code={guide.endpoint} language="POST" className="mb-3" />
-        <ol className="list-decimal ml-5 space-y-1 text-sm text-[var(--pb-text-muted)]">
+        <ol className="list-decimal ml-5 space-y-1 text-sm text-fg-muted">
           {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
         </ol>
       </SectionCard>
@@ -465,7 +465,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
                 steps page by page rather than jumping to a numbered page. */}
             {(incidentOffset > 0 || incidentsHasMore) && (
               <nav className="mt-3 flex items-center justify-between gap-2 text-sm" aria-label="Incident pages">
-                <span className="text-[var(--pb-text-muted)]">
+                <span className="text-fg-muted">
                   {incidents.length > 0
                     ? `Showing ${incidentOffset + 1}–${incidentOffset + incidents.length}`
                     : 'No incidents on this page'}

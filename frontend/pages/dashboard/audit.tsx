@@ -70,7 +70,7 @@ function FilterChip({ label, value, onFilter, title, children }: {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onFilter(); }}
-        className="hover:underline hover:text-gray-600 dark:hover:text-gray-300"
+        className="hover:underline hover:text-fg"
         title={title}
       >
         {label}
@@ -292,12 +292,12 @@ export default function AuditPage() {
             {verifying ? 'Verifying…' : 'Verify integrity'}
           </Button>
           {verifyOrgId && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+            <span className="text-xs text-fg-muted inline-flex items-center gap-1">
               org {renderOrgRef(verifyOrgId)}
             </span>
           )}
           {verifyError && (
-            <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+            <span className="inline-flex items-center gap-1 text-xs text-danger">
               <ShieldQuestion className="w-4 h-4" /> {verifyError}
             </span>
           )}
@@ -331,15 +331,15 @@ export default function AuditPage() {
           aria-controls="audit-filter-panel"
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
             activeFilterCount > 0
-              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+              ? 'border-info-border bg-info-bg text-info'
+              : 'border-default bg-surface text-fg-muted hover:bg-surface-muted'
           }`}
           title={filtersOpen ? 'Hide filters' : 'Show filters'}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
           Filters
           {activeFilterCount > 0 && (
-            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-blue-600 text-white text-[10px] font-semibold dark:bg-blue-500">
+            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand text-white text-2xs font-semibold">
               {activeFilterCount}
             </span>
           )}
@@ -352,8 +352,8 @@ export default function AuditPage() {
           aria-pressed={deniedActive}
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
             deniedActive
-              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300'
-              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+              ? 'border-danger-border bg-danger-bg text-danger'
+              : 'border-default bg-surface text-fg-muted hover:bg-surface-muted'
           }`}
           title="Spotlight authz.denied events (probing / privilege-escalation attempts)"
         >
@@ -365,7 +365,7 @@ export default function AuditPage() {
           <button
             type="button"
             onClick={clearFilters}
-            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="inline-flex items-center gap-1 text-xs text-fg-muted hover:text-fg"
             title="Clear all filters"
           >
             <X className="w-3.5 h-3.5" /> Clear filters
@@ -444,7 +444,7 @@ export default function AuditPage() {
           <option value="rule">Rule</option>
           <option value="dashboard">Dashboard</option>
         </Select>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <label className="flex items-center gap-2 text-xs text-fg-muted">
           <span className="shrink-0">From</span>
           <FilterInput
             type="date"
@@ -454,7 +454,7 @@ export default function AuditPage() {
             onChange={(e) => { setFrom(e.target.value); setOffset(0); }}
           />
         </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <label className="flex items-center gap-2 text-xs text-fg-muted">
           <span className="shrink-0">To</span>
           <FilterInput
             type="date"
@@ -487,7 +487,7 @@ export default function AuditPage() {
 
       {loading && !list.data && (
         <Card className="mt-2 overflow-hidden">
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="divide-y divide-default">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="px-4 py-3">
                 <div className="flex items-baseline justify-between gap-2 mb-1.5">
@@ -505,7 +505,7 @@ export default function AuditPage() {
           dashboard at /dashboard/observability/audit-activity is the right
           tool for whole-history exports; this is for ad-hoc filter dumps. */}
       {events.length > 0 && (
-        <div className="mt-2 flex items-center justify-end gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className="mt-2 flex items-center justify-end gap-2 text-xs text-fg-muted">
           <span>{events.length} event{events.length === 1 ? '' : 's'} on this page</span>
           <Button
             onClick={() => downloadCsv(
@@ -561,7 +561,7 @@ export default function AuditPage() {
             action={activeFilterCount > 0 ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> : undefined}
           />
         ) : (
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="divide-y divide-default">
             {events.map((event) => (
               <div
                 key={event._id}
@@ -570,28 +570,28 @@ export default function AuditPage() {
                 onClick={() => setSelected(event)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(event); } }}
                 aria-label={`View audit event: ${event.action}`}
-                className="group px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
+                className="group px-4 py-3 text-sm cursor-pointer hover:bg-surface-muted focus:bg-surface-muted focus:outline-none transition-colors"
               >
                 {/* Primary line: action + plain-language actor + time. This is
                     the scan line — no opaque ids compete for attention here. */}
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="inline-flex items-baseline gap-1.5 min-w-0 flex-wrap">
-                    <code className="text-xs font-medium text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
+                    <code className="text-xs font-medium text-brand underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
                     {event.outcome === 'failure' && <Badge color="red">failed</Badge>}
-                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    <span className="text-xs text-fg-muted truncate">
                       by {event.actorEmail || `${event.actorId.slice(0, 8)}…`}
-                      {event.actorRole && <span className="text-gray-400 dark:text-gray-500"> · {event.actorRole}</span>}
-                      {event.impersonatorId && <span className="text-gray-400 dark:text-gray-500"> (impersonated)</span>}
+                      {event.actorRole && <span className="text-fg-subtle"> · {event.actorRole}</span>}
+                      {event.impersonatorId && <span className="text-fg-subtle"> (impersonated)</span>}
                     </span>
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                  <span className="text-xs text-fg-muted shrink-0">
                     <RelativeTime value={event.createdAt} />
                   </span>
                 </div>
                 {/* Secondary line: the ids, de-emphasized. CopyableId truncates
                     and offers one compact copy affordance apiece. Org id is
                     suppressed when it's just the org already in scope. */}
-                <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap gap-x-3 gap-y-1 items-center">
+                <div className="mt-1 text-2xs text-fg-subtle flex flex-wrap gap-x-3 gap-y-1 items-center">
                   <FilterChip label="actor" value={event.actorId} title="Show only this actor's events" onFilter={() => narrow(setActorId, event.actorId)} />
                   {event.impersonatorId && (
                     <FilterChip label="via" value={event.impersonatorId} title="Show everything done while this operator was impersonating" onFilter={() => narrow(setImpersonatorId, event.impersonatorId!)} />
@@ -621,7 +621,7 @@ export default function AuditPage() {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setRequestId(event.requestId!); setOffset(0); }}
-                      className="inline-flex items-center gap-1 hover:underline hover:text-gray-600 dark:hover:text-gray-300"
+                      className="inline-flex items-center gap-1 hover:underline hover:text-fg"
                       title="Filter to this request's correlation id"
                     >
                       req <code>{event.requestId.slice(0, 8)}</code>
@@ -629,7 +629,7 @@ export default function AuditPage() {
                   )}
                 </div>
                 {event.details && Object.keys(event.details).length > 0 && (
-                  <p className="mt-1 text-[11px] text-gray-400/80 dark:text-gray-500/80 font-mono truncate">
+                  <p className="mt-1 text-2xs text-fg-subtle/80 font-mono truncate">
                     {JSON.stringify(redactDetails(event.details))}
                   </p>
                 )}
@@ -649,7 +649,7 @@ export default function AuditPage() {
         </div>
       )}
 
-      <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+      <div className="mt-4 text-xs text-fg-muted">
         For richer query-builder views, use the{' '}
         <Link href="/dashboard/observability/audit-activity" className="action-link">Audit Activity dashboard</Link>.
       </div>
@@ -662,21 +662,21 @@ export default function AuditPage() {
           subtitle={<span className="tabular-nums">{formatDateTime(selected.createdAt)}</span>}
         >
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-2 text-sm">
-            <dt className="text-gray-500 dark:text-gray-400">Outcome</dt>
+            <dt className="text-fg-muted">Outcome</dt>
             <dd>{selected.outcome === 'failure'
               ? <Badge color="red">failure</Badge>
               : selected.outcome === 'success'
                 ? <Badge color="green">success</Badge>
                 : <Badge color="gray">unknown</Badge>}</dd>
-            <dt className="text-gray-500 dark:text-gray-400">Actor</dt>
-            <dd className="text-gray-900 dark:text-gray-100 inline-flex items-center gap-1 min-w-0">
+            <dt className="text-fg-muted">Actor</dt>
+            <dd className="text-fg inline-flex items-center gap-1 min-w-0">
               <span className="truncate">{selected.actorEmail || selected.actorId}</span>
-              {selected.actorRole && <span className="text-gray-400 dark:text-gray-500">({selected.actorRole})</span>}
+              {selected.actorRole && <span className="text-fg-subtle">({selected.actorRole})</span>}
               <CopyableId value={selected.actorId} size="sm" />
             </dd>
             {selected.impersonatorId && (
               <>
-                <dt className="text-gray-500 dark:text-gray-400">Impersonator</dt>
+                <dt className="text-fg-muted">Impersonator</dt>
                 <dd className="inline-flex items-center gap-2">
                   <CopyableId value={selected.impersonatorId} size="sm" />
                   <button type="button" className="action-link text-xs" onClick={() => { narrow(setImpersonatorId, selected.impersonatorId!); setSelected(null); }}>
@@ -685,17 +685,17 @@ export default function AuditPage() {
                 </dd>
               </>
             )}
-            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd>{renderOrgRef(selected.orgId)}</dd></>)}
-            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd>{renderOrgRef(selected.affectedOrgId)}</dd></>)}
+            {selected.orgId && (<><dt className="text-fg-muted">Org</dt><dd>{renderOrgRef(selected.orgId)}</dd></>)}
+            {selected.affectedOrgId && (<><dt className="text-fg-muted">Affected org</dt><dd>{renderOrgRef(selected.affectedOrgId)}</dd></>)}
             {selected.targetType && (
               <>
-                <dt className="text-gray-500 dark:text-gray-400">Target</dt>
+                <dt className="text-fg-muted">Target</dt>
                 <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} size="sm" /></>}</dd>
               </>
             )}
             {selected.groupId && (
               <>
-                <dt className="text-gray-500 dark:text-gray-400">Group</dt>
+                <dt className="text-fg-muted">Group</dt>
                 <dd className="inline-flex items-center gap-2">
                   <CopyableId value={selected.groupId} size="sm" />
                   <button type="button" className="action-link text-xs" onClick={() => { narrow(setGroupId, selected.groupId!); setSelected(null); }}>
@@ -704,15 +704,15 @@ export default function AuditPage() {
                 </dd>
               </>
             )}
-            {selected.ip && (<><dt className="text-gray-500 dark:text-gray-400">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
-            {selected.userAgent && (<><dt className="text-gray-500 dark:text-gray-400">User agent</dt><dd className="text-xs text-gray-700 dark:text-gray-300 break-all">{selected.userAgent}</dd></>)}
-            {selected.requestId && (<><dt className="text-gray-500 dark:text-gray-400">Request id</dt><dd><CopyableId value={selected.requestId} size="sm" /></dd></>)}
-            {selected.traceId && (<><dt className="text-gray-500 dark:text-gray-400">Trace id</dt><dd><CopyableId value={selected.traceId} size="sm" /></dd></>)}
+            {selected.ip && (<><dt className="text-fg-muted">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
+            {selected.userAgent && (<><dt className="text-fg-muted">User agent</dt><dd className="text-xs text-fg break-all">{selected.userAgent}</dd></>)}
+            {selected.requestId && (<><dt className="text-fg-muted">Request id</dt><dd><CopyableId value={selected.requestId} size="sm" /></dd></>)}
+            {selected.traceId && (<><dt className="text-fg-muted">Trace id</dt><dd><CopyableId value={selected.traceId} size="sm" /></dd></>)}
           </dl>
           {selected.details && Object.keys(selected.details).length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Details</p>
-              <pre className="text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{JSON.stringify(redactDetails(selected.details), null, 2)}</pre>
+              <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-2">Details</p>
+              <pre className="text-xs font-mono bg-surface-muted border border-default rounded p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{JSON.stringify(redactDetails(selected.details), null, 2)}</pre>
             </div>
           )}
         </SideDrawer>

@@ -80,10 +80,10 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
-          <Plug className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <Plug className="w-4 h-4 text-fg-muted" />
           Review Plugins
         </span>
-        <ChevronDown className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
         <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
@@ -101,7 +101,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
           {/* Stage step plugins */}
           {stages.map((stage, si) => (
             <div key={si}>
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+              <p className="text-xs font-semibold text-fg-muted mb-2">
                 Stage: {stage.stageName}
               </p>
               <div className="space-y-3 pl-3">
@@ -300,7 +300,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       return (
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner size="md" className="mr-3" />
-          <span className="text-sm text-gray-500 dark:text-gray-400">Loading AI providers...</span>
+          <span className="text-sm text-fg-muted">Loading AI providers...</span>
         </div>
       );
     }
@@ -318,7 +318,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             className="text-sm"
             disabled={disabled || generating}
           />
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          <p className="text-xs text-fg-subtle mt-1">
             Supports GitHub, GitLab, Bitbucket, and self-hosted Git URLs.
           </p>
         </div>
@@ -329,7 +329,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             type="button"
             onClick={() => setShowPrivate(!showPrivate)}
             aria-expanded={showPrivate}
-            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            className="flex items-center text-xs text-fg-muted hover:text-fg"
           >
             {showPrivate ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
             Private repository?
@@ -399,11 +399,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {analysis && (
           <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <Globe className="w-4 h-4 text-fg-muted" />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {analysis.owner}/{analysis.repo}
               </span>
-              <span className="text-xs text-gray-400 dark:text-gray-500">
+              <span className="text-xs text-fg-subtle">
                 ({analysis.provider}) · {analysis.defaultBranch}
               </span>
             </div>
@@ -442,7 +442,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               )}
             </div>
             {analysis.description && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{analysis.description}</p>
+              <p className="text-xs text-fg-muted mt-2">{analysis.description}</p>
             )}
           </div>
         )}
@@ -486,7 +486,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {checkingPlugins && (
           <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
             <div className="flex items-center gap-2">
-              <Loader className="w-4 h-4 text-blue-500 animate-spin" />
+              <Loader className="w-4 h-4 text-brand animate-spin" />
               <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">Checking referenced plugins...</span>
             </div>
           </div>
@@ -494,7 +494,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {pluginStatus && (
           <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-4 space-y-2">
             <div className="flex items-center gap-2 mb-1">
-              <Plug className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <Plug className="w-4 h-4 text-fg-muted" />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plugin Status</span>
             </div>
             {pluginStatus.existing.length > 0 && (
@@ -509,7 +509,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             )}
             {pluginStatus.creating.length > 0 && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Auto-creating missing plugins:</p>
+                <p className="text-xs text-fg-muted mb-1">Auto-creating missing plugins:</p>
                 <div className="flex flex-wrap gap-2">
                   {pluginStatus.builds.map((b) => (
                     <span
@@ -522,7 +522,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                     >
                       {b.error ? <AlertCircle className="w-3 h-3" /> : <Loader className="w-3 h-3 animate-spin" />}
                       {b.name}
-                      {b.error && <span className="text-[10px] opacity-75 ml-1">({b.error})</span>}
+                      {b.error && <span className="text-2xs opacity-75 ml-1">({b.error})</span>}
                     </span>
                   ))}
                 </div>
@@ -557,7 +557,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             <pre className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
               {previewJson}
             </pre>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-xs text-fg-muted">
               Review the configuration above. Click &quot;Create&quot; to submit, or regenerate with a different URL.
             </p>
           </div>

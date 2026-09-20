@@ -4,6 +4,7 @@
 import {
   audited,
   requireAuth,
+  requireOrgAdminAssurance,
   requirePermission,
   sendSuccess,
   sendError,
@@ -52,6 +53,14 @@ import { AddonMutateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-addons');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * The org policy "administrative actions require MFA" (the `org_admin_aal`
+ * claim). Changing what the org pays for is an administrative action; billing
+ * automation (API keys, service accounts) is legitimate, so machines pass and a
+ * person needs an `aal: 2` session while the policy is on.
+ */
+const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler;
 
 /** Emit a `combo_expired` billing event + audit record for each combo a bundle
  *  change dropped. Shared by the add and remove handlers (was copy-pasted). */
@@ -201,7 +210,7 @@ export function createAddonRoutes(): Router {
 
   // POST /billing/portal — hosted session to add/update a payment method. Powers
   // the "Add a payment method" CTA shown after a 402 PAYMENT_METHOD_REQUIRED.
-  router.post('/portal', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/portal', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, withRoute(async ({ req, res, orgId }) => {
     // A past_due account is exactly who needs the hosted portal (to add/fix a
     // payment method and stop dunning), so include the full non-terminal set.
     const subscription = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
@@ -272,7 +281,7 @@ export function createAddonRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/addons — add or set a bundle quantity
-  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.addon.add', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.addon.add', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const validation = validateBody(req, AddonMutateSchema);
@@ -360,7 +369,7 @@ export function createAddonRoutes(): Router {
   // DELETE /billing/subscriptions/:id/addons/:bundleId — remove a bundle.
   // The over-cap gate below blocks a removal that would drop a pooled cap under
   // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
-  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const bundleId = getParam(req.params, 'bundleId');

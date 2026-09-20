@@ -132,8 +132,8 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
             className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50"
           >
             <div className="text-center">
-              <Upload className="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              <Upload className="mx-auto h-8 w-8 text-fg-subtle" />
+              <p className="mt-1 text-sm text-fg-muted">
                 {propsFile ? propsFile.name : 'Click to upload props.json'}
               </p>
             </div>
@@ -153,7 +153,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
             <div className="w-full border-t border-gray-300 dark:border-gray-600" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400">or paste JSON</span>
+            <span className="px-2 bg-white dark:bg-gray-900 text-fg-muted">or paste JSON</span>
           </div>
         </div>
 
@@ -181,7 +181,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{propsError}</p>
         )}
 
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-xs text-fg-muted">
           Required: project, organization. Full BuilderProps schema supported.
         </p>
       </div>

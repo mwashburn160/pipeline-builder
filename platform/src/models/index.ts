@@ -5,6 +5,13 @@ export { default as User, type UserDocument, type RefreshSession, type RefreshSe
 export { default as PersonalAccessToken, type PersonalAccessTokenDocument } from './personal-access-token.js';
 export { default as WebAuthnCredential, type WebAuthnCredentialDocument } from './webauthn-credential.js';
 export { default as UserTotp, type UserTotpDocument } from './user-totp.js';
+export { default as MfaRecoveryCodes, type MfaRecoveryCodesDocument } from './mfa-recovery-codes.js';
+export {
+  default as MfaResetRequest,
+  type MfaResetRequestDocument,
+  type MfaResetRequestStatus,
+  MFA_RESET_REQUEST_STATUSES,
+} from './mfa-reset-request.js';
 export { default as UserPreferences, type UserPreferencesDocument, type NotificationPreferences } from './user-preferences.js';
 export { default as Organization, type OrganizationDocument } from './organization.js';
 export { default as UserOrganization, type UserOrganizationDocument, type OrgMemberRole, MEMBER_ROLES } from './user-organization.js';

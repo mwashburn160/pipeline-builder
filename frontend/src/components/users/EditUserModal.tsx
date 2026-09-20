@@ -118,7 +118,7 @@ export function EditUserModal({
       <SuccessAlert message={form.success} />
       {detailError && <ErrorAlert message={detailError} />}
       {detailLoading && (
-        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400" role="status">Loading the latest details…</p>
+        <p className="mb-3 text-xs text-fg-muted" role="status">Loading the latest details…</p>
       )}
 
       <div className="space-y-4">
@@ -132,7 +132,7 @@ export function EditUserModal({
             autoComplete="off"
             disabled={locked}
           />
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+          <p className="mt-1 text-xs text-fg-muted inline-flex items-center gap-1">
             User ID: <CopyableId value={editingUser.id} size="sm" />
           </p>
         </div>
@@ -168,7 +168,7 @@ export function EditUserModal({
             <option value="owner">Owner</option>
           </Select>
           {editingUser.id === currentUserId && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
+            <p className="mt-1 text-xs text-fg-muted">Cannot change your own role</p>
           )}
         </div>
         {/* Wrapped in a <form> with a username field + autocomplete hints

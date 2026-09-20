@@ -14,9 +14,25 @@
  * Both are gated on `org:settings` plus step-up at the route, and on
  * `canAdministerOrg` here — the same tenancy rule the impersonation policy uses,
  * so an admin of a parent org may set the policy for a team beneath it.
+ *
+ * ASSURANCE IS DIRECTIONAL. Any change that WEAKENS the org's protection —
+ * turning "require MFA" off, turning "administrative actions require MFA" off,
+ * or stating that the org's IdP enforces MFA (which makes SSO sessions count as
+ * `aal: 2` on the org's word) — needs an `aal: 2` session. TIGHTENING stays open
+ * to a single-factor session, so an admin who has no factor yet can still adopt
+ * MFA for the org. The route table can't express "sometimes", so the check is
+ * here (`refuseWeakSession`), with the same refusals as `requireAssurance`.
+ *
+ * The same route also carries `adminActionsRequireMfa`. TURNING IT ON bumps every
+ * affected member's session (see `services/admin-mfa-claims.ts`) so a
+ * single-factor session can't keep acting as an admin on a stale claim. Turning
+ * it OFF does not: a stale token then carries the STRICTER claim, which lapses at
+ * its next refresh (every issuance path re-resolves the policy) — the same
+ * one-access-token-lifetime settling `requireMfa` relies on, without signing the
+ * whole org out to relax a control.
  */
 
-import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen } from '../helpers/bootstrap-admin.js';
 import { canAdministerOrg, requireAuth, withController } from '../helpers/controller-helper.js';
@@ -25,6 +41,7 @@ import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization, User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
+import { refreshAdminPolicyClaims } from '../services/admin-mfa-claims.js';
 import { MFA_BOOTSTRAP_STILL_OPEN } from '../services/auth-errors.js';
 import { updateMfaPolicySchema, validateBody } from '../utils/validation.js';
 
@@ -67,6 +84,9 @@ async function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>
   // Name the parent that imposes the requirement, so the UI needn't resolve an
   // org the admin may not be able to read.
   const inheritedFromName = policy.inheritedFrom ? await getOrgName(policy.inheritedFrom) : undefined;
+  const adminActionsInheritedFromName = policy.adminActionsInheritedFrom
+    ? await getOrgName(policy.adminActionsInheritedFrom)
+    : undefined;
   return {
     requireMfa: policy.requireMfa,
     enforced: policy.enforced,
@@ -76,6 +96,10 @@ async function view(policy: Awaited<ReturnType<typeof resolveEffectiveMfaPolicy>
     ...(policy.requiredSince ? { requiredSince: policy.requiredSince.toISOString() } : {}),
     ...(policy.inheritedFrom ? { inheritedFrom: policy.inheritedFrom } : {}),
     ...(inheritedFromName ? { inheritedFromName } : {}),
+    adminActionsRequireMfa: policy.adminActionsRequireMfa,
+    adminActionsOwn: policy.adminActionsOwn,
+    ...(policy.adminActionsInheritedFrom ? { adminActionsInheritedFrom: policy.adminActionsInheritedFrom } : {}),
+    ...(adminActionsInheritedFromName ? { adminActionsInheritedFromName } : {}),
     defaultGraceDays: DEFAULT_MFA_GRACE_DAYS,
   };
 }
@@ -106,10 +130,14 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
   const body = validateBody(updateMfaPolicySchema, req.body, res);
   if (!body) return;
 
-  const before = await Organization.findById(toOrgId(id)).select('requireMfa mfaGraceUntil idpEnforcesMfa isSystem').lean();
+  const before = await Organization.findById(toOrgId(id))
+    .select('requireMfa mfaGraceUntil idpEnforcesMfa adminActionsRequireMfa isSystem').lean();
   if (!before) return sendError(res, 404, 'Organization not found');
 
   const turningOn = body.requireMfa === true && before.requireMfa !== true;
+
+  // Weakening needs a session opened with a second factor (see the module doc).
+  if (isLoosening(before, body) && refuseWeakSession(req, res, { minAssurance: 2 })) return;
 
   // REFUSE THE LOCKOUT. While the bootstrap-admin exception is still open, the
   // install's only admin has no factor — turning the requirement on for the
@@ -140,6 +168,7 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
     }
   }
   if (body.idpEnforcesMfa !== undefined) set.idpEnforcesMfa = body.idpEnforcesMfa;
+  if (body.adminActionsRequireMfa !== undefined) set.adminActionsRequireMfa = body.adminActionsRequireMfa;
 
   await Organization.updateOne(
     { _id: toOrgId(id) },
@@ -151,6 +180,15 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
 
   const effective = await resolveEffectiveMfaPolicy(id);
 
+  // The admin-actions policy rides a token claim. Tightening must reach the
+  // sessions already issued (this org and every team beneath it) at once;
+  // loosening can wait for each token's next refresh — a stale token is only
+  // stricter than the policy, never weaker.
+  const adminActionsChanged = body.adminActionsRequireMfa !== undefined
+    && body.adminActionsRequireMfa !== (before.adminActionsRequireMfa === true);
+  const adminActionsTightened = adminActionsChanged && body.adminActionsRequireMfa === true;
+  const sessionsRefreshed = adminActionsTightened ? await refreshAdminPolicyClaims(id, req.user!.sub) : 0;
+
   // Both sides of the transition: tightening it can sign people out, and
   // loosening it removes a control — a reviewer needs to see which happened.
   audit(req, 'org.mfa_policy.update', {
@@ -160,6 +198,8 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
     details: {
       requireMfa: { from: before.requireMfa === true, to: effective.own },
       idpEnforcesMfa: { from: before.idpEnforcesMfa === true, to: effective.idpEnforcesMfa },
+      adminActionsRequireMfa: { from: before.adminActionsRequireMfa === true, to: effective.adminActionsOwn },
+      ...(adminActionsChanged ? { sessionsRefreshed } : {}),
       ...(effective.graceUntil ? { graceUntil: effective.graceUntil.toISOString() } : {}),
     },
   });
@@ -167,7 +207,7 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
   logger.info('MFA policy updated', { orgId: id, by: req.user!.sub, requireMfa: effective.own, enforced: effective.enforced });
 
   sendSuccess(
-    res, 200, await view(effective),
+    res, 200, { ...(await view(effective)), ...(adminActionsChanged ? { sessionsRefreshed } : {}) },
     effective.inheritedFrom
       ? 'Two-factor policy updated — a parent organization also requires it, and that requirement applies as well'
       : 'Two-factor policy updated',
@@ -180,6 +220,25 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
     code: 'MFA_BOOTSTRAP_STILL_OPEN',
   },
 });
+
+/**
+ * Whether a policy update WEAKENS the org's protection, and therefore needs an
+ * `aal: 2` session:
+ *   - turning "require MFA" off;
+ *   - turning "administrative actions require MFA" off;
+ *   - stating that the org's IdP enforces MFA — from then on an SSO sign-in
+ *     counts as `aal: 2` on the org's word rather than on a factor we verified.
+ * Everything else (turning a requirement on, withdrawing the IdP statement) only
+ * tightens, and stays open to a single-factor admin.
+ */
+export function isLoosening(
+  before: { requireMfa?: boolean; idpEnforcesMfa?: boolean; adminActionsRequireMfa?: boolean },
+  body: { requireMfa?: boolean; idpEnforcesMfa?: boolean; adminActionsRequireMfa?: boolean },
+): boolean {
+  return (body.requireMfa === false && before.requireMfa === true)
+    || (body.adminActionsRequireMfa === false && before.adminActionsRequireMfa === true)
+    || (body.idpEnforcesMfa === true && before.idpEnforcesMfa !== true);
+}
 
 /**
  * Whether ANY bootstrap-authorized account still has the exception open. Checked

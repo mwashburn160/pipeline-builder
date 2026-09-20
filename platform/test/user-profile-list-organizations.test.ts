@@ -47,6 +47,12 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: jest.fn() }));
 
+// The password-policy helper reads platform config at import; these suites
+// don't exercise password rules, so it is stubbed like the other services.
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  assertNewPasswordAcceptable: jest.fn(async () => undefined),
+}));
+
 const { userProfileService } = await import('../src/services/user-profile-service.js');
 
 const ROOT = 'aaaaaaaaaaaaaaaaaaaaaaaa';

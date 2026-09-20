@@ -95,18 +95,18 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
         bodyClassName="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700"
         title={
           <>
-            <Cloud className="w-4 h-4 text-blue-500" />
+            <Cloud className="w-4 h-4 text-brand" />
             <span>Deployed pipelines</span>
-            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[11px] font-semibold rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{rows.length}</span>}
+            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-2xs font-semibold rounded-full bg-gray-100 dark:bg-gray-800 text-fg-muted">{rows.length}</span>}
             {/* Always-visible purpose hint so the collapsed panel isn't a mystery. */}
-            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500 hidden sm:inline">pipelines registered to a live deploy target</span>
+            <span className="ml-2 text-xs font-normal text-fg-subtle hidden sm:inline">pipelines registered to a live deploy target</span>
             {open && (
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); fetchRegistry(); }}
                 disabled={loading}
                 title="Refresh"
                 aria-label="Refresh deployed pipelines"
-                className="ml-auto p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-50"
+                className="ml-auto p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-fg-muted disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
@@ -140,19 +140,19 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
                 <li key={`${row.id}:${row.pipelineId}`} className="py-2 flex items-center justify-between text-sm gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 dark:text-gray-100">{row.pipelineName}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">
+                    <div className="text-xs text-fg-muted mt-0.5">
                       {row.region && <span>{row.region}</span>}
                       {row.stackName && <span> · stack {row.stackName}</span>}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 shrink-0" title={formatDateTime(row.lastDeployed)}>
+                  <div className="text-xs text-fg-subtle shrink-0" title={formatDateTime(row.lastDeployed)}>
                     Deployed {formatRelativeTime(row.lastDeployed)}
                   </div>
                   {canWrite && (
                     <button
                       onClick={() => setConfirmTarget(row)}
                       disabled={removing === row.id}
-                      className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-wait shrink-0"
+                      className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait shrink-0"
                       title="Remove from registry (does not delete the AWS stack)"
                       aria-label={`Remove ${row.pipelineName} from registry`}
                     >

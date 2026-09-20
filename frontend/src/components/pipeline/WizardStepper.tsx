@@ -65,7 +65,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
                     ? 'bg-green-600 text-white'
                     : status === 'error'
                     ? 'bg-red-500 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                    : 'bg-gray-200 dark:bg-gray-700 text-fg-muted'
                 } ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 dark:hover:ring-blue-700' : 'cursor-default'}`}
               >
                 {isCompleted && status === 'valid' ? (
@@ -80,7 +80,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
                     ? 'text-blue-600 dark:text-blue-400'
                     : isCompleted
                     ? 'text-gray-700 dark:text-gray-300'
-                    : 'text-gray-500 dark:text-gray-400'
+                    : 'text-fg-muted'
                 }`}
               >
                 <span className="hidden sm:inline">{step.label}</span>

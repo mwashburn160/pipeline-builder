@@ -50,7 +50,7 @@ export function Pagination({
 
   return (
     <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 px-1 ${className}`}>
-      <div className="text-sm text-gray-500 dark:text-gray-400">
+      <div className="text-sm text-fg-muted">
         Showing {start}–{end} of {total}
       </div>
 
@@ -76,7 +76,7 @@ export function Pagination({
 
           {getPageNumbers().map((page, i) =>
             page === 'ellipsis' ? (
-              <span key={`ellipsis-${i}`} className="px-1 text-gray-400 dark:text-gray-500 text-sm select-none">…</span>
+              <span key={`ellipsis-${i}`} className="px-1 text-fg-subtle text-sm select-none">…</span>
             ) : (
               <PageButton
                 key={page}

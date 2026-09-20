@@ -111,7 +111,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         {createAsSubOrg
           ? 'Create a team nested under a parent organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'
           : 'Create a top-level organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'}

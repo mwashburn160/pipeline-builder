@@ -87,7 +87,7 @@ export function usePluginColumns({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(p.id); }}
-            className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${fav ? 'text-yellow-500' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-500'}`}
+            className={`p-1 rounded hover:bg-surface-muted ${fav ? 'text-warning' : 'text-fg-subtle hover:text-warning'}`}
             aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
             aria-pressed={fav}
             title={fav ? 'Favorited' : 'Add to favorites'}
@@ -111,11 +111,11 @@ export function usePluginColumns({
                   folds in here as a chip → the standalone Version column hides. */}
               <button
                 onClick={() => onView(p)}
-                className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left truncate"
+                className="text-sm font-medium text-fg hover:text-brand hover:underline text-left truncate"
               >
                 {p.name}
               </button>
-              {p.version && <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">v{p.version}</span>}
+              {p.version && <span className="shrink-0 text-2xs font-mono text-fg-subtle border border-default rounded px-1 py-0.5">v{p.version}</span>}
               {!p.isActive && <Badge color="red">Inactive</Badge>}
               {used > 0 && (
                 <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">
@@ -123,7 +123,7 @@ export function usePluginColumns({
                 </span>
               )}
             </div>
-            {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
+            {p.description && <div className="text-xs text-fg-muted truncate max-w-md mt-0.5">{p.description}</div>}
           </div>
         );
       },
@@ -132,7 +132,7 @@ export function usePluginColumns({
       id: 'id',
       header: 'ID',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      cellClassName: 'text-sm text-fg-muted font-mono',
       sortValue: (p) => p.id,
       render: (p) => <span title={p.id}>{p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id}</span>,
     },
@@ -143,7 +143,7 @@ export function usePluginColumns({
       // standalone column (usually all "1.0.0") is redundant. Re-enable via the
       // column toggle.
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.version,
       render: (p) => <>{p.version}</>,
     },
@@ -161,7 +161,7 @@ export function usePluginColumns({
       id: 'type',
       header: 'Type',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.pluginType,
       render: (p) => <>{p.pluginType}</>,
     },
@@ -169,7 +169,7 @@ export function usePluginColumns({
       id: 'compute',
       header: 'Compute',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.computeType,
       render: (p) => <>{p.computeType}</>,
     },
@@ -183,7 +183,7 @@ export function usePluginColumns({
       id: 'uri',
       header: 'URI',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      cellClassName: 'text-sm text-fg-muted font-mono',
       sortValue: (p) => p.uri,
       render: (p) => <span title={p.uri}>{p.uri}</span>,
     },
@@ -191,7 +191,7 @@ export function usePluginColumns({
       id: 'timeout',
       header: 'Timeout',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.timeout ?? 0,
       render: (p) => <>{p.timeout ? `${p.timeout} min` : '-'}</>,
     },
@@ -199,7 +199,7 @@ export function usePluginColumns({
       id: 'failureBehavior',
       header: 'On Failure',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.failureBehavior || '',
       render: (p) => <>{p.failureBehavior || '-'}</>,
     },
@@ -219,7 +219,7 @@ export function usePluginColumns({
       id: 'createdBy',
       header: 'Created By',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdBy,
       render: (p) => <>{p.createdBy}</>,
     },
@@ -227,7 +227,7 @@ export function usePluginColumns({
       id: 'createdAt',
       header: 'Created',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.createdAt,
       render: (p) => <RelativeTime value={p.createdAt} />,
     },
@@ -235,7 +235,7 @@ export function usePluginColumns({
       id: 'updatedAt',
       header: 'Updated',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (p) => p.updatedAt,
       render: (p) => <RelativeTime value={p.updatedAt} />,
     },
@@ -243,7 +243,7 @@ export function usePluginColumns({
       id: 'keywords',
       header: 'Keywords',
       hidden: true,
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       render: (p) => <>{(p.keywords || []).join(', ')}</>,
     },
     {
@@ -268,7 +268,7 @@ export function usePluginColumns({
                 href={registryHref}
                 title={`Browse ${plugin.uri} in the registry`}
                 aria-label="View in registry"
-                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
+                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-fg-subtle hover:text-brand hover:bg-info-bg transition-colors"
               >
                 <Boxes className="w-4 h-4" />
               </Link>

@@ -230,6 +230,50 @@ export const ORG_ASSIGNABLE_CATEGORIES: readonly PermissionCategory[] =
   groupByCategory(PERMISSION_CATALOG.filter((p) => isOrgAssignablePermission(p.id)));
 
 // =============================================================================
+// Permission-scoped credentials (personal access keys / machine tokens)
+// =============================================================================
+
+/**
+ * Every `:read` permission — the "read-only" preset a new personal access key
+ * starts from. Derived from the catalog so a new resource's read permission
+ * joins the preset without a second edit.
+ */
+export const READ_ONLY_PERMISSIONS: readonly Permission[] =
+  ALL_PERMISSIONS.filter((p) => p.endsWith(':read'));
+
+/**
+ * Normalize a requested permission subset: every entry must be a catalog id
+ * (anything else → `null`, the caller's 400), duplicates collapse, and the
+ * result is in canonical catalog order so a stored subset compares stably.
+ * An EMPTY array is valid — a key that can authenticate but do nothing — and
+ * is distinct from "no subset" (`undefined`), which means full access.
+ */
+export function normalizePermissionSubset(requested: readonly unknown[]): Permission[] | null {
+  const wanted = new Set<string>();
+  for (const p of requested) {
+    if (typeof p !== 'string' || !isValidPermission(p)) return null;
+    wanted.add(p);
+  }
+  return ALL_PERMISSIONS.filter((p) => wanted.has(p));
+}
+
+/**
+ * The permissions a permission-scoped credential actually carries: the
+ * INTERSECTION of the subset it was created with and the holder's CURRENT
+ * effective permissions, in catalog order. Re-evaluated at every issue, so
+ * losing a Role shrinks the credential and nothing can ever grow it past the
+ * subset it was created with.
+ */
+export function intersectPermissions(
+  effective: readonly string[],
+  subset: readonly string[],
+): Permission[] {
+  const allowed = new Set(subset);
+  const held = new Set(effective);
+  return ALL_PERMISSIONS.filter((p) => allowed.has(p) && held.has(p));
+}
+
+// =============================================================================
 // Built-in Role seed bundles
 // =============================================================================
 

@@ -85,11 +85,11 @@ export function ServiceAccountDrawer({
           />
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--pb-text-muted)] mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted mb-2">
               Effective permissions ({account.permissions.length})
             </p>
             {account.permissions.length === 0 ? (
-              <p className="text-sm text-[var(--pb-text-muted)]">None — its keys can only carry a single capability scope.</p>
+              <p className="text-sm text-fg-muted">None — its keys can only carry a single capability scope.</p>
             ) : (
               <div className="flex flex-wrap gap-1">
                 {account.permissions.map((p) => <Badge key={p} color="gray">{permissionLabel(p)}</Badge>)}
@@ -98,7 +98,7 @@ export function ServiceAccountDrawer({
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--pb-text-muted)] mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted mb-2">
               Keys ({account.keys.length})
             </p>
             <AccessKeyTable

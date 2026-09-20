@@ -72,16 +72,16 @@ function HeldCard({ set }: { set: ContentSet }) {
           Included
         </span>
       </div>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">{meta.description}</p>
-      <ul className="mt-3 space-y-1 text-sm text-gray-600 dark:text-gray-400 flex-1">
+      <p className="text-sm text-fg-muted mt-2">{meta.description}</p>
+      <ul className="mt-3 space-y-1 text-sm text-fg-muted flex-1">
         {set.contents.map((c) => (
           <li key={c} className="flex items-start gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-green-500" aria-hidden="true" />
+            <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-success" aria-hidden="true" />
             <span>{c}</span>
           </li>
         ))}
       </ul>
-      <p className="mt-3 inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+      <p className="mt-3 inline-flex items-center gap-1 text-xs text-fg-muted">
         <BookOpen className="w-3.5 h-3.5" aria-hidden="true" /> Browse and subscribe to these rules in the catalog below.
       </p>
     </Card>
@@ -106,20 +106,20 @@ function LockedCard({ set, standardHeld }: { set: ContentSet; standardHeld: bool
           </span>
           <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h4>
         </div>
-        <span className="text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 whitespace-nowrap">
+        <span className="text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-fg-muted px-2 py-0.5 whitespace-nowrap">
           Add-on
         </span>
       </div>
-      <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">{meta.description}</p>
+      <p className="text-sm text-fg-muted mt-2">{meta.description}</p>
       <ul className="mt-3 space-y-1 text-sm text-gray-500 dark:text-gray-500 flex-1">
         {set.contents.map((c) => (
           <li key={c} className="flex items-start gap-1.5">
-            <Lock className="w-3 h-3 mt-1 shrink-0 text-gray-400" aria-hidden="true" />
+            <Lock className="w-3 h-3 mt-1 shrink-0 text-fg-subtle" aria-hidden="true" />
             <span>{c}</span>
           </li>
         ))}
       </ul>
-      {note && <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{note}</p>}
+      {note && <p className="mt-2 text-xs text-fg-subtle">{note}</p>}
       <Link
         href={featureUpsellHref(highlight)}
         className="btn btn-primary btn-sm mt-4 self-start"
@@ -145,7 +145,7 @@ export default function ComplianceContentSets() {
     <section aria-label="Curated compliance content sets" className="space-y-3">
       <div>
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Curated content sets</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           Pre-built compliance rule libraries you can subscribe to. Authoring your own rules stays free.
         </p>
       </div>

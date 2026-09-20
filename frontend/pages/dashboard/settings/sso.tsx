@@ -12,9 +12,17 @@
  * standard {@link FeatureLock} upsell in place of the editors. The backend
  * independently enforces both the permission (own-org only) and the entitlement.
  *
- * The page reads the config ONCE and hands it to both protocol editors, the
- * group-mapping editor and the disconnect control, so they all describe the
- * same record and a save (or a disconnect) in one is seen by the rest.
+ * TWO SHAPES, decided by whether a connection exists:
+ *   - none yet → the SSO SETUP WIZARD (protocol + preset → SP values → IdP
+ *     details / metadata import → verified domains → test connection → enable,
+ *     optionally require SSO);
+ *   - configured → a STATUS SUMMARY (Edit reopens the wizard at the right step,
+ *     Test connection, enable, "SSO required"), then group → role mappings,
+ *     SCIM provisioning and Disconnect.
+ *
+ * The page reads the config ONCE and hands it to every part, so they all
+ * describe the same record and a save (or a disconnect) in one is seen by the
+ * rest. Every write keeps the IdP routes' strong step-up + assurance gate.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,9 +37,9 @@ import { Callout } from '@/components/ui/Callout';
 import { FeatureLock } from '@/components/ui/FeatureLock';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { RetryError } from '@/components/ui/RetryError';
-import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
-import { OrgSamlSettings } from '@/components/settings/OrgSamlSettings';
 import { SsoDisconnect } from '@/components/settings/SsoDisconnect';
+import { SsoSetupWizard, type WizardStep } from '@/components/sso/SsoSetupWizard';
+import { SsoStatusSummary } from '@/components/sso/SsoStatusSummary';
 import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
 import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
 import api from '@/lib/api';
@@ -53,6 +61,9 @@ export default function OrgSsoSettingsPage() {
   // config locally from the last read.
   const [idpConfig, setIdpConfig] = useState<OrgIdpConfigDto | null>(null);
   useEffect(() => { setIdpConfig(idp.data); }, [idp.data]);
+  // The wizard step being edited, or null for the summary. With no connection
+  // the wizard is always shown.
+  const [editing, setEditing] = useState<WizardStep | null>(null);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -83,12 +94,31 @@ export default function OrgSsoSettingsPage() {
           <LoadingPage />
         ) : (
           <>
-            <OrgSsoSettings orgId={orgId} config={idpConfig} readOnly={isReadOnly} onSaved={setIdpConfig} />
-            {/* SAML 2.0 (#4) — the second protocol, behind the same sign-in path
-                and the same `org:idp` + step-up gate as the OIDC connection
-                above. It owns the protocol selector, since only one of the two
-                can be live for an org at a time. */}
-            <OrgSamlSettings orgId={orgId} config={idpConfig} readOnly={isReadOnly} onSaved={setIdpConfig} />
+            {!idpConfig || editing !== null ? (
+              <SsoSetupWizard
+                // Remount per entry point so the wizard opens at the chosen step.
+                key={`${editing ?? 'new'}`}
+                orgId={orgId}
+                config={idpConfig}
+                readOnly={isReadOnly}
+                initialStep={editing ?? 1}
+                onSaved={(saved) => {
+                  // The first save creates the connection: stay in the wizard
+                  // (now at the domains step) instead of dropping to the summary.
+                  if (!idpConfig) setEditing(4);
+                  setIdpConfig(saved);
+                }}
+                onDone={idpConfig ? () => setEditing(null) : undefined}
+              />
+            ) : (
+              <SsoStatusSummary
+                orgId={orgId}
+                config={idpConfig}
+                readOnly={isReadOnly}
+                onSaved={setIdpConfig}
+                onEdit={setEditing}
+              />
+            )}
             {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
                 it grants roles, so an org can delegate the login connection and
                 the role policy to different people. The API enforces the same. */}
@@ -112,7 +142,7 @@ export default function OrgSsoSettingsPage() {
                 orgId={orgId}
                 config={idpConfig}
                 readOnly={isReadOnly}
-                onDisconnected={() => setIdpConfig(null)}
+                onDisconnected={() => { setIdpConfig(null); setEditing(null); }}
               />
             )}
           </>

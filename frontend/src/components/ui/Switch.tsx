@@ -29,9 +29,9 @@ export function Switch({ checked, onChange, disabled = false, id, ...aria }: Swi
       onClick={() => !disabled && onChange(!checked)}
       className={[
         'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pb-brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--pb-surface)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-        checked ? 'bg-[var(--pb-brand)]' : 'bg-[var(--pb-border)]',
+        checked ? 'bg-brand' : 'bg-[var(--pb-border)]',
       ].join(' ')}
     >
       <span

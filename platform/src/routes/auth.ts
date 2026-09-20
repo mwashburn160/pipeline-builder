@@ -4,15 +4,18 @@
 import { createHash } from 'crypto';
 import { audited, verifyServicePrincipal } from '@pipeline-builder/api-core';
 import { Router } from 'express';
+import recoveryCodesRoutes from './recovery-codes.js';
 import totpRoutes from './totp.js';
 import webauthnRoutes from './webauthn.js';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg } from '../controllers/index.js';
+import { completeRequiredPasswordChange } from '../controllers/password-change-required.js';
 import { completeStepUpReauth, startStepUpReauth } from '../controllers/step-up-reauth.js';
 import { stepUpVerify } from '../controllers/step-up.js';
 import { exchangeToken, revokeKey, rotateKey } from '../controllers/token-exchange.js';
 import { stepUpVerifyTotp, verifyMfaLogin } from '../controllers/totp.js';
 import { stepUpOptions, stepUpVerifyWebAuthn } from '../controllers/webauthn.js';
 import { requireAuth, isValidRefreshToken, requireClientType, stepUpLimiter } from '../middleware/index.js';
+import { loginAccountLimiter } from '../middleware/login-limiter.js';
 import { extractClientIp } from '../middleware/rate-limit-keys.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
@@ -20,6 +23,10 @@ const router: Router = Router();
 
 /** POST /auth/register - Create a new user account */
 router.post('/register', audited('user.register'), register);
+
+/** Per-ACCOUNT failed-attempt throttle for password sign-in (the per-IP auth
+ *  limiter is mounted on all of /auth) — see middleware/login-limiter.ts. */
+router.use('/login', loginAccountLimiter);
 
 /** POST /auth/login - Authenticate and receive tokens */
 router.post('/login', audited('user.login', 'user.login.failed'), login);
@@ -174,11 +181,19 @@ const mfaVerifyLimiter = createLimiter({
 
 router.post('/mfa/verify', mfaVerifyLimiter, audited('user.login', 'user.login.failed'), verifyMfaLogin);
 
+/** POST /auth/password/change-required — last leg of a password sign-in whose
+ *  password no longer meets the person's org password policy: challenge handle
+ *  + a NEW password → the session (controllers/password-change-required.ts). */
+router.post('/password/change-required', audited('user.password.change', 'user.login'), completeRequiredPasswordChange);
+
 /** Passkey registration, management and sign-in (/auth/webauthn/*). */
 router.use('/webauthn', webauthnRoutes);
 
 /** Authenticator-app enrolment and management (/auth/totp/*). */
 router.use('/totp', totpRoutes);
+
+/** The account's MFA recovery codes, shared by every second factor (/auth/recovery-codes). */
+router.use('/recovery-codes', recoveryCodesRoutes);
 
 /**
  * Per-user limiter for the domain-based join endpoints. Discovery + join are

@@ -10,10 +10,12 @@
  * alongside it:
  *
  *   - DISCOVERY: an email-shaped identifier is checked against the backend's
- *     domain hint (`POST /auth/sso/discover`, a bare `{ sso }`). A federated
- *     domain loses the password field, the passkey button and the social
- *     buttons — the backend refuses every one of them with SSO_REQUIRED, so
- *     showing them only manufactures a rejection nobody can act on.
+ *     domain hint (`POST /auth/sso/discover`, `{ sso, required }`). A domain
+ *     whose org REQUIRES SSO loses the password field, the passkey button and
+ *     the social buttons — the backend refuses every one of them with
+ *     SSO_REQUIRED — except through the OWNER break-glass link, which gives the
+ *     password path back (the server decides who is an owner). A domain whose
+ *     org merely OFFERS SSO keeps the password form and gains an SSO button.
  *   - A REFUSED PASSWORD: discovery is a hint and can miss (a username, a
  *     blocked request). The 403 names the org, so the same SSO action appears —
  *     and it can name the provider, which discovery deliberately never reveals.
@@ -95,7 +97,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   window.location.hash = '';
   mockApi.listOAuthProviders.mockResolvedValue({ data: { providers: ['google'] } });
-  mockApi.discoverSso.mockResolvedValue({ data: { sso: false } });
+  mockApi.discoverSso.mockResolvedValue({ data: { sso: false, required: false } });
   mockApi.startSsoByEmail.mockResolvedValue({ data: { url: IDP_OIDC_URL, state: 's1' } });
   mockApi.getSsoUrl.mockResolvedValue({ data: { url: IDP_SAML_URL, state: 'r1' } });
   await act(async () => { render(<LandingPage />); });
@@ -103,7 +105,7 @@ beforeEach(async () => {
 
 describe('domain discovery', () => {
   it('replaces the password field with an SSO action for a federated domain', async () => {
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
     await enterIdentifier('ada@corp.example');
 
     expect(mockApi.discoverSso).toHaveBeenCalledWith('ada@corp.example');
@@ -116,7 +118,7 @@ describe('domain discovery', () => {
   });
 
   it('names the domain rather than the org — discovery is told nothing else', async () => {
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
     await enterIdentifier('ada@corp.example');
 
     expect(screen.getByText(/corp\.example is managed by your organization/i)).toBeInTheDocument();
@@ -132,11 +134,11 @@ describe('domain discovery', () => {
   });
 
   it('gives the password back when the identifier moves off the federated domain', async () => {
-    mockApi.discoverSso.mockResolvedValueOnce({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValueOnce({ data: { sso: true, required: true } });
     await enterIdentifier('ada@corp.example');
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
 
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: false } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: false, required: false } });
     await enterIdentifier('ada@personal.example');
     await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
   });
@@ -148,7 +150,7 @@ describe('domain discovery', () => {
   });
 
   it('asks once per domain, however many addresses are typed on it', async () => {
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
     await enterIdentifier('ada@corp.example');
     await enterIdentifier('grace@corp.example');
 
@@ -165,9 +167,40 @@ describe('domain discovery', () => {
   });
 });
 
+describe('SSO offered but not required, and the owner break-glass', () => {
+  it('keeps the password form and adds a single sign-on button when SSO is optional', async () => {
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: false } });
+    await enterIdentifier('ada@corp.example');
+
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    const offered = screen.getByRole('button', { name: /continue with single sign-on/i });
+    await act(async () => { fireEvent.click(offered); });
+    expect(mockApi.startSsoByEmail).toHaveBeenCalledWith('ada@corp.example');
+    expect(window.location.hash).toBe(IDP_OIDC_URL);
+  });
+
+  it('gives an owner the password path back on a REQUIRED domain, still offering SSO', async () => {
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
+    await enterIdentifier('owner@corp.example');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /organization owner\? sign in with your password/i })); });
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with single sign-on/i })).toBeInTheDocument();
+  });
+
+  it('forgets the break-glass choice when a different identifier is typed', async () => {
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
+    await enterIdentifier('owner@corp.example');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /organization owner/i })); });
+    await enterIdentifier('member@corp.example');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+});
+
 describe('starting the flow', () => {
   it('sends the browser to the IdP, resolving the org from the address', async () => {
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
     await enterIdentifier('ada@corp.example');
     await act(async () => { fireEvent.click(ssoButton()!); });
 
@@ -178,7 +211,7 @@ describe('starting the flow', () => {
   });
 
   it('reports a provider that cannot be reached, and stays on the page', async () => {
-    mockApi.discoverSso.mockResolvedValue({ data: { sso: true } });
+    mockApi.discoverSso.mockResolvedValue({ data: { sso: true, required: true } });
     mockApi.startSsoByEmail.mockRejectedValue(new Error('Could not load the identity provider configuration'));
     await enterIdentifier('ada@corp.example');
     await act(async () => { fireEvent.click(ssoButton()!); });

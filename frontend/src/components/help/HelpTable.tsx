@@ -12,7 +12,7 @@ export function HelpTable({ headers, rows }: HelpTableProps) {
     id: `${header}-${j}`,
     header,
     headerClassName: 'whitespace-nowrap',
-    cellClassName: 'text-gray-600 dark:text-gray-400',
+    cellClassName: 'text-fg-muted',
     render: (row) => row[j],
   }));
 

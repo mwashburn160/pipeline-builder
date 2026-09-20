@@ -35,11 +35,11 @@ export function fmtDate(iso: string | null): string {
 // ─── Shared Components ──────────────────────────────────
 
 export function ReportEmpty({ text }: { text: string }) {
-  return <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">{text}</p>;
+  return <p className="text-sm text-fg-subtle py-8 text-center">{text}</p>;
 }
 
 export function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h3 className="section-title text-sm tracking-tight mb-3">{children}</h3>;
+  return <h3 className="h3 tracking-tight mb-3">{children}</h3>;
 }
 
 interface StackedTimelineBarProps {
@@ -64,13 +64,13 @@ export function StackedTimelineBar({ period, succeeded, failed, canceled }: Stac
   const cPct = total > 0 ? ((canceled ?? 0) / total) * 100 : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(period)}</span>
-      <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
+      <span className="text-xs text-fg-subtle w-16 shrink-0 tabular-nums">{fmtDate(period)}</span>
+      <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden flex">
         {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} />}
         {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} />}
         {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} />}
       </div>
-      <span className="text-xs text-gray-400 dark:text-gray-500 w-12 text-right tabular-nums">{total}</span>
+      <span className="text-xs text-fg-subtle w-12 text-right tabular-nums">{total}</span>
     </div>
   );
 }
@@ -166,7 +166,7 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDa
         className="filter-select text-xs tabular-nums"
         aria-label="From date"
       />
-      <span className="text-xs text-gray-400">→</span>
+      <span className="text-xs text-fg-subtle">→</span>
       <input
         type="date"
         value={to}
@@ -177,7 +177,7 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDa
         aria-label="To date"
       />
       {overCap && (
-        <span className="text-xs text-amber-600 dark:text-amber-400" title={`Reports cap at ${maxRangeDays} days`}>
+        <span className="text-xs text-warning" title={`Reports cap at ${maxRangeDays} days`}>
           &gt;{maxRangeDays}d — will be capped
           {extendHref && (
             <>{' · '}<Link href={extendHref} className="underline hover:no-underline">Extend retention</Link></>
@@ -210,7 +210,7 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center gap-1 border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
+      <div className="flex items-center gap-1 border border-default rounded-lg overflow-hidden">
         {REFRESH_OPTIONS.map((opt) => (
           <button
             key={opt.value}
@@ -218,8 +218,8 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
             onClick={() => setInterval_(opt.value)}
             className={`px-2 py-1 text-xs font-medium transition-colors ${
               interval === opt.value
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                ? 'bg-brand text-white'
+                : 'text-fg-muted hover:bg-surface-muted'
             }`}
           >
             {opt.label}
@@ -227,7 +227,7 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
         ))}
       </div>
       {interval > 0 && (
-        <Timer className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+        <Timer className="w-3.5 h-3.5 text-brand animate-pulse" />
       )}
       <Button variant="secondary" onClick={onRefresh} disabled={loading} className="px-3 py-1.5 text-sm">
         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

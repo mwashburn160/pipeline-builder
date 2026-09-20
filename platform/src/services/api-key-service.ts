@@ -57,6 +57,12 @@ export interface AccessKeyView {
   /** Service-account name, so the shared keys list can label the owner. */
   serviceAccountName: string | null;
   scope: string | null;
+  /**
+   * The key's permission SUBSET ("Selected permissions"), in catalog order, or
+   * null for "Full access" (the owner's current permissions). Either way the
+   * exchanged token never exceeds what the owner holds at exchange time.
+   */
+  permissions: string[] | null;
   organizationId: string | null;
   /** Addresses/CIDRs the key may be exchanged from; null = any (service-account keys only). */
   ipAllowlist: string[] | null;
@@ -176,6 +182,7 @@ function toView(
     serviceAccountId: doc.serviceAccountId ? String(doc.serviceAccountId) : null,
     serviceAccountName: serviceAccountName ?? null,
     scope: doc.scope ?? null,
+    permissions: Array.isArray(doc.permissions) ? [...doc.permissions] : null,
     organizationId: doc.organizationId ?? null,
     ipAllowlist: doc.ipAllowlist && doc.ipAllowlist.length > 0 ? [...doc.ipAllowlist] : null,
     createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
@@ -197,10 +204,21 @@ class ApiKeyService {
    *
    * `auth` is the creating session's assurance, stored so every exchanged token
    * inherits it (a key can never raise the level the person signed in at).
+   *
+   * `permissions` is an optional catalog SUBSET the caller has already checked
+   * against the creator's current permissions (see the controller); stored
+   * as-is and intersected with the owner's live permissions at every exchange.
    */
   async create(
     userId: string,
-    input: { name: string; expiresInSeconds: number; scope?: TokenScope; client?: ClientInfo; prefix?: ApiKeyPrefix },
+    input: {
+      name: string;
+      expiresInSeconds: number;
+      scope?: TokenScope;
+      permissions?: readonly string[];
+      client?: ClientInfo;
+      prefix?: ApiKeyPrefix;
+    },
     auth: SessionAuth,
   ): Promise<{ key: string; view: AccessKeyView }> {
     const user = await User.findById(userId).select('+tokenVersion lastActiveOrgId');
@@ -221,6 +239,7 @@ class ApiKeyService {
       last4: key.slice(-4),
       name: input.name,
       scope: input.scope ?? null,
+      ...(input.permissions ? { permissions: [...input.permissions] } : {}),
       organizationId: user.lastActiveOrgId?.toString() ?? null,
       createdUserAgent: input.client?.userAgent ?? null,
       createdIp: input.client?.ip ?? null,
@@ -401,12 +420,16 @@ class ApiKeyService {
     }
 
     const scope = (record.scope ?? undefined) as TokenScope | undefined;
+    // A permission-scoped key carries subset ∩ the owner's CURRENT permissions
+    // in the key's org — re-derived here, on every exchange.
+    const permissions = Array.isArray(record.permissions) ? record.permissions : undefined;
     const accessToken = await signApiKeyToken(
       user,
       membership,
       String(record._id),
       { amr: record.amr, aal: record.aal, authTime: new Date(record.authTime) },
       scope,
+      permissions,
     );
 
     // Last-used is stamped on every exchange (at most once per token lifetime

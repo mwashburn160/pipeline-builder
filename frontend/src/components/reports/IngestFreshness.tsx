@@ -75,10 +75,10 @@ export function classifyIngestHealth(
 }
 
 const TONE: Record<IngestState, { icon: typeof Activity; className: string }> = {
-  flowing: { icon: Activity, className: 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300' },
-  stale: { icon: Clock, className: 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300' },
-  dropping: { icon: AlertTriangle, className: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
-  never: { icon: CircleSlash, className: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-400' },
+  flowing: { icon: Activity, className: 'border-success-border bg-success-bg text-success-strong' },
+  stale: { icon: Clock, className: 'border-warning-border bg-warning-bg text-warning-strong' },
+  dropping: { icon: AlertTriangle, className: 'border-danger-border bg-danger-bg text-danger' },
+  never: { icon: CircleSlash, className: 'border-default bg-surface-muted text-fg-muted' },
 };
 
 /**

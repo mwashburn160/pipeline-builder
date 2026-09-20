@@ -45,7 +45,7 @@ export function FormSection({
         {success && <SuccessAlert message={success} />}
         {children}
         {submitLabel && (
-          <div className="-mx-5 -mb-5 mt-5 flex items-center justify-end gap-2 border-t border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-5 py-3">
+          <div className="-mx-5 -mb-5 mt-5 flex items-center justify-end gap-2 border-t border-default bg-surface-muted px-5 py-3">
             {footerExtra && <div className="mr-auto">{footerExtra}</div>}
             <Button type="submit" loading={submitLoading} disabled={submitDisabled}>{submitLabel}</Button>
           </div>

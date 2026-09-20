@@ -92,15 +92,16 @@ describe('the code step', () => {
     expect(screen.queryByText(/no self-service route/i)).not.toBeInTheDocument();
   });
 
-  it('explains the operator recovery when there is no code left at all', async () => {
+  it('explains the two-person reset (and the operator fallback) when there is no code left at all', async () => {
     await signIn();
     fireEvent.click(screen.getByRole('button', { name: /lost your phone and your codes/i }));
 
-    // The honest answer: not a button on this page, a command someone runs.
+    // The honest answer: not a button on this page — WHO can reset it.
     expect(screen.getByText(/no self-service route/i)).toBeInTheDocument();
-    expect(screen.getByText(/scripts\/mfa-recover\.js/)).toBeInTheDocument();
-    expect(screen.getByText(/owner or admin of your organization/i)).toBeInTheDocument();
+    expect(screen.getByText(/owner or admin of your organization to reset/i)).toBeInTheDocument();
+    expect(screen.getByText(/platform administrator can reset it/i)).toBeInTheDocument();
     expect(screen.getByText(/recorded in the audit trail/i)).toBeInTheDocument();
+    expect(screen.getByText(/scripts\/mfa-recover\.js/)).toBeInTheDocument();
   });
 
   it('folds back up, and is gone once the code step is abandoned', async () => {
@@ -129,7 +130,7 @@ describe('past the org’s MFA deadline, with no factor enrolled', () => {
     await signIn();
 
     expect(screen.getByText(/your organization requires two-factor authentication/i)).toBeInTheDocument();
-    expect(screen.getByText(/lift the requirement, or extend its grace period/i)).toBeInTheDocument();
+    expect(screen.getByText(/two owners or admins of your organization can reset/i)).toBeInTheDocument();
     expect(screen.getByText(/scripts\/mfa-recover\.js/)).toBeInTheDocument();
   });
 

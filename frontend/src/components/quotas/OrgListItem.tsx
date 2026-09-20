@@ -51,11 +51,11 @@ export function OrgListItem({
       <div className="min-w-0 flex-1">
         <div
           title={org.name}
-          className={`text-sm truncate ${selected ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}
+          className={`text-sm truncate ${selected ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-fg-muted'}`}
         >
           {org.name}
         </div>
-        {org.slug && <div className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate">{org.slug}</div>}
+        {org.slug && <div className="text-xs text-fg-subtle font-mono truncate">{org.slug}</div>}
       </div>
     </button>
   );

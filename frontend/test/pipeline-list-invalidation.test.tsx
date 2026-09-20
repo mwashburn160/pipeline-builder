@@ -91,6 +91,24 @@ describe('pipelines catalog', () => {
   });
 });
 
+describe('pipelines catalog filters', () => {
+  it('offers no Organization or Keyword filters, and ignores those URL params', async () => {
+    mockRouter.pathname = '/dashboard/pipelines';
+    mockRouter.query = { organization: 'acme', keyword: 'deploy' };
+    render(<PipelinesPage />);
+    await screen.findByText('web-pipeline');
+
+    fireEvent.click(screen.getByRole('button', { name: /filters/i }));
+    expect(screen.queryByLabelText('Filter by organization')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter by keyword')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Filter by project')).toBeInTheDocument();
+
+    const params = listPipelines.mock.calls[0][0] as Record<string, string>;
+    expect(params).not.toHaveProperty('organization');
+    expect(params).not.toHaveProperty('keyword');
+  });
+});
+
 describe('pipeline detail', () => {
   it('drops the shared pipeline cache before leaving after a delete', async () => {
     mockRouter.pathname = '/dashboard/pipelines/[id]';

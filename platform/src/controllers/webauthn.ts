@@ -40,7 +40,11 @@ import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
+import { clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
+import { issueRecoveryCodesIfAbsent, removeRecoveryCodesIfNoFactor } from '../services/recovery-codes-service.js';
 import {
+  WEBAUTHN_ATTESTATION_UNVERIFIABLE,
+  WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
   WEBAUTHN_COUNTER_REGRESSION,
   WEBAUTHN_CREDENTIAL_EXISTS,
   WEBAUTHN_CREDENTIAL_NOT_FOUND,
@@ -66,6 +70,16 @@ export const WEBAUTHN_ERROR_MAP: ErrorMap = {
     message: 'This is the only way you can sign in. Set a password or add another passkey first.',
   },
   [WEBAUTHN_COUNTER_REGRESSION]: { status: 403, message: 'That passkey could not be verified' },
+  [WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED]: {
+    status: 403,
+    message: 'Your organization does not allow this kind of passkey. Use one of the security keys or authenticators it has approved.',
+    code: WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
+  },
+  [WEBAUTHN_ATTESTATION_UNVERIFIABLE]: {
+    status: 403,
+    message: 'Your organization only accepts approved authenticators, and this one could not prove its make and model. Use an approved security key or authenticator.',
+    code: WEBAUTHN_ATTESTATION_UNVERIFIABLE,
+  },
 };
 
 /**
@@ -134,6 +148,9 @@ export const registerOptions = withController('Passkey register options', async 
     userId,
     email: user.email,
     username: user.username,
+    // The ACTIVE org's authenticator policy governs the enrolment (direct
+    // attestation + MDS check when it allowlists models).
+    ...(req.user!.organizationId ? { orgId: req.user!.organizationId } : {}),
   });
   sendSuccess(res, 200, { ceremonyId, options });
 }, WEBAUTHN_ERROR_MAP);
@@ -154,19 +171,43 @@ export const registerVerify = withController('Passkey register verify', async (r
     );
   } catch (err) {
     meter('register', 'failure');
+    const reason = err instanceof Error ? err.message : 'unknown';
+    // A policy refusal is an ORG-policy event an admin will want to find
+    // ("why can't Sam enrol?"), so it is audited, not just metered.
+    if (reason === WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED || reason === WEBAUTHN_ATTESTATION_UNVERIFIABLE) {
+      audit(req, 'user.passkey.register', {
+        targetType: 'user',
+        targetId: userId,
+        outcome: 'failure',
+        ...(req.user!.organizationId ? { affectedOrgId: req.user!.organizationId } : {}),
+        details: { reason },
+      });
+      incCounter('platform_authenticator_policy_refusals_total', { reason });
+    }
     throw err;
   }
 
   audit(req, 'user.passkey.register', {
     targetType: 'user',
     targetId: userId,
-    details: { passkeyId: passkey.id, name: passkey.name, backedUp: passkey.backedUp },
+    details: {
+      passkeyId: passkey.id,
+      name: passkey.name,
+      backedUp: passkey.backedUp,
+      ...(passkey.aaguid ? { aaguid: passkey.aaguid } : {}),
+      attestationVerified: passkey.attestationVerified,
+    },
   });
   // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
   // good, even if this passkey is later removed.
   await closeBootstrapExceptionOnEnrolment(req, userId);
+  // ...and so does any MFA-reset enrolment grace: they have enrolled.
+  await clearResetGraceOnEnrolment(userId);
+  // The account's recovery codes are minted with its FIRST second factor,
+  // whichever kind that is. Shown once; a later passkey keeps the same set.
+  const recoveryCodes = await issueRecoveryCodesIfAbsent(userId);
   meter('register', 'success');
-  sendSuccess(res, 201, { passkey });
+  sendSuccess(res, 201, { passkey, ...(recoveryCodes ? { recoveryCodes } : {}) });
 }, WEBAUTHN_ERROR_MAP);
 
 // -- Management ---------------------------------------------------------------
@@ -195,10 +236,12 @@ export const renamePasskey = withController('Rename passkey', async (req, res) =
 export const removePasskey = withController('Remove passkey', async (req, res) => {
   const userId = req.user!.sub;
   const passkey = await webauthn.removeCredential(userId, String(req.params.id));
+  // The last factor took the recovery codes with it: nothing left to recover.
+  const recoveryCodesRemoved = await removeRecoveryCodesIfNoFactor(userId);
   audit(req, 'user.passkey.remove', {
     targetType: 'user',
     targetId: userId,
-    details: { passkeyId: passkey.id, name: passkey.name },
+    details: { passkeyId: passkey.id, name: passkey.name, ...(recoveryCodesRemoved ? { recoveryCodesRemoved: true } : {}) },
   });
   sendSuccess(res, 200, { removed: true, passkey });
 }, WEBAUTHN_ERROR_MAP);
@@ -322,9 +365,13 @@ export const loginVerify = withController('Passkey login verify', async (req, re
   // — and `aal: 2` (#8). A passkey is verified with user verification REQUIRED
   // (see the WebAuthn service), so a single ceremony proves both the credential
   // and the person, which is what MFA-grade asks for.
+  // The passkey's MODEL rides on the session so the active org's authenticator
+  // allowlist is applied at issuance (and again at every refresh / switch-org):
+  // a model the org does not allowlist still signs the person in, but counts as
+  // `aal: 1` there — see helpers/authenticator-policy.ts.
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
-    auth: signInAuth('webauthn'),
+    auth: { ...signInAuth('webauthn'), ...(assertion.aaguid ? { aaguid: assertion.aaguid } : {}) },
     client: clientInfoOf(req),
   });
 

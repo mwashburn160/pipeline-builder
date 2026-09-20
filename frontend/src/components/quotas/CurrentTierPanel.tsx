@@ -51,13 +51,13 @@ export function CurrentTierPanel({
             )}
           </span>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
               Current tier
             </p>
             <p className="text-lg font-semibold leading-tight text-gray-900 dark:text-gray-100">
               {preset.label}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-fg-muted">
               {isUnlimited ? 'All quotas uncapped — no limits enforced' : preset.description}
             </p>
           </div>
@@ -69,7 +69,7 @@ export function CurrentTierPanel({
             Unsaved change → {pendingPreset!.label}
           </span>
         ) : selectorBelow && !isSelectable ? (
-          <span className="max-w-[15rem] text-right text-xs text-gray-400 dark:text-gray-500">
+          <span className="max-w-[15rem] text-right text-xs text-fg-subtle">
             {isUnlimited
               ? 'Billing-off default — not one of the selectable plans below.'
               : 'Not one of the selectable plans below.'}

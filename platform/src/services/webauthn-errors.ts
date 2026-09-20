@@ -29,3 +29,10 @@ export const WEBAUTHN_LAST_SIGN_IN_METHOD = 'WEBAUTHN_LAST_SIGN_IN_METHOD';
 /** The authenticator's signature counter went BACKWARDS — the classic cloned-
  *  credential signal. Refused and audited. → 403 */
 export const WEBAUTHN_COUNTER_REGRESSION = 'WEBAUTHN_COUNTER_REGRESSION';
+/** The active org allowlists authenticator models and this passkey's model
+ *  (AAGUID) is not on the list, or MDS reports the model compromised. → 403 */
+export const WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED = 'WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED';
+/** The active org allowlists authenticator models, but this registration's
+ *  attestation could not be verified (no attestation, self attestation, a model
+ *  the FIDO Metadata Service does not know, or no metadata loaded). → 403 */
+export const WEBAUTHN_ATTESTATION_UNVERIFIABLE = 'WEBAUTHN_ATTESTATION_UNVERIFIABLE';

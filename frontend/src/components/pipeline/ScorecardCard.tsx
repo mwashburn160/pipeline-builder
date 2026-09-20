@@ -14,8 +14,8 @@ function Band({ label, level }: { label: string; level: ScorecardDoraLevel }) {
   const badge = doraLevelBadge(level);
   return (
     <div className="flex items-center justify-between text-sm">
-      <span className="text-gray-500 dark:text-gray-400">{label}</span>
-      {badge ? <span className={badge.className}>{badge.label}</span> : <span className="text-gray-400 text-xs">n/a</span>}
+      <span className="text-fg-muted">{label}</span>
+      {badge ? <span className={badge.className}>{badge.label}</span> : <span className="text-fg-subtle text-xs">n/a</span>}
     </div>
   );
 }
@@ -57,7 +57,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
     return (
       <Card>
         <div className="flex items-center gap-2 mb-3">
-          <Gauge className="w-5 h-5 text-gray-500" aria-hidden="true" />
+          <Gauge className="w-5 h-5 text-fg-muted" aria-hidden="true" />
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maturity scorecard</h3>
         </div>
         <FeatureLock flag="advanced_reporting" />
@@ -68,13 +68,13 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-3">
-        <Gauge className="w-5 h-5 text-gray-500" />
+        <Gauge className="w-5 h-5 text-fg-muted" />
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maturity scorecard</h3>
       </div>
       {loading ? (
-        <p className="text-sm text-gray-400">Computing…</p>
+        <p className="text-sm text-fg-subtle">Computing…</p>
       ) : failed || !scorecard ? (
-        <p className="text-sm text-gray-400">Scorecard unavailable.</p>
+        <p className="text-sm text-fg-subtle">Scorecard unavailable.</p>
       ) : scorecard.grade === 'N/A' && scorecard.score == null ? (
         // Empty state: no compliance rules evaluated AND no DORA data yet, so a
         // grade can't be computed. Show what unlocks it instead of a wall of
@@ -86,10 +86,10 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             </span>
             <div>
               <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Not enough data yet</div>
-              <div className="text-xs text-gray-400">A grade appears once this pipeline has enforced compliance rules and recorded production deploys.</div>
+              <div className="text-xs text-fg-subtle">A grade appears once this pipeline has enforced compliance rules and recorded production deploys.</div>
             </div>
           </div>
-          <p className="text-[11px] text-gray-400 mt-3">
+          <p className="text-2xs text-fg-subtle mt-3">
             DORA metrics need deploy events (enable with <code className="font-mono">setup-events --with-dora</code> and deploy to production); the compliance score needs enforced rules.
           </p>
         </div>
@@ -101,17 +101,17 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             </span>
             <div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-                {scorecard.score ?? '—'}<span className="text-sm text-gray-400 font-normal"> / 100</span>
+                {scorecard.score ?? '—'}<span className="text-sm text-fg-subtle font-normal"> / 100</span>
               </div>
-              <div className="text-xs text-gray-400">
+              <div className="text-xs text-fg-subtle">
                 compliance {scorecard.compliance.score ?? '—'} · delivery {scorecard.dora.score ?? '—'}
               </div>
             </div>
           </div>
           <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Compliance</span>
-              <span className="text-xs text-gray-500">
+              <span className="text-fg-muted">Compliance</span>
+              <span className="text-xs text-fg-muted">
                 {scorecard.compliance.rulesEvaluated} rules · {scorecard.compliance.violations} viol · {scorecard.compliance.warnings} warn
               </span>
             </div>
@@ -120,7 +120,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             <Band label="Time to restore" level={scorecard.dora.meanTimeToRestore} />
             <Band label="Lead time" level={scorecard.dora.leadTime} />
           </div>
-          <p className="text-[11px] text-gray-400">DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.</p>
+          <p className="text-2xs text-fg-subtle">DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.</p>
         </div>
       )}
     </Card>

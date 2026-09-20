@@ -20,7 +20,7 @@ interface ScorecardTabProps {
 /** Compact DORA band pill (elite/high/…); dash when a dimension has no data. */
 function Band({ level }: { level: ScorecardLeaderboardEntry['dora']['deploymentFrequency'] }) {
   const badge = doraLevelBadge(level);
-  return badge ? <span className={badge.className}>{badge.label}</span> : <span className="text-gray-300 text-xs">—</span>;
+  return badge ? <span className={badge.className}>{badge.label}</span> : <span className="text-fg-subtle text-xs">—</span>;
 }
 
 /**
@@ -48,26 +48,26 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
     return (
       <Card>
         <div className="flex items-center gap-2 mb-2">
-          <Trophy className="w-5 h-5 text-gray-400" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Software-health leaderboard</h3>
+          <Trophy className="w-5 h-5 text-fg-subtle" />
+          <h3 className="h3">Software-health leaderboard</h3>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           The org-wide maturity roll-up requires the <span className="font-medium">advanced_reporting</span> feature.
         </p>
       </Card>
     );
   }
 
-  if (loading && !data) return <Card><p className="text-sm text-gray-400">Computing org-wide scorecard…</p></Card>;
-  if (error) return <Card><p className="text-sm text-red-500">Could not load the scorecard roll-up.</p></Card>;
+  if (loading && !data) return <Card><p className="text-sm text-fg-subtle">Computing org-wide scorecard…</p></Card>;
+  if (error) return <Card><p className="text-sm text-danger">Could not load the scorecard roll-up.</p></Card>;
   if (!data || data.pipelineCount === 0) {
     return (
       <Card>
         <div className="flex items-center gap-2 mb-2">
-          <Trophy className="w-5 h-5 text-gray-400" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Software-health leaderboard</h3>
+          <Trophy className="w-5 h-5 text-fg-subtle" />
+          <h3 className="h3">Software-health leaderboard</h3>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">No pipelines to score yet. Create a pipeline and record deploys to build a leaderboard.</p>
+        <p className="text-sm text-fg-muted">No pipelines to score yet. Create a pipeline and record deploys to build a leaderboard.</p>
       </Card>
     );
   }
@@ -80,18 +80,18 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Gauge className="w-6 h-6 text-gray-400" />
+            <Gauge className="w-6 h-6 text-fg-subtle" />
             <div>
-              <div className="text-3xl font-semibold text-gray-900 dark:text-gray-100">
-                {data.averageScore ?? '—'}<span className="text-base text-gray-400 font-normal"> / 100 avg</span>
+              <div className="text-3xl font-semibold text-fg">
+                {data.averageScore ?? '—'}<span className="text-base text-fg-subtle font-normal"> / 100 avg</span>
               </div>
-              <div className="text-xs text-gray-400">
+              <div className="text-xs text-fg-subtle">
                 {data.scored} of {data.pipelineCount} pipeline{data.pipelineCount === 1 ? '' : 's'} scored
                 {data.truncated && ' · showing the first page (more exist)'}
                 {/* "not scored" otherwise reads as "no data"; an error is a
                     different thing and the average is computed without them. */}
                 {!!data.failed && (
-                  <span className="text-amber-600 dark:text-amber-500">
+                  <span className="text-warning">
                     {' · '}{data.failed} could not be scored
                   </span>
                 )}
@@ -112,7 +112,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-700">
+            <tr className="text-left text-xs uppercase tracking-wide text-fg-subtle border-b border-default">
               <th scope="col" className="py-2 pr-3 font-medium">#</th>
               <th scope="col" className="py-2 pr-3 font-medium">Pipeline</th>
               <th scope="col" className="py-2 pr-3 font-medium">Grade</th>
@@ -127,15 +127,15 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
           </thead>
           <tbody>
             {data.leaderboard.map((entry, i) => (
-              <tr key={entry.pipelineId} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                <td className="py-2 pr-3 text-gray-400 tabular-nums">{i + 1}</td>
-                <td className="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">{entry.name ?? entry.pipelineId}</td>
+              <tr key={entry.pipelineId} className="border-b border-default last:border-0">
+                <td className="py-2 pr-3 text-fg-subtle tabular-nums">{i + 1}</td>
+                <td className="py-2 pr-3 font-medium text-fg">{entry.name ?? entry.pipelineId}</td>
                 <td className="py-2 pr-3">
                   <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold ${GRADE_STYLES[entry.grade]}`}>{entry.grade}</span>
                 </td>
-                <td className="py-2 pr-3 text-right tabular-nums text-gray-900 dark:text-gray-100">{entry.score ?? '—'}</td>
-                <td className="py-2 pr-3 text-right tabular-nums text-gray-500">{entry.compliance.score ?? '—'}</td>
-                <td className="py-2 pr-3 text-right tabular-nums text-gray-500">{entry.dora.score ?? '—'}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-fg">{entry.score ?? '—'}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.compliance.score ?? '—'}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.dora.score ?? '—'}</td>
                 <td className="py-2 pr-3"><Band level={entry.dora.deploymentFrequency} /></td>
                 <td className="py-2 pr-3"><Band level={entry.dora.changeFailureRate} /></td>
                 <td className="py-2 pr-3"><Band level={entry.dora.meanTimeToRestore} /></td>
@@ -145,7 +145,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
           </tbody>
         </table>
       </Card>
-      <p className="text-[11px] text-gray-400">
+      <p className="text-2xs text-fg-subtle">
         Scores blend compliance posture (rule dry-run) with DORA delivery bands over the trailing 30 days.
       </p>
     </div>

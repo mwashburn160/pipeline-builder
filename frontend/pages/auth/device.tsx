@@ -18,20 +18,9 @@ import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { SESSIONS_HREF } from '@/lib/security-links';
+import { rememberReturnPath } from '@/lib/return-to';
 import { ApiError } from '@/lib/api/errors';
 import type { DeviceAuthorizationRequest } from '@/lib/api/domains/auth';
-
-/** Where the landing page sends a visitor back to once they have signed in. */
-const POST_SIGN_IN_KEY = 'pb.postSignIn';
-
-/** sessionStorage is unavailable in some privacy modes — never let that throw. */
-function rememberReturnPath(path: string): void {
-  try {
-    window.sessionStorage.setItem(POST_SIGN_IN_KEY, path);
-  } catch {
-    // Best effort: the visitor just re-opens the link after signing in.
-  }
-}
 
 /** The page's terminal states, all of which end the flow. */
 type Outcome = 'approved' | 'denied';
@@ -132,7 +121,7 @@ export default function DeviceApprovalPage() {
       <Head><title>Approve device - Pipeline Builder</title></Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-md mx-auto mb-6">
-          <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
           </Link>
         </div>
@@ -155,9 +144,9 @@ export default function DeviceApprovalPage() {
   if (!isAuthenticated) {
     return shell(
       <div className="text-center">
-        <Terminal className="w-10 h-10 text-[var(--pb-text-muted)] mx-auto mb-3" />
+        <Terminal className="w-10 h-10 text-fg-muted mx-auto mb-3" />
         <p className="font-bold">Sign in to approve this device</p>
-        <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+        <p className="text-sm text-fg-muted mt-1">
           Approving a terminal sign-in needs your account. You will come straight back here.
         </p>
         <Button className="mt-4" fullWidth onClick={() => router.push('/')}>Sign in</Button>
@@ -168,9 +157,9 @@ export default function DeviceApprovalPage() {
   if (outcome === 'approved') {
     return shell(
       <div className="text-center" role="status" aria-live="polite">
-        <CheckCircle className="w-10 h-10 text-[var(--pb-success)] mx-auto mb-3" />
+        <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
         <p className="font-bold">Device approved</p>
-        <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+        <p className="text-sm text-fg-muted mt-1">
           Return to your terminal — it finishes signing in within a few seconds. The session shows up under
           Security → Sessions, where you can sign it out again.
         </p>
@@ -183,9 +172,9 @@ export default function DeviceApprovalPage() {
   if (outcome === 'denied') {
     return shell(
       <div className="text-center" role="status" aria-live="polite">
-        <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
+        <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
         <p className="font-bold">Request denied</p>
-        <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+        <p className="text-sm text-fg-muted mt-1">
           Nothing was signed in. If you did not start this, nobody got access — and you did the right thing.
         </p>
       </div>,
@@ -198,9 +187,9 @@ export default function DeviceApprovalPage() {
     return shell(
       <>
         <div className="text-center">
-          <MonitorSmartphone className="w-10 h-10 text-[var(--pb-text-muted)] mx-auto mb-3" />
+          <MonitorSmartphone className="w-10 h-10 text-fg-muted mx-auto mb-3" />
           <p className="font-bold">Enter the code from your device</p>
-          <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+          <p className="text-sm text-fg-muted mt-1">
             Your terminal shows an eight-character code while it waits.
           </p>
         </div>
@@ -239,37 +228,37 @@ export default function DeviceApprovalPage() {
       {shell(
         <>
           <div className="text-center">
-            <ShieldAlert className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+            <ShieldAlert className="w-10 h-10 text-warning mx-auto mb-3" />
             <p className="font-bold">Approve this sign-in?</p>
-            <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+            <p className="text-sm text-fg-muted mt-1">
               A device is asking to sign in as you. Approve it only if you just started this yourself.
             </p>
           </div>
 
           <dl className="mt-5 space-y-2 text-sm">
             <div className="flex justify-between gap-4">
-              <dt className="text-[var(--pb-text-muted)]">Code</dt>
+              <dt className="text-fg-muted">Code</dt>
               <dd className="font-mono tracking-widest">{request.userCode}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-[var(--pb-text-muted)]">Device</dt>
+              <dt className="text-fg-muted">Device</dt>
               <dd className="font-medium text-right">{request.client ?? 'Unknown client'}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-[var(--pb-text-muted)]">From IP</dt>
+              <dt className="text-fg-muted">From IP</dt>
               <dd className="font-mono text-xs">{request.ip ?? '—'}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-[var(--pb-text-muted)]">Requested</dt>
+              <dt className="text-fg-muted">Requested</dt>
               <dd><RelativeTime value={request.requestedAt} /></dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-[var(--pb-text-muted)]">Expires</dt>
+              <dt className="text-fg-muted">Expires</dt>
               <dd><RelativeTime value={request.expiresAt} /></dd>
             </div>
           </dl>
 
-          <p className="mt-4 text-xs text-[var(--pb-text-muted)]">
+          <p className="mt-4 text-xs text-fg-muted">
             {request.stepUpRequested
               ? 'Approving gives that device a session in your current organization AND lets it create one access key right away.'
               : 'Approving gives that device a session in your current organization. You can sign it out again at any time from Sessions and devices.'}

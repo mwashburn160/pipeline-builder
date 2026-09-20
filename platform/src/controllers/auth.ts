@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId } from '@pipeline-builder/api-core';
-import type { TokenScope } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail, recordBootstrapSession } from '../helpers/bootstrap-admin.js';
@@ -11,8 +10,9 @@ import { withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
+import { callerRestriction } from '../helpers/token-permissions.js';
 import { incCounter } from '../observability/metrics.js';
-import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
+import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
@@ -60,6 +60,15 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
 export const register = withController('Register', async (req, res) => {
   const body = validateBody(registerSchema, req.body, res);
   if (!body) return;
+
+  // Org password policy + breached-password check. A registration that is
+  // accepting an invitation also answers to the INVITING org's policy (the
+  // new account's own org has none yet) — see helpers/password-policy.ts.
+  const { assertNewPasswordAcceptable, invitationOrgForRegistration } = await import('../helpers/password-policy.js');
+  const invitedOrgId = body.invitationToken
+    ? await invitationOrgForRegistration(body.invitationToken, body.email)
+    : undefined;
+  await assertNewPasswordAcceptable(body.password, { ...(invitedOrgId ? { extraOrgIds: [invitedOrgId] } : {}) });
 
   const result = await authService.register(body);
   // isSystemOrgId checks BOTH id and name so a system-named org with an
@@ -225,10 +234,23 @@ export const login = withController('Login', async (req, res) => {
   // challenge store reads its own config at module load. Neither belongs in the
   // static import graph of a controller most of whose routes never touch them.
   const userId = user._id.toString();
+
+  // ORG PASSWORD POLICY — the one moment the plaintext is in hand. Only a hash
+  // is stored, so a minimum an org raised AFTER this password was set can only
+  // be checked here; a password below it opens no session until it is changed
+  // (see services/password-change-challenge.ts). Checked BEFORE the second
+  // factor is asked for and carried through it, so neither leg skips the other.
+  const { passwordShortfall } = await import('../helpers/password-policy.js');
+  const shortfall = await passwordShortfall(body.password, userId);
+
   const { hasActiveTotp } = await import('../services/totp-service.js');
   if (await hasActiveTotp(userId)) {
     const { createMfaChallenge } = await import('../services/mfa-challenge.js');
-    const challenge = await createMfaChallenge(userId, user.lastActiveOrgId?.toString());
+    const challenge = await createMfaChallenge(
+      userId,
+      user.lastActiveOrgId?.toString(),
+      shortfall ? { passwordChangeMinLength: shortfall.minLength } : {},
+    );
     incCounter('platform_mfa_challenges_total');
     return sendSuccess(res, 200, {
       mfaRequired: true,
@@ -238,6 +260,25 @@ export const login = withController('Login', async (req, res) => {
       // UI can word the field ("code from your app, or a recovery code").
       methods: ['totp', 'recovery'],
     });
+  }
+
+  if (shortfall) {
+    const { createPasswordChangeChallenge } = await import('../services/password-change-challenge.js');
+    const challenge = await createPasswordChangeChallenge({
+      userId,
+      ...(user.lastActiveOrgId ? { orgId: user.lastActiveOrgId.toString() } : {}),
+      amr: ['pwd'],
+      aal: 1,
+      minLength: shortfall.minLength,
+    });
+    audit(req, 'user.password.change_required', {
+      targetType: 'user',
+      targetId: userId,
+      ...(shortfall.orgId ? { affectedOrgId: shortfall.orgId } : {}),
+      details: { minLength: shortfall.minLength },
+    });
+    incCounter('platform_password_change_required_total');
+    return sendSuccess(res, 200, { passwordChangeRequired: true, ...challenge });
   }
 
   // BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). A fresh install has one admin
@@ -250,12 +291,36 @@ export const login = withController('Login', async (req, res) => {
   const bootstrapPending = await isBootstrapExceptionOpen(user);
 
   // Password sign-in opens an INTERACTIVE session (`amr: ['pwd']`).
-  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
-    kind: 'interactive',
-    auth: signInAuth('pwd'),
-    client: clientInfoOf(req),
-    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
-  });
+  let tokens;
+  try {
+    tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
+      kind: 'interactive',
+      auth: signInAuth('pwd'),
+      client: clientInfoOf(req),
+      ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
+    });
+  } catch (err) {
+    // RECOVERY CODES FOR A PASSKEY ACCOUNT. The org requires MFA, so the
+    // password alone was refused — and this account has no authenticator app to
+    // ask for. Its passkey is the normal way in; if that is lost, the account's
+    // recovery codes are the fallback, so offer a challenge that only a recovery
+    // code can finish (`pwd` + recovery code = `aal: 2`, as with TOTP).
+    if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) {
+      const { hasUnspentRecoveryCodes } = await import('../services/recovery-codes-service.js');
+      if (await hasUnspentRecoveryCodes(userId)) {
+        const { createMfaChallenge } = await import('../services/mfa-challenge.js');
+        const challenge = await createMfaChallenge(userId, user.lastActiveOrgId?.toString(), { recoveryOnly: true });
+        incCounter('platform_mfa_challenges_total');
+        return sendSuccess(res, 200, {
+          mfaRequired: true,
+          challengeId: challenge.challengeId,
+          expiresAt: challenge.expiresAt,
+          methods: ['recovery'],
+        });
+      }
+    }
+    throw err;
+  }
 
   if (bootstrapPending) await recordBootstrapSession(req, user._id.toString(), user.email);
 
@@ -366,15 +431,15 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const { user, authority } = switched;
 
   const sessionId = (req.user as AccessTokenPayload).sid;
-  // A scoped caller keeps its scope across the switch (never widened).
-  const callerScope = (req.user as { scope?: TokenScope }).scope;
+  // A scoped or permission-restricted caller keeps its narrowing across the
+  // switch (never widened) — see helpers/token-permissions.ts.
   const tokens = sessionId
     ? await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) })
     : await issueTokens(user, organizationId, {
       kind: 'interactive',
       auth: authFromClaims(req.user),
       client: clientInfoOf(req),
-      scope: callerScope,
+      ...callerRestriction(req),
     });
   if (!tokens) return sendError(res, 401, 'Session invalid');
 

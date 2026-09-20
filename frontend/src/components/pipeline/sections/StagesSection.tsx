@@ -118,7 +118,7 @@ export default function StagesSection({
                 {stage.steps.map((step, stepIdx) => (
                   <div key={step.id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Step {stepIdx + 1}</span>
+                      <span className="text-xs font-medium text-fg-muted">Step {stepIdx + 1}</span>
                       <button
                         type="button"
                         onClick={() => onRemoveStep(stageIdx, stepIdx)}
@@ -156,7 +156,7 @@ export default function StagesSection({
           type="button"
           onClick={onAddStage}
           disabled={disabled}
-          className="w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          className="w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-sm text-fg-muted hover:border-blue-400 dark:hover:border-blue-500 hover:text-brand transition-colors"
         >
           + Add Stage
         </button>

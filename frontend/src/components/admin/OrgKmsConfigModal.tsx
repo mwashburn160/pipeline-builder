@@ -180,7 +180,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
             <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current binding</div>
-            <div className="text-gray-600 dark:text-gray-400">
+            <div className="text-fg-muted">
               {configured
                 ? <>Configured · keyId <code className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded">{currentKeyId}</code></>
                 : <em>Not configured — org uses the shared SECRET_ENCRYPTION_KEY master.</em>}
@@ -218,7 +218,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
               className="font-mono text-xs"
               disabled={submitting}
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-fg-muted">
               Output of <code>aws kms encrypt --key-id &lt;keyId&gt; --plaintext fileb://master.bin --output text --query CiphertextBlob</code>.
               Never echoed back — only the keyId is shown on subsequent reads.
             </p>

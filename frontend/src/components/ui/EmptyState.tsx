@@ -28,7 +28,7 @@ type IllustrationType = 'default' | 'pipelines' | 'plugins' | 'messages' | 'sear
 const illustrationColors: Record<IllustrationType, { bg: string; icon: string; ring: string }> = {
   default: {
     bg: 'bg-gray-100 dark:bg-gray-800',
-    icon: 'text-gray-400 dark:text-gray-500',
+    icon: 'text-fg-subtle',
     ring: '',
   },
   pipelines: {
@@ -62,7 +62,7 @@ const illustrationColors: Record<IllustrationType, { bg: string; icon: string; r
  * {@link EmptyState} instead.
  */
 export function TextEmptyState({ children }: { children: React.ReactNode }) {
-  return <div className="text-center py-8 text-gray-500 dark:text-gray-400">{children}</div>;
+  return <div className="text-center py-8 text-fg-muted">{children}</div>;
 }
 
 export function EmptyState({
@@ -83,7 +83,7 @@ export function EmptyState({
           </div>
         )}
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
-        {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{description}</p>}
+        {description && <p className="mt-1 text-sm text-fg-muted max-w-sm mx-auto">{description}</p>}
         {cta && <div className="mt-4">{cta}</div>}
       </div>
     );
@@ -117,7 +117,7 @@ export function EmptyState({
         </motion.div>
       )}
       <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
-      {description && <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{description}</p>}
+      {description && <p className="mt-1.5 text-sm text-fg-muted max-w-sm mx-auto">{description}</p>}
       {cta && <div className="mt-5">{cta}</div>}
     </motion.div>
   );

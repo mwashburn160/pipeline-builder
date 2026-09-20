@@ -114,7 +114,7 @@ export function OrgIdentityCard({
     <Card>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-gray-500" />
+          <Building2 className="w-5 h-5 text-fg-muted" />
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
         </div>
         <div className="flex items-center gap-3">
@@ -123,7 +123,7 @@ export function OrgIdentityCard({
               current tier is a no-op so a stray click never prompts. A team's
               tier is its root's, so it is never offered an edit here. */}
           {isTeam ? (
-            <span className="text-xs text-gray-500 dark:text-gray-400">Tier inherited from parent</span>
+            <span className="text-xs text-fg-muted">Tier inherited from parent</span>
           ) : (
             <FilterSelect
               value={currentTier}
@@ -144,25 +144,25 @@ export function OrgIdentityCard({
       <ErrorAlert message={tierError} onDismiss={() => setTierError(null)} />
       <dl className="text-sm space-y-2">
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Org id</dt>
+          <dt className="text-fg-muted">Org id</dt>
           <dd><CopyableId value={org.id} size="sm" /></dd>
         </div>
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Slug</dt>
+          <dt className="text-fg-muted">Slug</dt>
           <dd>{org.slug ? <CopyableId value={org.slug} size="sm" /> : <code className="text-xs">—</code>}</dd>
         </div>
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Description</dt>
+          <dt className="text-fg-muted">Description</dt>
           <dd className="whitespace-pre-wrap break-words">
-            {org.description || <span className="text-gray-400 dark:text-gray-500 italic">None</span>}
+            {org.description || <span className="text-fg-subtle italic">None</span>}
           </dd>
         </div>
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Created</dt>
+          <dt className="text-fg-muted">Created</dt>
           <dd><RelativeTime value={org.createdAt} /></dd>
         </div>
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Members</dt>
+          <dt className="text-fg-muted">Members</dt>
           <dd>
             <button type="button" onClick={onShowMembers} className="action-link inline-flex items-center gap-1">
               <Users className="w-3.5 h-3.5" /> {org.memberCount} — view roster

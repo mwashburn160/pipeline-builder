@@ -11,11 +11,11 @@ export type CalloutVariant = 'info' | 'warning' | 'success' | 'danger' | 'neutra
 // variants) rather than the small `--pb-*` set so each intent reads distinctly;
 // mirrors the `.alert-*` intent colors. `neutral` uses the muted surface tokens.
 const STYLES: Record<CalloutVariant, { box: string; icon: string; defaultIcon: LucideIcon }> = {
-  info:    { box: 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-200', icon: 'text-blue-500', defaultIcon: Info },
-  warning: { box: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200', icon: 'text-amber-500', defaultIcon: AlertTriangle },
-  success: { box: 'border-green-200 bg-green-50 text-green-900 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-200', icon: 'text-green-500', defaultIcon: CheckCircle2 },
-  danger:  { box: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200', icon: 'text-red-500', defaultIcon: XCircle },
-  neutral: { box: 'border-[var(--pb-border)] bg-[var(--pb-surface-muted)] text-[var(--pb-text)]', icon: 'text-[var(--pb-text-muted)]', defaultIcon: Info },
+  info:    { box: 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-200', icon: 'text-brand', defaultIcon: Info },
+  warning: { box: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200', icon: 'text-warning', defaultIcon: AlertTriangle },
+  success: { box: 'border-green-200 bg-green-50 text-green-900 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-200', icon: 'text-success', defaultIcon: CheckCircle2 },
+  danger:  { box: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200', icon: 'text-danger', defaultIcon: XCircle },
+  neutral: { box: 'border-default bg-surface-muted text-fg', icon: 'text-fg-muted', defaultIcon: Info },
 };
 
 interface CalloutProps {

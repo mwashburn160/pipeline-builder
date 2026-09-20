@@ -7,8 +7,8 @@ import { visibilityRung } from './visibility-rungs';
  *  common case and stays muted, so the eye catches rows that are restricted. */
 const TONE: Record<string, string> = {
   private: 'font-medium text-gray-700 dark:text-gray-300',
-  org: 'text-gray-600 dark:text-gray-400',
-  public: 'text-gray-400 dark:text-gray-500',
+  org: 'text-fg-muted',
+  public: 'text-fg-subtle',
 };
 
 /**
@@ -17,7 +17,7 @@ const TONE: Record<string, string> = {
  */
 export function AccessCell({ visibility }: { visibility: string }) {
   const rung = visibilityRung(visibility);
-  if (!rung) return <span className="text-xs text-gray-400 dark:text-gray-500">{visibility}</span>;
+  if (!rung) return <span className="text-xs text-fg-subtle">{visibility}</span>;
   const { Icon, label, meaning } = rung;
   return (
     <span className={`inline-flex items-center gap-1 text-xs ${TONE[rung.value]}`} title={`${label} — ${meaning}`}>

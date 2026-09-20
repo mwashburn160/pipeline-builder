@@ -48,19 +48,19 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
   return (
     <div className={variant === 'modal' ? '' : 'space-y-5'}>
       {/* Overview highlight — the three steps at a glance. */}
-      <div className="rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3">
+      <div className="rounded-lg border border-default bg-surface-muted p-3">
         <div className="text-sm font-semibold mb-2">Finish setting up</div>
-        <ol className="space-y-1.5 text-sm text-[var(--pb-text-muted)]">
-          <li className="flex items-center gap-2"><Package className="w-4 h-4 text-[var(--pb-brand)] shrink-0" /> Install the pipeline-manager CLI</li>
-          {showEvents && <li className="flex items-center gap-2"><Terminal className="w-4 h-4 text-[var(--pb-brand)] shrink-0" /> Store a service token</li>}
-          {showEvents && <li className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-[var(--pb-brand)] shrink-0" /> Set up pipeline event metrics <span className="text-xs">(optional{', '}with or without DORA)</span></li>}
+        <ol className="space-y-1.5 text-sm text-fg-muted">
+          <li className="flex items-center gap-2"><Package className="w-4 h-4 text-brand shrink-0" /> Install the pipeline-manager CLI</li>
+          {showEvents && <li className="flex items-center gap-2"><Terminal className="w-4 h-4 text-brand shrink-0" /> Store a service token</li>}
+          {showEvents && <li className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-brand shrink-0" /> Set up pipeline event metrics <span className="text-xs">(optional{', '}with or without DORA)</span></li>}
         </ol>
       </div>
 
       {/* Step 1 — install the CLI. */}
       <div className="space-y-2">
         <div className="text-sm font-semibold">1 · Install the CLI</div>
-        <p className="text-xs text-[var(--pb-text-muted)]">Requires Node.js 24.14.0 or newer.</p>
+        <p className="text-xs text-fg-muted">Requires Node.js 24.14.0 or newer.</p>
         <HelpCodeBlock content={INSTALL_CMD} language="bash" />
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <LinkButton href={NPM_URL} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">
@@ -76,11 +76,11 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
             <Checkbox checked={wantEvents} onChange={(e) => setWantEvents(e.target.checked)} />
-            2 · Set up pipeline event metrics <span className="font-normal text-[var(--pb-text-muted)]">(optional)</span>
+            2 · Set up pipeline event metrics <span className="font-normal text-fg-muted">(optional)</span>
           </label>
           {wantEvents && (
             <div className="space-y-3 pl-1">
-              <p className="text-xs text-[var(--pb-text-muted)]">Run these once per organization. Store the token first — the event ingestion reads it.</p>
+              <p className="text-xs text-fg-muted">Run these once per organization. Store the token first — the event ingestion reads it.</p>
               <HelpCodeBlock content={'pipeline-manager infra store-token --days 30 --schedule --region us-east-1'} language="bash" />
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox checked={withDora} onChange={(e) => setWithDora(e.target.checked)} />
@@ -100,7 +100,7 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
       <div className="pt-1">
         <Button onClick={onDone} className="w-full">{doneLabel}</Button>
         {showEvents && (
-          <p className="text-xs text-[var(--pb-text-muted)] text-center mt-2">
+          <p className="text-xs text-fg-muted text-center mt-2">
             You can run the metrics setup later — the commands are on the Downloads page.
           </p>
         )}

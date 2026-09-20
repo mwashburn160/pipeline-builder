@@ -145,19 +145,19 @@ export function QuotasReadOnly({
         ) : null}
         {loadError && !orgData ? null : activeOrgIsTeam ? (
           // A team's caps are the root's — the sysadmin/upgrade path lives at the parent.
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+          <p className="text-sm text-fg-subtle text-center mt-6">
             These pooled limits are managed by an admin at the parent organization.
           </p>
         ) : canManageBilling ? (
           // The viewer can act on billing: point them at the upgrade path, not a sysadmin.
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-6">
+          <p className="text-sm text-fg-muted text-center mt-6">
             Need more capacity?{' '}
             <Link href="/dashboard/billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
             to raise these limits.
           </p>
         ) : (
           // Hard quota caps that billing can't lift for this viewer → sysadmin.
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+          <p className="text-sm text-fg-subtle text-center mt-6">
             Contact a system administrator to change quota limits.
           </p>
         )}

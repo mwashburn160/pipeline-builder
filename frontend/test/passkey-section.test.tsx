@@ -19,6 +19,9 @@ const deletePasskey = jest.fn();
 const toastError = jest.fn();
 const toastSuccess = jest.fn();
 const registerPasskey = jest.fn();
+const getRecoveryCodeStatus = jest.fn();
+const getTotpStatus = jest.fn();
+const regenerateRecoveryCodes = jest.fn();
 let webauthnSupported = true;
 
 jest.mock('@/lib/api', () => ({
@@ -28,6 +31,9 @@ jest.mock('@/lib/api', () => ({
     listPasskeys: (...a: unknown[]) => listPasskeys(...a),
     renamePasskey: (...a: unknown[]) => renamePasskey(...a),
     deletePasskey: (...a: unknown[]) => deletePasskey(...a),
+    getRecoveryCodeStatus: (...a: unknown[]) => getRecoveryCodeStatus(...a),
+    getTotpStatus: (...a: unknown[]) => getTotpStatus(...a),
+    regenerateRecoveryCodes: (...a: unknown[]) => regenerateRecoveryCodes(...a),
   },
 }));
 jest.mock('@/lib/passkeys', () => ({
@@ -68,7 +74,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   webauthnSupported = true;
   listPasskeys.mockResolvedValue({ success: true, data: { passkeys: [passkey()] } });
-  registerPasskey.mockResolvedValue(passkey({ id: 'pk2', name: 'New key' }));
+  registerPasskey.mockResolvedValue({ passkey: passkey({ id: 'pk2', name: 'New key' }) });
+  getRecoveryCodeStatus.mockResolvedValue({ success: true, data: { recoveryCodes: { remaining: 8, total: 10, generatedAt: null } } });
+  getTotpStatus.mockResolvedValue({ success: true, data: { totp: { enabled: false } } });
+  regenerateRecoveryCodes.mockResolvedValue({ success: true, data: { recoveryCodes: ['NEWAA-AAAAA', 'NEWBB-BBBBB'] } });
   renamePasskey.mockResolvedValue({ success: true, data: { passkey: passkey({ name: 'Phone' }) } });
   deletePasskey.mockResolvedValue({ success: true, data: { removed: true, passkey: passkey() } });
 });
@@ -175,5 +184,37 @@ describe('PasskeySection', () => {
     await renderSection();
     expect(screen.queryByText(/no passkeys yet/i)).not.toBeInTheDocument();
     expect(screen.getByText(/network down/i)).toBeInTheDocument();
+  });
+});
+
+describe('PasskeySection — the account\'s recovery codes', () => {
+  it('shows the codes once when the new passkey is the account\'s first factor', async () => {
+    registerPasskey.mockResolvedValue({ passkey: passkey({ id: 'pk2' }), recoveryCodes: ['AAAAA-BBBBB', 'CCCCC-DDDDD'] });
+    await renderSection();
+    fireEvent.change(screen.getByPlaceholderText(/MacBook Touch ID/i), { target: { value: 'First key' } });
+    fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+
+    const list = await screen.findByRole('list', { name: /recovery codes/i });
+    expect(list).toHaveTextContent('AAAAA-BBBBB');
+    expect(list).toHaveTextContent('CCCCC-DDDDD');
+  });
+
+  it('shows how many codes are left for a passkey-only account, and replaces them behind step-up', async () => {
+    await renderSection();
+    expect(await screen.findByText(/8 of 10/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /new recovery codes/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+
+    expect(regenerateRecoveryCodes).toHaveBeenCalledWith('step-up-token');
+    expect(await screen.findByRole('list', { name: /recovery codes/i })).toHaveTextContent('NEWAA-AAAAA');
+  });
+
+  it('leaves the codes to the authenticator-app panel when the account has one (one set, one place)', async () => {
+    getTotpStatus.mockResolvedValue({ success: true, data: { totp: { enabled: true } } });
+    await renderSection();
+    await waitFor(() => expect(getTotpStatus).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /new recovery codes/i })).not.toBeInTheDocument();
   });
 });

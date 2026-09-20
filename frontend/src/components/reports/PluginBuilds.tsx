@@ -9,7 +9,7 @@ import type { BuildSuccessEntry, BuildDurationStat, BuildFailure } from './types
 import { formatDuration } from '@/lib/format';
 
 const BUILD_DURATION_COLUMNS: Column<BuildDurationStat>[] = [
-  { id: 'plugin', header: 'Plugin', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (d) => d.plugin_name },
+  { id: 'plugin', header: 'Plugin', cellClassName: 'text-fg truncate max-w-[200px]', render: (d) => d.plugin_name },
   { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.avg_ms) },
   { id: 'max', header: 'Max', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.max_ms) },
   { id: 'builds', header: 'Builds', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => d.builds },
@@ -68,7 +68,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
             <ExportCSVButton data={buildFailures.map(f => ({ plugin: f.plugin_name, error_message: f.error_message, occurrences: f.occurrences, last_seen: f.last_seen }))} filename="build-failures" />
           </div>
           {buildFailures.length > 0 ? (
-            <div className="space-y-3">{buildFailures.slice(0, MAX_BUILD_FAILURE_ROWS).map((f) => (<div key={`${f.plugin_name}-${f.last_seen}`} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100">{f.plugin_name}</p><p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5">{f.error_message}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{f.occurrences}x &middot; {fmtDate(f.last_seen)}</p></div>))}</div>
+            <div className="space-y-3">{buildFailures.slice(0, MAX_BUILD_FAILURE_ROWS).map((f) => (<div key={`${f.plugin_name}-${f.last_seen}`} className="border-l-2 border-danger pl-3"><p className="text-sm text-fg">{f.plugin_name}</p><p className="text-xs text-fg-muted line-clamp-1 mt-0.5">{f.error_message}</p><p className="text-xs text-fg-subtle mt-0.5">{f.occurrences}x &middot; {fmtDate(f.last_seen)}</p></div>))}</div>
           ) : <ReportEmpty text="No build failures" />}
         </Card>
         )}

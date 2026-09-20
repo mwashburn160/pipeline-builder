@@ -74,7 +74,7 @@ export function FilterBar({
       <ActionBar
         left={
           <div className="relative min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
             <input
               ref={inputRef}
               type="text"
@@ -125,7 +125,7 @@ export function FilterBar({
       )}
 
       {summary && (
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{summary}</p>
+        <p className="mt-2 text-xs text-fg-muted">{summary}</p>
       )}
     </div>
   );

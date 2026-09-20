@@ -46,3 +46,19 @@ export const JIT_SEAT_LIMIT = 'JIT_SEAT_LIMIT';
  */
 export const IDP_SAML_INCOMPLETE = 'IDP_SAML_INCOMPLETE';
 export const IDP_OIDC_INCOMPLETE = 'IDP_OIDC_INCOMPLETE';
+
+/**
+ * "SSO required" cannot be switched on yet (#5): the policy locks people out of
+ * every other sign-in method, so it is only accepted once the IdP is ENABLED and
+ * a test connection has SUCCEEDED against the settings currently saved (a
+ * connection change clears the last result).
+ */
+export const IDP_SSO_REQUIRED_UNTESTED = 'IDP_SSO_REQUIRED_UNTESTED';
+
+/** "SSO required" with no DNS-verified domain would govern nobody — refused so
+ *  the setting never claims an enforcement that isn't happening. */
+export const IDP_SSO_REQUIRED_NO_DOMAIN = 'IDP_SSO_REQUIRED_NO_DOMAIN';
+
+/** An allowed email domain the org has not DNS-verified. The picker offers only
+ *  verified domains; this is the server-side half of that rule. */
+export const IDP_DOMAIN_NOT_VERIFIED = 'IDP_DOMAIN_NOT_VERIFIED';

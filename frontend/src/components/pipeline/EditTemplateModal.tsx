@@ -258,7 +258,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   // FormBuilderTab's first step alongside the pipeline config.
   const templateMetaSlot = (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
-      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Template details</h3>
+      <h3 className="text-sm font-medium text-fg-muted">Template details</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">Template name</label>
@@ -279,7 +279,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
           canPublish={canPublish}
           disabled={loading}
         />
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublish, 'templates:publish')}</p>
+        <p className="text-xs text-fg-subtle mt-1">{visibilityHint(canPublish, 'templates:publish')}</p>
       </div>
 
       {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
@@ -290,11 +290,11 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
             <Plus className="w-3.5 h-3.5 mr-1 inline" /> Add input
           </Button>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+        <p className="text-xs text-fg-muted mb-2">
           Each input maps to a <code>{'{{ vars.<name> }}'}</code> value referenced in the template body above.
         </p>
         {inputs.length === 0 ? (
-          <p className="text-xs text-gray-400">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
+          <p className="text-xs text-fg-subtle">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
         ) : (
           <div className="space-y-2">
             {inputs.map((row, i) => (
@@ -307,14 +307,14 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
                     <option value="number">number</option>
                     <option value="boolean">boolean</option>
                   </Select>
-                  <Button type="button" variant="ghost" size="xs" onClick={() => removeInput(i)} aria-label="Remove input" disabled={loading} className="text-red-600 shrink-0">
+                  <Button type="button" variant="ghost" size="xs" onClick={() => removeInput(i)} aria-label="Remove input" disabled={loading} className="text-danger shrink-0">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input value={row.default} onChange={(e) => updateInput(i, { default: e.target.value })} placeholder="default (optional)" aria-label="Input default" disabled={loading} className="text-sm" />
                   <Input value={row.options} onChange={(e) => updateInput(i, { options: e.target.value })} placeholder="options: a,b,c (optional)" aria-label="Input options" disabled={loading} className="text-sm" />
-                  <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap shrink-0">
+                  <label className="flex items-center gap-1 text-xs text-fg-muted whitespace-nowrap shrink-0">
                     <Checkbox checked={row.required} onChange={(e) => updateInput(i, { required: e.target.checked })} disabled={loading} className="h-4 w-4" /> req
                   </label>
                 </div>
@@ -329,7 +329,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   const jsonPreview = showPreview && previewJson !== null ? (
     <div className="border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit JSON <span className="font-normal text-gray-400">— edit the template `props` directly, then Apply</span></span>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit JSON <span className="font-normal text-fg-subtle">— edit the template `props` directly, then Apply</span></span>
         <div className="flex items-center gap-3">
           <button
             onClick={handleApplyJson}
@@ -340,7 +340,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
           </button>
           <button
             onClick={() => setShowPreview(false)}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+            className="text-fg-subtle hover:text-fg text-sm transition-colors"
           >
             Close
           </button>

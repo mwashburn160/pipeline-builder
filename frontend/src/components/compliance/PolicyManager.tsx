@@ -96,21 +96,21 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       render: (policy) => (
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-white">{policy.name}</div>
-          {policy.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{policy.description}</div>}
+          {policy.description && <div className="text-xs text-fg-muted truncate max-w-xs">{policy.description}</div>}
         </>
       ),
     },
-    { id: 'version', header: 'Version', render: (policy) => <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{policy.version}</span> },
+    { id: 'version', header: 'Version', render: (policy) => <span className="text-sm text-fg-muted font-mono">{policy.version}</span> },
     {
       id: 'status',
       header: 'Status',
       render: (policy) => (
-        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}>
+        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-fg-muted'}>
           {policy.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),
     },
-    { id: 'created', header: 'Created', cellClassName: 'text-xs text-gray-500', render: (policy) => formatDate(policy.createdAt) },
+    { id: 'created', header: 'Created', cellClassName: 'text-xs text-fg-muted', render: (policy) => formatDate(policy.createdAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -141,7 +141,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-purple-600" />
+          <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             Compliance Policies ({total})
           </h2>

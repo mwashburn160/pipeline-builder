@@ -21,9 +21,9 @@ interface HelpTopicGroupProps {
 export function HelpTopicGroup({ category, topics, openFirst = false }: HelpTopicGroupProps) {
   return (
     <section className="space-y-2">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
         {category}
-        <span className="ml-2 font-normal normal-case tracking-normal text-gray-400 dark:text-gray-500">
+        <span className="ml-2 font-normal normal-case tracking-normal text-fg-subtle">
           {topics.length} {topics.length === 1 ? 'topic' : 'topics'}
         </span>
       </h2>

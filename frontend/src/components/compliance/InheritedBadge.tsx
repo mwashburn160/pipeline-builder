@@ -14,7 +14,7 @@ export function InheritedBadge({ rule }: { rule: Pick<ComplianceRule, 'inherited
   const source = rule.sourceOrgName || rule.sourceOrgId || 'parent organization';
   return (
     <span
-      className="inline-flex items-center gap-1 text-[10px] font-medium rounded-full px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300"
+      className="inline-flex items-center gap-1 text-2xs font-medium rounded-full px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300"
       title={`Inherited from ${source}. Read-only here: edit it in ${source}.`}
     >
       <Lock className="h-3 w-3" aria-hidden="true" />

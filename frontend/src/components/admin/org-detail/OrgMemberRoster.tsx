@@ -42,9 +42,9 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-3">
-        <Users className="w-5 h-5 text-gray-500" />
+        <Users className="w-5 h-5 text-fg-muted" />
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Members</h3>
-        {data && <span className="text-sm text-gray-500 dark:text-gray-400">({total})</span>}
+        {data && <span className="text-sm text-fg-muted">({total})</span>}
       </div>
 
       {error ? (
@@ -58,7 +58,7 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                <tr className="text-left text-xs uppercase tracking-wide text-fg-muted">
                   <th className="py-2 pr-4 font-medium">Member</th>
                   <th className="py-2 pr-4 font-medium">Role</th>
                   <th className="py-2 font-medium">Joined</th>
@@ -69,10 +69,10 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
                   <tr key={m._id}>
                     <td className="py-2 pr-4">
                       <div className="font-medium text-gray-900 dark:text-gray-100">{m.username || '—'}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{m.email || ''}</div>
+                      <div className="text-xs text-fg-muted">{m.email || ''}</div>
                     </td>
                     <td className="py-2 pr-4"><Badge color={ROLE_COLOR[m.role] ?? 'gray'}>{m.role}</Badge></td>
-                    <td className="py-2 text-gray-500 dark:text-gray-400">
+                    <td className="py-2 text-fg-muted">
                       {m.joinedAt ? <RelativeTime value={m.joinedAt} /> : '—'}
                     </td>
                   </tr>

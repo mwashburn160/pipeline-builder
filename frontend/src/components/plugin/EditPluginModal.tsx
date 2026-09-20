@@ -228,7 +228,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         <div className="space-y-4">
           {/* Read-only Fields */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">System Information (Read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
               <ReadonlyField label="ID" value={p.id} valueClassName="font-mono" />
               <ReadonlyField label="Org ID" value={p.orgId} />
@@ -239,7 +239,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
               <ReadonlyField label="Image URI" value={p.uri} className="col-span-2" valueClassName="font-mono break-all" />
               {p.dockerfile && (
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dockerfile</label>
+                  <label className="block text-xs font-medium text-fg-muted mb-1">Dockerfile</label>
                   <pre className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
                 </div>
               )}
@@ -248,7 +248,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
           {/* Core Information */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Core Information</h3>
             <FormField label="Name" className="mb-3">
               <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={loading} />
             </FormField>
@@ -265,7 +265,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
           {/* Plugin Configuration */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Plugin Configuration</h3>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Plugin Configuration</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Plugin Type">
                 <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={loading}>
@@ -308,7 +308,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
           {/* Build Configuration */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Build Configuration</h3>
             <FormField label="Environment Variables (JSON)" className="mb-3">
               <Textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
             </FormField>
@@ -325,7 +325,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
           {/* Access & Status */}
           <div>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
                 <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={loading} />
@@ -333,11 +333,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
+                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
                 <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
               </div>
               <div className="flex items-center">
-                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
+                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-blue-500" disabled={loading} />
                 <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
               </div>
             </div>

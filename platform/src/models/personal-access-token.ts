@@ -35,6 +35,16 @@ export interface PersonalAccessTokenDocument extends Document {
   name: string;
   /** Optional narrow scope (least-privilege). Null → the user's full permissions. */
   scope?: string | null;
+  /**
+   * Optional PERMISSION SUBSET (catalog ids, canonical order) — the key is then
+   * "Selected permissions" rather than "Full access". Absent/null means the key
+   * carries the owner's full current permissions. At every exchange the token's
+   * permissions are the INTERSECTION of this list with the owner's CURRENT Roles
+   * in `organizationId`, so a lost Role shrinks the key and nothing can grow it.
+   * Mutually exclusive with `scope` (a scoped key already carries none).
+   * Personal keys only — a service account's authority is its own Roles.
+   */
+  permissions?: string[] | null;
   /** Org the key was minted against (the org its exchanged tokens are scoped to). */
   organizationId?: string | null;
   /**
@@ -81,6 +91,10 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
     last4: { type: String, required: true, maxlength: 8 },
     name: { type: String, required: true, trim: true, maxlength: 100 },
     scope: { type: String, default: null },
+    // `undefined` default (not `[]`): an EMPTY subset is a real, distinct value —
+    // a key that authenticates but may do nothing — and must not be confused
+    // with "no subset", which means full access.
+    permissions: { type: [String], default: undefined },
     organizationId: { type: String, default: null },
     ipAllowlist: { type: [String], default: undefined },
     createdUserAgent: { type: String, default: null, maxlength: 128 },

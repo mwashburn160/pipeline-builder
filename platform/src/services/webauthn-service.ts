@@ -43,6 +43,8 @@ import type {
 } from '@simplewebauthn/server';
 import type { Types } from 'mongoose';
 import {
+  WEBAUTHN_ATTESTATION_UNVERIFIABLE,
+  WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
   WEBAUTHN_CREDENTIAL_EXISTS,
   WEBAUTHN_CREDENTIAL_NOT_FOUND,
   WEBAUTHN_COUNTER_REGRESSION,
@@ -52,6 +54,7 @@ import {
   WEBAUTHN_VERIFICATION_FAILED,
 } from './webauthn-errors.js';
 import { config } from '../config/index.js';
+import { aaguidPermitted, resolveEffectiveAuthenticatorPolicy } from '../helpers/authenticator-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { loadSignInMethods, retainsSignInMethod } from '../helpers/sign-in-methods.js';
 import { User, WebAuthnCredential } from '../models/index.js';
@@ -63,6 +66,9 @@ const rp = config.auth.webauthn;
 interface PendingCeremony {
   challenge: string;
   userId?: string;
+  /** REGISTRATION only: the org whose authenticator policy governs it (the
+   *  registrant's active org when the ceremony started). */
+  orgId?: string;
 }
 
 /**
@@ -100,6 +106,11 @@ function newCeremonyId(): string {
 export interface PasskeySummary {
   id: string;
   name: string;
+  /** Authenticator model GUID (lowercase), when the authenticator named one. */
+  aaguid: string | null;
+  /** The registration's attestation was verified against the FIDO Metadata
+   *  Service (only ever true for passkeys registered under an allowlist). */
+  attestationVerified: boolean;
   createdAt: Date;
   lastUsedAt: Date | null;
   /** Synced/backed-up credential (a keychain passkey) rather than one bound to a
@@ -117,6 +128,7 @@ interface StoredCredential {
   counter: number;
   transports?: string[];
   backedUp?: boolean;
+  aaguid?: string;
 }
 
 /** A BSON binary as the driver hands it back — a `Buffer` from a hydrated
@@ -138,10 +150,14 @@ function toSummary(doc: {
   lastUsedAt?: Date | null;
   backedUp?: boolean;
   transports?: string[];
+  aaguid?: string;
+  attestationVerified?: boolean;
 }): PasskeySummary {
   return {
     id: doc._id.toString(),
     name: doc.name,
+    aaguid: doc.aaguid ? doc.aaguid.toLowerCase() : null,
+    attestationVerified: doc.attestationVerified === true,
     createdAt: doc.createdAt,
     lastUsedAt: doc.lastUsedAt ?? null,
     backedUp: doc.backedUp === true,
@@ -152,7 +168,7 @@ function toSummary(doc: {
 /** The account's passkeys, newest last (registration order). */
 export async function listCredentials(userId: string): Promise<PasskeySummary[]> {
   const docs = await WebAuthnCredential.find({ userId })
-    .select('name createdAt lastUsedAt backedUp transports')
+    .select('name createdAt lastUsedAt backedUp transports aaguid attestationVerified')
     .sort({ createdAt: 1 })
     .lean();
   return docs.map((d) => toSummary(d as unknown as Parameters<typeof toSummary>[0]));
@@ -186,6 +202,22 @@ export interface RegistrationSubject {
   userId: string;
   email: string;
   username: string;
+  /** The registrant's active org — its authenticator policy governs the ceremony. */
+  orgId?: string;
+}
+
+/**
+ * Whether a registration for `orgId` falls under an authenticator allowlist.
+ * A policy read failure counts as "yes" (fail closed): an unreadable policy must
+ * not become a way to enrol an unvetted model into an org that restricts them.
+ */
+async function allowlistFor(orgId: string | undefined): Promise<string[] | null> {
+  if (!orgId) return null;
+  try {
+    return (await resolveEffectiveAuthenticatorPolicy(orgId)).allowed;
+  } catch {
+    throw new Error(WEBAUTHN_ATTESTATION_UNVERIFIABLE);
+  }
 }
 
 /**
@@ -200,6 +232,11 @@ export async function registrationOptions(
   const handle = await ensureWebAuthnUserId(subject.userId);
   const existing = await WebAuthnCredential.find({ userId: subject.userId })
     .select('credentialId transports').lean();
+  // An org that allowlists models needs to SEE the model, provably: direct
+  // attestation carries the authenticator's certificate chain, which the verify
+  // step checks against the FIDO Metadata Service. Everyone else keeps `none`,
+  // which reveals nothing about the device (the privacy-preserving default).
+  const allowlisted = (await allowlistFor(subject.orgId)) !== null;
 
   const options = await generateRegistrationOptions({
     rpName: rp.rpName,
@@ -207,7 +244,7 @@ export async function registrationOptions(
     userName: subject.email,
     userDisplayName: subject.username,
     userID: Buffer.from(handle, 'base64url'),
-    attestationType: 'none',
+    attestationType: allowlisted ? 'direct' : 'none',
     excludeCredentials: existing.map((c) => ({
       id: (c as unknown as StoredCredential).credentialId,
       transports: (c as unknown as StoredCredential).transports ?? [],
@@ -222,7 +259,11 @@ export async function registrationOptions(
   });
 
   const ceremonyId = newCeremonyId();
-  await registrationCeremonies.put(ceremonyId, { challenge: options.challenge, userId: subject.userId });
+  await registrationCeremonies.put(ceremonyId, {
+    challenge: options.challenge,
+    userId: subject.userId,
+    ...(subject.orgId ? { orgId: subject.orgId } : {}),
+  });
   return { ceremonyId, options };
 }
 
@@ -240,6 +281,16 @@ export async function verifyRegistration(
 ): Promise<PasskeySummary> {
   const pending = await registrationCeremonies.consume(ceremonyId);
   if (!pending || pending.userId !== userId) throw new Error(WEBAUTHN_INVALID_CEREMONY);
+
+  // Re-resolved at verify (not trusted from options time), so a policy that
+  // tightened during the ceremony still applies. The metadata is loaded BEFORE
+  // verification because SimpleWebAuthn consults it while verifying the
+  // attestation chain.
+  const allowed = await allowlistFor(pending.orgId);
+  // Loaded on demand — only an allowlisted registration ever needs FIDO metadata.
+  if (allowed !== null && !(await (await import('./fido-mds.js')).ensureMds())) {
+    throw new Error(WEBAUTHN_ATTESTATION_UNVERIFIABLE);
+  }
 
   let verification;
   try {
@@ -259,7 +310,10 @@ export async function verifyRegistration(
     throw new Error(WEBAUTHN_VERIFICATION_FAILED);
   }
 
-  const { credential, credentialDeviceType, credentialBackedUp, aaguid } = verification.registrationInfo;
+  const { credential, credentialDeviceType, credentialBackedUp, aaguid, fmt, attestationObject } = verification.registrationInfo;
+  const attestationVerified = allowed !== null
+    ? await assertAttestationAllowed(allowed, aaguid, fmt, attestationObject)
+    : false;
   // The unique index is the real guard (it also catches the same authenticator
   // enrolled on a DIFFERENT account); this pre-check just gives the common case
   // a clean 409 instead of a duplicate-key error.
@@ -276,7 +330,9 @@ export async function verifyRegistration(
       transports: credential.transports ?? [],
       deviceType: credentialDeviceType,
       backedUp: credentialBackedUp,
-      aaguid,
+      aaguid: aaguid.toLowerCase(),
+      attestationFmt: fmt,
+      attestationVerified,
       name,
       createdAt: new Date(),
     });
@@ -285,6 +341,46 @@ export async function verifyRegistration(
     throw err;
   }
   return toSummary(created as unknown as Parameters<typeof toSummary>[0]);
+}
+
+/**
+ * The allowlist check for one registration, AFTER SimpleWebAuthn verified the
+ * attestation statement (with the MDS statements seeded, so a known model's
+ * certificate chain was checked against that model's own roots). Refuses:
+ *   - `none` / self attestation — nothing ties the key to a model at all;
+ *   - a model the FIDO Metadata Service does not know (no roots to check);
+ *   - a model MDS reports compromised;
+ *   - a model not on the allowlist.
+ * Returns true (the attestation was verified) when every check passes.
+ */
+export async function assertAttestationAllowed(
+  allowed: readonly string[],
+  aaguid: string,
+  fmt: string,
+  attestationObject: Uint8Array,
+): Promise<true> {
+  if (fmt === 'none') throw new Error(WEBAUTHN_ATTESTATION_UNVERIFIABLE);
+  // Full attestation carries a certificate chain (`x5c`); SafetyNet carries a
+  // signed JWS instead. Anything else is SELF attestation — signed by the new
+  // credential's own key, which proves nothing about what made it.
+  let hasChain = fmt === 'android-safetynet';
+  if (!hasChain) {
+    try {
+      const { decodeAttestationObject } = await import('@simplewebauthn/server/helpers');
+      const x5c = decodeAttestationObject(attestationObject as Parameters<typeof decodeAttestationObject>[0]).get('attStmt').get('x5c');
+      hasChain = Array.isArray(x5c) && x5c.length > 0;
+    } catch {
+      hasChain = false;
+    }
+  }
+  if (!hasChain) throw new Error(WEBAUTHN_ATTESTATION_UNVERIFIABLE);
+
+  const { lookupModel } = await import('./fido-mds.js');
+  const model = await lookupModel(aaguid.toLowerCase());
+  if (!model) throw new Error(WEBAUTHN_ATTESTATION_UNVERIFIABLE);
+  if (model.compromised) throw new Error(WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED);
+  if (!aaguidPermitted({ allowed: [...allowed] }, aaguid)) throw new Error(WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED);
+  return true;
 }
 
 /**
@@ -303,6 +399,9 @@ export function assertCounterProgressed(stored: number, next: number): void {
 export interface VerifiedAssertion {
   userId: string;
   credentialId: string;
+  /** The passkey's model (AAGUID), carried onto the session so the active
+   *  org's authenticator allowlist can be applied at every issuance. */
+  aaguid?: string;
   /** The credential record id — the handle the management API uses. */
   id: string;
   name: string;
@@ -369,6 +468,7 @@ async function verifyAssertion(
   return {
     userId: stored.userId.toString(),
     credentialId: stored.credentialId,
+    ...(stored.aaguid ? { aaguid: stored.aaguid.toLowerCase() } : {}),
     id: stored._id.toString(),
     name: stored.name,
     backedUp: verification.authenticationInfo.credentialBackedUp,

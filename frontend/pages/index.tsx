@@ -2,12 +2,14 @@ import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
+import { takeReturnPath } from '@/lib/return-to';
 import { LoadingPage } from '@/components/ui/Loading';
 import LandingPage from '@/components/landing/LandingPage';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 /**
- * Landing page for guests, dashboard redirect for authenticated users.
+ * Landing page for guests; authenticated users go to their return-to path
+ * (see `@/lib/return-to` — sanitized, same-origin only) or the dashboard.
  *
  * `siteUrl` comes from {@link siteUrlServerSideProps} (runtime `APP_SITE_URL`).
  * The OG `<Head>` is rendered UNCONDITIONALLY — the auth state only picks the
@@ -15,22 +17,6 @@ import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/li
  * (as it was) hid it from the server-rendered HTML, since `isInitialized` is
  * `false` on the server, so social scrapers never saw the card.
  */
-/**
- * A path a page asked to be returned to after signing in (today: the device
- * approval page, which a signed-out visitor reaches from a CLI-printed link).
- * Consumed ONCE, and only ever a same-origin path — a stored absolute URL would
- * be an open redirect, so anything that isn't a bare `/…` is discarded.
- */
-function takePostSignInPath(): string | null {
-  try {
-    const stored = window.sessionStorage.getItem('pb.postSignIn');
-    window.sessionStorage.removeItem('pb.postSignIn');
-    return stored && /^\/(?!\/)/.test(stored) ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const router = useRouter();
   const { isAuthenticated, isLoading, isInitialized } = useAuth();
@@ -38,7 +24,7 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
 
   useEffect(() => {
     if (isInitialized && !isLoading && isAuthenticated) {
-      router.push(takePostSignInPath() ?? '/dashboard');
+      router.push(takeReturnPath());
     }
   }, [isAuthenticated, isLoading, isInitialized, router]);
 

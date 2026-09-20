@@ -240,14 +240,14 @@ export default function PipelineDetailPage() {
 
   const execColumns: Column<PipelineExecution>[] = [
     { id: 'status', header: 'Status', render: (ex) => <Badge color={statusColor(ex.status)}>{ex.status}</Badge> },
-    { id: 'started', header: 'Started', render: (ex) => (ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-gray-400">—</span>) },
+    { id: 'started', header: 'Started', render: (ex) => (ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-fg-subtle">—</span>) },
     { id: 'duration', header: 'Duration', cellClassName: 'font-mono text-xs', render: (ex) => formatDuration(ex.duration_ms) },
     {
       id: 'failing',
       header: 'Failing step',
       render: (ex) => (ex.failing_stage || ex.failing_action
         ? <span className="text-red-600 dark:text-red-400">{ex.failing_stage || ex.failing_action}</span>
-        : <span className="text-gray-400">—</span>),
+        : <span className="text-fg-subtle">—</span>),
     },
     { id: 'execution', header: 'Execution', render: (ex) => <CopyableId value={ex.execution_id} size="sm" /> },
     {
@@ -267,7 +267,7 @@ export default function PipelineDetailPage() {
           Cancel
         </Button>
       ) : (
-        <span className="text-gray-400">—</span>
+        <span className="text-fg-subtle">—</span>
       )),
     },
   ];
@@ -356,23 +356,23 @@ export default function PipelineDetailPage() {
             <Card>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Rocket className="w-5 h-5 text-gray-500" />
+                  <Rocket className="w-5 h-5 text-fg-muted" />
                   <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Deployment</h3>
                 </div>
                 <Link href="/dashboard/deployments" className="action-link text-xs">All deployments →</Link>
               </div>
               <dl className="text-sm space-y-2">
                 <div className="flex justify-between">
-                  <dt className="text-gray-500 dark:text-gray-400">Region</dt>
+                  <dt className="text-fg-muted">Region</dt>
                   <dd>{deployment.region || '—'}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <dt className="text-gray-500 dark:text-gray-400">Stack</dt>
+                  <dt className="text-fg-muted">Stack</dt>
                   <dd className="font-mono text-xs truncate">{deployment.stackName || '—'}</dd>
                 </div>
                 {deployment.lastDeployed && (
                   <div className="flex justify-between">
-                    <dt className="text-gray-500 dark:text-gray-400">Deployed</dt>
+                    <dt className="text-fg-muted">Deployed</dt>
                     <dd><RelativeTime value={deployment.lastDeployed} /></dd>
                   </div>
                 )}
@@ -393,7 +393,7 @@ export default function PipelineDetailPage() {
           <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
-                <GitBranch className="w-5 h-5 text-gray-500" />
+                <GitBranch className="w-5 h-5 text-fg-muted" />
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
               </div>
               <div className="flex flex-wrap items-center gap-1">
@@ -404,58 +404,58 @@ export default function PipelineDetailPage() {
             </div>
             <dl className="text-sm space-y-2">
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Pipeline id</dt>
+                <dt className="text-fg-muted">Pipeline id</dt>
                 <dd><CopyableId value={pipeline.id} size="sm" /></dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Name</dt>
-                <dd>{pipeline.pipelineName || <span className="text-gray-400">Unnamed</span>}</dd>
+                <dt className="text-fg-muted">Name</dt>
+                <dd>{pipeline.pipelineName || <span className="text-fg-subtle">Unnamed</span>}</dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Project</dt>
+                <dt className="text-fg-muted">Project</dt>
                 <dd>{pipeline.project}</dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Organization</dt>
+                <dt className="text-fg-muted">Organization</dt>
                 <dd>{pipeline.organization}</dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Owner</dt>
+                <dt className="text-fg-muted">Owner</dt>
                 <dd>
                   {pipeline.ownerId
-                    ? <>{memberNames[pipeline.ownerId] ?? <code className="text-xs">{pipeline.ownerId}</code>}{pipeline.ownerType ? <span className="text-gray-400"> ({pipeline.ownerType})</span> : null}</>
-                    : <span className="text-gray-400">Unassigned</span>}
+                    ? <>{memberNames[pipeline.ownerId] ?? <code className="text-xs">{pipeline.ownerId}</code>}{pipeline.ownerType ? <span className="text-fg-subtle"> ({pipeline.ownerType})</span> : null}</>
+                    : <span className="text-fg-subtle">Unassigned</span>}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Lifecycle</dt>
+                <dt className="text-fg-muted">Lifecycle</dt>
                 <dd className="flex items-center gap-1">
                   <LifecycleBadge value={pipeline.lifecycle} />
-                  {pipeline.criticality ? <span className="text-gray-400"> · {pipeline.criticality} criticality</span> : null}
+                  {pipeline.criticality ? <span className="text-fg-subtle"> · {pipeline.criticality} criticality</span> : null}
                 </dd>
               </div>
               {pipeline.description && (
                 <div>
-                  <dt className="text-gray-500 dark:text-gray-400">Description</dt>
+                  <dt className="text-fg-muted">Description</dt>
                   <dd>{pipeline.description}</dd>
                 </div>
               )}
               {pipeline.keywords && pipeline.keywords.length > 0 && (
                 <div>
-                  <dt className="text-gray-500 dark:text-gray-400">Keywords</dt>
+                  <dt className="text-fg-muted">Keywords</dt>
                   <dd className="flex flex-wrap gap-1">
                     {pipeline.keywords.map((k, i) => (
-                      <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{k}</span>
+                      <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-fg-muted">{k}</span>
                     ))}
                   </dd>
                 </div>
               )}
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Created</dt>
+                <dt className="text-fg-muted">Created</dt>
                 <dd><RelativeTime value={pipeline.createdAt} /> by {pipeline.createdBy ? (memberNames[pipeline.createdBy] ?? <code className="text-xs">{pipeline.createdBy}</code>) : '—'}</dd>
               </div>
               <div>
-                <dt className="text-gray-500 dark:text-gray-400">Updated</dt>
+                <dt className="text-fg-muted">Updated</dt>
                 <dd><RelativeTime value={pipeline.updatedAt} /> by {pipeline.updatedBy ? (memberNames[pipeline.updatedBy] ?? <code className="text-xs">{pipeline.updatedBy}</code>) : '—'}</dd>
               </div>
             </dl>
@@ -472,24 +472,24 @@ export default function PipelineDetailPage() {
             {execStats ? (
               <dl className="text-sm space-y-1.5">
                 <div className="flex justify-between">
-                  <dt className="text-gray-500 dark:text-gray-400">Total executions</dt>
+                  <dt className="text-fg-muted">Total executions</dt>
                   <dd className="font-mono text-xs">{execStats.total}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500 dark:text-gray-400">Succeeded</dt>
+                  <dt className="text-fg-muted">Succeeded</dt>
                   <dd className="font-mono text-xs text-green-600 dark:text-green-400">{execStats.succeeded}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500 dark:text-gray-400">Failed</dt>
+                  <dt className="text-fg-muted">Failed</dt>
                   <dd className="font-mono text-xs text-red-600 dark:text-red-400">{execStats.failed}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500 dark:text-gray-400">Canceled</dt>
+                  <dt className="text-fg-muted">Canceled</dt>
                   <dd className="font-mono text-xs">{execStats.canceled}</dd>
                 </div>
                 {execStats.last_execution && (
                   <div className="flex justify-between">
-                    <dt className="text-gray-500 dark:text-gray-400">Last run</dt>
+                    <dt className="text-fg-muted">Last run</dt>
                     <dd><RelativeTime value={execStats.last_execution} /></dd>
                   </div>
                 )}
@@ -498,7 +498,7 @@ export default function PipelineDetailPage() {
                     {executions.slice(0, 3).map((ex) => (
                       <div key={ex.execution_id} className="flex items-center justify-between">
                         <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-fg-subtle">
                           {ex.started_at ? <RelativeTime value={ex.started_at} /> : '—'}
                         </span>
                       </div>
@@ -512,7 +512,7 @@ export default function PipelineDetailPage() {
                 </div>
               </dl>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No recorded runs yet.</p>
+              <p className="text-sm text-fg-muted">No recorded runs yet.</p>
             )}
           </Card>
 
@@ -526,7 +526,7 @@ export default function PipelineDetailPage() {
             {execLoading && !executions && <LoadingSpinner />}
             {execError && <RetryError message={execError} onRetry={loadExecutions} />}
             {!execLoading && !execError && executions && executions.length === 0 && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No executions recorded yet.</p>
+              <p className="text-sm text-fg-muted">No executions recorded yet.</p>
             )}
             {!execError && executions && executions.length > 0 && (
               <div className="overflow-x-auto">

@@ -83,6 +83,9 @@ export interface SessionMfaPolicy {
   enforced: boolean;
   /** ISO deadline while a grace period is still running. */
   graceUntil?: string;
+  /** ISO end of THIS person's enrolment grace after an approved MFA reset: the
+   *  requirement doesn't refuse them until then, so they can enrol a new factor. */
+  resetGraceUntil?: string;
   /** This session's assurance level: 2 means it already meets the requirement. */
   aal: 1 | 2;
 }
@@ -106,6 +109,20 @@ export interface OrgMfaPolicy {
   inheritedFrom?: string;
   /** Display name of `inheritedFrom`, when resolvable. */
   inheritedFromName?: string;
+  /**
+   * "Administrative actions require MFA": role, member, invitation, IdP
+   * group-mapping, billing, log-export and access-key actions need a session
+   * opened with a second factor. Effective value (own OR a parent's).
+   */
+  adminActionsRequireMfa: boolean;
+  /** This org's OWN admin-actions setting, regardless of a parent's. */
+  adminActionsOwn: boolean;
+  /** The parent org whose admin-actions setting is in force, when not this org's own. */
+  adminActionsInheritedFrom?: string;
+  adminActionsInheritedFromName?: string;
+  /** On a write that changed the admin-actions policy: how many members' sessions
+   *  were ended so the change applies to them at once. */
+  sessionsRefreshed?: number;
   /** Grace period offered by default when turning the requirement on. */
   defaultGraceDays: number;
   /**
@@ -114,6 +131,33 @@ export interface OrgMfaPolicy {
    * the policy READ; a write response carries the policy alone.
    */
   enrolment?: { members: number; enrolled: number };
+}
+
+/** The account's recovery codes (one set, shared by every second factor),
+ *  from GET /auth/recovery-codes. Never a code. */
+export interface RecoveryCodeStatus {
+  remaining: number;
+  total: number;
+  generatedAt: string | null;
+}
+
+/** A two-person MFA reset request (`/organization/:id/mfa-resets`). */
+export interface MfaResetRequest {
+  id: string;
+  organizationId: string;
+  targetUserId: string;
+  targetEmail: string;
+  requestedBy: string;
+  requestedByEmail: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+  decidedBy?: string;
+  decidedByEmail?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+  result?: { passkeysRemoved: number; totpRemoved: boolean; recoveryCodesRemoved: boolean; graceUntil: string };
 }
 
 /** The account's authenticator-app state, from GET /auth/totp/status. */
@@ -159,6 +203,66 @@ export interface Passkey {
   /** Synced/backed-up (a keychain passkey) rather than bound to one device. */
   backedUp: boolean;
   transports: string[];
+  /** Authenticator model GUID (lowercase), when the authenticator named one. */
+  aaguid: string | null;
+  /** Registered under an org authenticator allowlist: its attestation was
+   *  verified against the FIDO Metadata Service. */
+  attestationVerified: boolean;
+}
+
+/**
+ * A password sign-in whose password no longer meets the org password policy
+ * (POST /auth/login or /auth/mfa/verify): no session yet — the person must set
+ * a new password of at least `minLength` via /auth/password/change-required.
+ */
+export interface PasswordChangeChallenge {
+  passwordChangeRequired: true;
+  challengeId: string;
+  /** Unix seconds. */
+  expiresAt: number;
+  minLength: number;
+}
+
+/** GET/PATCH /organization/:id/password-policy. */
+export interface OrgPasswordPolicy {
+  /** The minimum that applies here (own, or a stricter parent's). */
+  minLength: number;
+  /** This org's OWN minimum; null = none set (the platform minimum applies). */
+  own: number | null;
+  platformMinLength: number;
+  maxLength: number;
+  inheritedFrom?: string;
+  inheritedFromName?: string;
+}
+
+/** One authenticator model on an allowlist, with its FIDO MDS name if known. */
+export interface AuthenticatorModelRef {
+  aaguid: string;
+  model: string | null;
+}
+
+/** GET/PATCH /organization/:id/authenticator-policy. */
+export interface OrgAuthenticatorPolicy {
+  /** This org's OWN allowlist (empty = none set). */
+  own: AuthenticatorModelRef[];
+  /** What applies here (own ∩ every ancestor's); null = any model. */
+  effective: AuthenticatorModelRef[] | null;
+  inheritedFrom: Array<{ id: string; name: string }>;
+  /** The FIDO Metadata Service catalog for the picker (empty when unavailable). */
+  mds: { available: boolean; models: Array<{ aaguid: string; model: string }> };
+  compliance: {
+    members: number;
+    passkeys: number;
+    modelsInUse: Array<{ aaguid: string; count: number; model: string | null }>;
+    /** Members holding passkeys the effective list would not accept. */
+    nonCompliant: Array<{
+      userId: string;
+      username: string;
+      email: string;
+      hasAuthenticatorApp: boolean;
+      passkeys: Array<{ id: string; name: string; aaguid: string | null; model: string | null }>;
+    }>;
+  };
 }
 
 /** A user's membership in an organization. */
@@ -366,13 +470,52 @@ export interface SamlAttributeMapping {
   groups?: string;
 }
 
-/** The service-provider values an IdP administrator needs to create the
- *  application on their side. Derived server-side from the org id and the
- *  deployment URL — never stored, and available before the connection works. */
-export interface SamlSpDetails {
+/**
+ * Everything an administrator registers AT their identity provider, computed by
+ * the server from its own public URL and SP keys (`GET /organization/:id/idp/sp-info`)
+ * — the UI never derives these from the browser's origin. Available before any
+ * connection exists.
+ */
+export interface SsoSpInfo {
+  /** SAML: this SP's entity ID (also the metadata URL). */
   entityId: string;
+  /** SAML: Assertion Consumer Service (HTTP-POST). */
   acsUrl: string;
+  /** SAML: SP metadata document. */
   metadataUrl: string;
+  /** SAML: Single Logout endpoint (HTTP-Redirect and HTTP-POST). */
+  sloUrl: string;
+  /** OIDC: the redirect (callback) URI to register with the IdP. */
+  oidcRedirectUri: string;
+  /** SAML: the SP signing certificate (PEM) — for signed requests and SLO. */
+  signingCertificate: string;
+  /** SAML: the SP encryption certificate (PEM) — for encrypted assertions. */
+  encryptionCertificate: string;
+}
+
+/** What an IdP metadata document yields for the SAML form (never saved by itself). */
+export interface ParsedIdpMetadata {
+  entityId: string;
+  ssoUrl: string;
+  sloUrl?: string;
+  certificates: string[];
+  /** The IdP asks for signed AuthnRequests. */
+  wantsSignedRequests: boolean;
+}
+
+/** The outcome of a test connection (a dry run — no session, user or membership). */
+export interface SsoTestReport {
+  ok: boolean;
+  protocol: IdpProtocol;
+  testedAt: string;
+  /** Stable failure code, e.g. `invalid_assertion`, `domain_not_verified`. */
+  reason?: string;
+  message?: string;
+  identity?: { email: string; name?: string; subject: string; issuer: string; groups: string[] };
+  /** The group → role mappings that WOULD apply at sign-in. */
+  mappings?: { matchedGroups: string[]; roles: Array<{ id: string; name: string }> };
+  /** Recorded as the connection's last test (false if the settings changed mid-test). */
+  recorded?: boolean;
 }
 
 export interface OrgIdpConfigDto {
@@ -390,7 +533,12 @@ export interface OrgIdpConfigDto {
    *  overlap window is open. Public certificates, so they are returned in full. */
   samlCertificates: string[];
   samlAttributes?: SamlAttributeMapping;
-  samlSp?: SamlSpDetails;
+  /** SAML: the IdP's Single Logout endpoint. */
+  samlSloUrl?: string;
+  /** SAML: AuthnRequests are signed with the deployment's SP key. */
+  samlSignAuthnRequests: boolean;
+  /** SAML: the IdP encrypts assertions (plaintext ones are then refused). */
+  samlEncryptAssertions: boolean;
   discoveryUrl?: string;
   /** Cognito only: the discovery URL is derived server-side from these. */
   region?: string;
@@ -398,8 +546,14 @@ export interface OrgIdpConfigDto {
   /** id_token claim carrying group memberships, for just-in-time Role mapping.
    *  Absent = the `groups` default. Never set for Google (no group claims). */
   groupsClaim?: string;
+  /** Verified domains the connection is restricted to (empty = all verified domains). */
   allowedEmailDomains: string[];
   enabled: boolean;
+  /** Org policy: people in the org's verified domains must sign in via the IdP
+   *  (owners exempt). */
+  ssoRequired: boolean;
+  /** The last test connection against the CURRENT settings (cleared on change). */
+  lastTest?: { at: string; ok: boolean; protocol: IdpProtocol; reason?: string };
   updatedAt: string;
 }
 
@@ -432,14 +586,22 @@ export interface OrgIdpConfigCreate {
   samlSsoUrl?: string;
   samlCertificates?: string[];
   samlAttributes?: SamlAttributeMapping;
+  /** `''` clears it. */
+  samlSloUrl?: string;
+  samlSignAuthnRequests?: boolean;
+  samlEncryptAssertions?: boolean;
   discoveryUrl?: string;
   /** Cognito only: server derives the discovery URL from region + userPoolId. */
   region?: string;
   userPoolId?: string;
   /** Rejected by the server for Google/GitHub — they issue no group claims. */
   groupsClaim?: string;
+  /** Must be DNS-verified domains of the org (or its account root). */
   allowedEmailDomains?: string[];
   enabled?: boolean;
+  /** PATCH only. Switching ON needs an enabled IdP, a verified domain and a
+   *  successful test connection of the current settings. */
+  ssoRequired?: boolean;
 }
 
 /**

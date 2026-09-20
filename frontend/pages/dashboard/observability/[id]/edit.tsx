@@ -252,7 +252,7 @@ export default function DashboardEditPage() {
         {error
           ? <RetryError message={formatError(error)} onRetry={refetch} />
           : <EmptyState icon={LayoutGrid} title="Dashboard not found" description="It may have been deleted, or you no longer have access to it." />}
-        <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back</Link>
+        <Link href="/dashboard/observability" className="mt-4 inline-block text-brand hover:underline text-sm">← Back</Link>
       </DashboardLayout>
     );
   }
@@ -292,7 +292,7 @@ export default function DashboardEditPage() {
         {/* Metadata */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">Name</label>
             <Input
               type="text"
               value={name}
@@ -300,7 +300,7 @@ export default function DashboardEditPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">Description</label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -308,7 +308,7 @@ export default function DashboardEditPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Visibility</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">Visibility</label>
             <Select
               value={visibility}
               onChange={(e) => setVisibility(e.target.value as typeof visibility)}
@@ -353,7 +353,7 @@ export default function DashboardEditPage() {
             </div>
           </div>
           {panels.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            <div className="p-6 text-center text-sm text-fg-muted">
               No panels yet. Click <strong>Add panel</strong> to start.
             </div>
           ) : editorMode === 'grid' ? (
@@ -371,7 +371,7 @@ export default function DashboardEditPage() {
                       {/* Mouse: drag this handle. It is not focusable, so it's
                           hidden from assistive tech — the Move up/down buttons
                           below are the keyboard-reachable equivalent. */}
-                      <span className="grid-drag-handle cursor-move text-gray-400" aria-hidden="true">
+                      <span className="grid-drag-handle cursor-move text-fg-subtle" aria-hidden="true">
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                       <input
@@ -403,7 +403,7 @@ export default function DashboardEditPage() {
                         <X className="w-4 h-4" />
                       </IconButton>
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                    <div className="text-xs text-fg-muted font-mono truncate">
                       {panels[i].queryKey} · {panels[i].vizKind}
                     </div>
                     <Select
@@ -451,7 +451,7 @@ export default function DashboardEditPage() {
                       aria-label={`Panel ${i + 1} title`}
                       className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">
+                    <div className="text-xs text-fg-muted mt-1 font-mono">
                       {p.queryKey} · {p.vizKind} · span={p.span}
                     </div>
                   </div>
@@ -518,7 +518,7 @@ function AddPanelModal(props: {
     <Modal title="Add panel" onClose={onClose} maxWidth="max-w-lg" tall>
       <div className="space-y-4">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Filter</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Filter</label>
           <Input
             type="text"
             value={filter}
@@ -527,7 +527,7 @@ function AddPanelModal(props: {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Catalog query ({filtered.length})</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Catalog query ({filtered.length})</label>
           <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded">
             {filtered.map(entry => (
               <button
@@ -536,18 +536,18 @@ function AddPanelModal(props: {
                 className={`block w-full text-left px-3 py-1.5 text-xs font-mono border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${selected?.key === entry.key ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
               >
                 <div>{entry.key}</div>
-                <div className="text-[10px] text-gray-500">{entry.source}</div>
+                <div className="text-2xs text-fg-muted">{entry.source}</div>
               </button>
             ))}
             {filtered.length === 0 && (
-              <div className="p-3 text-xs text-gray-500 dark:text-gray-400">No matches.</div>
+              <div className="p-3 text-xs text-fg-muted">No matches.</div>
             )}
           </div>
         </div>
         {selected && (
           <>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Title</label>
+              <label className="block text-xs font-medium text-fg-muted mb-1">Title</label>
               <Input
                 type="text"
                 value={title}
@@ -556,7 +556,7 @@ function AddPanelModal(props: {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Viz</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Viz</label>
                 <Select
                   value={vizKind}
                   onChange={(e) => setVizKind(e.target.value)}
@@ -568,7 +568,7 @@ function AddPanelModal(props: {
                 </Select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Span</label>
+                <label className="block text-xs font-medium text-fg-muted mb-1">Span</label>
                 <Select
                   value={span}
                   onChange={(e) => setSpan(parseInt(e.target.value, 10))}

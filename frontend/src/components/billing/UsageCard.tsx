@@ -46,21 +46,21 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
 
   return (    <Card>
       <div className="flex items-baseline justify-between mb-4">
-        <h2 className="text-lg font-semibold text-[var(--pb-text)]">Usage this period</h2>
-        <span className="text-xs text-[var(--pb-text-muted)]">
+        <h2 className="h2">Usage this period</h2>
+        <span className="text-xs text-fg-muted">
           {rollup.period.daysElapsed} of {rollup.period.daysElapsed + rollup.period.daysRemaining} days elapsed
         </span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
         <div>
-          <p className="text-sm text-[var(--pb-text-muted)]">Subscription</p>
-          <p className="text-lg font-medium text-[var(--pb-text)]">
+          <p className="text-sm text-fg-muted">Subscription</p>
+          <p className="text-lg font-medium text-fg">
             {rollup.subscription ? `${dollars(rollup.cost.subscriptionCents)} / ${rollup.subscription.interval === 'annual' ? 'year': 'month'}`: 'No active plan'}
           </p>
         </div>
         <div>
-          <label className="text-sm text-[var(--pb-text-muted)]" htmlFor="usage-period-start">Period start</label>
+          <label className="text-sm text-fg-muted" htmlFor="usage-period-start">Period start</label>
           {editable ? (
             <Input
               id="usage-period-start"
@@ -68,14 +68,14 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               value={startVal}
               max={endVal || undefined}
               onChange={(e) => onPeriodChange?.(e.target.value || undefined, endVal || undefined)}
-              className="mt-0.5 block w-full rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-sm text-[var(--pb-text)]"
+              className="mt-0.5 block w-full rounded border border-default bg-surface px-2 py-1 text-sm text-fg"
             />
           ) : (
-            <p className="text-sm text-[var(--pb-text)]">{formatDate(rollup.period.start)}</p>
+            <p className="text-sm text-fg">{formatDate(rollup.period.start)}</p>
           )}
         </div>
         <div>
-          <label className="text-sm text-[var(--pb-text-muted)]" htmlFor="usage-period-end">Period end</label>
+          <label className="text-sm text-fg-muted" htmlFor="usage-period-end">Period end</label>
           {editable ? (
             <Input
               id="usage-period-end"
@@ -83,23 +83,23 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               value={endVal}
               min={startVal || undefined}
               onChange={(e) => onPeriodChange?.(startVal || undefined, e.target.value || undefined)}
-              className="mt-0.5 block w-full rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-sm text-[var(--pb-text)]"
+              className="mt-0.5 block w-full rounded border border-default bg-surface px-2 py-1 text-sm text-fg"
             />
           ) : (
-            <p className="text-sm text-[var(--pb-text)]">{formatDate(rollup.period.end)}</p>
+            <p className="text-sm text-fg">{formatDate(rollup.period.end)}</p>
           )}
         </div>
       </div>
 
       {editable && (
-        <div className="mb-6 flex items-center gap-2 text-xs text-[var(--pb-text-muted)]">
+        <div className="mb-6 flex items-center gap-2 text-xs text-fg-muted">
           <span>Adjusts the displayed window. Consumption below is the current live period, not the selected dates.</span>
           {overridden && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onPeriodChange?.(undefined, undefined)}
-              className="text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-brand hover:underline"
             >
               Reset
             </Button>
@@ -122,13 +122,13 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
           return (
             <div>
               <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-[var(--pb-text)]">Seats</span>
-                <span className="text-[var(--pb-text-muted)]">
+                <span className="font-medium text-fg">Seats</span>
+                <span className="text-fg-muted">
                   {fmtNum(used)} / {isUnlimited ? 'Unlimited' : fmtNum(limit)}
                   {percent !== null && <span className="ml-2">({percent}%)</span>}
                 </span>
               </div>
-              <div className="mt-1 h-2 w-full bg-[var(--pb-surface-muted)] rounded overflow-hidden">
+              <div className="mt-1 h-2 w-full bg-surface-muted rounded overflow-hidden">
                 <div
                   className={`h-2 rounded ${barColor}`}
                   style={{ width: `${isUnlimited ? 0 : percent ?? 0}%` }}
@@ -152,13 +152,13 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
 : barStyles[statusInfo(entry.used, entry.limit).color];
           return (            <div key={key}>
               <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-[var(--pb-text)]">{cfg.label}</span>
-                <span className="text-[var(--pb-text-muted)]">
+                <span className="font-medium text-fg">{cfg.label}</span>
+                <span className="text-fg-muted">
                   {usedLabel} / {limitLabel}
                   {entry.percentOfLimit !== null && <span className="ml-2">({entry.percentOfLimit}%)</span>}
                 </span>
               </div>
-              <div className="mt-1 h-2 w-full bg-[var(--pb-surface-muted)] rounded overflow-hidden">
+              <div className="mt-1 h-2 w-full bg-surface-muted rounded overflow-hidden">
                 <div
                   className={`h-2 rounded ${barColor}`}
                   style={{ width: `${isUnlimited ? 0: Math.min(100, entry.percentOfLimit ?? 0)}%` }}

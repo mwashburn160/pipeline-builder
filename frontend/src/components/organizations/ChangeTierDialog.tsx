@@ -44,7 +44,7 @@ export function ChangeTierDialog({ org, onClose, onSelect }: ChangeTierDialogPro
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Changing the tier reseeds this organization’s quota limits and affects billing.
         You’ll be asked to re-verify before the change is applied.
       </p>

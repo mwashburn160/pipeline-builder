@@ -23,9 +23,17 @@ import crypto from 'crypto';
 import { createLogger, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
+import { hasVerifiedDomain, unverifiedDomains } from '../helpers/sso-enforcement.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { incCounter } from '../observability/metrics.js';
-import { IDP_OIDC_INCOMPLETE, IDP_SAML_INCOMPLETE, IGM_PROVIDER_UNSUPPORTED } from '../services/idp-mapping-errors.js';
+import {
+  IDP_DOMAIN_NOT_VERIFIED,
+  IDP_OIDC_INCOMPLETE,
+  IDP_SAML_INCOMPLETE,
+  IDP_SSO_REQUIRED_NO_DOMAIN,
+  IDP_SSO_REQUIRED_UNTESTED,
+  IGM_PROVIDER_UNSUPPORTED,
+} from '../services/idp-mapping-errors.js';
 import { type OrgIdpConfigDto, orgIdpService } from '../services/org-idp-service.js';
 import { orgIdpCreateSchema, orgIdpPatchSchema, validateBody } from '../utils/validation.js';
 
@@ -98,7 +106,30 @@ export const ORG_IDP_ERROR_MAP = {
   [IDP_SAML_INCOMPLETE]: { status: 400, message: 'A SAML configuration needs the identity provider\'s entity ID, SSO URL and at least one signing certificate' },
   [IDP_OIDC_INCOMPLETE]: { status: 400, message: 'An OIDC configuration needs a provider, client ID and client secret' },
   [IGM_PROVIDER_UNSUPPORTED]: { status: 400, message: 'This identity provider issues no group claims, so a groups claim cannot be set for it' },
+  [IDP_SSO_REQUIRED_UNTESTED]: { status: 409, message: 'Single sign-on can only be required once the connection is enabled and a test connection has succeeded against the current settings. Run Test connection, then try again.' },
+  [IDP_SSO_REQUIRED_NO_DOMAIN]: { status: 409, message: 'Verify at least one email domain before requiring single sign-on — the policy applies to people in your verified domains.' },
 } as const;
+
+/**
+ * Refuse an `allowedEmailDomains` entry the org hasn't DNS-verified. The list is
+ * a picker over verified domains: a free-text entry proved nothing (the sign-in
+ * path already refuses an unverified domain's identities), so storing one only
+ * made the settings claim a restriction that could never admit anybody.
+ * Returns false when it responded.
+ */
+async function assertDomainsVerified(res: Response, orgId: string, domains: string[] | undefined): Promise<boolean> {
+  if (!domains || domains.length === 0) return true;
+  const normalized = domains.map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+  const missing = await unverifiedDomains(orgId, normalized);
+  if (missing.length === 0) return true;
+  sendError(
+    res, 400,
+    `Only verified domains can be allowed. Verify ${missing.join(', ')} under Settings → Domains first.`,
+    IDP_DOMAIN_NOT_VERIFIED,
+    { domains: missing },
+  );
+  return false;
+}
 
 /** Read one org's config. A missing config is a NORMAL state (most orgs never
  *  set one up), so this is 200 with `config: null` rather than 404 — a 404
@@ -131,6 +162,7 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
 
   const parsed = validateBody(orgIdpCreateSchema, body, res);
   if (!parsed) return;
+  if (!(await assertDomainsVerified(res, orgId, parsed.allowedEmailDomains))) return;
 
   // Reserve the `idpConfigs` slot only on a fresh insert; updating an existing
   // config doesn't consume a new one. The per-org unique index caps orgs at one
@@ -165,10 +197,19 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
 export async function patchOrgIdp(req: Request, res: Response, orgId: string, surface: IdpSurface): Promise<void> {
   const parsed = validateBody(orgIdpPatchSchema, req.body, res);
   if (!parsed) return;
+  if (!(await assertDomainsVerified(res, orgId, parsed.allowedEmailDomains))) return;
 
-  // Read the trusted certificates BEFORE the write so a rotation can be told
-  // from a save that happened to include the same list.
-  const before = certsOf(await orgIdpService.findByOrg(orgId));
+  // Read the stored config BEFORE the write so a certificate rotation can be
+  // told from a save that happened to include the same list, and a policy
+  // change from a save that re-sent the same value.
+  const existing = await orgIdpService.findByOrg(orgId);
+  const before = certsOf(existing);
+
+  // "SSO required" governs the org's VERIFIED domains; with none it would
+  // govern nobody, so switching it on is refused rather than stored as a no-op.
+  if (parsed.ssoRequired === true && !existing?.ssoRequired && !(await hasVerifiedDomain(orgId))) {
+    throw new Error(IDP_SSO_REQUIRED_NO_DOMAIN);
+  }
 
   const config = await orgIdpService.patch(orgId, req.user!.sub as string, parsed);
   if (!config) {
@@ -182,6 +223,15 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
     details: { protocol: config.protocol, surface },
   });
   auditCertificateRotation(req, orgId, before, certsOf(config), surface);
+  if (existing && existing.ssoRequired !== config.ssoRequired) {
+    audit(req, 'org.sso.required.update', {
+      targetType: 'org-idp-config',
+      targetId: orgId,
+      affectedOrgId: orgId,
+      details: { from: existing.ssoRequired, to: config.ssoRequired, surface },
+    });
+    incCounter('platform_sso_required_changes_total', { to: config.ssoRequired ? 'on' : 'off' });
+  }
   sendSuccess(res, 200, { config });
 }
 

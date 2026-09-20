@@ -57,7 +57,7 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
               disabled={disabled}
               className="flex-1 font-mono"
             />
-            <span className="text-gray-400 dark:text-gray-500">=</span>
+            <span className="text-fg-subtle">=</span>
             <Input
               type="text"
               value={entry.value}

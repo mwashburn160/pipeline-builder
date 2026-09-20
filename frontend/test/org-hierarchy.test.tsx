@@ -10,7 +10,7 @@
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { UserOrgMembership } from '@/types';
 
-let mockAuth: { user: { organizationId?: string } | null; organizations: UserOrgMembership[] };
+let mockAuth: { user: { organizationId?: string; permissions?: string[] } | null; organizations: UserOrgMembership[] };
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => mockAuth }));
 
 jest.mock('@/hooks/useFeatures', () => ({
@@ -24,6 +24,10 @@ jest.mock('@/lib/api', () => ({
     getOwnQuotas: jest.fn().mockResolvedValue({ success: false }),
     listInvitations: jest.fn().mockResolvedValue({ success: false }),
     getComplianceAuditLog: jest.fn().mockResolvedValue({ success: false }),
+    getMfaPolicy: jest.fn().mockResolvedValue({
+      success: true,
+      data: { requireMfa: false, enforced: false, own: false, idpEnforcesMfa: false, defaultGraceDays: 14, enrolment: { members: 4, enrolled: 1 } },
+    }),
   },
 }));
 jest.mock('@/lib/query-cache', () => ({
@@ -97,5 +101,21 @@ describe('OrgAdminHome — hierarchy tiles', () => {
     render(<OrgAdminHome organizationId="team-a" />);
     expect(await screen.findByText(/pooled across the parent organization/i)).toBeInTheDocument();
     expect(screen.queryByText('Teams')).not.toBeInTheDocument();
+  });
+});
+
+describe('OrgAdminHome — organization security card', () => {
+  it('is shown to a holder of org:settings', async () => {
+    mockAuth = { user: { organizationId: 'root', permissions: ['org:settings'] }, organizations: [org({})] };
+    render(<OrgAdminHome organizationId="root" />);
+    expect(await screen.findByRole('heading', { name: 'Organization security' })).toBeInTheDocument();
+    expect(await screen.findByText('3 of 4')).toBeInTheDocument();
+  });
+
+  it('is hidden without org:settings', async () => {
+    mockAuth = { user: { organizationId: 'root', permissions: [] }, organizations: [org({})] };
+    render(<OrgAdminHome organizationId="root" />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Members' })).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'Organization security' })).not.toBeInTheDocument();
   });
 });

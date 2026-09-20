@@ -33,6 +33,12 @@ jest.unstable_mockModule('../src/services/org-idp-service.js', () => ({
 const audit = jest.fn();
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit }));
 
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+
+const unverifiedDomains = jest.fn<(orgId: string, d: string[]) => Promise<string[]>>();
+const hasVerifiedDomain = jest.fn<(orgId: string) => Promise<boolean>>();
+jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ unverifiedDomains, hasVerifiedDomain }));
+
 const reserveFeatureQuota = jest.fn<(orgId: string, f: string) => Promise<unknown>>();
 const releaseFeatureQuota = jest.fn();
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({ reserveFeatureQuota, releaseFeatureQuota }));
@@ -73,6 +79,8 @@ beforeEach(() => {
   patch.mockResolvedValue({ provider: 'generic-oidc' });
   del.mockResolvedValue(true);
   reserveFeatureQuota.mockResolvedValue({ exceeded: false, quota: { resetAt: null } });
+  unverifiedDomains.mockResolvedValue([]);
+  hasVerifiedDomain.mockResolvedValue(true);
 });
 
 describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface', (surface) => {
@@ -180,6 +188,49 @@ describe.each(['admin', 'self-service'] as const)('patch/delete — %s surface',
     await deleteOrgIdp(mockReq({}), mockRes(), 'org-1', surface);
     expect(releaseFeatureQuota).toHaveBeenCalledWith('org-1', 'idpConfigs', expect.anything());
     expect(audit.mock.calls[0][2]).toMatchObject({ details: { surface } });
+  });
+});
+
+describe('allowed email domains must be VERIFIED', () => {
+  it('refuses a PUT naming a domain the org has not verified — nothing is written', async () => {
+    unverifiedDomains.mockResolvedValue(['gmail.com']);
+    const res = mockRes();
+    await upsertOrgIdp(mockReq({ ...EDIT_BODY, clientSecret: 's', allowedEmailDomains: ['acme.com', 'gmail.com'] }), res, 'org-1', 'self-service');
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(unverifiedDomains).toHaveBeenCalledWith('org-1', ['acme.com', 'gmail.com']);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses the same on a PATCH', async () => {
+    unverifiedDomains.mockResolvedValue(['other.com']);
+    const res = mockRes();
+    await patchOrgIdp(mockReq({ allowedEmailDomains: ['@Other.com'] }), res, 'org-1', 'admin');
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(unverifiedDomains).toHaveBeenCalledWith('org-1', ['other.com']);
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('"SSO required"', () => {
+  it('refuses to switch it on with no verified domain to govern', async () => {
+    findByOrg.mockResolvedValue({ ssoRequired: false, samlCertificates: [] });
+    hasVerifiedDomain.mockResolvedValue(false);
+    await expect(patchOrgIdp(mockReq({ ssoRequired: true }), mockRes(), 'org-1', 'self-service'))
+      .rejects.toThrow('IDP_SSO_REQUIRED_NO_DOMAIN');
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('audits the policy transition (and only a real transition)', async () => {
+    findByOrg.mockResolvedValue({ ssoRequired: false, samlCertificates: [] });
+    patch.mockResolvedValue({ protocol: 'saml', ssoRequired: true, samlCertificates: [] });
+    await patchOrgIdp(mockReq({ ssoRequired: true }), mockRes(), 'org-1', 'self-service');
+    const policy = audit.mock.calls.find((c) => c[1] === 'org.sso.required.update');
+    expect(policy?.[2]).toMatchObject({ details: { from: false, to: true, surface: 'self-service' } });
+
+    audit.mockClear();
+    findByOrg.mockResolvedValue({ ssoRequired: true, samlCertificates: [] });
+    await patchOrgIdp(mockReq({ ssoRequired: true }), mockRes(), 'org-1', 'self-service');
+    expect(audit.mock.calls.find((c) => c[1] === 'org.sso.required.update')).toBeUndefined();
   });
 });
 

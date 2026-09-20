@@ -4,7 +4,7 @@
 import { randomUUID } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { tagRouteGate } from './route-table.js';
+import { tagRouteGate, type OrgAdminAssuranceMachines } from './route-table.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { JwksUnavailableError, UnknownKidError, platformJwksCache } from '../services/jwks-cache.js';
 import {
@@ -543,6 +543,105 @@ export function requireAssurance(options: AssuranceOptions) {
     if (refuseForAssurance(options, req.user as JwtPayload, req, res)) return;
     next();
   }, { kind: 'assurance', minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) });
+}
+
+/**
+ * Handler-level twin of {@link requireAssurance}, for a route where only SOME
+ * requests must be MFA-grade — e.g. a policy route on which TIGHTENING a setting
+ * stays open to a single-factor session (so an admin without MFA can adopt it)
+ * but LOOSENING it does not. Same rules and the same three refusals. Returns
+ * true when the request was REFUSED (a response has been sent).
+ */
+export function refuseWeakSession(req: Request, res: Response, options: AssuranceOptions): boolean {
+  if (!req.user) {
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    return true;
+  }
+  return refuseForAssurance(options, req.user as JwtPayload, req, res);
+}
+
+/** What {@link requireOrgAdminAssurance} demands of a route. */
+export interface OrgAdminAssuranceOptions {
+  /** What a machine credential (PAT, service account, machine session) meets on
+   *  this route while the policy is on — see {@link OrgAdminAssuranceMachines}.
+   *  Required, so every route states its decision rather than inheriting one. */
+  machines: OrgAdminAssuranceMachines;
+}
+
+/** `details.reason` on a refusal by {@link requireOrgAdminAssurance}, so the UI
+ *  can say it is the ORG's policy asking, not the route's own requirement. */
+export const ORG_ADMIN_MFA_REASON = 'org_admin_policy';
+
+/**
+ * The refusal {@link requireOrgAdminAssurance} would send for these claims, or
+ * `undefined` when the request may proceed. Exported so a handler whose policy
+ * applies to only PART of a route (e.g. `generate-token`, where opening a new
+ * machine credential is gated but renewing an existing one is not) applies the
+ * exact same rule rather than a copy of it.
+ */
+export function orgAdminAssuranceRefusal(
+  claims: JwtPayload | undefined,
+  options: OrgAdminAssuranceOptions,
+): { status: number; code: ErrorCode; message: string; reason: 'machine_principal' | 'weak_session' } | undefined {
+  // The claim is only ever `2`, and only when the policy is on (see JwtPayload).
+  if (!claims || claims.org_admin_aal !== 2) return undefined;
+  if (!isHumanPrincipal(claims)) {
+    if (options.machines === 'allow') return undefined;
+    return {
+      status: HttpStatus.FORBIDDEN,
+      code: ErrorCode.HUMAN_SESSION_REQUIRED,
+      reason: 'machine_principal',
+      message: 'Your organization requires two-factor authentication for this action — API keys and service accounts cannot perform it',
+    };
+  }
+  if ((claims.aal ?? 1) >= 2) return undefined;
+  return {
+    status: HttpStatus.UNAUTHORIZED,
+    code: ErrorCode.MFA_REQUIRED,
+    reason: 'weak_session',
+    message: 'Your organization requires two-factor authentication for administrative actions — sign in again with a passkey or an authenticator code',
+  };
+}
+
+/**
+ * Apply {@link orgAdminAssuranceRefusal} and send its refusal. Returns true when
+ * the request was REFUSED (a response has been sent). For handler-level use;
+ * routes use {@link requireOrgAdminAssurance}.
+ */
+export function refuseForOrgAdminAssurance(req: Request, res: Response, options: OrgAdminAssuranceOptions): boolean {
+  const refusal = orgAdminAssuranceRefusal(req.user as JwtPayload | undefined, options);
+  if (!refusal) return false;
+  emitCounter('mfa_enforcement_refused_total', { service: serviceIdentity(), reason: `org_admin_${refusal.reason}` });
+  recordAuthzDenial(req, 'assurance:org-admin');
+  sendError(res, refusal.status, refusal.message, refusal.code, { reason: ORG_ADMIN_MFA_REASON });
+  return true;
+}
+
+/**
+ * The org policy "administrative actions require MFA" (`adminActionsRequireMfa`).
+ *
+ * Unlike {@link requireAssurance}, the requirement is the ORG's choice, not the
+ * route's: the gate reads the `org_admin_aal` claim, set at token issue from the
+ * active org's policy (strictest across its ancestors), so a service that cannot
+ * read the org document still enforces it. With the policy off the gate is a
+ * no-op; with it on, a single-factor session is refused 401 `MFA_REQUIRED`
+ * (with `details.reason: 'org_admin_policy'`) — the same code the client already
+ * turns into "enrol a factor / sign in with it", never a sign-out.
+ *
+ * `machines` is decided per route (see {@link OrgAdminAssuranceMachines}): the
+ * policy is about how strongly a PERSON's session was opened, so automation that
+ * legitimately drives a route keeps working (`allow`), while a route that mints
+ * a further credential refuses machines outright (`refuse`, 403
+ * `HUMAN_SESSION_REQUIRED` — the same refusal `requireAssurance` gives them).
+ */
+export function requireOrgAdminAssurance(options: OrgAdminAssuranceOptions) {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+    if (refuseForOrgAdminAssurance(req, res, options)) return;
+    next();
+  }, { kind: 'orgAdminAssurance', machines: options.machines });
 }
 
 /**

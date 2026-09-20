@@ -14,6 +14,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
+import { createFakeRecoveryCodes } from './helpers/fake-recovery-codes.js';
 
 // config refuses to load without the deployment secrets; the encryption key is
 // also the one this suite actually encrypts under.
@@ -24,15 +25,12 @@ process.env.TOTP_LOCKOUT_MS = '60000';
 
 // -- Model stand-in ------------------------------------------------------------
 
-interface RecoveryEntry { hash: string; usedAt: Date | null }
 interface TotpDoc {
   _id: Types.ObjectId;
   userId: string;
   secret: string;
   activatedAt: Date | null;
   lastUsedStep: number;
-  recoveryCodes: RecoveryEntry[];
-  recoveryGeneratedAt: Date;
   failedAttempts: number;
   lockedUntil: Date | null;
   createdAt: Date;
@@ -41,34 +39,27 @@ interface TotpDoc {
 
 let docs: TotpDoc[] = [];
 let users: Record<string, { email: string }> = {};
+/** The account's recovery codes live in their own collection (one set per
+ *  account, shared with passkeys) — real service, in-memory collection. */
+const recovery = createFakeRecoveryCodes();
+let passkeys = 0;
 
-/** The filter shapes the service uses, and nothing else. Returns the matched
- *  document plus, for the positional recovery update, which element matched. */
+/** The filter shapes the service uses, and nothing else. */
 function findDoc(filter: Record<string, unknown>): { doc: TotpDoc; recoveryIndex: number } | null {
   for (const doc of docs) {
     if (filter.userId !== undefined && doc.userId !== String(filter.userId)) continue;
     if (filter.activatedAt !== undefined && doc.activatedAt === null) continue;
     if (filter.lastUsedStep !== undefined && doc.lastUsedStep !== filter.lastUsedStep) continue;
-    let recoveryIndex = -1;
-    if (filter.recoveryCodes !== undefined) {
-      const wanted = (filter.recoveryCodes as { $elemMatch: { hash: string } }).$elemMatch;
-      recoveryIndex = doc.recoveryCodes.findIndex((c) => c.hash === wanted.hash && !c.usedAt);
-      if (recoveryIndex < 0) continue;
-    }
-    return { doc, recoveryIndex };
+    return { doc, recoveryIndex: -1 };
   }
   return null;
 }
 
-/** Apply `$set` (including the single `recoveryCodes.$` path) and `$inc`. */
-function applyUpdate(doc: TotpDoc, update: Record<string, unknown>, recoveryIndex: number): void {
+/** Apply `$set` and `$inc`. */
+function applyUpdate(doc: TotpDoc, update: Record<string, unknown>, _recoveryIndex: number): void {
   const set = (update.$set ?? {}) as Record<string, unknown>;
   for (const [key, value] of Object.entries(set)) {
-    if (key === 'recoveryCodes.$.usedAt') {
-      doc.recoveryCodes[recoveryIndex].usedAt = value as Date;
-    } else {
-      (doc as unknown as Record<string, unknown>)[key] = value;
-    }
+    (doc as unknown as Record<string, unknown>)[key] = value;
   }
   for (const [key, value] of Object.entries((update.$inc ?? {}) as Record<string, number>)) {
     (doc as unknown as Record<string, number>)[key] = ((doc as unknown as Record<string, number>)[key] ?? 0) + value;
@@ -111,8 +102,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
           secret: '',
           activatedAt: null,
           lastUsedStep: 0,
-          recoveryCodes: [],
-          recoveryGeneratedAt: new Date(),
           failedAttempts: 0,
           lockedUntil: null,
           createdAt: new Date(),
@@ -130,6 +119,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     findById: (id: string) => chainable(users[String(id)] ?? null),
   },
+  MfaRecoveryCodes: recovery.model,
+  WebAuthnCredential: { countDocuments: async () => passkeys },
 }));
 
 // SSO enforcement pulls in the org/IdP/entitlement graph; only the ANSWER matters here.
@@ -147,6 +138,7 @@ jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
 }));
 
 const totp = await import('../src/services/totp-service.js');
+const recoveryService = await import('../src/services/recovery-codes-service.js');
 const errors = await import('../src/services/totp-errors.js');
 const { totpCodeForStep, timeStepAt, hashRecoveryCode } = await import('../src/utils/totp.js');
 const { unwrapEncrypted } = await import('../src/utils/secret-blob.js');
@@ -175,6 +167,8 @@ async function enrolAndActivate(): Promise<string[]> {
 
 beforeEach(() => {
   docs = [];
+  recovery.reset();
+  passkeys = 0;
   users = { [USER]: { email: 'person@example.com' } };
   mockSsoEnforcement.mockResolvedValue(null);
   mockRetains.mockReturnValue(true);
@@ -230,15 +224,27 @@ describe('enrolment', () => {
     expect(docs).toHaveLength(0);
   });
 
-  it('mints ten recovery codes on activation, stored only as hashes', async () => {
+  it('mints ten recovery codes on activation when it is the FIRST factor, stored only as hashes', async () => {
     const codes = await enrolAndActivate();
     expect(codes).toHaveLength(10);
     expect(new Set(codes).size).toBe(10);
-    const hashes = stored().recoveryCodes.map((c) => c.hash);
+    const set = recovery.of(USER)!;
+    const hashes = set.codes.map((c) => c.hash);
     for (const code of codes) {
-      expect(JSON.stringify(stored().recoveryCodes)).not.toContain(code);
+      expect(JSON.stringify(set.codes)).not.toContain(code);
       expect(hashes).toContain(hashRecoveryCode(code));
     }
+  });
+
+  it('keeps the existing set (and returns none) when a passkey came first — one set per account', async () => {
+    passkeys = 1;
+    const fromPasskey = await recoveryService.issueRecoveryCodesIfAbsent(USER);
+    expect(fromPasskey).toHaveLength(10);
+
+    const codes = await enrolAndActivate();
+    expect(codes).toEqual([]);
+    // The passkey's sheet still works — through the authenticator's verification.
+    expect((await totp.verifyCode(USER, fromPasskey![0])).method).toBe('recovery');
   });
 });
 
@@ -294,7 +300,7 @@ describe('recovery codes', () => {
   it('regeneration invalidates every previous code, used or not', async () => {
     const old = await enrolAndActivate();
     await totp.verifyCode(USER, old[0]);
-    const { recoveryCodes: fresh } = await totp.regenerateRecoveryCodes(USER);
+    const { recoveryCodes: fresh } = await recoveryService.regenerateRecoveryCodes(USER);
 
     expect(fresh).toHaveLength(10);
     expect(fresh.some((c) => old.includes(c))).toBe(false);
@@ -303,8 +309,8 @@ describe('recovery codes', () => {
     expect((await totp.verifyCode(USER, fresh[0])).recoveryCodesRemaining).toBe(9);
   });
 
-  it('cannot be regenerated without an active enrolment', async () => {
-    await expect(totp.regenerateRecoveryCodes(USER)).rejects.toThrow(errors.TOTP_NOT_ENROLLED);
+  it('cannot be regenerated without a second factor', async () => {
+    await expect(recoveryService.regenerateRecoveryCodes(USER)).rejects.toThrow(recoveryService.RECOVERY_CODES_NO_FACTOR);
   });
 
   it('are counted in the status view', async () => {
@@ -364,12 +370,20 @@ describe('lockout', () => {
 });
 
 describe('disable', () => {
-  it('removes the enrolment and every recovery code with it', async () => {
+  it('removes the enrolment and — with no passkey left — every recovery code with it', async () => {
     const codes = await enrolAndActivate();
     await totp.disable(USER);
     expect(docs).toHaveLength(0);
     expect(await totp.hasActiveTotp(USER)).toBe(false);
+    expect(recovery.of(USER)).toBeUndefined();
     await expect(totp.verifyCode(USER, codes[0])).rejects.toThrow(errors.TOTP_NOT_ENROLLED);
+  });
+
+  it('keeps the recovery codes while a passkey still backs the account', async () => {
+    await enrolAndActivate();
+    passkeys = 1;
+    await totp.disable(USER);
+    expect(recovery.of(USER)?.codes).toHaveLength(10);
   });
 
   it('is refused when it would leave no way to sign in', async () => {

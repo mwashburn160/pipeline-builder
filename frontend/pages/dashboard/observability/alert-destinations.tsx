@@ -146,7 +146,7 @@ export default function AlertDestinationsPage() {
     { id: 'label', header: 'Label', cellClassName: 'font-medium text-gray-900 dark:text-gray-100', render: (d) => d.label },
     { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
-    { id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-400', render: (d) => (d.hasTarget ? d.target : '—') },
+    { id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted', render: (d) => (d.hasTarget ? d.target : '—') },
   ];
 
   const orgColumns: Column<AlertDestination>[] = [
@@ -163,7 +163,7 @@ export default function AlertDestinationsPage() {
     { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>≥ {d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
     {
-      id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-400',
+      id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted',
       render: (d) => (d.channel === 'in-app' ? '(in-app messages)' : d.hasTarget ? d.target : '— no target set —'),
     },
     ...(canWrite
@@ -198,7 +198,7 @@ export default function AlertDestinationsPage() {
       actions={
         <div className="flex items-center gap-2">
           {isSuperAdmin && (
-            <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="View every org's destinations (read-only)">
+            <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted" title="View every org's destinations (read-only)">
               <Checkbox checked={allOrgs} onChange={(e) => setAllOrgs(e.target.checked)} />
               All organizations
             </label>
@@ -216,8 +216,8 @@ export default function AlertDestinationsPage() {
         </div>
       }
     >
-      <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-        See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
+      <div className="text-xs text-fg-muted mb-3">
+        See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
       </div>
 
       {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
@@ -255,7 +255,7 @@ export default function AlertDestinationsPage() {
               emptyState={{ icon: Bell, title: 'No destinations', description: 'No destinations match the current filters.' }}
             />
           </div>
-          <div className="mt-6 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-6 text-xs text-fg-muted">
             Read-only across orgs — targets are masked even for sysadmins. Turn off
             “All organizations” to manage your own org&apos;s destinations.
           </div>
@@ -306,10 +306,10 @@ export default function AlertDestinationsPage() {
 }
 
 function ChannelIcon({ channel }: { channel: AlertDestination['channel'] }) {
-  if (channel === 'slack') return <MessageSquare className="w-5 h-5 text-purple-600" />;
-  if (channel === 'webhook') return <Webhook className="w-5 h-5 text-blue-600" />;
-  if (channel === 'email') return <Mail className="w-5 h-5 text-green-600" />;
-  return <BellIcon className="w-5 h-5 text-gray-600" />;
+  if (channel === 'slack') return <MessageSquare className="w-5 h-5 text-purple-600 dark:text-purple-400" />;
+  if (channel === 'webhook') return <Webhook className="w-5 h-5 text-brand" />;
+  if (channel === 'email') return <Mail className="w-5 h-5 text-success" />;
+  return <BellIcon className="w-5 h-5 text-fg-muted" />;
 }
 
 /** Create / edit modal. On edit, leaving `target` blank preserves the secret. */
@@ -363,7 +363,7 @@ function DestinationModal(props: {
     <Modal title={existing ? 'Edit destination' : 'Add destination'} onClose={onClose} maxWidth="max-w-md">
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Channel</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Channel</label>
           <Select
             value={channel}
             onChange={(e) => setChannel(e.target.value as AlertDestination['channel'])}
@@ -381,7 +381,7 @@ function DestinationModal(props: {
           </Select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Label</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Label</label>
           <Input
             type="text"
             value={label}
@@ -391,7 +391,7 @@ function DestinationModal(props: {
         </div>
         {channel !== 'in-app' && (
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            <label className="block text-xs font-medium text-fg-muted mb-1">
               {channel === 'slack' ? 'Slack incoming-webhook URL' : channel === 'email' ? 'Email address' : 'Webhook URL'}
             </label>
             <Input
@@ -404,14 +404,14 @@ function DestinationModal(props: {
               className="font-mono"
             />
             {existing && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <div className="text-xs text-fg-muted mt-1">
                 Current: <span className="font-mono">{existing.hasTarget ? existing.target : '(not set)'}</span>
               </div>
             )}
           </div>
         )}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Minimum severity</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Minimum severity</label>
           <Select
             value={minSeverity}
             onChange={(e) => setMinSeverity(e.target.value as typeof minSeverity)}

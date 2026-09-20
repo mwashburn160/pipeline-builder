@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { takeReturnPath } from '@/lib/return-to';
 import { motion } from 'framer-motion';
 import { XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
+import { isSsoTestState, publishSsoTestResult, SSO_TEST_CHANNEL } from '@/components/sso/test-channel';
 
 /**
  * Per-org SSO (OIDC) callback landing page.
@@ -29,6 +31,10 @@ import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
  *     no session is established here, the page is a popup, so it hands
  *     `code`/`state` to the window that opened it and closes. Checked FIRST, so
  *     a re-auth can never be redeemed as a sign-in;
+ *   - an `ssotest.`-prefixed state is an admin's TEST CONNECTION
+ *     (components/sso/test-channel): likewise handed back to the settings page
+ *     that opened the popup, never redeemed here — and the platform's sign-in
+ *     callback would refuse it anyway (it lives in a separate state store);
  *   - anything else is a SIGN-IN that began at the login card's "Continue with
  *     single sign-on". The code is exchanged server-side (which is where the
  *     `id_token` is validated against the IdP's JWKS), and the session it
@@ -41,7 +47,8 @@ export default function SsoCallbackPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  // A step-up re-auth popup that has handed its result back to the app window.
+  // A step-up re-auth / test-connection popup that has handed its result back
+  // to the app window.
   const [reauth, setReauth] = useState(false);
   // Single-use code/state — guard against React 18 strict-mode double-invoke.
   const started = useRef(false);
@@ -51,7 +58,7 @@ export default function SsoCallbackPage() {
       const res = await api.completeSsoCallback(orgId, { code, state });
       if (!res.success) throw new Error(res.message || 'Single sign-on failed');
       await refreshUser();
-      await router.replace('/dashboard');
+      await router.replace(takeReturnPath());
     } catch (err) {
       // The backend states these refusals in plain words (OIDC_ERROR_MAP), so
       // the message it sends is the message to show — a local lookup table would
@@ -83,6 +90,17 @@ export default function SsoCallbackPage() {
       return;
     }
 
+    if (isSsoTestState(state)) {
+      publishSsoTestResult({
+        type: SSO_TEST_CHANNEL,
+        state,
+        ...(idpError ? { error: idpError } : code ? { code } : { error: 'no_code' }),
+      });
+      setReauth(true);
+      window.close();
+      return;
+    }
+
     if (idpError) {
       setError(`Single sign-on was cancelled or denied by your identity provider (${idpError}).`);
       return;
@@ -102,9 +120,9 @@ export default function SsoCallbackPage() {
           <Card className="p-8 text-center" role="status" aria-live="polite">
             {error ? (
               <>
-                <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
+                <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Single sign-on failed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">{error}</p>
+                <p className="text-sm text-fg-muted mt-1">{error}</p>
                 <LinkButton href="/" variant="primary" fullWidth className="text-sm mt-4">
                   Back to sign in
                 </LinkButton>
@@ -112,13 +130,13 @@ export default function SsoCallbackPage() {
             ) : reauth ? (
               <>
                 <p className="font-bold">Confirmed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">You can close this window.</p>
+                <p className="text-sm text-fg-muted mt-1">You can close this window.</p>
               </>
             ) : (
               <>
                 <LoadingSpinner />
                 <p className="font-bold mt-3">Completing single sign-on…</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">
+                <p className="text-sm text-fg-muted mt-1">
                   Verifying with your identity provider.
                 </p>
               </>

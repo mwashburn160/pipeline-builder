@@ -149,7 +149,7 @@ export default function OrgDetailPage() {
               <Card>
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <KeyRound className="w-5 h-5 text-gray-500" />
+                    <KeyRound className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Per-org KMS</h3>
                   </div>
                   {can('org:kms') && (
@@ -162,13 +162,13 @@ export default function OrgDetailPage() {
                   <RetryError message="Failed to load the KMS binding" onRetry={kmsQ.refetch} />
                 ) : kms?.configured ? (
                   <div className="text-sm">
-                    <div className="text-gray-500 dark:text-gray-400 mb-1">Wrapping under operator CMK:</div>
+                    <div className="text-fg-muted mb-1">Wrapping under operator CMK:</div>
                     {/* A KMS key ARN embeds the AWS account id; redact it before it
                         reaches the DOM or the clipboard (CopyableId copies `value`). */}
                     <CopyableId value={redactString(kms.keyId ?? '')} size="sm" />
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-fg-muted">
                     Falling back to the shared SECRET_ENCRYPTION_KEY master.
                     Configure to wrap this org&apos;s secrets under its own CMK.
                   </p>
@@ -178,7 +178,7 @@ export default function OrgDetailPage() {
               <Card>
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-gray-500" />
+                    <ShieldCheck className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">SSO / IdP</h3>
                   </div>
                   {can('org:idp') && (
@@ -190,37 +190,37 @@ export default function OrgDetailPage() {
                 {idp ? (
                   <dl className="text-sm space-y-1.5">
                     <div>
-                      <dt className="text-gray-500 dark:text-gray-400">Provider</dt>
+                      <dt className="text-fg-muted">Provider</dt>
                       {/* A SAML config has no named provider — it is identified by
                           its protocol and the IdP's entity ID (#4). */}
                       <dd><code className="text-xs">{idp.protocol === 'saml' ? 'saml' : idp.provider}</code> {idp.enabled ? <Badge color="green">enabled</Badge> : <Badge color="yellow">disabled</Badge>}</dd>
                     </div>
                     {idp.protocol === 'saml' ? (
                       <div>
-                        <dt className="text-gray-500 dark:text-gray-400">IdP entity ID</dt>
+                        <dt className="text-fg-muted">IdP entity ID</dt>
                         <dd className="break-all"><CopyableId value={idp.samlEntityId ?? ''} size="sm" /></dd>
                       </div>
                     ) : (
                       <div>
-                        <dt className="text-gray-500 dark:text-gray-400">Client ID</dt>
+                        <dt className="text-fg-muted">Client ID</dt>
                         <dd><CopyableId value={idp.clientId ?? ''} size="sm" /></dd>
                       </div>
                     )}
                     {idp.discoveryUrl && (
                       <div>
-                        <dt className="text-gray-500 dark:text-gray-400">Discovery URL</dt>
+                        <dt className="text-fg-muted">Discovery URL</dt>
                         <dd className="break-all"><CopyableId value={idp.discoveryUrl} size="sm" /></dd>
                       </div>
                     )}
                     {idp.allowedEmailDomains.length > 0 && (
                       <div>
-                        <dt className="text-gray-500 dark:text-gray-400">Allowed domains</dt>
+                        <dt className="text-fg-muted">Allowed domains</dt>
                         <dd>{idp.allowedEmailDomains.join(', ')}</dd>
                       </div>
                     )}
                   </dl>
                 ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-fg-muted">
                     No SSO configured. Members sign in via password / OAuth defaults.
                   </p>
                 )}
@@ -238,7 +238,7 @@ export default function OrgDetailPage() {
                   via tier + add-on bundles. */}
               <Card>
                 <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="w-5 h-5 text-gray-500" />
+                  <Sparkles className="w-5 h-5 text-fg-muted" />
                   <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Feature entitlements</h3>
                 </div>
                 {features.length > 0 ? (
@@ -246,7 +246,7 @@ export default function OrgDetailPage() {
                     {features.map((f) => <Badge key={f} color="blue">{f}</Badge>)}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-fg-muted">
                     No add-on feature entitlements. The org has only its tier&apos;s baseline features.
                   </p>
                 )}
@@ -257,7 +257,7 @@ export default function OrgDetailPage() {
               <Card>
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <Gauge className="w-5 h-5 text-gray-500" />
+                    <Gauge className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Quotas</h3>
                   </div>
                   <Link href="/dashboard/quotas" className="action-link text-sm">Manage</Link>
@@ -266,7 +266,7 @@ export default function OrgDetailPage() {
                   <dl className="text-sm space-y-1.5">
                     {Object.entries(quotasQ.data.quotas).map(([type, summary]) => (
                       <div key={type} className="flex justify-between">
-                        <dt className="text-gray-500 dark:text-gray-400">{type}</dt>
+                        <dt className="text-fg-muted">{type}</dt>
                         <dd className="font-mono text-xs">
                           {summary.used} / {summary.unlimited || summary.limit === -1 ? '∞' : summary.limit}
                         </dd>
@@ -274,7 +274,7 @@ export default function OrgDetailPage() {
                     ))}
                   </dl>
                 ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-fg-muted">
                     Quota usage unavailable — the quota service didn&apos;t respond.
                   </p>
                 )}

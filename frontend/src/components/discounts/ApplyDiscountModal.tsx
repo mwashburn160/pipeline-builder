@@ -21,7 +21,7 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
     <dl className="mt-2 space-y-1">
       {breakdown.items.map((item, i) => (
         <div key={i} className="flex items-center justify-between gap-3 text-xs">
-          <dt className="text-gray-500 dark:text-gray-400">{item.label}</dt>
+          <dt className="text-fg-muted">{item.label}</dt>
           <dd className="font-mono text-gray-700 dark:text-gray-300 text-right tabular-nums">{formatCents(item.cents)}</dd>
         </div>
       ))}
@@ -30,7 +30,7 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
         <dd className="font-mono text-gray-900 dark:text-gray-100 text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
       </div>
       {breakdown.creditRemainingCents > 0 && (
-        <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center justify-between gap-3 text-xs text-fg-muted">
           <dt>Credit remaining</dt>
           <dd className="font-mono text-right tabular-nums">{formatCents(breakdown.creditRemainingCents)}</dd>
         </div>
@@ -111,7 +111,7 @@ export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }:
         </div>
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Grant <strong className="text-gray-700 dark:text-gray-300">{formatDiscount(discount)}</strong> directly to an
         organization. Preview the effect first — applying counts as a redemption.
       </p>

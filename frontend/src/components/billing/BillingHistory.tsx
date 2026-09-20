@@ -44,7 +44,7 @@ export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
       ? [{
           id: 'org',
           header: 'Organization',
-          cellClassName: 'font-mono text-xs text-[var(--pb-text-muted)]',
+          cellClassName: 'font-mono text-xs text-fg-muted',
           render: (evt: BillingEvent) => evt.orgId,
         }]
       : []),
@@ -53,7 +53,7 @@ export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-[var(--pb-text)]">Billing history</h2>
+        <h2 className="h2">Billing history</h2>
         {!open && (
           <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>View events</Button>
         )}

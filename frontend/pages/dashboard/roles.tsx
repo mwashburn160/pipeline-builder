@@ -277,7 +277,7 @@ export default function RolesPage() {
                 key={r.id}
                 title={
                   <span className="inline-flex flex-wrap items-center gap-2">
-                    {isSuperRole ? <ShieldAlert className="w-4 h-4 text-red-500" /> : <ShieldCheck className="w-4 h-4 text-[var(--pb-text-muted)]" />}
+                    {isSuperRole ? <ShieldAlert className="w-4 h-4 text-danger" /> : <ShieldCheck className="w-4 h-4 text-fg-muted" />}
                     {roleDisplayName(r.name)}
                     {r.system
                       ? <Badge color={ROLE_BADGE[r.grantsRole]}>{r.grantsRole}</Badge>
@@ -305,13 +305,13 @@ export default function RolesPage() {
                   </div>
                 }
               >
-                <p className="text-xs text-[var(--pb-text-muted)] inline-flex items-center gap-1.5">
-                  <span className="font-medium text-[var(--pb-text)]">
+                <p className="text-xs text-fg-muted inline-flex items-center gap-1.5">
+                  <span className="font-medium text-fg">
                     {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
                   </span>
                   <span className="text-[var(--pb-border)]">·</span>
                   <span className="inline-flex items-center gap-1">
-                    <Users className="w-3 h-3 text-[var(--pb-text-muted)]" />
+                    <Users className="w-3 h-3 text-fg-muted" />
                     {r.members.length} member{r.members.length === 1 ? '' : 's'}
                   </span>
                 </p>
@@ -321,15 +321,15 @@ export default function RolesPage() {
                   const expanded = expandedPerms.has(r.id);
                   const summary = summarizePermissions(r.permissions);
                   return (
-                    <div className="mt-3 rounded-md border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-3 py-2">
+                    <div className="mt-3 rounded-md border border-default bg-surface-muted px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--pb-text-muted)] min-w-0">
-                          <KeyRound className="w-3.5 h-3.5 text-[var(--pb-text-muted)] shrink-0" />
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted min-w-0">
+                          <KeyRound className="w-3.5 h-3.5 text-fg-muted shrink-0" />
                           {summary.map((s, i) => (
                             <span key={s.category} className="inline-flex items-center gap-1 whitespace-nowrap">
                               {i > 0 && <span className="text-[var(--pb-border)]">·</span>}
                               <span>{s.category}</span>
-                              <span className="font-semibold text-[var(--pb-text)]">{s.count}</span>
+                              <span className="font-semibold text-fg">{s.count}</span>
                             </span>
                           ))}
                         </div>
@@ -343,10 +343,10 @@ export default function RolesPage() {
                         </button>
                       </div>
                       {expanded && (
-                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-[var(--pb-border)]">
+                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-default">
                           {r.permissions.map((p) => (
-                            <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[var(--pb-surface-muted)] text-[var(--pb-text-muted)]">
-                              <KeyRound className="w-2.5 h-2.5 text-[var(--pb-text-muted)]" />{permissionLabel(p)}
+                            <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-surface-muted text-fg-muted">
+                              <KeyRound className="w-2.5 h-2.5 text-fg-muted" />{permissionLabel(p)}
                             </span>
                           ))}
                         </div>
@@ -356,28 +356,28 @@ export default function RolesPage() {
                 })()}
 
                 {/* Members */}
-                <div className="mt-3 pt-3 border-t border-[var(--pb-border)]">
+                <div className="mt-3 pt-3 border-t border-default">
                 {r.members.length === 0 ? (
-                  <p className="text-xs text-[var(--pb-text-muted)] italic">No members.</p>
+                  <p className="text-xs text-fg-muted italic">No members.</p>
                 ) : (
-                  <ul className="divide-y divide-[var(--pb-border)]">
+                  <ul className="divide-y divide-default">
                     {r.members.map((m) => {
                       const blockReason = removeBlockReason(r, m.id);
                       return (
                         <li key={m.id} className="py-2 flex items-center justify-between gap-2 text-sm">
                           <div className="min-w-0">
-                            <span className="font-medium text-[var(--pb-text)] inline-flex items-center gap-1.5">
+                            <span className="font-medium text-fg inline-flex items-center gap-1.5">
                               {m.username}
-                              {m.id === user?.id && <span className="text-xs text-[var(--pb-text-muted)]">(you)</span>}
+                              {m.id === user?.id && <span className="text-xs text-fg-muted">(you)</span>}
                             </span>
-                            <p className="text-xs text-[var(--pb-text-muted)] truncate">{m.email}</p>
+                            <p className="text-xs text-fg-muted truncate">{m.email}</p>
                           </div>
                           {editable && (
                             <IconButton
                               tone="danger"
                               onClick={() => setRemoveTarget({ role: r, member: m })}
                               disabled={!!blockReason}
-                              className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[var(--pb-text-muted)] disabled:hover:bg-transparent"
+                              className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-fg-muted disabled:hover:bg-transparent"
                               title={blockReason ?? `Remove ${m.username} from ${roleDisplayName(r.name)}`}
                               aria-label={`Remove ${m.username} from ${roleDisplayName(r.name)}`}
                             >
@@ -460,10 +460,10 @@ export default function RolesPage() {
             <div className="shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
               <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             </div>
-            <div className="text-sm text-[var(--pb-text-muted)]">
+            <div className="text-sm text-fg-muted">
               <p>
-                Remove <strong className="text-[var(--pb-text)]">{removeTarget.member.username}</strong> from{' '}
-                <strong className="text-[var(--pb-text)]">{roleDisplayName(removeTarget.role.name)}</strong>?
+                Remove <strong className="text-fg">{removeTarget.member.username}</strong> from{' '}
+                <strong className="text-fg">{roleDisplayName(removeTarget.role.name)}</strong>?
               </p>
               {removeTarget.role.grantsRole === 'superadmin' && (
                 <p className="mt-2 text-amber-700 dark:text-amber-400">
@@ -477,7 +477,7 @@ export default function RolesPage() {
                 </p>
               )}
               {removeTarget.role.grantsRole === 'member' && (
-                <p className="mt-2 text-[var(--pb-text-muted)]">They&apos;ll remain an organization member; only this role assignment is removed.</p>
+                <p className="mt-2 text-fg-muted">They&apos;ll remain an organization member; only this role assignment is removed.</p>
               )}
             </div>
           </div>
@@ -520,13 +520,13 @@ export default function RolesPage() {
               />
             </FormField>
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-[var(--pb-text)]">
-                Permissions <span className="text-[var(--pb-text-muted)] font-normal">({rolePerms.size} selected)</span>
+              <label className="block text-xs font-medium text-fg">
+                Permissions <span className="text-fg-muted font-normal">({rolePerms.size} selected)</span>
               </label>
-              <div className="max-h-72 overflow-y-auto border border-[var(--pb-border)] rounded-lg divide-y divide-[var(--pb-border)]">
+              <div className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
                 {ORG_ASSIGNABLE_CATEGORIES.map(({ category, permissions }) => (
                   <div key={category} className="p-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--pb-text-muted)]">{category}</p>
+                    <p className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">{category}</p>
                     <div className="mt-1.5 space-y-1.5">
                       {permissions.map((p) => (
                         <label key={p.id} className="flex items-start gap-2 text-xs cursor-pointer">
@@ -537,8 +537,8 @@ export default function RolesPage() {
                             className="mt-0.5"
                           />
                           <span className="min-w-0">
-                            <span className="font-medium text-[var(--pb-text)]">{p.label}</span>
-                            <span className="block text-[var(--pb-text-muted)]">{p.description}</span>
+                            <span className="font-medium text-fg">{p.label}</span>
+                            <span className="block text-fg-muted">{p.description}</span>
                           </span>
                         </label>
                       ))}
@@ -546,7 +546,7 @@ export default function RolesPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-[var(--pb-text-muted)]">
+              <p className="text-2xs text-fg-muted">
                 Members of this role get these permissions on top of their base access. The org owner and admins already have everything.
               </p>
             </div>

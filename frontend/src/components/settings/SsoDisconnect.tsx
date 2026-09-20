@@ -15,7 +15,7 @@ import type { OrgIdpConfigDto } from '@/types';
 /**
  * Remove the org's SSO connection (`DELETE /organization/:id/idp`).
  *
- * Distinct from unticking "Enabled": disabling keeps the connection (and its
+ * Distinct from switching single sign-on off: disabling keeps the connection (and its
  * secret, certificates and mappings' target) for a quick switch back, while
  * disconnecting deletes it — re-connecting means entering it again.
  *
@@ -57,7 +57,7 @@ export function SsoDisconnect({
     <SectionCard
       icon={Unplug}
       title="Disconnect SSO"
-      description="Remove this organization's identity-provider connection entirely. To pause SSO without losing the settings, untick Enabled instead."
+      description="Remove this organization's identity-provider connection entirely. It also removes the test result and the SSO-required policy. To pause SSO without losing the settings, switch it off instead."
     >
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
       <Button
@@ -82,7 +82,7 @@ export function SsoDisconnect({
                 {config.hasClientSecret ? ', including its stored client secret' : ''}.
               </p>
               <ul className="list-disc pl-5 space-y-1">
-                <li>Members can no longer sign in through your identity provider. They fall back to their other sign-in methods — a password, a passkey, or a social login they have linked.</li>
+                <li>Members can no longer sign in through your identity provider, and &ldquo;SSO required&rdquo; stops applying. They fall back to their other sign-in methods — a password, a passkey, or a social login they have linked.</li>
                 <li>Members who have only ever signed in through SSO have no other method, and can&apos;t sign in until a platform administrator sets a password for them.</li>
                 <li>Group → role mappings stop applying. Roles they already granted are not removed automatically.</li>
               </ul>

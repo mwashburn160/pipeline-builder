@@ -99,6 +99,21 @@ describe('switchOrg — org.switch audit', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('a slot-less caller keeps its narrowing across the switch (scope AND permission subset)', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1', lastActiveOrgId: 'org-to' }, authority: MEMBER });
+    // An exchanged permission-scoped access key: no `sid`, `permissionsRestricted`.
+    const req: any = {
+      user: { sub: 'u1', organizationId: 'org-from', permissionsRestricted: true, permissions: ['plugins:read', 'pipelines:read'] },
+      headers: {},
+      body: { organizationId: 'org-to' },
+    };
+    await (switchOrg as any)(req, makeRes());
+    expect(mockIssueTokens).toHaveBeenCalledWith(expect.anything(), 'org-to', expect.objectContaining({
+      kind: 'interactive',
+      permissions: ['pipelines:read', 'plugins:read'],
+    }));
+  });
+
   it('records the ancestor whose admin membership let a parent admin into a team', async () => {
     mockSwitchActiveOrg.mockResolvedValue({
       user: { _id: 'u1' },

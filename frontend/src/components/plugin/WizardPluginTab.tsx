@@ -312,12 +312,12 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
         )}
         {events.length > 0 && (
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-64 overflow-y-auto">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Build Log</p>
+            <p className="text-xs font-medium text-fg-muted mb-2">Build Log</p>
             {events.map((event, i) => (
               <div key={i} className={`text-xs font-mono py-0.5 ${
                 event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
                 event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
-                'text-gray-600 dark:text-gray-400'
+                'text-fg-muted'
               }`}>{event.message}</div>
             ))}
             {isBuilding && (
@@ -342,7 +342,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
             onClick={() => { if (isWorking || mode === m) return; setMode(m); resetSpec(); setError(null); setSuccess(null); }}
             disabled={isWorking}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              mode === m ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              mode === m ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-fg-muted hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
             {m === 'create' ? 'Create new' : 'Edit existing'}
@@ -350,7 +350,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
         ))}
       </div>
 
-      <p className="text-sm text-gray-500 dark:text-gray-400">
+      <p className="text-sm text-fg-muted">
         {editing
           ? 'Pick a plugin and edit its settings. Name, version, and Dockerfile are fixed once built — to change those, create a new version.'
           : "Fill in the plugin spec and we'll build the container image and save it — no AI provider or offline packaging needed."}

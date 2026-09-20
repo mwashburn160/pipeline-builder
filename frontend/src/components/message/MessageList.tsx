@@ -137,18 +137,18 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                 >
                   {displayName}
                 </span>
-                <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
+                <span className="text-xs text-fg-subtle flex-shrink-0 ml-2">
                   {formatRelativeTime(msg.createdAt)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-0.5">
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                <p className="text-xs text-fg-muted truncate">
                   {msg.content.slice(0, 60)}
                 </p>
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                   {msg.recipientUserId && (
                     <span
-                      className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
                       title="Direct message — targeted at a specific user"
                     >
                       <User className="w-2.5 h-2.5" />
@@ -157,7 +157,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                   )}
                   {msg.channel && (
                     <span
-                      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                      className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
                       title={`Channel: ${msg.channel}`}
                     >
                       {msg.channel}
@@ -179,7 +179,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             {onDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
                 title="Delete message"
                 aria-label="Delete message"
               >

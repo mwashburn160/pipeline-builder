@@ -66,7 +66,7 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
           return (
             <g key={t}>
               <line x1={PAD.left} y1={y} x2={CHART_WIDTH - PAD.right} y2={y} stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="0.5" />
-              <text x={PAD.left - 4} y={y + 3} textAnchor="end" className="fill-current text-gray-500 dark:text-gray-400" fontSize="9">{format(v)}</text>
+              <text x={PAD.left - 4} y={y + 3} textAnchor="end" className="fill-current text-fg-muted" fontSize="9">{format(v)}</text>
             </g>
           );
         })}
@@ -84,7 +84,7 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
         ))}
       </svg>
       {/* Legend */}
-      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
+      <div className="flex flex-wrap gap-3 mt-2 text-xs text-fg-muted">
         {prepared.map((s) => (
           <span key={s.label} className="inline-flex items-center gap-1.5">
             {/* Legend swatch mirrors the line's dash, not just its colour. */}

@@ -22,7 +22,7 @@ interface NotificationPreferencesManagerProps {
   readOnly?: boolean;
 }
 
-const labelClass = 'block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1';
+const labelClass = 'block text-xs font-medium text-fg-muted mb-1';
 
 export default function NotificationPreferencesManager({ readOnly = false }: NotificationPreferencesManagerProps) {
   const toast = useToast();
@@ -121,14 +121,14 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   };
 
   if (loading) {
-    return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>;
+    return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
   }
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-5 max-w-2xl">
       <div>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Compliance notifications</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-xs text-fg-muted mt-1">
           How this org is notified when a compliance check blocks an operation or raises warnings.
           Notifications always appear in the in-app inbox; email and webhook are opt-in below.
         </p>
@@ -156,10 +156,10 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className={labelClass + ' mb-0'}>Recipients</label>
-            <span className="text-xs text-gray-400">{selectedUserIds.size === 0 ? 'All org admins' : `${selectedUserIds.size} selected`}</span>
+            <span className="text-xs text-fg-subtle">{selectedUserIds.size === 0 ? 'All org admins' : `${selectedUserIds.size} selected`}</span>
           </div>
           {members.length === 0 ? (
-            <p className="text-xs text-gray-500 dark:text-gray-400">No members to choose from.</p>
+            <p className="text-xs text-fg-muted">No members to choose from.</p>
           ) : (
             <div className={`max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded divide-y divide-gray-100 dark:divide-gray-800 ${(!emailEnabled || readOnly) ? 'opacity-60 pointer-events-none' : ''}`}>
               {members.map((m) => (
@@ -170,13 +170,13 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
                     disabled={readOnly || !emailEnabled}
                   />
                   <span className="font-medium text-gray-900 dark:text-gray-100">{m.username}</span>
-                  <span className="text-gray-500 dark:text-gray-400">{m.email}</span>
+                  <span className="text-fg-muted">{m.email}</span>
                   {(m.role === 'admin' || m.role === 'owner') && <Badge color="blue">{m.role}</Badge>}
                 </label>
               ))}
             </div>
           )}
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-xs text-fg-muted mt-1">
             Select specific recipients, or leave all unchecked to email every org admin.
           </p>
         </div>
@@ -222,7 +222,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
           <option value="daily">Daily digest</option>
           <option value="weekly">Weekly digest</option>
         </Select>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-xs text-fg-muted mt-1">
           Digests batch notifications and deliver them once per day/week instead of immediately.
         </p>
       </div>

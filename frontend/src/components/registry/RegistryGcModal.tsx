@@ -84,7 +84,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
           }
         >
           <div className="space-y-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-fg-muted">
               Prunes manifests older than the retention window under a single repo
               namespace prefix (e.g. <code className="font-mono">org-acme/</code>). The
               trailing slash is added automatically.
@@ -110,7 +110,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
               />
               <span className="min-w-0">
                 <span className="font-medium text-gray-800 dark:text-gray-200">Dry run</span>
-                <span className="block text-gray-400 dark:text-gray-500">
+                <span className="block text-fg-subtle">
                   Walk the namespace and count deletion candidates without deleting anything.
                 </span>
               </span>

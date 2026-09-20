@@ -383,8 +383,8 @@ export default function BillingPage() {
           onClick={() => setBillingInterval('monthly')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
             billingInterval === 'monthly'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+              ? 'bg-brand text-white'
+              : 'text-fg-muted hover:text-fg'
           }`}
         >
           Monthly
@@ -393,23 +393,23 @@ export default function BillingPage() {
           onClick={() => setBillingInterval('annual')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
             billingInterval === 'annual'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+              ? 'bg-brand text-white'
+              : 'text-fg-muted hover:text-fg'
           }`}
         >
           Annual
-          <span className="ml-1 text-xs text-green-500">Save ~17%</span>
+          <span className="ml-1 text-xs text-success">Save ~17%</span>
         </button>
       </Card>
     </div>
   );
 
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
-      <div className="page-section space-y-8">
+      <div className="page-section space-y-6">
         <TabBar items={BILLING_TABS} activeId={activeTab} onSelect={changeTab} ariaLabel="Billing sections" />
 
         {activeTab === 'overview' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* Payment provider — deployment-level config (BILLING_PROVIDER), NOT a
                 dashboard setting. Surfaced read-only so operators can see which
                 provider a deployment runs (e.g. local/docker ships `stub`, which is
@@ -423,10 +423,10 @@ export default function BillingPage() {
               return (
                 <Card className="flex items-center justify-between gap-3 p-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <CreditCard className="w-5 h-5 shrink-0 text-gray-400" />
+                    <CreditCard className="w-5 h-5 shrink-0 text-fg-subtle" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Payment provider</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-sm font-medium text-fg">Payment provider</p>
+                      <p className="text-xs text-fg-muted">
                         {billingProvider === undefined ? 'Detecting…' : info.desc}
                       </p>
                     </div>
@@ -474,14 +474,14 @@ export default function BillingPage() {
         )}
 
         {activeTab === 'plans' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {intervalToggle}
 
             {/* Why they're here: arrived from an add-on's "Subscribe to add". Name
                 the pack and the plans that sell it, so the choice isn't a guess. */}
             {addonIntent && (
-              <div className="flex items-start justify-between gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-info-border bg-info-bg px-4 py-3">
+                <p className="text-sm text-info-strong">
                   Pick a plan to add <span className="font-medium">{addonIntent.name}</span>
                   {tierAvailabilityText(addonIntent) ? ` — sold on ${tierAvailabilityText(addonIntent)}` : ''}.
                   {' '}You&apos;ll come back here to buy it.
@@ -502,7 +502,7 @@ export default function BillingPage() {
             />
 
             {!canChangePlan && (
-              <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+              <p className="text-sm text-fg-subtle text-center mt-6">
                 {activeOrgIsTeam
                   ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
                   : 'Contact an organization admin to change your plan.'}
@@ -512,7 +512,7 @@ export default function BillingPage() {
         )}
 
         {activeTab === 'addons' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {intervalToggle}
 
             {/* Add-on bundles — extra capacity that stacks on the base plan and
@@ -540,7 +540,7 @@ export default function BillingPage() {
                 onSubscribeIntent={startAddonIntent}
               />
             ) : (
-              <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
+              <p className="text-sm text-fg-subtle text-center">
                 {!canChangePlan
                   ? (activeOrgIsTeam
                     ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
@@ -564,7 +564,7 @@ export default function BillingPage() {
         )}
 
         {activeTab === 'history' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* Billing actuals — gross → discounts/credits → net + invoice history.
                 Self-fetches; renders nothing until there's billing history. */}
             <BillingDashboard />

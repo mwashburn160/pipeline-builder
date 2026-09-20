@@ -46,7 +46,7 @@ export default function DownloadsPage() {
             </span>
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Pipeline Manager CLI</h2>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-sm text-fg-muted">
                 The primary tool for managing plugins, pipelines, and deployments from the terminal.
               </p>
             </div>
@@ -54,7 +54,7 @@ export default function DownloadsPage() {
 
           <div className="mt-6 space-y-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted mb-2">
                 Install via npm
               </p>
               <div className="flex items-center rounded-lg bg-gray-900 dark:bg-gray-950 px-4 py-3">
@@ -66,7 +66,7 @@ export default function DownloadsPage() {
             </div>
 
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted mb-2">
                 Or with pnpm
               </p>
               <div className="flex items-center rounded-lg bg-gray-900 dark:bg-gray-950 px-4 py-3">
@@ -140,24 +140,24 @@ export default function DownloadsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <div className="flex items-center gap-2 mb-1">
-                <Package className="w-4 h-4 text-gray-400" />
+                <Package className="w-4 h-4 text-fg-subtle" />
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Node.js</span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">&gt;= 24.9</p>
+              <p className="text-xs text-fg-muted">&gt;= 24.9</p>
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <div className="flex items-center gap-2 mb-1">
-                <Package className="w-4 h-4 text-gray-400" />
+                <Package className="w-4 h-4 text-fg-subtle" />
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">pnpm</span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">&gt;= 10.25</p>
+              <p className="text-xs text-fg-muted">&gt;= 10.25</p>
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <div className="flex items-center gap-2 mb-1">
-                <Package className="w-4 h-4 text-gray-400" />
+                <Package className="w-4 h-4 text-fg-subtle" />
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Docker</span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">For plugin builds</p>
+              <p className="text-xs text-fg-muted">For plugin builds</p>
             </div>
           </div>
         </motion.div>

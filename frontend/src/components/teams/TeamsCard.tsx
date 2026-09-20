@@ -106,13 +106,13 @@ export function TeamsCard({
     <Card className="mb-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
-          <Building2 className="w-4 h-4 text-gray-400" /> Teams <span className="text-gray-400 font-normal">({teams.length})</span>
+          <Building2 className="w-4 h-4 text-fg-subtle" /> Teams <span className="text-fg-subtle font-normal">({teams.length})</span>
         </h2>
-        {parentOrgName && <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Teams of {parentOrgName}</span>}
+        {parentOrgName && <span className="text-xs text-fg-muted truncate">Teams of {parentOrgName}</span>}
       </div>
 
       {teams.length === 0 ? (
-        <p className="py-2 text-sm text-gray-500 dark:text-gray-400">No live teams. Restore a deleted team below, or create a new one.</p>
+        <p className="py-2 text-sm text-fg-muted">No live teams. Restore a deleted team below, or create a new one.</p>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-800">
           {teams.map((t) => (
@@ -148,7 +148,7 @@ export function TeamsCard({
         </ul>
       )}
       {teams.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-xs text-fg-muted">
           <strong>Manage</strong> a team&apos;s settings from here, <strong>open</strong> it to manage its members directly,
           or add an existing member to teams with the <Network className="w-3 h-3 inline mx-0.5 -mt-0.5" /> action on each member row.
         </p>
@@ -156,7 +156,7 @@ export function TeamsCard({
 
       {canOrgSettings && deletedTeams.length > 0 && (
         <section aria-labelledby="deleted-teams-heading" className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
-          <h3 id="deleted-teams-heading" className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+          <h3 id="deleted-teams-heading" className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-1">
             Recently deleted teams
           </h3>
           <ul className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -164,7 +164,7 @@ export function TeamsCard({
               <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0">
                   <span className="block font-medium text-gray-700 dark:text-gray-300 truncate">{t.orgName}</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">
+                  <span className="block text-xs text-fg-muted">
                     Deleted <RelativeTime value={t.deletedAt} /> · purged permanently on {formatDate(t.purgeAfter)}
                   </span>
                 </span>
@@ -258,7 +258,7 @@ function TeamRowMenu({ team, exporting, onExport, onDelete }: {
       {open && (
         <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-48 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left">
           <button type="button" role="menuitem" onClick={run(onExport)} disabled={exporting} className={`${item} text-gray-700 dark:text-gray-200 disabled:opacity-60`}>
-            <Download className="w-3.5 h-3.5 text-gray-400" /> {exporting ? 'Exporting…' : 'Export data'}
+            <Download className="w-3.5 h-3.5 text-fg-subtle" /> {exporting ? 'Exporting…' : 'Export data'}
           </button>
           <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
           <button type="button" role="menuitem" onClick={run(onDelete)} className={`${item} text-red-600 dark:text-red-400`}>

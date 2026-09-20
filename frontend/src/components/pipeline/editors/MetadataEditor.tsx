@@ -127,7 +127,7 @@ function MetadataKeyCombobox({
             let flatIndex = -1;
             return filteredGroups.map((group) => (
               <div key={group.category}>
-                <div className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 sticky top-0">
+                <div className="px-3 py-1 text-xs font-semibold text-fg-muted bg-gray-50 dark:bg-gray-900 sticky top-0">
                   {group.category}
                 </div>
                 {group.keys.map((opt) => {
@@ -147,7 +147,7 @@ function MetadataKeyCombobox({
                       className={`w-full text-left px-3 py-1.5 cursor-pointer flex justify-between items-center text-gray-900 dark:text-gray-100 transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                     >
                       <span className="truncate">{opt.label}</span>
-                      <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 shrink-0">{opt.type}</span>
+                      <span className="ml-2 text-xs text-fg-subtle shrink-0">{opt.type}</span>
                     </button>
                   );
                 })}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -13,6 +13,8 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { SpValues } from '@/components/sso/SpValues';
+import { VerifiedDomainPicker } from '@/components/sso/VerifiedDomainPicker';
 import { useFormState } from '@/hooks/useFormState';
 import type { OrgIdpConfigDto, OrgIdpConfigCreate, IdpProvider } from '@/types';
 import { formatDateTime } from '@/lib/format';
@@ -20,9 +22,15 @@ import { changedIdpFields } from './idp-diff';
 
 /**
  * Org owner/admin self-service OIDC connection editor (the org-facing
- * counterpart to the sysadmin {@link OrgIdpConfigModal}). The page loads the
- * org's config once and hands it here (and to the SAML editor beside it), so
- * both edit the same record.
+ * counterpart to the sysadmin {@link OrgIdpConfigModal}). Used in two places:
+ *
+ *   - as a CARD (the team settings drawer): every OIDC field, the verified-domain
+ *     picker and the Enabled switch;
+ *   - inside the SSO SETUP WIZARD (`wizard` prop), as step 3 "Identity-provider
+ *     details": the connection fields only — the wizard owns the protocol
+ *     choice, the domains step and enabling. Saving from the wizard selects OIDC
+ *     as the org's protocol, and a brand-new connection is created DISABLED so
+ *     nobody is routed through it before it has been tested.
  *
  * ONE write per case: a brand-new connection is CREATED with
  * `PUT /organization/:id/idp` (the full body the protocol requires); every
@@ -35,6 +43,9 @@ import { changedIdpFields } from './idp-diff';
  * echoes the value, so an existing config shows a "secret on file" indicator and
  * the field stays empty unless the admin is rotating it.
  *
+ * The redirect URI to register at the IdP is shown (with a copy button) from
+ * the server's own SP-info — never guessed from the browser's origin.
+ *
  * Provider-specific config:
  *   - `generic-oidc` → `discoveryUrl` (the .well-known/openid-configuration URL).
  *   - `cognito`      → `region` + `userPoolId` (discovery URL derived server-side).
@@ -45,6 +56,7 @@ export function OrgSsoSettings({
   config,
   readOnly,
   onSaved,
+  wizard,
 }: {
   orgId: string;
   /** The org's stored config, or null when none exists yet. */
@@ -52,6 +64,8 @@ export function OrgSsoSettings({
   readOnly: boolean;
   /** Fired with the saved config so the page and its sibling editors see it. */
   onSaved: (config: OrgIdpConfigDto) => void;
+  /** Render as the setup wizard's details step (see above). */
+  wizard?: { presetProvider?: IdpProvider; submitLabel?: string };
 }) {
   const form = useFormState();
   const [provider, setProvider] = useState<IdpProvider>('generic-oidc');
@@ -61,7 +75,7 @@ export function OrgSsoSettings({
   const [region, setRegion] = useState('');
   const [userPoolId, setUserPoolId] = useState('');
   const [groupsClaim, setGroupsClaim] = useState('');
-  const [allowedEmailDomains, setAllowedEmailDomains] = useState('');
+  const [allowedEmailDomains, setAllowedEmailDomains] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
   // The validated write, held while the step-up dialog is open.
   const [pendingWrite, setPendingWrite] = useState<((stepUpToken: string) => ReturnType<typeof api.putOwnOrgIdpConfig>) | null>(null);
@@ -77,18 +91,18 @@ export function OrgSsoSettings({
 
   // Mirror the stored config whenever the page (re)loads it — including back to
   // the empty create form after a disconnect. A SAML config has no provider;
-  // the OIDC fields then stay on their defaults.
+  // the OIDC fields then stay on their defaults (or the wizard's preset).
   useEffect(() => {
-    setProvider(config?.provider ?? 'generic-oidc');
+    setProvider(config?.provider ?? wizard?.presetProvider ?? 'generic-oidc');
     setClientId(config?.clientId ?? '');
     setClientSecret('');
     setDiscoveryUrl(config?.discoveryUrl ?? '');
     setRegion(config?.region ?? '');
     setUserPoolId(config?.userPoolId ?? '');
     setGroupsClaim(config?.groupsClaim ?? '');
-    setAllowedEmailDomains((config?.allowedEmailDomains ?? []).join(', '));
+    setAllowedEmailDomains(config?.allowedEmailDomains ?? []);
     setEnabled(config?.enabled ?? true);
-  }, [config]);
+  }, [config, wizard?.presetProvider]);
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -101,11 +115,6 @@ export function OrgSsoSettings({
     if (provider === 'cognito' && (!region.trim() || !userPoolId.trim())) {
       form.setError('Region and User Pool ID are required for Cognito'); return;
     }
-
-    const domains = allowedEmailDomains
-      .split(',')
-      .map((d) => d.trim())
-      .filter(Boolean);
 
     // For cognito the server derives the discovery URL from region + userPoolId,
     // so only those are sent; other providers send discoveryUrl and never
@@ -120,7 +129,11 @@ export function OrgSsoSettings({
       // group claims always sends the clear, so switching to Google can't leave
       // a stale claim name behind (the server would reject the pair anyway).
       groupsClaim: supportsGroups ? groupsClaim.trim() : '',
-      allowedEmailDomains: domains, enabled,
+      // The wizard owns domains (step 4) and enabling (step 6); here it selects
+      // the protocol, and a NEW connection starts disabled until it is tested.
+      ...(wizard
+        ? { protocol: 'oidc' as const, ...(config ? {} : { enabled: false }) }
+        : { allowedEmailDomains, enabled }),
       // Write-only; empty = keep the stored one.
       ...(clientSecret.trim() ? { clientSecret } : {}),
     };
@@ -128,7 +141,11 @@ export function OrgSsoSettings({
     form.reset();
     if (config) {
       const patch = changedIdpFields(config, desired);
-      if (Object.keys(patch).length === 0) { form.setSuccess('No changes to save.'); return; }
+      if (Object.keys(patch).length === 0) {
+        form.setSuccess('No changes to save.');
+        if (wizard) onSaved(config);
+        return;
+      }
       setPendingWrite(() => (token: string) => api.patchOwnOrgIdpConfig(orgId, patch, token));
     } else {
       setPendingWrite(() => (token: string) => api.putOwnOrgIdpConfig(orgId, desired, token));
@@ -147,21 +164,17 @@ export function OrgSsoSettings({
     }
   };
 
-  return (
-    <SectionCard
-      icon={ShieldCheck}
-      title="Single Sign-On (SSO)"
-      description="Let members sign in through your identity provider. The client secret is encrypted at rest and never shown after saving."
-    >
+  const body = (
+    <>
       <form onSubmit={handleSave} className="space-y-4">
         <ReadOnlyNotice show={readOnly} />
         <ErrorAlert message={form.error} />
         <SuccessAlert message={form.success} />
 
-        {config && (
+        {config && !wizard && (
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
             <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Current config</div>
-            <div className="text-gray-600 dark:text-gray-400">
+            <div className="text-fg-muted">
               Protocol: <code className="text-xs">{config.protocol}</code> ·
               {config.provider && <>{' '}Provider: <code className="text-xs">{config.provider}</code> ·</>}
               {' '}Secret: {config.hasClientSecret ? 'on file' : <em>not set</em>} ·
@@ -170,6 +183,8 @@ export function OrgSsoSettings({
             </div>
           </div>
         )}
+
+        <SpValues orgId={orgId} protocol="oidc" />
 
         {/* Read-only impersonation: the backend rejects every write, so disable the
             whole form (inputs + submit) rather than dead-ending on a 403. */}
@@ -205,7 +220,7 @@ export function OrgSsoSettings({
           <div>
             <label htmlFor="sso-client-secret" className="label">
               Client Secret
-              {!needsSecret && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
+              {!needsSecret && <span className="text-xs text-fg-muted ml-2">(leave empty to keep existing)</span>}
             </label>
             <Input
               id="sso-client-secret"
@@ -217,7 +232,7 @@ export function OrgSsoSettings({
               disabled={form.loading}
               autoComplete="new-password"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-xs text-fg-muted">
               Encrypted at rest under your organization&apos;s key provider. Never echoed back on read.
             </p>
           </div>
@@ -262,7 +277,7 @@ export function OrgSsoSettings({
                   className="font-mono text-sm"
                   disabled={form.loading}
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-fg-muted">
                   The discovery URL is derived automatically from the region and user pool.
                 </p>
               </div>
@@ -273,7 +288,7 @@ export function OrgSsoSettings({
             <div>
               <label htmlFor="sso-groups-claim" className="label">
                 Groups Claim
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(optional)</span>
+                <span className="text-xs text-fg-muted ml-2">(optional)</span>
               </label>
               <Input
                 id="sso-groups-claim"
@@ -284,51 +299,41 @@ export function OrgSsoSettings({
                 className="font-mono text-sm"
                 disabled={form.loading}
               />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Name of the token claim carrying group memberships — <code>groups</code> for Okta and
-                Keycloak, <code>cognito:groups</code> for Cognito. Leave empty to use <code>groups</code>.
-                Map those groups to roles below.
+              <p className="mt-1 text-xs text-fg-muted">
+                Name of the token claim carrying group memberships — <code>groups</code> for Okta, Keycloak and
+                Entra ID, <code>cognito:groups</code> for Cognito. Leave empty to use <code>groups</code>.
+                Map those groups to roles in the group mappings.
               </p>
             </div>
           ) : (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-fg-muted">
               {provider === 'google'
                 ? 'Google sign-in cannot map groups to roles: Google\'s OIDC tokens carry no group claim. Members signing in through Google are added to the organization with the member role only.'
                 : 'GitHub is not an OpenID provider, so it supports neither SSO sign-in nor group-to-role mapping.'}
             </p>
           )}
 
-          <div>
-            <label htmlFor="sso-domains" className="label">Allowed Email Domains</label>
-            <Input
-              id="sso-domains"
-              type="text"
-              value={allowedEmailDomains}
-              onChange={(e) => setAllowedEmailDomains(e.target.value)}
-              placeholder="example.com, acme.io"
-              className="text-sm"
-              disabled={form.loading}
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Comma-separated. Empty = any email the IdP authenticates.
-            </p>
-          </div>
+          {!wizard && (
+            <>
+              <VerifiedDomainPicker orgId={orgId} value={allowedEmailDomains} onChange={setAllowedEmailDomains} disabled={form.loading} />
 
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              disabled={form.loading}
-            />
-            Enabled
-          </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                  disabled={form.loading}
+                />
+                Enabled
+              </label>
+            </>
+          )}
 
           <Button
             type="submit"
             loading={form.loading}
             disabled={!clientId.trim() || (needsSecret && !clientSecret.trim())}
           >
-            {config ? 'Save SSO settings' : 'Create SSO config'}
+            {wizard?.submitLabel ?? (config ? 'Save SSO settings' : 'Create SSO config')}
           </Button>
         </fieldset>
       </form>
@@ -343,6 +348,20 @@ export function OrgSsoSettings({
           onClose={() => setPendingWrite(null)}
         />
       )}
+    </>
+  );
+
+  return wizard ? body : <OidcCard>{body}</OidcCard>;
+}
+
+function OidcCard({ children }: { children: ReactNode }) {
+  return (
+    <SectionCard
+      icon={ShieldCheck}
+      title="Single Sign-On (OpenID Connect)"
+      description="Let members sign in through your OpenID Connect identity provider. The client secret is encrypted at rest and never shown after saving."
+    >
+      {children}
     </SectionCard>
   );
 }

@@ -14,6 +14,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import SsoCallbackPage from '../pages/auth/sso/[orgId]/callback';
+import { forgetReturnPath } from '../src/lib/return-to';
 
 let mockQuery: Record<string, string> = {};
 const mockReplace = jest.fn();
@@ -61,6 +62,20 @@ it('completes the sign-in and lands on the dashboard', async () => {
   expect(mockRefreshUser).toHaveBeenCalled();
 });
 
+it('lands on the page remembered before sign-in, not the dashboard', async () => {
+  sessionStorage.setItem('pb.postSignIn', '/dashboard/audit?action=authz.denied');
+  render(<SsoCallbackPage />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/dashboard/audit?action=authz.denied'));
+  // Drop the in-memory claim so later tests start clean.
+  forgetReturnPath();
+});
+
+it('ignores a remembered off-site path', async () => {
+  sessionStorage.setItem('pb.postSignIn', 'https://evil.example');
+  render(<SsoCallbackPage />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/dashboard'));
+});
+
 it('shows the refusal the backend stated, in its own words', async () => {
   mockApi.completeSsoCallback.mockRejectedValue(
     new Error('This organization has not verified ownership of your email domain, so it cannot sign you in with single sign-on'),
@@ -96,4 +111,29 @@ it('refuses a bookmarked callback with no pending sign-in', async () => {
 
   expect(await screen.findByText(/no pending sign-in/i)).toBeInTheDocument();
   expect(mockApi.completeSsoCallback).not.toHaveBeenCalled();
+});
+
+it('hands a TEST CONNECTION back to the settings page instead of signing anyone in', async () => {
+  // Published over the same-origin channel + opener, never redeemed here.
+  const posted: unknown[] = [];
+  const opener = { postMessage: (m: unknown) => posted.push(m) };
+  Object.defineProperty(window, 'opener', { value: opener, configurable: true });
+  mockQuery = { orgId: 'org-1', code: 'test-code', state: 'ssotest.abc.sig' };
+  render(<SsoCallbackPage />);
+
+  await waitFor(() => expect(window.close).toHaveBeenCalled());
+  expect(posted).toEqual([{ type: 'pb-sso-test', state: 'ssotest.abc.sig', code: 'test-code' }]);
+  expect(mockApi.completeSsoCallback).not.toHaveBeenCalled();
+  expect(mockRefreshUser).not.toHaveBeenCalled();
+  Object.defineProperty(window, 'opener', { value: null, configurable: true });
+});
+
+it('passes an IdP error on a test connection back as the result', async () => {
+  const posted: unknown[] = [];
+  Object.defineProperty(window, 'opener', { value: { postMessage: (m: unknown) => posted.push(m) }, configurable: true });
+  mockQuery = { orgId: 'org-1', error: 'access_denied', state: 'ssotest.abc.sig' };
+  render(<SsoCallbackPage />);
+  await waitFor(() => expect(window.close).toHaveBeenCalled());
+  expect(posted).toEqual([{ type: 'pb-sso-test', state: 'ssotest.abc.sig', error: 'access_denied' }]);
+  Object.defineProperty(window, 'opener', { value: null, configurable: true });
 });

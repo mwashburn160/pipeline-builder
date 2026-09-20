@@ -187,7 +187,7 @@ export default function MyServicesPage() {
       label: (
         <span className="inline-flex items-center gap-1.5">
           <GitBranch className="w-4 h-4" /> Pipelines
-          <span className="text-gray-400 font-normal">({pipelinesList.pagination.total})</span>
+          <span className="text-fg-subtle font-normal">({pipelinesList.pagination.total})</span>
         </span>
       ),
     },
@@ -196,7 +196,7 @@ export default function MyServicesPage() {
       label: (
         <span className="inline-flex items-center gap-1.5">
           <Puzzle className="w-4 h-4" /> Plugins
-          <span className="text-gray-400 font-normal">({pluginsList.pagination.total})</span>
+          <span className="text-fg-subtle font-normal">({pluginsList.pagination.total})</span>
         </span>
       ),
     },

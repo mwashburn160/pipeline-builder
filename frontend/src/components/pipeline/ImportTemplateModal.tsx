@@ -123,7 +123,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
   return (
     <Modal title="Import template" onClose={onClose} maxWidth="max-w-lg" tall footer={footer}>
       <div className="space-y-4">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-fg-muted">
           Paste a template JSON (or upload a <code>.json</code> file). Expected shape: <code>{'{ name, category?, description?, keywords?, props, inputs? }'}</code>. A full exported template also works — extra fields are ignored.
         </p>
 

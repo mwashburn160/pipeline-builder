@@ -69,7 +69,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
         />
       }
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Editing <strong className="text-gray-700 dark:text-gray-300">{discount.alias || formatDiscount(discount)}</strong>.
         The discount amount and kind are fixed at mint time and can’t be changed here.
       </p>
@@ -107,7 +107,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
           </div>
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Applies to tiers <span className="text-gray-400">(none = all tiers)</span></label>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Applies to tiers <span className="text-fg-subtle">(none = all tiers)</span></label>
           <div className="flex flex-wrap gap-2">
             {TIER_OPTIONS.map((tier) => (
               <button

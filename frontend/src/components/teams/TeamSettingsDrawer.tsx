@@ -61,7 +61,7 @@ export function TeamSettingsDrawer({
       {canImpersonation && <ImpersonationPolicySettings orgId={team.orgId} readOnly={isReadOnly} />}
       {canIdp && <TeamSsoSection orgId={team.orgId} readOnly={isReadOnly} />}
       {!canSettings && !canImpersonation && !canIdp && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">You don&apos;t have permission to change this team&apos;s settings.</p>
+        <p className="text-sm text-fg-muted">You don&apos;t have permission to change this team&apos;s settings.</p>
       )}
     </SideDrawer>
   );
@@ -136,7 +136,7 @@ function TeamSsoSection({ orgId, readOnly }: { orgId: string; readOnly: boolean 
   if (idp.error) return <RetryError message={formatError(idp.error, 'Failed to load the team\'s SSO configuration')} onRetry={idp.refetch} />;
   if (idp.loading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
+      <div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
         <LoadingSpinner size="sm" /> Loading SSO…
       </div>
     );

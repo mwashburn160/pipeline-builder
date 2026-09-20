@@ -64,7 +64,7 @@ export default function IdpRosterPage() {
       render: (c) => (
         <div>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {orgNames[c.orgId] ?? <span className="text-gray-500 dark:text-gray-400">(unknown org)</span>}
+            {orgNames[c.orgId] ?? <span className="text-fg-muted">(unknown org)</span>}
           </div>
           <CopyableId value={c.orgId} size="sm" />
         </div>
@@ -85,13 +85,13 @@ export default function IdpRosterPage() {
     {
       id: 'domains',
       header: 'Allowed domains',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      render: (c) => (c.allowedEmailDomains.length > 0 ? c.allowedEmailDomains.join(', ') : <span className="text-gray-400 dark:text-gray-500">—</span>),
+      cellClassName: 'text-sm text-fg-muted',
+      render: (c) => (c.allowedEmailDomains.length > 0 ? c.allowedEmailDomains.join(', ') : <span className="text-fg-subtle">—</span>),
     },
     {
       id: 'updated',
       header: 'Updated',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (c) => (c.updatedAt ? new Date(c.updatedAt) : null),
       render: (c) => <RelativeTime value={c.updatedAt} />,
     },
@@ -137,7 +137,7 @@ export default function IdpRosterPage() {
       ) : (
         <>
           {!loading && configs.length > 0 && (
-            <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            <div className="mb-4 text-sm text-fg-muted">
               {configs.length} org{configs.length !== 1 ? 's' : ''} with an IdP configured · {enabledCount} enabled
             </div>
           )}

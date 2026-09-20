@@ -287,7 +287,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       header: 'Name',
       cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
       render: (r) => (
-        <>{r.name}{r.version ? <span className="ml-1 text-xs text-gray-400">v{r.version}</span> : null}</>
+        <>{r.name}{r.version ? <span className="ml-1 text-xs text-fg-subtle">v{r.version}</span> : null}</>
       ),
     },
     {
@@ -295,8 +295,8 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       header: 'Visibility',
       render: (r) => (r.visibility ? <Badge color={VISIBILITY_BADGE_COLOR[r.visibility] ?? 'gray'}>{r.visibility}</Badge> : null),
     },
-    { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-gray-400">—</span>) },
-    { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-gray-600 dark:text-gray-400 text-sm', render: (r) => r.deletedBy || '—' },
+    { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-fg-subtle">—</span>) },
+    { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-fg-muted text-sm', render: (r) => r.deletedBy || '—' },
     {
       id: 'actions',
       header: '',
@@ -312,7 +312,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
             size="xs"
             onClick={() => setPendingRestore(r)}
             disabled={restoring === r.id}
-            className="gap-1 text-blue-600 hover:text-blue-700"
+            className="gap-1 text-brand hover:text-brand-strong"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Restore
           </Button>
@@ -321,7 +321,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
             size="xs"
             onClick={() => setPendingPurge(r)}
             disabled={purging === r.id}
-            className="gap-1 text-red-600 hover:text-red-700"
+            className="gap-1 text-danger hover:text-danger-strong"
           >
             <Trash2 className="w-3.5 h-3.5" /> Purge
           </Button>
@@ -333,10 +333,10 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-2">
-        <History className="w-5 h-5 text-gray-500" />
+        <History className="w-5 h-5 text-fg-muted" />
         <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recently deleted</h2>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-fg-muted mb-4">
         Soft-deleted {labels.plural} are kept for a retention window and can be restored until they&apos;re
         permanently purged. Restoring re-verifies your password.
       </p>
@@ -358,14 +358,14 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       )}
 
       {loading && rows.length === 0 ? (
-        <p className="text-sm text-gray-400" role="status">Loading…</p>
+        <p className="text-sm text-fg-subtle" role="status">Loading…</p>
       ) : loadError && rows.length === 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
           <span>{loadError}</span>
           <button type="button" onClick={() => void load()} className="underline hover:no-underline shrink-0">Retry</button>
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-400" role="status">No recently deleted {labels.plural}.</p>
+        <p className="text-sm text-fg-subtle" role="status">No recently deleted {labels.plural}.</p>
       ) : (
         <div className="overflow-x-auto">
           {/* Loading/error/empty are handled by the branches above; DataTable only

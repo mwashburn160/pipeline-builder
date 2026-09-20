@@ -101,7 +101,7 @@ export function DoraReport({
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <SectionHeading>DORA Metrics</SectionHeading>
         {dora && (
-          <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums" title="Registered pipelines vs. those that actually deployed in this window">
+          <span className="text-xs text-fg-muted tabular-nums" title="Registered pipelines vs. those that actually deployed in this window">
             {dora.coverage.registered} registered {dora.coverage.registered === 1 ? 'pipeline' : 'pipelines'} &middot; {dora.coverage.deploying} deploying
             {dora.coverage.withoutDeploys > 0 ? <> &middot; {dora.coverage.withoutDeploys} idle</> : null}
           </span>
@@ -119,9 +119,9 @@ export function DoraReport({
           dora.environments.find((e) => e.environment === dora.headline) ?? dora.environments[0] ?? null;
         return (
         <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 -mt-1 mb-3 text-xs text-gray-400 dark:text-gray-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 -mt-1 mb-3 text-xs text-fg-subtle">
             {fmtWindow(dora.window) && <span className="tabular-nums">{fmtWindow(dora.window)}</span>}
-            <span className="inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5">
+            <span className="inline-flex items-center rounded bg-surface-muted px-1.5 py-0.5">
               Deployment-scoped{dora.filters.environment ? ` · ${dora.filters.environment}` : ''}
             </span>
           </div>
@@ -129,7 +129,7 @@ export function DoraReport({
               DORA retention horizon, so a wider request silently returns less.
               Surface it + a deep-link to extend history via a pack. */}
           {isTruncated(requestedFrom, dora.window.from) && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200" role="status">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-strong" role="status">
               <span>
                 Showing the last <strong>{windowDays(dora.window)} days</strong> — limited by your DORA retention.
               </span>
@@ -141,7 +141,7 @@ export function DoraReport({
           {headlineEnv ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <DoraCard
-                label={<>Deployment Frequency <span className="text-gray-400 dark:text-gray-500">({headlineEnv.environment})</span></>}
+                label={<>Deployment Frequency <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={String(headlineEnv.deploymentFrequency.deployments)}
                 sub={<>{headlineEnv.deploymentFrequency.deployments === 1 ? 'deploy' : 'deploys'} &middot; {headlineEnv.deploymentFrequency.perDay.toFixed(2)}/day</>}
                 tooltip={`Successful ${headlineEnv.environment} deploy-stage executions in the window. Per-environment breakdown below.`}
@@ -163,13 +163,13 @@ export function DoraReport({
                 sub={
                   <>
                     <span>{`${headlineEnv.changeFailureRate.deployTimeFailures + headlineEnv.changeFailureRate.postDeployFailures}/${headlineEnv.changeFailureRate.attempts} deploys failed`}</span>
-                    <span className="block text-gray-400 dark:text-gray-500">
+                    <span className="block text-fg-subtle">
                       {`${headlineEnv.changeFailureRate.deployTimeFailures} deploy-time · ${headlineEnv.changeFailureRate.postDeployFailures} post-deploy`}
                     </span>
                     {/* CFR source hint (Phase 5b): post-deploy failures are sourced
                         automatically from the incident webhook, or manually from the
                         mark-failed control below. Deep-link to configure the webhook. */}
-                    <span className="block text-[11px] text-gray-400 dark:text-gray-500">
+                    <span className="block text-2xs text-fg-subtle">
                       post-deploy source: {headlineEnv.changeFailureRate.postDeployFailures > 0 ? 'auto — incidents / manual' : 'manual'}
                       {' · '}
                       <Link href="/dashboard/settings/incident-reporting" className="underline hover:no-underline">
@@ -182,7 +182,7 @@ export function DoraReport({
                 tooltip="(deploy-time failures + post-deploy failures) ÷ deploy attempts. Post-deploy failures are sourced automatically from the incident webhook (PagerDuty/Datadog/Alertmanager) or manually from the mark-failed control below (deduped by deploy)."
               />
               <DoraCard
-                label={<>Time to Restore (MTTR) <span className="text-gray-400 dark:text-gray-500">({headlineEnv.environment})</span></>}
+                label={<>Time to Restore (MTTR) <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={formatDurationSeconds(dora.meanTimeToRestore.medianSeconds)}
                 sub={`${dora.meanTimeToRestore.restored}/${dora.meanTimeToRestore.incidents} incidents restored`}
                 tooltip={`Median time from a marked-failed ${headlineEnv.environment} deploy to its restoration. "—" means no post-deploy incidents in this window.`}
@@ -207,12 +207,12 @@ export function DoraReport({
                     aria-pressed={active}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs tabular-nums transition-colors ${
                       active
-                        ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        ? 'border-info-border bg-info-bg text-info'
+                        : 'border-default text-fg-muted hover:bg-surface-muted'
                     }`}
                     title={`Pivot the headline to ${env.environment} — ${env.deploymentFrequency.deployments} deploy${env.deploymentFrequency.deployments === 1 ? '' : 's'} · ${env.deploymentFrequency.perDay.toFixed(2)}/day · CFR ${env.changeFailureRate.rate}%`}
                   >
-                    <span className={`font-medium ${active ? '' : 'text-gray-800 dark:text-gray-100'}`}>{env.environment}</span>
+                    <span className={`font-medium ${active ? '' : 'text-fg'}`}>{env.environment}</span>
                     {env.deploymentFrequency.deployments} &middot; {env.deploymentFrequency.perDay.toFixed(2)}/day &middot; {env.changeFailureRate.rate}% CFR
                   </button>
                 );
@@ -279,8 +279,8 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
       <div className="flex items-center justify-between mb-3">
         <SectionHeading>Deployments</SectionHeading>
         {canMark && pipelineSelected && (
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            Outcomes attributed to <span className="font-medium text-gray-600 dark:text-gray-300">{markEnvironment}</span>
+          <span className="text-xs text-fg-subtle">
+            Outcomes attributed to <span className="font-medium text-fg-muted">{markEnvironment}</span>
           </span>
         )}
       </div>
@@ -292,7 +292,7 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+              <tr className="text-left text-xs text-fg-subtle border-b border-default">
                 <th scope="col" className="py-2 pr-3 font-medium">Execution</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Status</th>
                 <th scope="col" className="py-2 pr-3 font-medium">When</th>
@@ -301,22 +301,22 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
             </thead>
             <tbody>
               {deployments.map((d) => (
-                <tr key={d.execution_id} className="border-b border-gray-50 dark:border-gray-800/50 last:border-0">
-                  <td className="py-2 pr-3 font-mono text-xs text-gray-600 dark:text-gray-300 truncate max-w-[14rem]" title={d.execution_id}>
+                <tr key={d.execution_id} className="border-b border-default last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs text-fg-muted truncate max-w-[14rem]" title={d.execution_id}>
                     {d.execution_id}
                   </td>
                   <td className="py-2 pr-3">
-                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-medium ${
                       d.status === 'Succeeded'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                        ? 'bg-success-bg text-success'
                         : d.status === 'Failed'
-                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                          ? 'bg-danger-bg text-danger'
+                          : 'bg-surface-muted text-fg-muted'
                     }`}>
                       {d.status}
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-xs text-gray-500 dark:text-gray-400 tabular-nums">{fmtDate(d.ended_at || d.started_at)}</td>
+                  <td className="py-2 pr-3 text-xs text-fg-muted tabular-nums">{fmtDate(d.ended_at || d.started_at)}</td>
                   {canMark && (
                     <td className="py-2 pr-3">
                       <div className="flex items-center justify-end gap-2">

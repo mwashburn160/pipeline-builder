@@ -148,20 +148,20 @@ export function SsoGroupMappings({
           {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-[var(--pb-text-muted)] py-4">
+            <div className="flex items-center gap-2 text-sm text-fg-muted py-4">
               <LoadingSpinner size="sm" /> Loading group mappings…
             </div>
           ) : (
             <>
               <div className="space-y-2 mb-4">
                 {mappings.length === 0 && (
-                  <p className="text-sm text-[var(--pb-text-muted)]">No group mappings yet.</p>
+                  <p className="text-sm text-fg-muted">No group mappings yet.</p>
                 )}
                 {mappings.map((m) => (
-                  <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-[var(--pb-border)] p-3">
+                  <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-default p-3">
                     <div className="min-w-0">
                       <code className="text-sm font-medium break-all">{m.group}</code>
-                      <div className="mt-1 text-xs text-[var(--pb-text-muted)]">
+                      <div className="mt-1 text-xs text-fg-muted">
                         {m.roles.length > 0
                           ? <>Grants: {m.roles.map((r) => r.name).join(', ')}</>
                           : <em>Grants no existing role — the roles it named were deleted.</em>}
@@ -171,7 +171,7 @@ export function SsoGroupMappings({
                       <button
                         type="button"
                         aria-label={`Edit ${m.group}`}
-                        className="text-[var(--pb-text-muted)] hover:text-[var(--pb-text)]"
+                        className="text-fg-muted hover:text-fg"
                         disabled={busy || readOnly}
                         onClick={() => startEdit(m)}
                       >
@@ -180,7 +180,7 @@ export function SsoGroupMappings({
                       <button
                         type="button"
                         aria-label={`Delete ${m.group}`}
-                        className="text-[var(--pb-text-muted)] hover:text-[var(--pb-danger)]"
+                        className="text-fg-muted hover:text-danger"
                         disabled={busy || readOnly}
                         onClick={() => setPendingDelete(m)}
                       >
@@ -191,11 +191,11 @@ export function SsoGroupMappings({
                 ))}
               </div>
 
-              <form onSubmit={submit} className="rounded-lg border border-[var(--pb-border)] p-3 space-y-3">
+              <form onSubmit={submit} className="rounded-lg border border-default p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold">{editing ? 'Edit mapping' : 'Add a mapping'}</h4>
                   {editing && (
-                    <button type="button" aria-label="Cancel edit" className="text-[var(--pb-text-muted)]" onClick={resetDraft}>
+                    <button type="button" aria-label="Cancel edit" className="text-fg-muted" onClick={resetDraft}>
                       <X className="w-4 h-4" />
                     </button>
                   )}
@@ -220,7 +220,7 @@ export function SsoGroupMappings({
                   <div>
                     <span className="label">Roles granted</span>
                     {assignableRoles.length === 0 ? (
-                      <p className="text-xs text-[var(--pb-text-muted)]">
+                      <p className="text-xs text-fg-muted">
                         This organization has no roles to map yet.
                       </p>
                     ) : (
@@ -238,7 +238,7 @@ export function SsoGroupMappings({
                         ))}
                       </div>
                     )}
-                    <p className="mt-1 text-xs text-[var(--pb-text-muted)]">
+                    <p className="mt-1 text-xs text-fg-muted">
                       A mapping can never grant organization ownership or platform-administrator access, and
                       it never removes roles that were assigned by hand.
                     </p>

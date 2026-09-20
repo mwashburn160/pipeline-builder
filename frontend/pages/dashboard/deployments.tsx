@@ -276,7 +276,7 @@ export default function DeploymentsPage() {
               {r.pipelineName}
             </Link>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-xs">{r.pipelineId}</div>
+          <div className="text-xs text-fg-muted font-mono truncate max-w-xs">{r.pipelineId}</div>
         </div>
       ),
     },
@@ -312,21 +312,21 @@ export default function DeploymentsPage() {
     {
       id: 'region',
       header: 'Region',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (r) => (r.region || '').toLowerCase(),
       render: (r) => <>{r.region || '—'}</>,
     },
     {
       id: 'stack',
       header: 'Stack',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      cellClassName: 'text-sm text-fg-muted font-mono',
       sortValue: (r) => (r.stackName || '').toLowerCase(),
       render: (r) => <>{r.stackName || '—'}</>,
     },
     {
       id: 'lastDeployed',
       header: 'Deployed',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      cellClassName: 'text-sm text-fg-muted',
       sortValue: (r) => (r.lastDeployed ? new Date(r.lastDeployed).getTime() : 0),
       render: (r) => <RelativeTime value={r.lastDeployed} />,
     },
@@ -337,7 +337,7 @@ export default function DeploymentsPage() {
         <button
           onClick={() => setConfirmTarget(r)}
           disabled={removing === r.id}
-          className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-wait"
+          className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait"
           title="Deregister (does not delete the AWS stack)"
           aria-label={`Deregister ${r.pipelineName}`}
         >
@@ -405,7 +405,7 @@ export default function DeploymentsPage() {
                 Clear
               </Button>
             )}
-            {summary && <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">{summary}</span>}
+            {summary && <span className="text-xs text-fg-muted ml-auto">{summary}</span>}
           </div>
         )}
 
@@ -566,14 +566,14 @@ function RegisterDeploymentModal({
             ))}
           </Select>
           {configs.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-fg-muted mt-1">
               No pipeline configurations found. Create a pipeline first.
             </p>
           )}
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Region <span className="text-gray-400">(optional)</span></label>
+            <label className="label">Region <span className="text-fg-subtle">(optional)</span></label>
             <Input
               type="text"
               value={region}
@@ -584,7 +584,7 @@ function RegisterDeploymentModal({
             />
           </div>
           <div>
-            <label className="label">Stack name <span className="text-gray-400">(optional)</span></label>
+            <label className="label">Stack name <span className="text-fg-subtle">(optional)</span></label>
             <Input
               type="text"
               value={stackName}
@@ -595,7 +595,7 @@ function RegisterDeploymentModal({
             />
           </div>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-fg-muted">
           Registering maps this pipeline&apos;s stable id to its deployment so execution events report against it. Re-registering the same pipeline updates the existing record.
         </p>
         {err && (

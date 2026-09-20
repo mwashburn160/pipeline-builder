@@ -18,7 +18,7 @@ const getTotpStatus = jest.fn();
 const enrolTotp = jest.fn();
 const activateTotp = jest.fn();
 const disableTotp = jest.fn();
-const regenerateTotpRecoveryCodes = jest.fn();
+const regenerateRecoveryCodes = jest.fn();
 const toastError = jest.fn();
 const toastSuccess = jest.fn();
 
@@ -30,7 +30,7 @@ jest.mock('@/lib/api', () => ({
     enrolTotp: (...a: unknown[]) => enrolTotp(...a),
     activateTotp: (...a: unknown[]) => activateTotp(...a),
     disableTotp: (...a: unknown[]) => disableTotp(...a),
-    regenerateTotpRecoveryCodes: (...a: unknown[]) => regenerateTotpRecoveryCodes(...a),
+    regenerateRecoveryCodes: (...a: unknown[]) => regenerateRecoveryCodes(...a),
   },
 }));
 
@@ -96,7 +96,7 @@ beforeEach(() => {
   enrolTotp.mockResolvedValue({ success: true, data: { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/x' } });
   activateTotp.mockResolvedValue({ success: true, data: { recoveryCodes: codes } });
   disableTotp.mockResolvedValue({ success: true, data: { disabled: true } });
-  regenerateTotpRecoveryCodes.mockResolvedValue({ success: true, data: { recoveryCodes: codes } });
+  regenerateRecoveryCodes.mockResolvedValue({ success: true, data: { recoveryCodes: codes } });
   // jsdom has no object-URL support for the recovery-code download.
   global.URL.createObjectURL = jest.fn(() => 'blob:codes');
   global.URL.revokeObjectURL = jest.fn();
@@ -222,7 +222,7 @@ describe('TotpSection — once it is on', () => {
 
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
 
-    expect(regenerateTotpRecoveryCodes).toHaveBeenCalledWith('step-up-token');
+    expect(regenerateRecoveryCodes).toHaveBeenCalledWith('step-up-token');
     expect(await screen.findByText('AAAAA-BBBBB')).toBeInTheDocument();
     expect(screen.getByText(/your new recovery codes/i)).toBeInTheDocument();
   });
@@ -241,5 +241,16 @@ describe('TotpSection — read-only and failure', () => {
 
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /set up authenticator app/i })).not.toBeInTheDocument();
+  });
+
+  it('shows no recovery-code sheet when the account already had one (a passkey came first)', async () => {
+    activateTotp.mockResolvedValue({ success: true, data: { recoveryCodes: [] } });
+    await renderSection(status());
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator app/i }));
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    fireEvent.change(screen.getByPlaceholderText('123456'), { target: { value: '123456' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /turn on/i })); });
+    expect(activateTotp).toHaveBeenCalledWith('123456');
+    expect(screen.queryByRole('list', { name: /recovery codes/i })).not.toBeInTheDocument();
   });
 });

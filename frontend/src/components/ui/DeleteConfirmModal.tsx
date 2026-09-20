@@ -50,7 +50,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
         </div>
       )}
     >
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+      <p className="text-sm text-fg-muted mb-1">
         Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?
       </p>
       <p className="text-sm text-red-600 dark:text-red-400">This action cannot be undone.</p>

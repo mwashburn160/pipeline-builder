@@ -229,15 +229,15 @@ export default function AccessRequestsPage() {
           actions={toDecideView.total > 0 ? <Badge color="yellow">{toDecideView.total} pending</Badge> : undefined}
         >
           {toDecideView.loading ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
+            <div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
               <LoadingSpinner size="sm" /> Loading…
             </div>
           ) : toDecide.length === 0 ? (
-            <p className="py-2 text-sm text-[var(--pb-text-muted)]">Nothing is waiting for you.</p>
+            <p className="py-2 text-sm text-fg-muted">Nothing is waiting for you.</p>
           ) : (
             <ul className="space-y-3">
               {toDecide.map((r) => (
-                <li key={r.id} className="rounded-lg border border-[var(--pb-border)] p-3">
+                <li key={r.id} className="rounded-lg border border-default p-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <p className="text-sm">
@@ -252,10 +252,10 @@ export default function AccessRequestsPage() {
                         </Badge>
                       )}
                       {/* Operator-written: React renders it as text, never markup. */}
-                      <p className="text-sm text-[var(--pb-text-muted)] break-words">
+                      <p className="text-sm text-fg-muted break-words">
                         {r.reason ? <>Reason: &ldquo;{r.reason}&rdquo;</> : 'No reason given.'}
                       </p>
-                      <p className="text-xs text-[var(--pb-text-muted)]">
+                      <p className="text-xs text-fg-muted">
                         Asked {formatRelativeTime(r.createdAt)} · expires {formatRelativeTime(r.expiresAt)}
                       </p>
                     </div>
@@ -292,15 +292,15 @@ export default function AccessRequestsPage() {
           description="Read-only sessions in progress that you can end. Ending one takes effect on its next request."
         >
           {sessionsView.loading ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-[var(--pb-text-muted)]">
+            <div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
               <LoadingSpinner size="sm" /> Loading…
             </div>
           ) : sessions.length === 0 ? (
-            <p className="py-2 text-sm text-[var(--pb-text-muted)]">No one is viewing an account right now.</p>
+            <p className="py-2 text-sm text-fg-muted">No one is viewing an account right now.</p>
           ) : (
             <ul className="space-y-2">
               {sessions.map((s) => (
-                <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--pb-border)] p-2.5">
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-default p-2.5">
                   <div className="min-w-0">
                     <p className="text-sm">
                       <span className="font-medium">{who(s.requester)}</span>
@@ -309,7 +309,7 @@ export default function AccessRequestsPage() {
                       {s.breakglass && <Badge color="red" className="ml-2">Emergency</Badge>}
                     </p>
                     {s.consumedAt && (
-                      <p className="text-xs text-[var(--pb-text-muted)]">Started {formatRelativeTime(s.consumedAt)}</p>
+                      <p className="text-xs text-fg-muted">Started {formatRelativeTime(s.consumedAt)}</p>
                     )}
                   </div>
                   <Button
@@ -339,13 +339,13 @@ export default function AccessRequestsPage() {
               {mine.map((r) => {
                 const openable = r.status === 'approved' && new Date(r.expiresAt).getTime() > Date.now();
                 return (
-                  <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--pb-border)] p-2.5">
+                  <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-default p-2.5">
                     <div className="min-w-0">
                       <p className="text-sm">
                         <span className="font-medium">{r.target.name}</span>
                         {r.breakglass && <Badge color="red" className="ml-2">Emergency</Badge>}
                       </p>
-                      <p className="text-xs text-[var(--pb-text-muted)]">
+                      <p className="text-xs text-fg-muted">
                         {STATUS_LABEL[r.status] ?? r.status} · asked {formatRelativeTime(r.createdAt)}
                       </p>
                     </div>
@@ -412,7 +412,7 @@ export default function AccessRequestsPage() {
             </p>
             <p>It&apos;s view-only: nothing can be changed. You can end the session at any time from this page.</p>
             {confirming.breakglass && (
-              <p className="text-[var(--pb-danger)]">
+              <p className="text-danger">
                 This bypasses the organization&apos;s impersonation policy. You are approving as the second administrator.
               </p>
             )}

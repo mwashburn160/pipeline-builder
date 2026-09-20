@@ -628,7 +628,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "PATCH",
               "/organization/:id/transfer-owner",
-              "Transfer ownership (+ step-up)",
+              "Transfer ownership (+ step-up on an aal: 2 session)",
               "org:settings"
             ],
             [
@@ -742,15 +742,64 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH \\",
               "DELETE",
               "/organization/:id/idp",
-              "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO URL, signing certificates and attribute mapping are returned in full (all public), alongside the derived samlSp values an IdP administrator needs. Writes require an MFA-grade session and a step-up earned by a passkey or authenticator code",
+              "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO/SLO URLs, signing certificates, attribute mapping and the samlSignAuthnRequests / samlEncryptAssertions switches are returned in full (all public), with ssoRequired and the lastTest result. allowedEmailDomains must be DNS-verified domains of the org (400 IDP_DOMAIN_NOT_VERIFIED). PATCH { ssoRequired: true } needs an enabled connection, a verified domain and a successful test of the current settings (409); any connection change clears lastTest. Writes require an MFA-grade session and a step-up earned by a passkey or authenticator code",
+              "org:idp (+ sso entitlement)"
+            ],
+            [
+              "GET",
+              "/organization/:id/idp/sp-info",
+              "The values to register AT the IdP, computed from the deployment's public URL and SP keys: { sp: { entityId, acsUrl, metadataUrl, sloUrl, oidcRedirectUri, signingCertificate, encryptionCertificate } }. Available before any connection exists",
+              "org:idp (+ sso entitlement)"
+            ],
+            [
+              "POST",
+              "/organization/:id/idp/metadata/import",
+              "Parse an IdP SAML metadata document — { xml } or { url } (fetched under the SSRF guard: https, no private addresses, no redirects, 5 s, 512 KB) — into { metadata: { entityId, ssoUrl, sloUrl?, certificates, wantsSignedRequests } }. Saves nothing",
+              "org:idp (+ sso entitlement)"
+            ],
+            [
+              "POST",
+              "/organization/:id/idp/test",
+              "Start a test connection (dry run) → { url, state } for a popup. Works before the connection is enabled",
+              "org:idp (+ sso entitlement)"
+            ],
+            [
+              "POST",
+              "/organization/:id/idp/test/complete",
+              "{ state, code?, error? } → { report }: ok / reason, asserted email / name / groups, the role mappings that would apply. Creates no session, user or membership; only the admin who started the test can collect it. Recorded as lastTest and audited sso.test",
               "org:idp (+ sso entitlement)"
             ],
             [
               "GET \\",
               "PATCH",
               "/organization/:id/mfa-policy",
-              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes (inheritedFrom + inheritedFromName, the parent's id and name, when a parent's requirement applies), plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). The write is step-up gated, and is refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
+              "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes (inheritedFrom + inheritedFromName, the parent's id and name, when a parent's requirement applies), plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). Also adminActionsRequireMfa — the separate \"administrative actions require MFA\" policy (read returns adminActionsRequireMfa, adminActionsOwn, adminActionsInheritedFrom[Name]); turning it ON signs every other member of the org and its teams out so the org_admin_aal claim applies at once, while turning it off lets each token pick it up at its next refresh (sessionsRefreshed in the response). The write is step-up gated; LOOSENING anything (requirement off, admin-actions policy off, idpEnforcesMfa on) also needs an aal: 2 session (401 MFA_REQUIRED otherwise), while tightening does not. Refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
               "org:settings"
+            ],
+            [
+              "GET \\",
+              "POST",
+              "/organization/:id/mfa-resets",
+              "Two-person MFA reset. GET lists pending (first) and recent requests for the org and its teams. POST { userId, reason } requests a reset of an active member's second factors (owner/admin; aal: 2 + step-up). 409 MFA_RESET_SELF / MFA_RESET_ALREADY_PENDING, 403 MFA_RESET_PLATFORM_ADMIN, 404 MFA_RESET_NOT_MEMBER",
+              "members:manage"
+            ],
+            [
+              "POST",
+              "/organization/:id/mfa-resets/:requestId/approve",
+              "Approve, { graceHours? } (1–168, default 72): removes every passkey, the authenticator app and the recovery codes, ends every session, and grants the member a per-user enrolment grace. A DIFFERENT owner/admin of the org or an ancestor, or a sysadmin (403 MFA_RESET_SECOND_PERSON_REQUIRED for the requester or the member); 410 MFA_RESET_EXPIRED after 24h. aal: 2 + second-factor step-up",
+              "members:manage"
+            ],
+            [
+              "POST",
+              "/organization/:id/mfa-resets/:requestId/deny",
+              "Deny (or, by its requester, withdraw), { note? }. No step-up — it only removes a pending action",
+              "members:manage"
+            ],
+            [
+              "POST",
+              "/admin/users/:id/mfa-reset",
+              "A sysadmin's DIRECT MFA reset, { reason, graceHours? } — the single-person path for an org with no second admin; same effect as an approved request, audited as auth.mfa.direct_reset. aal: 2 + second-factor step-up",
+              "sysadmin"
             ],
             [
               "GET \\",
@@ -866,14 +915,20 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/sso/discover",
-              "Login-page hint: { email } → { sso: boolean }. Deliberately reports nothing else — it is unauthenticated, so returning the org id or provider would make it a tenant-enumeration oracle. Answers on the DOMAIN, so an address with no account looks identical to one with; a bootstrap-admin address always answers false (SSO refuses superadmins, and hiding their password field would close both paths)",
+              "Login-page hint: { email } → { sso: boolean, required: boolean } — does an enabled, entitled IdP serve the domain, and does its org require SSO. Deliberately reports nothing else (not the owner break-glass exemption either) — it is unauthenticated, so returning the org id or provider would make it a tenant-enumeration oracle. Answers on the DOMAIN, so an address with no account looks identical to one with; a bootstrap-admin address always answers false (SSO refuses superadmins, and hiding their password field would close both paths)",
               "— (pre-auth)"
             ],
             [
               "POST",
               "/auth/sso/start",
-              "Start per-org SSO from an EMAIL: { email } → { url, state }, the same pair the by-org route returns. For the sign-in form, which knows the address and not the tenant — the enforcing org is resolved server-side, so discovery never has to hand out an org id. 404 SSO_NOT_ENFORCED when no enabled, entitled IdP covers the domain",
+              "Start per-org SSO from an EMAIL: { email } → { url, state }, the same pair the by-org route returns. For the sign-in form, which knows the address and not the tenant — the serving org is resolved server-side, so discovery never has to hand out an org id. Works whether the org requires SSO or only offers it. 404 SSO_NOT_AVAILABLE when no enabled, entitled IdP serves the domain",
               "— (pre-auth)"
+            ],
+            [
+              "POST",
+              "/auth/sso/logout",
+              "SP-initiated SAML single logout for the caller's OWN current session → { redirectUrl }: a signed LogoutRequest to the IdP's SLO URL when the session came from a SAML sign-in and the IdP has one, else null. Call before /auth/logout, follow after",
+              "— (auth)"
             ],
             [
               "GET",
@@ -890,8 +945,15 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/auth/sso/:orgId/saml/metadata",
-              "SAML service-provider metadata (XML) for the IdP administrator: entity ID, ACS URL with the HTTP-POST binding, WantAssertionsSigned. Derived from the org id and the deployment URL, so it works before the connection does and leaks nothing",
+              "SAML service-provider metadata (XML) for the IdP administrator: entity ID, ACS URL (HTTP-POST), SLO URL (HTTP-Redirect + HTTP-POST), WantAssertionsSigned, AuthnRequestsSigned per the org's switch, the SP signing certificate and — only when the org enabled encrypted assertions — the encryption certificate. Works before the connection does and leaks nothing",
               "— (public)"
+            ],
+            [
+              "GET \\",
+              "POST",
+              "/auth/sso/:orgId/saml/slo",
+              "SAML single logout endpoint (HTTP-Redirect / HTTP-POST). A signed IdP LogoutRequest revokes that NameID's sessions in the org and is answered with a signed LogoutResponse; a signed LogoutResponse to ours lands the browser on sign-in. Unsigned, forged, replayed or foreign-issuer messages are refused",
+              "the IdP's signature"
             ],
             [
               "POST",
@@ -1024,7 +1086,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/webauthn/register/verify",
-              "Store it: { ceremonyId, response, name } → { passkey }. 409 when that authenticator is already registered. Not step-up gated again — the ceremony it consumes was minted by the gated call, bound to the user and single-use",
+              "Store it: { ceremonyId, response, name } → { passkey, recoveryCodes? } — the account's recovery codes ride along, once, when this passkey is its FIRST second factor. 409 when that authenticator is already registered. Not step-up gated again — the ceremony it consumes was minted by the gated call, bound to the user and single-use",
               "— (auth), interactive session"
             ],
             [
@@ -1072,20 +1134,21 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/totp/activate",
-              "Confirm it with a code, { code } → { recoveryCodes } (ten, shown once, stored only as hashes). Not step-up gated again — it confirms the secret the gated call minted, and the code is the proof",
+              "Confirm it with a code, { code } → { recoveryCodes } — the account's ten recovery codes, shown once and stored only as hashes, when this is its FIRST second factor; an empty list when a passkey already minted the set. Not step-up gated again — it confirms the secret the gated call minted, and the code is the proof",
               "— (auth), interactive session"
             ],
             [
               "DELETE",
               "/auth/totp",
-              "Turn it off, taking every recovery code with it. 409 when it would leave no way to sign in",
+              "Turn it off — taking the recovery codes with it when no passkey remains. 409 when it would leave no way to sign in",
               "+ step-up, interactive session"
             ],
             [
+              "GET \\",
               "POST",
-              "/auth/totp/recovery-codes",
-              "Replace the whole sheet → { recoveryCodes }. Every previously issued code stops working, used or not",
-              "+ step-up, interactive session"
+              "/auth/recovery-codes",
+              "The account's recovery codes — ONE set, shared by passkeys and the authenticator app. GET → { recoveryCodes: { remaining, total, generatedAt } }; POST replaces the whole set → { recoveryCodes } (every previous code stops working; 409 RECOVERY_CODES_NO_FACTOR without a second factor)",
+              "POST: + step-up, interactive session"
             ],
             [
               "POST",

@@ -23,13 +23,13 @@ const DIMENSIONS: { key: string; label: string; fmt: (n: number) => string }[] =
 const cell = (v: number | null | undefined, fmt: (n: number) => string) => (v == null ? '—' : fmt(v));
 
 const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
-  { id: 'team', header: 'Team', cellClassName: 'text-[var(--pb-text-muted)]', render: (t) => t.name ?? t.orgId },
+  { id: 'team', header: 'Team', cellClassName: 'text-fg-muted', render: (t) => t.name ?? t.orgId },
   { id: 'seats', header: 'Seats', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (t) => cell(t.seats, fmtNum) },
   ...DIMENSIONS.map((d): Column<TeamUsageRow> => ({
     id: d.key,
     header: d.label,
     headerClassName: 'text-right',
-    cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]',
+    cellClassName: 'text-right tabular-nums text-fg-muted',
     render: (t) => cell(t.usage[d.key], d.fmt),
   })),
 ];
@@ -60,7 +60,7 @@ export function TeamUsageCard() {
   if (!gate.entitled) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
+        <h3 className="h3">Team usage</h3>
         <FeatureLock flag="team_usage_analytics" className="mt-2" />
       </Card>
     );
@@ -73,7 +73,7 @@ export function TeamUsageCard() {
   if (error) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-[var(--pb-text)] mb-2">Team usage</h3>
+        <h3 className="h3 mb-2">Team usage</h3>
         <RetryError message={formatError(error, 'Failed to load team usage.')} onRetry={refetch} />
       </Card>
     );
@@ -82,8 +82,8 @@ export function TeamUsageCard() {
   return (
     <Card className="overflow-x-auto">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
-        <span className="text-xs text-[var(--pb-text-muted)]">Current period · usage only (limits are account-wide)</span>
+        <h3 className="h3">Team usage</h3>
+        <span className="text-xs text-fg-muted">Current period · usage only (limits are account-wide)</span>
       </div>
       <DataTable
         data={teams}

@@ -33,12 +33,12 @@ import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from 
  * org-wide ScorecardTab so the grade colors can't drift between the two views).
  */
 export const GRADE_STYLES: Record<string, string> = {
-  A: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  A: 'bg-success-bg text-success-strong',
   B: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300',
-  C: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  D: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  F: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  'N/A': 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300',
+  C: 'bg-warning-bg text-warning-strong',
+  D: 'bg-warning-bg text-warning-strong',
+  F: 'bg-danger-bg text-danger-strong',
+  'N/A': 'bg-surface-muted text-fg-muted',
 };
 
 export function fmtWindow(window?: { from: string; to: string }): string {
@@ -59,13 +59,13 @@ export function fmtWindow(window?: { from: string; to: string }): string {
 export function doraLevelBadge(level: DoraLevel): { label: string; className: string } | null {
   switch (level) {
     case 'elite':
-      return { label: 'Elite', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' };
+      return { label: 'Elite', className: 'bg-success-bg text-success' };
     case 'high':
       return { label: 'High', className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' };
     case 'medium':
-      return { label: 'Medium', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' };
+      return { label: 'Medium', className: 'bg-warning-bg text-warning' };
     case 'low':
-      return { label: 'Low', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' };
+      return { label: 'Low', className: 'bg-danger-bg text-danger' };
     default:
       return null;
   }
@@ -86,7 +86,7 @@ function DoraLevelBadge({ level }: { level: DoraLevel }) {
   const badge = doraLevelBadge(level);
   if (!badge) return null;
   return (
-    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium leading-none ${badge.className}`}>
+    <span className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium leading-none ${badge.className}`}>
       {badge.label}
     </span>
   );
@@ -107,7 +107,7 @@ export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardP
       value={value}
       sub={sub}
       badge={<DoraLevelBadge level={level} />}
-      className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded-lg' : ''}
+      className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-brand/50 rounded-lg' : ''}
       wrapperProps={tooltip ? { tabIndex: 0, role: 'group' } : undefined}
     />
   );
@@ -187,7 +187,7 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
           ))}
         </tbody>
       </table>
-      <div className="flex items-center justify-between mt-1.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+      <div className="flex items-center justify-between mt-1.5 text-xs text-fg-subtle tabular-nums">
         <span>{fmtDate(points[0].period)}</span>
         <span>Deploys / period &middot; red = elevated change-failure</span>
         <span>{fmtDate(points[points.length - 1].period)}</span>
@@ -216,7 +216,7 @@ export function DoraUpsell() {
   return (
     <div>
       <SectionHeading>DORA Metrics</SectionHeading>
-      <div className="relative overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="relative overflow-hidden rounded-lg border border-default">
         {/* Blurred, inert sample behind the overlay — decorative only. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 blur-[3px] opacity-60 select-none pointer-events-none" aria-hidden="true">
           {SAMPLE_DORA_CARDS.map((c) => (
@@ -231,12 +231,12 @@ export function DoraUpsell() {
           ))}
         </div>
         {/* Overlay: the real, accessible content + CTA. */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px] px-6 py-8 text-center">
-          <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/70 backdrop-blur-[1px] px-6 py-8 text-center">
+          <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-info-bg text-brand">
             <Lock className="w-5 h-5" aria-hidden="true" />
           </span>
-          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label} &mdash; DORA metrics</h4>
-          <p className="max-w-md text-sm text-gray-600 dark:text-gray-400">
+          <h4 className="text-base font-semibold text-fg">{meta.label} &mdash; DORA metrics</h4>
+          <p className="max-w-md text-sm text-fg-muted">
             Track deployment frequency, change failure rate, mean time to restore (MTTR) and measured lead time,
             each rated against elite/high/medium/low performance bands. {meta.description}.
           </p>

@@ -137,11 +137,11 @@ export default function AlertRulesPage() {
         ) : undefined
       }
     >
-      <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+      <div className="text-xs text-fg-muted mb-3">
         Configure where these alerts get delivered on the{' '}
-        <Link href="/dashboard/observability/alert-destinations" className="text-blue-600 hover:underline">Alert destinations page</Link>,
+        <Link href="/dashboard/observability/alert-destinations" className="text-brand hover:underline">Alert destinations page</Link>,
         or see what&apos;s currently firing on the{' '}
-        <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
+        <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
       </div>
 
       {error && <RetryError message={error.message} onRetry={refetch} className="mb-4" />}
@@ -179,11 +179,11 @@ export default function AlertRulesPage() {
                   <Badge color="gray">for {r.forDuration}</Badge>
                   {!r.enabled && <Badge color="gray">disabled</Badge>}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono truncate" title={r.expr}>
+                <div className="text-xs text-fg-muted mt-0.5 font-mono truncate" title={r.expr}>
                   {r.expr}
                 </div>
                 {r.summary && (
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{r.summary}</div>
+                  <div className="text-xs text-fg-subtle mt-0.5 truncate">{r.summary}</div>
                 )}
               </div>
               {canWrite && (
@@ -336,17 +336,17 @@ function RuleModal(props: {
     <Modal title={existing ? 'Edit alert rule' : 'Add alert rule'} onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Name</label>
           <Input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. High build failure rate"
           />
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Letters, digits, space, _ or - (max 100 chars).</div>
+          <div className="text-xs text-fg-subtle mt-1">Letters, digits, space, _ or - (max 100 chars).</div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">PromQL expression</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">PromQL expression</label>
           <Textarea
             value={expr}
             onChange={(e) => setExpr(e.target.value)}
@@ -354,13 +354,13 @@ function RuleModal(props: {
             placeholder={'rate(plugin_build_failures_total[5m]) > 0.1'}
             className="font-mono"
           />
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          <div className="text-xs text-fg-subtle mt-1">
             Your org&apos;s <code>org_id</code> matcher is injected automatically — write plain PromQL. The alert fires when the expression returns a result.
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">For (duration)</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">For (duration)</label>
             <Input
               type="text"
               value={forDuration}
@@ -368,10 +368,10 @@ function RuleModal(props: {
               placeholder="5m"
               className="font-mono"
             />
-            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Prometheus syntax (e.g. 30s, 5m, 1h).</div>
+            <div className="text-xs text-fg-subtle mt-1">Prometheus syntax (e.g. 30s, 5m, 1h).</div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">Severity</label>
             <Select
               value={severity}
               onChange={(e) => setSeverity(e.target.value as typeof severity)}
@@ -382,17 +382,17 @@ function RuleModal(props: {
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Summary</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Summary</label>
           <Input
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             placeholder="e.g. Build failure rate is elevated"
           />
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Alertmanager annotation; supports <code>{'{{ $value }}'}</code> (max 500 chars).</div>
+          <div className="text-xs text-fg-subtle mt-1">Alertmanager annotation; supports <code>{'{{ $value }}'}</code> (max 500 chars).</div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description (optional)</label>
+          <label className="block text-xs font-medium text-fg-muted mb-1">Description (optional)</label>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}

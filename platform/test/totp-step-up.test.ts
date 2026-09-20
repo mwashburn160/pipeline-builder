@@ -106,7 +106,7 @@ describe('POST /auth/step-up/totp', () => {
     await stepUpVerifyTotp(req('ABCDE-FGHIJ'), res);
 
     expect(res.json.mock.calls[0][0].data).toMatchObject({ via: 'recovery', recoveryCodesRemaining: 3 });
-    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.totp.recovery_used', expect.objectContaining({
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.mfa.recovery_used', expect.objectContaining({
       details: { context: 'step-up', remaining: 3 },
     }));
   });

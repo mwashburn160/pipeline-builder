@@ -95,7 +95,7 @@ export function FailedJobsTable({
     return (
       <Card className="p-8 text-center">
         <Inbox className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-        <p className="text-sm text-gray-500 dark:text-gray-400">No {title.toLowerCase()} found.</p>
+        <p className="text-sm text-fg-muted">No {title.toLowerCase()} found.</p>
       </Card>
     );
   }
@@ -168,14 +168,14 @@ export function FailedJobsTable({
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-fg-muted">
                     No jobs on this page match your filter.
                   </td>
                 </tr>
               )}
               {sorted.map((job) => (
                 <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  <td className="px-4 py-2.5 font-mono text-xs text-fg-muted whitespace-nowrap">
                     {job.id?.slice(0, 12)}
                   </td>
                   <td className="px-4 py-2.5 text-gray-900 dark:text-gray-100 font-medium">
@@ -188,10 +188,10 @@ export function FailedJobsTable({
                       </Badge>
                     </td>
                   )}
-                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 tabular-nums">
+                  <td className="px-4 py-2.5 text-fg-muted tabular-nums">
                     {job.attemptsMade ?? '—'}{job.maxAttempts ? ` / ${job.maxAttempts}` : ''}
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  <td className="px-4 py-2.5 text-fg-muted whitespace-nowrap">
                     {job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-red-600 dark:text-red-400 text-xs max-w-xs">

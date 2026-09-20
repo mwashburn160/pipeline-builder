@@ -86,10 +86,10 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
     // Same missing-focus-ring problem as IconButton: tabs were keyboard
     // reachable but gave no visible focus. `rounded-sm` keeps the ring
     // tight to the label without disturbing the underline.
-    `py-2.5 px-1 border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--pb-bg)] ${
+    `py-2.5 px-1 border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
       active
         ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+        : 'border-transparent text-fg-muted hover:text-fg hover:border-gray-300 dark:hover:border-gray-600'
     }${disabled ? ' opacity-50 cursor-not-allowed' : ''}`;
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

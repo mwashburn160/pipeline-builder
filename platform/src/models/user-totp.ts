@@ -4,7 +4,8 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 /**
- * One account's authenticator-app enrolment (TOTP) and its recovery codes.
+ * One account's authenticator-app enrolment (TOTP). The account's recovery
+ * codes live in `MfaRecoveryCodes` — one set per account, shared with passkeys.
  *
  * Its OWN collection rather than fields on `User`, for the same reasons passkeys
  * got one:
@@ -12,7 +13,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  *      failure, the lockout counters. Doing that on the user document would
  *      contend with the token-version and refresh-session writes that already
  *      run there on every sign-in.
- *   2. The secret and the recovery hashes are `select: false` material that no
+ *   2. The secret is `select: false` material that no
  *      profile read should ever be one forgotten projection away from.
  *
  * `secret` is a JSON-stringified `EncryptedBlob` (AES-256-GCM, see
@@ -45,16 +46,11 @@ export interface UserTotpDocument extends Document {
    * earlier step still inside the drift allowance.
    */
   lastUsedStep: number;
-  /** One-time recovery codes: SHA-256 of the normalized code, plus when it was
-   *  spent. Spent entries are KEPT so the UI can say "3 of 10 remaining" and a
-   *  reused code is refused as used rather than as unknown. */
-  recoveryCodes: Array<{ hash: string; usedAt?: Date | null }>;
-  /** When the current recovery-code set was minted (enrolment or regeneration). */
-  recoveryGeneratedAt: Date;
-  /** Consecutive failed codes since the last success. Reset on any success. */
+  /** Consecutive failed codes (generated OR recovery) since the last success.
+   *  Reset on any success. */
   failedAttempts: number;
   /** Set once `failedAttempts` crosses the threshold; every verification is
-   *  refused until it passes, regardless of which factor presents a code. */
+   *  refused until it passes, whether the code is generated or a recovery code. */
   lockedUntil?: Date | null;
   createdAt: Date;
   /** Last successful verification (sign-in or step-up), for the settings page. */
@@ -69,12 +65,6 @@ const userTotpSchema = new Schema<UserTotpDocument>(
     secret: { type: String, required: true, select: false },
     activatedAt: { type: Date, default: null },
     lastUsedStep: { type: Number, required: true, default: 0 },
-    recoveryCodes: {
-      type: [{ _id: false, hash: { type: String, required: true }, usedAt: { type: Date, default: null } }],
-      default: [],
-      select: false,
-    },
-    recoveryGeneratedAt: { type: Date, default: Date.now },
     failedAttempts: { type: Number, required: true, default: 0 },
     lockedUntil: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },

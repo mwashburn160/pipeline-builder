@@ -139,7 +139,7 @@ export default function ObservabilityIndexPage() {
             <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts</h2>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             Firing + suppressed alerts from Alertmanager, with per-org silence controls.
           </p>
         </Link>
@@ -153,7 +153,7 @@ export default function ObservabilityIndexPage() {
             <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alert rules</h2>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             Author PromQL conditions that fire alerts — auto-scoped to your org&apos;s metrics.
           </p>
         </Link>
@@ -167,7 +167,7 @@ export default function ObservabilityIndexPage() {
             <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alert destinations</h2>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             Slack, webhook, in-app — where this org's alerts get delivered.
           </p>
         </Link>
@@ -193,9 +193,9 @@ export default function ObservabilityIndexPage() {
               <div className="flex items-center gap-3 mb-2">
                 <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                 <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">{d.name}</h2>
-                <VisIcon className="w-3.5 h-3.5 text-gray-400" aria-label={`visibility: ${d.visibility}`} />
+                <VisIcon className="w-3.5 h-3.5 text-fg-subtle" aria-label={`visibility: ${d.visibility}`} />
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-fg-muted">
                 {d.description || 'No description.'}
               </p>
             </Link>

@@ -63,7 +63,7 @@ export default function NotificationsPage() {
           bodyClassName="px-5"
         >
           <ReadOnlyNotice show={isReadOnly} className="mt-4" />
-          <div className="divide-y divide-[var(--pb-border)]">
+          <div className="divide-y divide-default">
             {PREFS.map(({ key, label, hint }) => (
               <ToggleRow
                 key={key}

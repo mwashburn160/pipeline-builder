@@ -21,7 +21,7 @@ function daysUntil(iso: string): number {
  * (#8) — and, crucially, tells them BEFORE the deadline rather than by failing
  * their next sign-in.
  *
- * Three states, all driven by `user.mfaPolicy`, which the profile endpoint sends
+ * Four states, all driven by `user.mfaPolicy`, which the profile endpoint sends
  * only for orgs that actually require MFA:
  *
  *   - the session is already MFA-grade (`aal: 2`) → nothing is shown. Nagging
@@ -29,7 +29,10 @@ function daysUntil(iso: string): number {
  *   - a grace period is still running → a warning with the deadline and a day
  *     count, so "two weeks" is a date rather than a feeling;
  *   - the grace period has passed → the session is living on borrowed time: it
- *     works until it next needs re-issuing, and then stops. Say so plainly.
+ *     works until it next needs re-issuing, and then stops. Say so plainly;
+ *   - the person's factors were RESET by their admins → they are inside their
+ *     own enrolment grace (`resetGraceUntil`), the one window in which they can
+ *     sign in without a factor to enrol a new one. Say by when.
  *
  * Deliberately NOT dismissible. The quota banner can be dismissed because the
  * worst case is a rejected request; here the worst case is being unable to sign
@@ -52,7 +55,13 @@ export function MfaRequiredBanner() {
     ? new Date(policy.graceUntil).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
     : null;
 
-  const enforced = policy.enforced || !deadline;
+  // An approved MFA reset: the org still requires MFA, but not of this person
+  // until their own enrolment grace ends. That deadline is the one that matters.
+  const resetDeadline = policy.resetGraceUntil
+    ? new Date(policy.resetGraceUntil).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })
+    : null;
+
+  const enforced = !resetDeadline && (policy.enforced || !deadline);
   const container = enforced
     ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-800 dark:text-red-200'
     : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200';
@@ -63,7 +72,13 @@ export function MfaRequiredBanner() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <Icon className="w-4 h-4 shrink-0" aria-hidden />
         <span className="flex-1 min-w-0">
-          {enforced ? (
+          {resetDeadline ? (
+            <>
+              <strong>Your two-factor authentication was reset by your organization&apos;s admins.</strong>{' '}
+              Add a passkey or an authenticator app before {resetDeadline} — after that you will not be able
+              to sign in without one. Then sign in again with it.
+            </>
+          ) : enforced ? (
             <>
               <strong>Your organization requires two-factor authentication.</strong>{' '}
               This session was opened with one factor, so it will stop working the next time it

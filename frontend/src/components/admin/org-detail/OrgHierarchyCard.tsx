@@ -30,7 +30,7 @@ export function OrgHierarchyCard({ org, onChanged }: { org: OrganizationDetail; 
     <Card>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Network className="w-5 h-5 text-gray-500" />
+          <Network className="w-5 h-5 text-fg-muted" />
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Hierarchy</h3>
         </div>
         {org.id !== 'system' && (
@@ -39,7 +39,7 @@ export function OrgHierarchyCard({ org, onChanged }: { org: OrganizationDetail; 
       </div>
       <dl className="text-sm space-y-2">
         <div>
-          <dt className="text-gray-500 dark:text-gray-400">Parent</dt>
+          <dt className="text-fg-muted">Parent</dt>
           <dd>
             {isTeam ? (
               <Link href={`/dashboard/admin/orgs/${org.parentOrgId}`} className="action-link">
@@ -50,10 +50,10 @@ export function OrgHierarchyCard({ org, onChanged }: { org: OrganizationDetail; 
         </div>
         {!isTeam && (
           <div>
-            <dt className="text-gray-500 dark:text-gray-400">Teams ({teams.length})</dt>
+            <dt className="text-fg-muted">Teams ({teams.length})</dt>
             <dd>
               {teams.length === 0 ? (
-                <span className="text-gray-400 dark:text-gray-500 italic">None</span>
+                <span className="text-fg-subtle italic">None</span>
               ) : (
                 <ul className="space-y-0.5">
                   {teams.map((t) => (

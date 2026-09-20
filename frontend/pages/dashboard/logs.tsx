@@ -172,7 +172,7 @@ export default function LogsPage() {
       <Card className="mb-4">
         <form onSubmit={applyQuery} className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
             <input
               type="text"
               value={queryInput}
@@ -203,7 +203,7 @@ export default function LogsPage() {
         </form>
 
         {window.kind === 'absolute' && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-xs text-fg-muted">
             Custom range: {new Date(window.fromMs).toLocaleString([], { hour12: false })} → {new Date(window.toMs).toLocaleString([], { hour12: false })}
             {' '}
             <button type="button" className="text-blue-600 hover:underline dark:text-blue-400" onClick={() => setWindow({ kind: 'preset', key: '1h' })}>
@@ -218,7 +218,7 @@ export default function LogsPage() {
       </Card>
 
       <Card className="!p-0">
-        <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-fg-muted dark:border-gray-800">
           <span>
             {loading ? 'Loading…' : `${entries.length.toLocaleString()} entries`}
             {entries.length >= limit && ' (limit reached — narrow the query or raise the limit)'}
@@ -272,7 +272,7 @@ export default function LogsPage() {
             </div>
             {context.after.map((e, i) => <LogEntryRow key={`a-${i}`} entry={e} wrap showOrg={isSysadmin} />)}
             {context.before.length === 0 && context.after.length === 0 && (
-              <p className="p-4 text-center text-gray-500 dark:text-gray-400">
+              <p className="p-4 text-center text-fg-muted">
                 <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" aria-hidden />
                 No surrounding entries in this stream.
               </p>

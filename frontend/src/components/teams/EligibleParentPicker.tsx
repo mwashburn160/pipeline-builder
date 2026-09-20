@@ -92,15 +92,15 @@ export function EligibleParentPicker({
       <div className="space-y-1">
         <span className="block text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
         <div className="flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm">
-          <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
           <span className="truncate flex-1">{value.name}</span>
-          <span className="text-xs text-gray-400 capitalize">{value.tier}</span>
+          <span className="text-xs text-fg-subtle capitalize">{value.tier}</span>
           <button
             type="button"
             onClick={() => onChange(null)}
             disabled={disabled}
             aria-label={`Clear ${label.toLowerCase()}`}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            className="text-fg-subtle hover:text-fg"
           >
             <X className="w-4 h-4" />
           </button>
@@ -129,11 +129,11 @@ export function EligibleParentPicker({
       {box.open && (
         <div role="listbox" id={box.listboxId} aria-label="Eligible parent organizations" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
           {loading ? (
-            <div className="px-3 py-2 text-gray-500 dark:text-gray-400" role="status">Searching…</div>
+            <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>
           ) : error ? (
             <div className="px-3 py-2 text-red-600 dark:text-red-400">{error}</div>
           ) : options.length === 0 ? (
-            <div className="px-3 py-2 text-gray-500 dark:text-gray-400">
+            <div className="px-3 py-2 text-fg-muted">
               No matching top-level organizations on the Team or Enterprise plan.
             </div>
           ) : options.map((o, i) => (
@@ -148,14 +148,14 @@ export function EligibleParentPicker({
               onClick={() => select(o)}
               className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-gray-900 dark:text-gray-100 ${i === box.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
             >
-              <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <Building2 className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
               <span className="truncate flex-1">{o.name}</span>
-              <span className="text-xs text-gray-400 capitalize">{o.tier}</span>
+              <span className="text-xs text-fg-subtle capitalize">{o.tier}</span>
             </button>
           ))}
         </div>
       )}
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-fg-muted">
         Only top-level organizations on the Team or Enterprise plan can have teams.
       </p>
     </div>

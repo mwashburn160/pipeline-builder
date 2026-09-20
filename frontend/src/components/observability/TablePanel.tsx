@@ -12,7 +12,7 @@ const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [
   {
     id: 'time',
     header: 'Time',
-    cellClassName: 'whitespace-nowrap text-gray-500',
+    cellClassName: 'whitespace-nowrap text-fg-muted',
     render: (e) => (
       <span title={new Date(e.time).toLocaleString([], { hour12: false })}>{new Date(e.time).toLocaleTimeString([], { hour12: false })}</span>
     ),

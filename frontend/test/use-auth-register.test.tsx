@@ -63,12 +63,23 @@ describe('useAuth.register', () => {
       await result.current.register('neo', 'neo@example.com', 'password123', 'Neo Org');
     });
 
-    expect(mockApi.register).toHaveBeenCalledWith('neo', 'neo@example.com', 'password123', 'Neo Org', undefined);
+    expect(mockApi.register).toHaveBeenCalledWith('neo', 'neo@example.com', 'password123', 'Neo Org', undefined, undefined);
     // Session is established the same way the login path does — register
     // delegates to login with the same email/password.
     expect(mockApi.login).toHaveBeenCalledWith('neo@example.com', 'password123');
     // login() routes the newly-authenticated user to the dashboard.
     expect(mockPush).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('names the invitation it is accepting, so the inviting org\'s password policy applies', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isInitialized).toBe(true));
+
+    await act(async () => {
+      await result.current.register('neo', 'neo@example.com', 'password123', undefined, undefined, { redirect: false, invitationToken: 'inv-1' });
+    });
+
+    expect(mockApi.register).toHaveBeenCalledWith('neo', 'neo@example.com', 'password123', undefined, undefined, 'inv-1');
   });
 
   it('surfaces the register error and does NOT authenticate when register fails', async () => {

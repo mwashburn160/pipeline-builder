@@ -199,14 +199,14 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>;
+    return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ShieldOff className="h-5 w-5 text-orange-600" />
+          <ShieldOff className="h-5 w-5 text-orange-600 dark:text-orange-400" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Exemptions</h2>
         </div>
         <div className="flex gap-2">
@@ -299,10 +299,10 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                     <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>{ex.status}</span>
                     <div>
                       <div className="text-sm text-gray-900 dark:text-white">{ex.entityName || ex.entityId}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
+                      <div className="text-xs text-fg-muted">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
                     </div>
                     {ex.expiresAt && (
-                      <div className="flex items-center gap-1 text-xs text-gray-400">
+                      <div className="flex items-center gap-1 text-xs text-fg-subtle">
                         <Clock className="h-3 w-3" />
                         {formatDate(ex.expiresAt)}
                       </div>

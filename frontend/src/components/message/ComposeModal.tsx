@@ -327,7 +327,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   !isAnnouncement
                     ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Message
@@ -337,7 +337,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   isAnnouncement
                     ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'border-gray-300 dark:border-gray-600 text-fg-muted hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Announcement
@@ -348,7 +348,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
           {/* Recent recipients (#1) — one-tap quick-pick of orgs you've messaged. */}
           {canWrite && !isAnnouncement && recentRecipients.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              <span className="text-xs text-gray-400 dark:text-gray-500 self-center mr-0.5">Recent:</span>
+              <span className="text-xs text-fg-subtle self-center mr-0.5">Recent:</span>
               {recentRecipients.map((r) => (
                 <button
                   key={r.value}
@@ -399,7 +399,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
           {/* Optional channel/inbox bucket for an org→org send (#7). */}
           {isConcreteRecipient && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Channel (optional):</span>
+              <span className="text-xs text-fg-muted shrink-0">Channel (optional):</span>
               <Input
                 type="text"
                 value={channel}
@@ -422,7 +422,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
               to override with one of the user's other teams). */}
           {!canWrite && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-              <span className="text-gray-500 dark:text-gray-400">To:</span>
+              <span className="text-fg-muted">To:</span>
               <input
                 type="text"
                 value={supportRecipient}
@@ -488,13 +488,13 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                       key={a.id}
                       className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1"
                     >
-                      <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
+                      <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
                       <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
-                      <span className="text-gray-400 shrink-0">{formatBytes(a.sizeBytes)}</span>
+                      <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
                       <button
                         type="button"
                         onClick={() => removeAttachment(a.id)}
-                        className="text-gray-400 hover:text-red-600 shrink-0"
+                        className="text-fg-subtle hover:text-danger shrink-0"
                         aria-label={`Remove ${a.filename}`}
                       >
                         <X className="w-3.5 h-3.5" />

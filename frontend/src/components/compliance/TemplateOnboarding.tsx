@@ -89,7 +89,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-amber-500" />
+          <Sparkles className="h-5 w-5 text-warning" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Starter Rule Templates</h2>
         </div>
         <Button
@@ -106,7 +106,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
 
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
-      <p className="text-sm text-gray-500 dark:text-gray-400">
+      <p className="text-sm text-fg-muted">
         Select starter rules to add to your organization. These create org-scoped rules you can customize.
       </p>
 
@@ -131,7 +131,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
                     <span className="text-sm font-medium text-gray-900 dark:text-white">{t.name}</span>
                     <Badge color={CATEGORY_COLORS[t.category] ?? 'gray'}>{t.category}</Badge>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{t.description}</p>
+                  <p className="text-xs text-fg-muted">{t.description}</p>
                   <div className="flex gap-2 mt-2">
                     <Badge color="gray">{t.target}</Badge>
                     <Badge color="gray">{t.severity}</Badge>

@@ -16,6 +16,7 @@ import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { SessionMeta } from '@/lib/api/domains/auth';
+import { describeCredentialAuthority } from '@/components/settings/token-scopes';
 
 /** How the sign-in behind a session was performed. */
 const METHOD_LABEL: Record<string, string> = {
@@ -103,7 +104,7 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
         onClick={() => setPending({ kind: 'revoke', session: s })}
         readOnly={readOnly}
         disabled={revoking === s.id}
-        className="gap-1 text-red-600 hover:text-red-700"
+        className="gap-1 text-danger hover:text-danger-strong"
       >
         <LogOut className="w-3.5 h-3.5" /> {label}
       </Button>
@@ -133,7 +134,11 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
       id: 'scope',
       header: 'Scope',
       cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
-      render: (s) => (s.scope ? <span className="font-mono text-xs">{s.scope}</span> : 'Full access'),
+      render: (s) => (s.scope
+        ? <span className="font-mono text-xs">{s.scope}</span>
+        : s.permissions
+          ? <span title={describeCredentialAuthority(s)}>{s.permissions.length} selected permission{s.permissions.length === 1 ? '' : 's'}</span>
+          : 'Full access'),
     },
     { id: 'client', header: 'Created by', render: (s) => s.userAgent ?? 'Unknown client' },
     { id: 'ip', header: 'Last IP', cellClassName: 'font-mono text-xs', render: (s) => s.lastIp ?? '—' },

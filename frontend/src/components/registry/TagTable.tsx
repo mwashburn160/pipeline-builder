@@ -228,15 +228,15 @@ export function TagTable({
                   <td className="px-3 py-2">
                     {meta ? (
                       <Tooltip content={meta.digest}>
-                        <span className="font-mono text-xs text-gray-500 dark:text-gray-400 cursor-help">{meta.digestShort}</span>
+                        <span className="font-mono text-xs text-fg-muted cursor-help">{meta.digestShort}</span>
                       </Tooltip>
                     ) : enrichingMetadata ? (
-                      <span className="text-xs text-gray-400">…</span>
+                      <span className="text-xs text-fg-subtle">…</span>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-fg-subtle">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-2 text-xs text-fg-muted">
                     {meta ? (meta.totalSize ? formatBytes(meta.totalSize) : '—') : enrichingMetadata ? '…' : '—'}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">

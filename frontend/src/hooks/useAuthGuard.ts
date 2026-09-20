@@ -36,6 +36,7 @@
  */
 import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import { rememberReturnPath } from '@/lib/return-to';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { resolvePageGate } from '@/lib/page-access';
@@ -114,6 +115,8 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       // replace (not push) so the guarded URL isn't left in history — otherwise
       // a signed-out user who lands on '/' and hits Back returns to the guarded
       // page, which immediately re-redirects (a "stuck" Back button).
+      // Remember the guarded page so signing in lands back on it.
+      rememberReturnPath(router.asPath);
       router.replace('/');
       return;
     }

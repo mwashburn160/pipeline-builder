@@ -216,7 +216,7 @@ export default function ReportsPage() {
       actions={
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 justify-end">
           {canRollup && hasTeams && topTab !== 'scorecard' && (
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate analytics across this organization and its teams">
+            <label className="inline-flex items-center gap-2 text-sm text-fg" title="Aggregate analytics across this organization and its teams">
               <Checkbox
                 checked={includeDescendants}
                 onChange={(e) => setIncludeDescendants(e.target.checked)}
@@ -243,8 +243,8 @@ export default function ReportsPage() {
                   aria-pressed={active}
                   className={`px-2 py-1 text-xs font-medium rounded-lg transition-colors ${
                     active
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      ? 'bg-brand text-white'
+                      : 'text-fg-muted hover:bg-surface-muted'
                   }`}
                   title={`Show the last ${p.days} days`}
                 >
@@ -287,8 +287,8 @@ export default function ReportsPage() {
                 onClick={() => changeTopTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 ring-1 ring-blue-200 dark:ring-blue-800'
-                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? 'bg-info-bg text-info ring-1 ring-info-border'
+                    : 'text-fg-muted hover:bg-surface-muted'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -310,7 +310,7 @@ export default function ReportsPage() {
         {/* Subtle clamp note — the requested window was narrowed to the tab's
             retention cap (a quiet inline note, NOT a red dead-end error). */}
         {topTab !== 'scorecard' && (clamped || isRangeError) && (
-          <p className="text-xs text-gray-500 dark:text-gray-400" role="status">
+          <p className="text-xs text-fg-muted" role="status">
             Showing the last {effectiveMax} days — the maximum for {tabNoun} reports.
             {extendHref && (
               <>{' '}<Link href={extendHref} className="action-link">Extend retention</Link></>

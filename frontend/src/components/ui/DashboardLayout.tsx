@@ -182,12 +182,12 @@ export function DashboardLayout({
       <Head>
         <title>{title} - Pipeline Builder</title>
       </Head>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex">
+      <div className="min-h-screen bg-canvas transition-colors flex">
         {/* Skip link — first tab stop; jumps keyboard/AT users past the nav
             straight to page content. Visually hidden until focused. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-blue-600 focus:text-white focus:shadow-lg"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-brand focus:text-white focus:shadow-lg"
         >
           Skip to content
         </a>
@@ -222,7 +222,7 @@ export function DashboardLayout({
                 <Sidebar {...sidebarProps} />
                 <button
                   onClick={closeMobile}
-                  className="absolute top-4 right-[-44px] p-2 rounded-lg bg-white/90 dark:bg-gray-800/90 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 shadow-lg"
+                  className="absolute top-4 right-[-44px] p-2 rounded-lg bg-surface/90 text-fg-muted hover:text-fg shadow-lg"
                   aria-label="Close sidebar"
                 >
                   <X className="w-5 h-5" />
@@ -234,42 +234,47 @@ export function DashboardLayout({
 
         {/* Main content area */}
         <div className={`flex-1 flex flex-col min-w-0 ${contentMargin} transition-all duration-200`}>
-          {/* Slim top bar */}
-          <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/60 dark:border-gray-700/60 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-            <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
-              <div className="flex items-center gap-3">
+          {/* Slim top bar + impersonation banner: ONE sticky stack, so the
+              banner rides under the header instead of both pinning to top:0
+              and overlapping on scroll. */}
+          <div className="sticky top-0 z-30">
+          <header className="bg-surface/80 backdrop-blur-md border-b border-default shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+            <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center gap-2">
+              {/* min-w-0 + flex-1 let the org pill and title shrink (truncate)
+                  on a phone rather than push the right-hand controls off-screen. */}
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                 <button
                   onClick={toggleMobile}
-                  className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="lg:hidden shrink-0 p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                   aria-label="Open menu"
                 >
                   <Menu className="w-5 h-5" />
                 </button>
                 {/* Organization / team context — top-left anchor, visible on
                     every page. Becomes an interactive switcher at 2+ orgs. */}
-                <OrgSwitcher variant="header" />
+                <OrgSwitcher variant="header" className="min-w-0 shrink" />
                 <div className="hidden sm:block h-8 w-px bg-gray-200 dark:bg-gray-700" aria-hidden />
                 <div className="min-w-0">
                   {breadcrumbs && <Breadcrumb items={breadcrumbs} />}
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <h1 className="h1 truncate">{title}</h1>
                     {titleExtra}
                   </div>
                   {subtitle && (
-                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">
+                    <p className="mt-0.5 text-xs text-fg-muted truncate">
                       {subtitle}
                     </p>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 sm:gap-3 shrink-0">
                 {/* Search / command palette (⌘K) — icon button; the shortcut
                     lives in the tooltip rather than a hard-to-see kbd chip. */}
                 <button
                   onClick={() => cmdkRef.current?.()}
                   aria-label="Open command palette"
                   title="Search & commands (⌘K)"
-                  className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -279,11 +284,11 @@ export function DashboardLayout({
                 <Link
                   href="/dashboard/messages"
                   aria-label={unreadCount > 0 ? `Messages — ${unreadCount} unread` : 'Messages'}
-                  className="relative p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="relative p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
                   <Bell className="w-5 h-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-bold text-white bg-red-500 rounded-full">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
@@ -312,8 +317,8 @@ export function DashboardLayout({
               </div>
             </div>
           </header>
-
           <ImpersonationBanner />
+          </div>
           <AuthErrorBanner />
           <MfaRequiredBanner />
           <QuotaBanner />

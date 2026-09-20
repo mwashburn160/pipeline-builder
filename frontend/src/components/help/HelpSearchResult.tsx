@@ -62,9 +62,9 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
 
       {sections.length > 0 && (
         <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/30 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-fg-muted">
             {sectionCount} matching {sectionCount === 1 ? 'section' : 'sections'}
-            <span className="ml-1.5 font-normal normal-case tracking-normal text-gray-400 dark:text-gray-500">
+            <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-subtle">
               · matched {MATCH_LABEL[where]}
             </span>
           </p>
@@ -75,15 +75,15 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
                 <span className="font-medium text-gray-800 dark:text-gray-200">
                   <Highlighted text={section.title} term={query} />
                 </span>
-                <span className="text-gray-400 dark:text-gray-500"> — </span>
-                <span className="text-gray-600 dark:text-gray-400">
+                <span className="text-fg-subtle"> — </span>
+                <span className="text-fg-muted">
                   <Highlighted text={snippet} term={query} />
                 </span>
               </li>
             ))}
           </ul>
           {hidden > 0 && (
-            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+            <p className="mt-2 text-2xs text-fg-subtle">
               +{hidden} more {hidden === 1 ? 'section' : 'sections'} match — expand the topic to read them.
             </p>
           )}

@@ -20,14 +20,14 @@ interface CodeBlockProps {
  */
 export function CodeBlock({ code, language, copyable = true, className = '' }: CodeBlockProps) {
   return (
-    <div className={['relative rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)]', className].filter(Boolean).join(' ')}>
+    <div className={['relative rounded-xl border border-default bg-surface-muted', className].filter(Boolean).join(' ')}>
       {(language || copyable) && (
-        <div className="flex items-center justify-between border-b border-[var(--pb-border)] px-3 py-1.5">
-          {language ? <span className="font-mono text-xs text-[var(--pb-text-muted)]">{language}</span> : <span />}
+        <div className="flex items-center justify-between border-b border-default px-3 py-1.5">
+          {language ? <span className="font-mono text-xs text-fg-muted">{language}</span> : <span />}
           {copyable && <CopyButton text={code} />}
         </div>
       )}
-      <pre className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed text-[var(--pb-text)]">
+      <pre className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed text-fg">
         <code className="font-mono">{code}</code>
       </pre>
     </div>
@@ -38,7 +38,7 @@ export function CodeBlock({ code, language, copyable = true, className = '' }: C
  *  in api-catalog for gateway routes. */
 export function EndpointChip({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <code className={['inline-flex items-center rounded-md border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-1.5 py-0.5 font-mono text-xs text-[var(--pb-text)]', className].filter(Boolean).join(' ')}>
+    <code className={['inline-flex items-center rounded-md border border-default bg-surface-muted px-1.5 py-0.5 font-mono text-xs text-fg', className].filter(Boolean).join(' ')}>
       {children}
     </code>
   );

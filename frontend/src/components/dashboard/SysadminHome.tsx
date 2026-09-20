@@ -99,7 +99,7 @@ export function SysadminHome() {
               value={
                 <span>
                   {summary.orgs.perOrgKms}
-                  <span className="text-base font-normal text-[var(--pb-text-muted)]"> / {summary.orgs.total}</span>
+                  <span className="text-base font-normal text-fg-muted"> / {summary.orgs.total}</span>
                 </span>
               }
               sub={summary.encryption.perOrgKmsEnabled
@@ -113,7 +113,7 @@ export function SysadminHome() {
               value={
                 <span>
                   {summary.orgs.ssoEnabled}
-                  <span className="text-base font-normal text-[var(--pb-text-muted)]"> / {summary.orgs.total}</span>
+                  <span className="text-base font-normal text-fg-muted"> / {summary.orgs.total}</span>
                 </span>
               }
               sub="orgs with active IdP config"
@@ -124,7 +124,7 @@ export function SysadminHome() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
             <Card className="lg:col-span-1">
               <div className="flex items-center gap-2 mb-3">
-                <Activity className="w-4 h-4 text-gray-500" />
+                <Activity className="w-4 h-4 text-fg-muted" />
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Multi-tenant posture</h3>
               </div>
               <dl className="space-y-2 text-sm">
@@ -166,13 +166,13 @@ export function SysadminHome() {
             <Card className="lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-gray-400" />
+                  <History className="w-4 h-4 text-fg-subtle" />
                   Recent fleet activity
                 </h3>
                 <Link href="/dashboard/audit" className="action-link text-xs">View all →</Link>
               </div>
               {events.length === 0 ? (
-                <div className="text-xs text-gray-500 dark:text-gray-400 py-3">
+                <div className="text-xs text-fg-muted py-3">
                   No audit events recorded yet.
                 </div>
               ) : (
@@ -181,11 +181,11 @@ export function SysadminHome() {
                     <li key={e._id} className="py-1.5 text-sm">
                       <div className="flex items-baseline justify-between gap-2">
                         <code className="text-xs font-medium text-blue-700 dark:text-blue-300">{e.action}</code>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                        <span className="text-xs text-fg-muted whitespace-nowrap">
                           <RelativeTime value={e.createdAt} />
                         </span>
                       </div>
-                      <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-2">
+                      <div className="mt-0.5 text-xs text-fg-muted flex flex-wrap gap-x-2">
                         <span>by <code>{e.actorEmail || e.actorId}</code></span>
                         {e.affectedOrgId && (
                           <span className="inline-flex items-center gap-1">

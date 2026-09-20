@@ -20,11 +20,11 @@ export function FeatureDisabledCard({ icon: Icon, title, children }: FeatureDisa
     <Card className="flex flex-col items-center text-center py-14">
       {Icon && (
         <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
-          <Icon className="w-9 h-9 text-gray-400 dark:text-gray-500" />
+          <Icon className="w-9 h-9 text-fg-subtle" />
         </div>
       )}
       <h3 className={`${Icon ? 'mt-4 ' : ''}text-base font-semibold text-gray-900 dark:text-gray-100`}>{title}</h3>
-      <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">{children}</p>
+      <p className="mt-1.5 text-sm text-fg-muted max-w-sm">{children}</p>
     </Card>
   );
 }

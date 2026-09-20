@@ -75,8 +75,6 @@ export default function PipelinesPage() {
       { key: 'id', type: 'text', defaultValue: '' },
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'project', type: 'text', defaultValue: '' },
-      { key: 'organization', type: 'text', defaultValue: '' },
-      { key: 'keyword', type: 'text', defaultValue: '' },
       { key: 'visibility', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
@@ -96,8 +94,6 @@ export default function PipelinesPage() {
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.project) p.project = params.project;
-      if (params.organization) p.organization = params.organization;
-      if (params.keyword) p.keyword = params.keyword;
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
       const response = await api.listPipelines(p, { signal });
@@ -311,8 +307,6 @@ export default function PipelinesPage() {
           advancedContent={
             <>
               <FilterInput type="text" aria-label="Filter by project" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="max-w-[160px]" />
-              <FilterInput type="text" aria-label="Filter by organization" value={list.filters.organization} onChange={(e) => list.updateFilter('organization', e.target.value)} placeholder="Organization..." className="max-w-[160px]" />
-              <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
               <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
                 <option value="all">All Status</option>
                 <option value="active">Active</option>

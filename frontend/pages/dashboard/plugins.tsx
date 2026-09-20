@@ -110,8 +110,10 @@ export default function PluginsPage() {
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'version', type: 'text', defaultValue: '' },
       { key: 'keyword', type: 'text', defaultValue: '' },
-      { key: 'category', type: 'select', defaultValue: 'all' },
-      { key: 'pluginType', type: 'select', defaultValue: 'all' },
+      // Category and type are the most-used narrowing, so they sit in the
+      // always-visible quick row (not counted as "advanced" filters).
+      { key: 'category', type: 'select', defaultValue: 'all', primary: true },
+      { key: 'pluginType', type: 'select', defaultValue: 'all', primary: true },
       { key: 'computeType', type: 'select', defaultValue: 'all' },
       { key: 'visibility', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
@@ -356,18 +358,6 @@ export default function PluginsPage() {
           advancedContent={
             <>
               <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
-              <FilterSelect aria-label="Filter by category" value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)}>
-                <option value="all">All Categories</option>
-                {PLUGIN_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
-                ))}
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by type" value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)}>
-                <option value="all">All Types</option>
-                <option value="CodeBuildStep">CodeBuildStep</option>
-                <option value="ShellStep">ShellStep</option>
-                <option value="ManualApprovalStep">ManualApprovalStep</option>
-              </FilterSelect>
               <FilterSelect aria-label="Filter by compute" value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)}>
                 <option value="all">All Compute</option>
                 <option value="SMALL">SMALL</option>
@@ -398,22 +388,40 @@ export default function PluginsPage() {
           }
         />
 
-        {/* Quick-chip: narrow the fetched page to this org's favorited
-            plugins (localStorage-backed, same source as the star toggles). */}
+        {/* Quick filters — the most-used narrowing, always visible: category,
+            step type, and favorites (localStorage-backed, same source as the
+            star toggles). Everything else lives under Filters. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          <FilterSelect aria-label="Filter by category" value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)}>
+            <option value="all">All categories</option>
+            {PLUGIN_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect aria-label="Filter by type" value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)}>
+            <option value="all">All step types</option>
+            <option value="CodeBuildStep">CodeBuildStep</option>
+            <option value="ShellStep">ShellStep</option>
+            <option value="ManualApprovalStep">ManualApprovalStep</option>
+          </FilterSelect>
           <button
             type="button"
             onClick={() => setShowFavoritesOnly((v) => !v)}
             aria-pressed={showFavoritesOnly}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
               showFavoritesOnly
-                ? 'border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                ? 'border-warning-border bg-warning-bg text-warning'
+                : 'border-default text-fg hover:bg-surface-muted'
             }`}
           >
             <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
             Favorites only
           </button>
+          {hasActiveFilters && (
+            <button type="button" onClick={clearAllFilters} className="action-link-muted text-xs">
+              Clear filters
+            </button>
+          )}
         </div>
 
         {/* Spacer when sticky bulk bar is visible */}

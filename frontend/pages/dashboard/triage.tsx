@@ -203,7 +203,7 @@ export default function TriagePage() {
                         const msg = replayMsgs.get(s.id) ?? null;
                         return (
                           <div key={`${s.source}-${s.id}`} className="p-2 bg-white/50 dark:bg-gray-900/30 rounded border border-current/20 text-xs font-mono">
-                            <div className="flex items-center justify-between mb-1 text-[10px] uppercase tracking-wider opacity-60">
+                            <div className="flex items-center justify-between mb-1 text-2xs uppercase tracking-wider opacity-60">
                               <span>
                                 {s.pluginName ?? 'unknown plugin'} • {s.source}
                               </span>
@@ -214,7 +214,7 @@ export default function TriagePage() {
                                     type="button"
                                     onClick={() => void handleReplay(s.id)}
                                     disabled={isReplaying}
-                                    className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-2 py-0.5 text-2xs uppercase tracking-wider rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Re-enqueue this DLQ job onto the main build queue"
                                   >
                                     {isReplaying ? 'Replaying…' : 'Replay'}
@@ -226,7 +226,7 @@ export default function TriagePage() {
                               {s.error ?? '(no error message captured)'}
                             </div>
                             {msg && (
-                              <div className={`mt-1 text-[10px] ${msg.isError ? 'text-red-700' : 'text-green-700'}`}>
+                              <div className={`mt-1 text-2xs ${msg.isError ? 'text-danger' : 'text-success'}`}>
                                 {msg.text}
                               </div>
                             )}

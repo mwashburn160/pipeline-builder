@@ -82,8 +82,19 @@ export function formatError(err: unknown, fallback = 'An error occurred'): strin
   return fallback;
 }
 
-/** Default toast notification display duration in ms. */
+/** Default toast notification display duration in ms (success / info). */
 export const DEFAULT_TOAST_DURATION_MS = 4000;
+
+/** Error and warning toasts stay longer — they usually need reading, and the
+ *  close button still dismisses them sooner. */
+export const ERROR_TOAST_DURATION_MS = 8000;
+
+/** Most toasts shown at once; older ones collapse into a "+N more" row. */
+export const MAX_VISIBLE_TOASTS = 3;
+
+/** CSS custom property a bottom-anchored bar (e.g. BulkActionBar) sets to its
+ *  height so the toast stack is raised above it instead of overlapping. */
+export const TOAST_OFFSET_CSS_VAR = '--pb-toast-offset';
 
 /** Delay before resetting copy button state in ms. */
 export const COPY_FEEDBACK_RESET_MS = 2000;

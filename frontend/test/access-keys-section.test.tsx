@@ -38,7 +38,7 @@ jest.mock('@/lib/api', () => ({
 jest.mock('@/hooks/useAuthGuard', () => ({
   __esModule: true,
   useAuthGuard: () => ({
-    user: { organizationId: 'org-1' },
+    user: { organizationId: 'org-1', permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'] },
     can: (p: string) => (p === 'service_accounts:manage' ? canManageServiceAccounts : true),
   }),
 }));
@@ -98,7 +98,7 @@ describe('AccessKeysSection', () => {
     expect(screen.getByText('pipeline-manager CLI on macOS')).toBeInTheDocument();
     // No scope → the column says so rather than leaving the cell blank, which
     // would read as "unknown" on a security surface.
-    expect(screen.getByText('full account access')).toBeInTheDocument();
+    expect(screen.getByText('full access (your current permissions)')).toBeInTheDocument();
   });
 
   it('names a narrow scope', async () => {
@@ -155,10 +155,53 @@ describe('AccessKeysSection', () => {
     expect(createAccessKey).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByTestId('stepup-modal'));
 
+    // A new key defaults to SELECTED permissions: the read-only ones held.
     await waitFor(() => expect(createAccessKey).toHaveBeenCalledWith(
-      { name: 'new-key', expiresIn: 30 * 86400 }, 'step-up-token',
+      { name: 'new-key', expiresIn: 30 * 86400, permissions: ['pipelines:read', 'plugins:read'] }, 'step-up-token',
     ));
     expect(await screen.findByText('pb_pat_SECRETVALUE')).toBeInTheDocument();
+  });
+
+  it('sends a hand-picked subset, or nothing at all for full access', async () => {
+    createAccessKey.mockResolvedValue({ success: true, data: { key: 'pb_pat_X', accessKey: key({ id: 'k9' }) } });
+    render(<AccessKeysSection readOnly={false} />);
+    await waitFor(() => expect(listAccessKeys).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'writer' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    fireEvent.click(screen.getByLabelText('Manage pipelines'));
+    fireEvent.click(screen.getByRole('button', { name: /create key/i }));
+    fireEvent.click(await screen.findByTestId('stepup-modal'));
+    await waitFor(() => expect(createAccessKey).toHaveBeenLastCalledWith(
+      { name: 'writer', expiresIn: 90 * 86400, permissions: ['pipelines:write'] }, 'step-up-token',
+    ));
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'everything' } });
+    fireEvent.click(screen.getByRole('button', { name: /full access/i }));
+    fireEvent.click(screen.getByRole('button', { name: /create key/i }));
+    fireEvent.click(await screen.findByTestId('stepup-modal'));
+    await waitFor(() => expect(createAccessKey).toHaveBeenLastCalledWith(
+      { name: 'everything', expiresIn: 90 * 86400 }, 'step-up-token',
+    ));
+  });
+
+  it('refuses an empty selection, and never offers a permission the person does not hold', async () => {
+    render(<AccessKeysSection readOnly={false} />);
+    await waitFor(() => expect(listAccessKeys).toHaveBeenCalled());
+    expect(screen.getByLabelText('Manage billing')).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'nothing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    fireEvent.click(screen.getByRole('button', { name: /create key/i }));
+    expect(toastError).toHaveBeenCalledWith('Choose at least one permission, or full access');
+    expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
+  });
+
+  it('shows a key\'s selected permissions in the list', async () => {
+    listAccessKeys.mockResolvedValue({ success: true, data: { keys: [key({ permissions: ['pipelines:read', 'plugins:read'] })] } });
+    render(<AccessKeysSection readOnly={false} />);
+    expect(await screen.findByText('2 selected')).toBeInTheDocument();
+    expect(screen.getByText('View pipelines, View plugins')).toBeInTheDocument();
   });
 
   it('refuses an out-of-range expiry without calling the API', async () => {

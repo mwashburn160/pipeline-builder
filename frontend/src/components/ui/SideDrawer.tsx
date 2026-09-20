@@ -45,13 +45,13 @@ export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: Si
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-mono text-gray-900 dark:text-gray-100 break-all">{title}</h2>
-              {subtitle && <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 flex-wrap">{subtitle}</div>}
+              {subtitle && <div className="mt-1 text-xs text-fg-muted flex items-center gap-2 flex-wrap">{subtitle}</div>}
             </div>
             <button
               ref={closeRef}
               onClick={onClose}
               aria-label="Close details"
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors flex-shrink-0"
+              className="text-fg-subtle hover:text-fg transition-colors flex-shrink-0"
             >
               <X className="w-5 h-5" />
             </button>

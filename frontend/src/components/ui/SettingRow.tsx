@@ -23,8 +23,8 @@ export function SettingRow({ label, description, control, children, className = 
   return (
     <div className={['flex flex-col gap-2 py-4 md:flex-row md:items-center md:justify-between', className].filter(Boolean).join(' ')}>
       <div className="min-w-0 md:pr-6">
-        <div className="text-sm font-medium text-[var(--pb-text)]">{label}</div>
-        {description && <p className="mt-0.5 text-sm text-[var(--pb-text-muted)]">{description}</p>}
+        <div className="text-sm font-medium text-fg">{label}</div>
+        {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
       </div>
       {(control ?? children) && <div className="shrink-0">{control ?? children}</div>}
     </div>

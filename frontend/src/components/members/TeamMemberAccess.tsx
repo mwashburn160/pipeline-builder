@@ -119,18 +119,18 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 py-3 text-sm text-[var(--pb-text-muted)]">
+        <div className="flex items-center gap-2 py-3 text-sm text-fg-muted">
           <LoadingSpinner size="sm" /> Loading…
         </div>
       ) : members.length === 0 ? (
-        <p className="py-2 text-sm text-[var(--pb-text-muted)]">No active members{search ? ' match that search' : ''}.</p>
+        <p className="py-2 text-sm text-fg-muted">No active members{search ? ' match that search' : ''}.</p>
       ) : (
-        <ul className="divide-y divide-[var(--pb-border)]">
+        <ul className="divide-y divide-default">
           {members.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{m.username}</p>
-                <p className="truncate text-xs text-[var(--pb-text-muted)]">{m.email}</p>
+                <p className="truncate text-xs text-fg-muted">{m.email}</p>
               </div>
               {m.id !== currentUserId && (
                 <Button type="button" variant="secondary" readOnly={readOnly} onClick={() => setViewing(m)}>

@@ -75,7 +75,7 @@ export function ManifestDetail({
   }
   if (!kind) {
     return (
-      <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+      <div className="p-6 text-sm text-fg-muted">
         Select a tag to view its manifest. Multi-arch tags expand into per-platform manifests; click a platform to drill in.
       </div>
     );
@@ -90,7 +90,7 @@ export function ManifestDetail({
         <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono truncate">
           {breadcrumbs.map((seg, i) => (
             <span key={i}>
-              {i > 0 && <span className="text-gray-400 mx-1">→</span>}
+              {i > 0 && <span className="text-fg-subtle mx-1">→</span>}
               {seg.onClick ? (
                 <Button
                   variant="link"
@@ -106,7 +106,7 @@ export function ManifestDetail({
           ))}
         </div>
         <div className="mt-1 flex items-center gap-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate flex-1" title={kind.manifest.digest}>
+          <span className="text-xs text-fg-muted font-mono truncate flex-1" title={kind.manifest.digest}>
             {kind.manifest.digest}
           </span>
           <CopyButton text={kind.manifest.digest} />
@@ -153,7 +153,7 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
         value={cfg.config?.Cmd?.length ? cfg.config.Cmd.join(' ') : '—'}
         mono
       />
-      <dt className="text-gray-500 dark:text-gray-400 font-medium">Env</dt>
+      <dt className="text-fg-muted font-medium">Env</dt>
       <dd>
         {cfg.config?.Env?.length ? (
           <ul className="font-mono text-xs space-y-0.5">
@@ -161,21 +161,21 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
                 AWS account id; redact each entry before display. */}
             {cfg.config.Env.map((e, i) => <li key={i} className="break-all">{redactString(e)}</li>)}
           </ul>
-        ) : <span className="text-gray-400">—</span>}
+        ) : <span className="text-fg-subtle">—</span>}
       </dd>
-      <dt className="text-gray-500 dark:text-gray-400 font-medium">History</dt>
+      <dt className="text-fg-muted font-medium">History</dt>
       <dd>
         {cfg.history?.length ? (
           <ul className="text-xs space-y-1">
             {cfg.history.map((h, i) => (
               <li key={i} className="font-mono break-all">
-                <span className="text-gray-500 mr-2">{formatDate(h.created)}</span>
+                <span className="text-fg-muted mr-2">{formatDate(h.created)}</span>
                 {/* A history `created_by` build command can embed an account id. */}
                 {redactString(h.created_by ?? '')}
               </li>
             ))}
           </ul>
-        ) : <span className="text-gray-400">—</span>}
+        ) : <span className="text-fg-subtle">—</span>}
       </dd>
     </dl>
   );
@@ -188,7 +188,7 @@ function IndexSummary({
   onSelectPlatform?: (osArch: string) => void;
 }) {
   if (platforms.length === 0) {
-    return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">Index references no platform manifests.</div>;
+    return <div className="p-6 text-sm text-fg-muted">Index references no platform manifests.</div>;
   }
   return (
     <ul className="p-2">
@@ -203,11 +203,11 @@ function IndexSummary({
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded"
             >
               <span className="font-mono text-sm text-gray-900 dark:text-gray-100">{label}</span>
-              <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+              <span className="ml-auto text-xs text-fg-muted font-mono truncate">
                 {p.digest.slice(0, 19)}…
               </span>
-              <span className="text-xs text-gray-400">{p.size ? `${p.size} B` : ''}</span>
-              <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-fg-subtle">{p.size ? `${p.size} B` : ''}</span>
+              <ChevronRight className="w-4 h-4 text-fg-subtle flex-shrink-0" />
             </button>
           </li>
         );
@@ -219,7 +219,7 @@ function IndexSummary({
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <>
-      <dt className="text-gray-500 dark:text-gray-400 font-medium">{label}</dt>
+      <dt className="text-fg-muted font-medium">{label}</dt>
       <dd className={`text-gray-900 dark:text-gray-100 break-all ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
     </>
   );
@@ -320,17 +320,17 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
       }
     >
       {scanning && (
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-fg-muted">
           Scanning… {scannedCount}/{Math.min(totalCount, 50)} tag(s) checked
         </div>
       )}
       {!scanning && displayTags && displayTags.length === 0 && (
-        <div className="text-xs text-gray-500">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
+        <div className="text-xs text-fg-muted">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
       )}
       {!scanning && displayTags && displayTags.length > 0 && (
         <ul className="font-mono text-xs space-y-0.5">
           {displayTags.map((t) => <li key={t}>{t}</li>)}
-          {totalCount > 50 && <li className="italic text-gray-500">…and {totalCount - 50} tag(s) not scanned</li>}
+          {totalCount > 50 && <li className="italic text-fg-muted">…and {totalCount - 50} tag(s) not scanned</li>}
         </ul>
       )}
     </Disclosure>

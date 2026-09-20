@@ -41,7 +41,7 @@ export function cancelPasskeyCeremony(): void {
  * the challenge on it, so an account without a password earns it by
  * re-authenticating with its own provider.
  */
-export async function registerPasskey(name: string, stepUpToken?: string): Promise<Passkey> {
+export async function registerPasskey(name: string, stepUpToken?: string): Promise<{ passkey: Passkey; recoveryCodes?: string[] }> {
   const optionsRes = await api.getPasskeyRegistrationOptions(stepUpToken);
   const pending = optionsRes.data;
   if (!pending) throw new Error(optionsRes.message || 'Could not start passkey registration');
@@ -50,7 +50,9 @@ export async function registerPasskey(name: string, stepUpToken?: string): Promi
 
   const verified = await api.verifyPasskeyRegistration({ ceremonyId: pending.ceremonyId, response, name });
   if (!verified.data?.passkey) throw new Error(verified.message || 'Could not register the passkey');
-  return verified.data.passkey;
+  // The account's recovery codes ride along — once — when this passkey is its
+  // FIRST second factor.
+  return { passkey: verified.data.passkey, ...(verified.data.recoveryCodes?.length ? { recoveryCodes: verified.data.recoveryCodes } : {}) };
 }
 
 /** Earn a step-up token with a passkey. Same token the password path issues. */

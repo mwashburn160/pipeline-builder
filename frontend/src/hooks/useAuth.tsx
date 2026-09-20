@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
+import { forgetReturnPath, rememberReturnPath, takeReturnPath } from '@/lib/return-to';
 import { SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
@@ -29,6 +30,10 @@ const VISIBILITY_REFRESH_MIN_INTERVAL_MS = 60_000;
 export type LoginResult =
   | { status: 'complete' }
   | { status: 'mfa_required'; challengeId: string; expiresAt: number }
+  /** The password was right but no longer meets the org password policy: no
+   *  session yet — the caller collects a NEW password (at least `minLength`)
+   *  and calls `completeRequiredPasswordChange`. */
+  | { status: 'password_change_required'; challengeId: string; expiresAt: number; minLength: number }
   /** The install's bootstrap administrator signed in before enrolling any factor
    *  (#8). A real session was opened, but it reaches only enrolment, sign-out
    *  and the setup routes, so the caller lands them on enrolment rather than on
@@ -67,13 +72,16 @@ interface AuthContextType {
   login: (email: string, password: string, opts?: { redirect?: boolean }) => Promise<LoginResult>;
   /** Second leg of a password sign-in: exchange the challenge plus a code (from
    *  the app, or a recovery code) for the session. */
-  completeMfaLogin: (challengeId: string, code: string, opts?: { redirect?: boolean }) => Promise<void>;
+  completeMfaLogin: (challengeId: string, code: string, opts?: { redirect?: boolean }) => Promise<LoginResult>;
+  /** Last leg of a sign-in whose password no longer meets the org policy: the
+   *  challenge plus a compliant NEW password → the session. */
+  completeRequiredPasswordChange: (challengeId: string, newPassword: string, opts?: { redirect?: boolean }) => Promise<LoginResult>;
   /** Sign in with a passkey. `autofill` runs the ceremony as browser
    *  "conditional UI" — it waits silently in the sign-in field's dropdown
    *  instead of opening a prompt. Post-sign-in handling (profile refresh,
    *  redirect) is identical to `login`. */
   loginWithPasskey: (opts?: { autofill?: boolean; redirect?: boolean }) => Promise<void>;
-  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean }) => Promise<void>;
+  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: (opts?: { force?: boolean }) => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
@@ -300,6 +308,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return api.onSessionExpired(() => {
       clearSessionCaches();
       setUser(null);
+      // Remember where they were so signing back in returns them there.
+      rememberReturnPath(router.asPath);
       router.push('/?expired=1');
     });
   }, [router]);
@@ -325,6 +335,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
 
+      // The password is right but below the org's password policy: nothing was
+      // opened, and a new password is owed first.
+      if (response.data?.passwordChangeRequired && response.data.challengeId) {
+        return {
+          status: 'password_change_required',
+          challengeId: response.data.challengeId,
+          expiresAt: response.data.expiresAt ?? 0,
+          minLength: response.data.minLength ?? 0,
+        };
+      }
+
       await refreshUser();
 
       // Bootstrap-admin enrolment session (#8): send them to the security
@@ -340,7 +361,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // run follow-up work on the same page first (e.g. the invite-accept
       // flow, which must POST /invitation/accept before navigating away) pass
       // `redirect: false` and drive navigation themselves.
-      if (opts?.redirect !== false) router.push('/dashboard');
+      if (opts?.redirect !== false) router.push(takeReturnPath());
       return { status: 'complete' };
     } finally {
       setIsLoading(false);
@@ -352,13 +373,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * backend establishes the SAME session, so the only difference is that it took
    * two requests to prove who was asking.
    */
-  const completeMfaLogin = useCallback(async (challengeId: string, code: string, opts?: { redirect?: boolean }) => {
+  const completeMfaLogin = useCallback(async (challengeId: string, code: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
     setIsLoading(true);
     try {
       const response = await api.verifyMfaLogin({ challengeId, code });
       if (!response.success) throw new Error(response.message || 'Verification failed');
+      // Both factors verified, but the password owes a change before any session.
+      if (response.data?.passwordChangeRequired && response.data.challengeId) {
+        return {
+          status: 'password_change_required',
+          challengeId: response.data.challengeId,
+          expiresAt: response.data.expiresAt ?? 0,
+          minLength: response.data.minLength ?? 0,
+        };
+      }
       await refreshUser();
-      if (opts?.redirect !== false) router.push('/dashboard');
+      if (opts?.redirect !== false) router.push(takeReturnPath());
+      return { status: 'complete' };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshUser, router]);
+
+  /**
+   * Finish a sign-in whose password no longer met the org password policy: the
+   * backend saves the new password (ending every other session of the account)
+   * and opens the session the sign-in earned.
+   */
+  const completeRequiredPasswordChange = useCallback(async (challengeId: string, newPassword: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
+    setIsLoading(true);
+    try {
+      const response = await api.completeRequiredPasswordChange({ challengeId, newPassword });
+      if (!response.success) throw new Error(response.message || 'Could not change the password');
+      await refreshUser();
+      if (response.data?.mfaEnrollmentPending) {
+        if (opts?.redirect !== false) router.push(PASSKEY_ENROLMENT_HREF);
+        return { status: 'mfa_enrollment_pending' };
+      }
+      if (opts?.redirect !== false) router.push(takeReturnPath());
+      return { status: 'complete' };
     } finally {
       setIsLoading(false);
     }
@@ -381,7 +434,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await signInWithPasskey({ autofill: opts?.autofill });
       await refreshUser();
-      if (opts?.redirect !== false) router.push('/dashboard');
+      if (opts?.redirect !== false) router.push(takeReturnPath());
     } finally {
       if (!opts?.autofill) setIsLoading(false);
     }
@@ -396,12 +449,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     organizationName?: string,
     planId?: string,
-    opts?: { redirect?: boolean }
+    opts?: { redirect?: boolean; invitationToken?: string }
   ) => {
     setIsLoading(true);
 
     try {
-      const response = await api.register(username, email, password, organizationName, planId);
+      // Registering to accept an invitation names it, so the INVITING org's
+      // password policy applies to the new password.
+      const response = await api.register(username, email, password, organizationName, planId, opts?.invitationToken);
 
       if (!response.success) {
         throw new Error(response.message || 'Registration failed');
@@ -412,9 +467,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // new user landed back on the login screen and had to re-enter the same
       // credentials. Authenticate immediately with the same email/password to
       // establish the session exactly like the login path (stores the token
-      // pair + refreshes the profile). `login` also routes to `/dashboard`
+      // pair + refreshes the profile). `login` also routes to the return-to path
       // (unless the caller opted out via `redirect: false`).
-      await login(email, password, opts);
+      await login(email, password, { redirect: opts?.redirect });
     } finally {
       setIsLoading(false);
     }
@@ -450,8 +505,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearSessionCaches();
       setUser(null);
       setIsLoading(false);
-      // Navigate to landing page
-      router.push('/');
+      // Navigate to landing page. A deliberate sign-out returns nowhere: the
+      // auth guard remembers the page it bounces from as `user` clears, so the
+      // remembered path is dropped once the navigation has happened.
+      void Promise.resolve(router.push('/')).finally(forgetReturnPath);
     }
   }, [router]);
 
@@ -483,13 +540,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authError,
     login,
     completeMfaLogin,
+    completeRequiredPasswordChange,
     loginWithPasskey,
     register,
     logout,
     refreshUser,
     switchOrganization,
     markOnboardingComplete,
-  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, completeMfaLogin, loginWithPasskey, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
+  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

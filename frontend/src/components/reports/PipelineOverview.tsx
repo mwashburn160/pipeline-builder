@@ -68,9 +68,9 @@ export function PipelineOverview({
               const color = pct >= 90 ? 'bg-green-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-red-500';
               return (
                 <div key={entry.period} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
-                  <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden"><div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} /></div>
-                  <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-green-600 dark:text-green-400' : pct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{pct}%</span>
+                  <span className="text-xs text-fg-subtle w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
+                  <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden"><div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} /></div>
+                  <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-success' : pct >= 70 ? 'text-warning' : 'text-danger'}`}>{pct}%</span>
                 </div>
               );
             })}

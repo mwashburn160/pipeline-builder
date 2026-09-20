@@ -58,7 +58,7 @@ export default function VerifyEmailPage() {
       <Head><title>Verify Email - Pipeline Builder</title></Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
-          <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <Link href="/" className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </Link>
         </div>
@@ -73,9 +73,9 @@ export default function VerifyEmailPage() {
             )}
             {status === 'success' && (
               <>
-                <CheckCircle className="w-10 h-10 text-[var(--pb-success)] mx-auto mb-3" />
+                <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
                 <p className="font-bold">Email verified</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">{message}</p>
+                <p className="text-sm text-fg-muted mt-1">{message}</p>
                 <Link href="/dashboard" className="btn btn-primary btn-full text-sm mt-4">
                   Go to dashboard
                 </Link>
@@ -83,9 +83,9 @@ export default function VerifyEmailPage() {
             )}
             {status === 'error' && (
               <>
-                <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
+                <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Verification failed</p>
-                <p className="text-sm text-[var(--pb-text-muted)] mt-1">{message}</p>
+                <p className="text-sm text-fg-muted mt-1">{message}</p>
                 <Link href="/dashboard/settings" className="btn btn-secondary btn-full text-sm mt-4">
                   Resend from settings
                 </Link>

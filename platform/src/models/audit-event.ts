@@ -75,13 +75,15 @@ export const ALL_AUDIT_ACTIONS = [
   // 'totp'`, so brute-force shows up on the same trail as password guessing.
   'user.totp.enrol',
   'user.totp.disable',
-  // The recovery-code sheet was replaced — every previously issued code stops
-  // working, so a regeneration nobody remembers doing is worth seeing.
-  'user.totp.recovery_regenerate',
+  // The account's recovery-code set (one per account, shared by passkeys and the
+  // authenticator app — controllers/recovery-codes.ts) was replaced: every
+  // previously issued code stops working, so a regeneration nobody remembers
+  // doing is worth seeing.
+  'user.mfa.recovery_regenerate',
   // A recovery code was SPENT (sign-in or step-up). Its own action rather than a
   // detail on the login, because burning one usually means a lost device — and
   // an attacker who obtained the sheet leaves exactly this trace.
-  'user.totp.recovery_used',
+  'user.mfa.recovery_used',
   // Assurance levels and required MFA (#8, helpers/bootstrap-admin.ts +
   // controllers/org-mfa-policy.ts).
   //
@@ -95,13 +97,40 @@ export const ALL_AUDIT_ACTIONS = [
   // The exception closed, permanently, because a factor was enrolled.
   'auth.mfa.bootstrap_closed',
   // An operator reset every factor on an account from the database
-  // (`scripts/mfa-recover.ts`) — the ONLY recovery path, deliberately not an
-  // HTTP route. Bumps tokenVersion, so it also ends every session.
+  // (`scripts/mfa-recover.ts`) — for when nobody can sign in to do it over HTTP.
+  // The operator name is self-asserted (`details.operatorAsserted`). Ends every
+  // session and grants the per-user enrolment grace (`details.graceUntil`).
   'auth.mfa.operator_reset',
+  // The TWO-PERSON MFA reset (controllers/mfa-reset.ts). `reset_requested`: an
+  // org admin asked for a member's factors to be reset (`details.reason`,
+  // `details.requestId`). `reset_approved`: a DIFFERENT admin (or a sysadmin)
+  // approved it and the reset ran — every factor and the recovery codes
+  // removed, every session ended, a per-user enrolment grace granted
+  // (`details.graceUntil`); the actor is the approver, `details.requestedBy` the
+  // requester. `reset_denied`: denied, or withdrawn by its requester
+  // (`details.withdrawn`).
+  'auth.mfa.reset_requested',
+  'auth.mfa.reset_approved',
+  'auth.mfa.reset_denied',
+  // A sysadmin reset a member's factors DIRECTLY — the single-person path for an
+  // org with no second admin to approve (`details.direct: true`,
+  // `details.reason`). Same effect as an approved reset.
+  'auth.mfa.direct_reset',
   // An org turned "require MFA" on or off, or changed its grace period / its
-  // statement that its IdP enforces MFA. `details` carries both sides — the
-  // transition is what a reviewer needs, not the end state.
+  // statement that its IdP enforces MFA / its "administrative actions require
+  // MFA" policy (`details.sessionsRefreshed`: members whose sessions were ended
+  // so turning it ON applies at once; turning it off ends none). `details`
+  // carries both sides — the transition is what a reviewer needs, not the end
+  // state.
   'org.mfa_policy.update',
+  // An org changed its password policy (minimum length) or its authenticator
+  // (passkey model / AAGUID) allowlist. `details` carries both sides.
+  'org.password_policy.update',
+  'org.authenticator_policy.update',
+  // A password sign-in whose password no longer meets the person's org policy
+  // opened NO session: a forced password change was required instead
+  // (`details.minLength`), and completed by `user.password.change`.
+  'user.password.change_required',
   // Opaque access keys (`pb_pat_…`) — create / revoke, and the exchange that
   // turns one into a 5-minute JWT. `user.key.exchange` is the ONLY record that a
   // key was used at all (services never see the key itself), so it is what
@@ -292,6 +321,23 @@ export const ALL_AUDIT_ACTIONS = [
   // carries how many certificates were trusted before and after, and their
   // fingerprints, never the certificates themselves.
   'sso.saml.certificate.rotate',
+  // SAML Single Logout (controllers/saml-slo.ts). `details.direction` is `sp`
+  // (we sent the LogoutRequest — `stage: 'request'`, then `'complete'` when the
+  // IdP's signed LogoutResponse comes back) or `idp` (the IdP sent a signed
+  // LogoutRequest; `sessionsRevoked` counts the platform sessions ended). A
+  // refused message is `outcome: 'failure'` with `details.reason`.
+  'sso.saml.logout',
+  // Test connection (controllers/sso-test.ts) — a DRY RUN of the org's IdP that
+  // never creates a session, user or membership. Emitted at `stage: 'start'` and
+  // `stage: 'complete'`; the latter carries `ok`, the failure `reason`, the
+  // asserted email and whether it was `recorded` as the config's last test.
+  'sso.test',
+  // The org's "SSO required" policy was switched on or off (`details.from/to`).
+  'org.sso.required.update',
+  // An IdP metadata document was imported into the SAML form (parsed, not
+  // saved — the save is a separate `admin.org-idp.upsert`). `details.source` is
+  // `url` (with the host fetched) or `xml`.
+  'org.idp.metadata.import',
   // Sysadmin authority grants/revokes. The bootstrap path
   // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
   // both. `actorId='bootstrap-env'` for env-driven promotions — operators

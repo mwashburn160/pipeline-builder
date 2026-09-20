@@ -8,7 +8,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
-import type { ApiResponse, MfaChallenge, Passkey, ReauthProvider, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
+import type { ApiResponse, MfaChallenge, Passkey, PasswordChangeChallenge, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
  * One of the caller's sessions: a signed-in device (`interactive`) or a stored
@@ -28,6 +28,8 @@ export interface SessionMeta {
   lastIp: string | null;
   /** Capability scope of a machine credential (e.g. `reporting:ingest`). */
   scope: string | null;
+  /** Permission subset of a machine credential; null = full permissions. */
+  permissions: string[] | null;
   /** Authentication methods of the sign-in (`pwd`, `oauth`, `sso`). */
   amr: string[];
   /** True for the session making the request — it can't revoke itself. */
@@ -64,6 +66,9 @@ export interface AccessKeyMeta {
   /** Owning service account's name, for labelling a mixed key list. */
   serviceAccountName: string | null;
   scope: string | null;
+  /** "Selected permissions" — the key's catalog subset; null = "Full access"
+   *  (the owner's current permissions). Never more than the owner holds. */
+  permissions: string[] | null;
   organizationId: string | null;
   /** Addresses/CIDRs the key may be exchanged from; null = any. */
   ipAllowlist: string[] | null;
@@ -137,7 +142,7 @@ export function authApi(core: ApiCore) {
      * dashboard that would answer 403 on every panel.
      */
     login: async (email: string, password: string) => {
-      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number; mfaEnrollmentPending?: boolean } & Partial<MfaChallenge>>>('/api/auth/login', {
+      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number; mfaEnrollmentPending?: boolean } & Partial<MfaChallenge> & Partial<PasswordChangeChallenge>>>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: email, password }),
       });
@@ -149,18 +154,34 @@ export function authApi(core: ApiCore) {
      *  handle plus a code from the authenticator app (or a recovery code).
      *  Establishes exactly the session `login` would have. */
     verifyMfaLogin: async (body: { challengeId: string; code: string }) => {
-      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number; recoveryCodesRemaining?: number }>>(
+      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number; recoveryCodesRemaining?: number } & Partial<PasswordChangeChallenge>>>(
         '/api/auth/mfa/verify',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      core.applyTokens(response as ApiResponse<{ accessToken: string; expiresIn?: number }>);
+      return response;
+    },
+
+    /**
+     * POST /auth/password/change-required — the last leg of a password sign-in
+     * whose password no longer meets the org password policy: the challenge
+     * handle plus a NEW password → the session the sign-in would have opened.
+     */
+    completeRequiredPasswordChange: async (body: { challengeId: string; newPassword: string }) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number; mfaEnrollmentPending?: boolean }>>(
+        '/api/auth/password/change-required',
         { method: 'POST', body: JSON.stringify(body) },
       );
       core.applyTokens(response);
       return response;
     },
 
-    register: async (username: string, email: string, password: string, organizationName?: string, planId?: string) => {
+    /** `invitationToken` when registering to accept an invitation: the inviting
+     *  org's password policy then applies to the new password. */
+    register: async (username: string, email: string, password: string, organizationName?: string, planId?: string, invitationToken?: string) => {
       return core.request<ApiResponse<{ user: User }>>('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ username, email, password, organizationName, planId }),
+        body: JSON.stringify({ username, email, password, organizationName, planId, ...(invitationToken ? { invitationToken } : {}) }),
       });
     },
 
@@ -187,12 +208,29 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Sign out. When the session came from a SAML sign-in and the org's IdP has
+     * a Single Logout URL, the platform returns a signed LogoutRequest redirect
+     * (`POST /auth/sso/logout`, asked BEFORE the session ends — it needs it);
+     * after the local sign-out the browser is sent there, so the person is also
+     * signed out of their identity provider, which then returns them to the
+     * sign-in page. Otherwise sign-out stays local. Best-effort: a failed SLO
+     * lookup never blocks signing out.
+     */
     logout: async () => {
+      let sloUrl: string | null = null;
+      try {
+        const slo = await core.request<ApiResponse<{ redirectUrl: string | null }>>('/api/auth/sso/logout', { method: 'POST' });
+        sloUrl = slo.data?.redirectUrl ?? null;
+      } catch {
+        sloUrl = null;
+      }
       try {
         await core.request('/api/auth/logout', { method: 'POST' });
       } finally {
         core.clearTokens();
       }
+      if (sloUrl && typeof window !== 'undefined') window.location.assign(sloUrl);
     },
 
     getProfile: async () => {
@@ -290,7 +328,7 @@ export function authApi(core: ApiCore) {
      * renewed by calling this endpoint with the token itself (there is no
      * refresh token — machine sessions are not refreshable).
      */
-    generateNewToken: async (body?: { expiresIn?: number; scope?: string }) => {
+    generateNewToken: async (body?: { expiresIn?: number; scope?: string; permissions?: string[] }) => {
       return core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>(
         '/api/user/generate-token',
         { method: 'POST', body: JSON.stringify(body ?? {}) },
@@ -319,7 +357,7 @@ export function authApi(core: ApiCore) {
     /** POST /user/keys — create a named access key. The raw `pb_pat_…` key comes
      *  back ONCE and is never retrievable again (only its hash is stored).
      *  Step-up gated: pass the token from a StepUpModal via `X-Step-Up-Token`. */
-    createAccessKey: async (body: { name: string; expiresIn?: number; scope?: string }, stepUpToken?: string) => {
+    createAccessKey: async (body: { name: string; expiresIn?: number; scope?: string; permissions?: string[] }, stepUpToken?: string) => {
       return core.request<ApiResponse<{ key: string; accessKey: AccessKeyMeta }>>('/api/user/keys', {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
@@ -451,14 +489,15 @@ export function authApi(core: ApiCore) {
     // password login returns, applied through the same `core.applyTokens`.
     // ============================================
 
-    /** POST /auth/sso/discover — does an enabled, entitled org IdP FORCE this
-     *  email's DOMAIN through SSO? Answers a bare `{ sso }` and nothing else: it
-     *  is unauthenticated, so it deliberately reveals neither the org behind the
-     *  domain nor whether the address has an account. The sign-in form asks it
-     *  while the person is typing, so callers debounce and treat a failure as
-     *  "no SSO" — the password path still refuses a covered account. */
+    /** POST /auth/sso/discover — does an enabled, entitled org IdP SERVE this
+     *  email's DOMAIN (`sso`), and does the org REQUIRE it (`required`)? Two
+     *  booleans and nothing else: it is unauthenticated, so it deliberately
+     *  reveals neither the org behind the domain nor whether the address has an
+     *  account (nor whether it belongs to an owner, who is exempt). The sign-in
+     *  form asks it while the person is typing, so callers debounce and treat a
+     *  failure as "no SSO" — the password path still refuses a covered account. */
     discoverSso: async (email: string) => {
-      return core.request<ApiResponse<{ sso: boolean }>>('/api/auth/sso/discover', {
+      return core.request<ApiResponse<{ sso: boolean; required: boolean }>>('/api/auth/sso/discover', {
         method: 'POST',
         body: JSON.stringify({ email }),
       });
@@ -467,7 +506,7 @@ export function authApi(core: ApiCore) {
     /** POST /auth/sso/start — begin the flow from an EMAIL, for the sign-in form,
      *  which knows the address and not the org. Same `{ url, state }` as the
      *  by-org route below; resolving the org happens server-side so discovery
-     *  never has to hand out an org id. 404 `SSO_NOT_ENFORCED` when no org
+     *  never has to hand out an org id. 404 `SSO_NOT_AVAILABLE` when no org
      *  federates the domain. */
     startSsoByEmail: async (email: string) => {
       return core.request<ApiResponse<{ url: string; state: string }>>('/api/auth/sso/start', {
@@ -567,9 +606,11 @@ export function authApi(core: ApiCore) {
       );
     },
 
-    /** POST /auth/webauthn/register/verify — store the newly created passkey. */
+    /** POST /auth/webauthn/register/verify — store the newly created passkey.
+     *  When it is the account's FIRST second factor the response also carries the
+     *  account's recovery codes, shown once. */
     verifyPasskeyRegistration: async (body: { ceremonyId: string; response: RegistrationResponseJSON; name: string }) => {
-      return core.request<ApiResponse<{ passkey: Passkey }>>('/api/auth/webauthn/register/verify', {
+      return core.request<ApiResponse<{ passkey: Passkey; recoveryCodes?: string[] }>>('/api/auth/webauthn/register/verify', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -662,7 +703,9 @@ export function authApi(core: ApiCore) {
     },
 
     /** POST /auth/totp/activate — confirm the enrolment with a code from the app.
-     *  Returns the recovery codes, shown once. */
+     *  Returns the account's recovery codes, shown once, when this is its FIRST
+     *  second factor — an account that already has a set (from a passkey) keeps
+     *  it and gets an empty list. */
     activateTotp: async (code: string) => {
       return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/totp/activate', {
         method: 'POST',
@@ -679,10 +722,16 @@ export function authApi(core: ApiCore) {
       });
     },
 
-    /** POST /auth/totp/recovery-codes — replace the whole sheet. Step-up gated;
-     *  every previously issued code stops working. */
-    regenerateTotpRecoveryCodes: async (stepUpToken?: string) => {
-      return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/totp/recovery-codes', {
+    /** GET /auth/recovery-codes — how many of the account's recovery codes are
+     *  left (one set, shared by passkeys and the authenticator app). */
+    getRecoveryCodeStatus: async () => {
+      return core.request<ApiResponse<{ recoveryCodes: RecoveryCodeStatus }>>('/api/auth/recovery-codes');
+    },
+
+    /** POST /auth/recovery-codes — replace the whole set. Step-up gated; every
+     *  previously issued code stops working. Needs a second factor to back up. */
+    regenerateRecoveryCodes: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/recovery-codes', {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify({}),
