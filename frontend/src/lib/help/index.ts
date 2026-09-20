@@ -4,8 +4,8 @@
 /**
  * The in-app help corpus, loaded ON DEMAND.
  *
- * The thirteen generated topics are ~588 KB of TypeScript source — `env-variables`
- * is 2,357 lines, `deployment` 2,240, `api-reference` 1,331. A static barrel put
+ * The twenty-six generated topics are ~1 MB of TypeScript source — `authentication`
+ * is 4,050 lines, `env-variables` 2,991, `deployment` 2,240. A static barrel put
  * all of it in whatever chunk touched this module, and for a long time that was
  * every chunk: `usePlugins` imported the barrel for a ten-element category array
  * and `useAuth` imports `usePlugins`, so the whole corpus rode the provider tree
@@ -41,9 +41,12 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
   corpus ??= (async () => {
     const [
       gettingStarted, pipelines, plugins, aiGeneration, registry,
-      organizationBenefits, architectureFlow, developerGuide, templates, metadataKeys,
-      cdkUsage, samples, deployment, cliReference, compliance, auditEvents,
-      apiReference, envVariables,
+      organizationBenefits, onboarding, architectureFlow, developerGuide, developerPortal,
+      templates, metadataKeys, cdkUsage, samples, deployment, cliReference,
+      deployOperations, serviceMesh, observabilityLogs, doraMetrics, incidentsWebhook,
+      authentication, permissions, compliance, auditEvents,
+      billingProviders, billingBundles, billingDiscounts,
+      apiReference, envVariables, errorHandling,
     ] = await Promise.all([
       import('./getting-started'),
       import('./pipelines'),
@@ -51,18 +54,31 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./ai-generation'),
       import('./registry'),
       import('./generated/organization-benefits'),
+      import('./generated/onboarding'),
       import('./generated/architecture-flow'),
       import('./generated/developer-guide'),
+      import('./generated/developer-portal'),
       import('./generated/templates'),
       import('./generated/metadata-keys'),
       import('./generated/cdk-usage'),
       import('./generated/samples'),
       import('./generated/deployment'),
       import('./generated/cli-reference'),
+      import('./generated/deploy-operations'),
+      import('./generated/service-mesh'),
+      import('./generated/observability-logs'),
+      import('./generated/dora-metrics'),
+      import('./generated/incidents-webhook'),
+      import('./generated/authentication'),
+      import('./generated/permissions'),
       import('./generated/compliance'),
       import('./generated/audit-events'),
+      import('./generated/billing-providers'),
+      import('./generated/billing-bundles'),
+      import('./generated/billing-discounts'),
       import('./generated/api-reference'),
       import('./generated/env-variables'),
+      import('./generated/error-handling'),
     ]);
 
     return [
@@ -70,6 +86,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
         category: 'Overview',
         topics: [
           gettingStarted.gettingStartedTopic,
+          onboarding.onboardingTopic,
           organizationBenefits.organizationBenefitsTopic,
           architectureFlow.architectureFlowTopic,
           developerGuide.developerGuideTopic,
@@ -85,19 +102,41 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
           cdkUsage.cdkUsageTopic,
           aiGeneration.aiGenerationTopic,
           samples.samplesTopic,
+          developerPortal.developerPortalTopic,
         ],
       },
       {
         category: 'Deploy & Operate',
-        topics: [deployment.deploymentTopic, cliReference.cliReferenceTopic, registry.registryTopic],
+        topics: [
+          deployment.deploymentTopic,
+          cliReference.cliReferenceTopic,
+          registry.registryTopic,
+          deployOperations.deployOperationsTopic,
+          serviceMesh.serviceMeshTopic,
+          observabilityLogs.observabilityLogsTopic,
+          doraMetrics.doraMetricsTopic,
+          incidentsWebhook.incidentsWebhookTopic,
+        ],
       },
       {
         category: 'Governance',
-        topics: [compliance.complianceTopic, auditEvents.auditEventsTopic],
+        topics: [
+          authentication.authenticationTopic,
+          permissions.permissionsTopic,
+          compliance.complianceTopic,
+          auditEvents.auditEventsTopic,
+          billingProviders.billingProvidersTopic,
+          billingBundles.billingBundlesTopic,
+          billingDiscounts.billingDiscountsTopic,
+        ],
       },
       {
         category: 'Reference',
-        topics: [apiReference.apiReferenceTopic, envVariables.envVariablesTopic],
+        topics: [
+          apiReference.apiReferenceTopic,
+          envVariables.envVariablesTopic,
+          errorHandling.errorHandlingTopic,
+        ],
       },
     ];
   })();
