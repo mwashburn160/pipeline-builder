@@ -40,13 +40,20 @@ export const ATTACHMENT_BUCKET = envStr('S3_BUCKET', 'message-attachments');
 /** Max long-edge (px) of a generated thumbnail. Env-overridable. */
 export const THUMB_MAX_DIM = Math.max(48, envInt('MESSAGE_THUMBNAIL_MAX_DIM', 320));
 
-/** Deterministic thumbnail key — a sibling of the original blob. */
-export function thumbnailKeyFor(orgId: string, attachmentId: string): string {
-  return `${orgId.toLowerCase()}/${attachmentId}/thumb`;
-}
-
-/** The thumbnail sibling of a full storage key (`…/<file>` → `…/thumb`). */
-function thumbnailSiblingOf(storageKey: string): string {
+/**
+ * The thumbnail sibling of a full storage key (`…/<file>` → `…/thumb`), and the
+ * ONE way any caller names a thumbnail.
+ *
+ * There used to be a second spelling, `thumbnailKeyFor(orgId, attachmentId)`,
+ * and the two disagreed. A blob's path segment is a uuid minted locally for the
+ * storage key, NOT the attachment row's id, which the database assigns on
+ * insert. Upload and purge both derived the thumbnail from the storage key;
+ * only the download derived it from the row id — so every thumbnail was written
+ * and deleted at one path and looked for at another, and `?thumb=1` silently
+ * served the full-size original for every image ever uploaded. Deriving it from
+ * the storage key everywhere makes the disagreement unexpressible.
+ */
+export function thumbnailSiblingOf(storageKey: string): string {
   const i = storageKey.lastIndexOf('/');
   return i >= 0 ? `${storageKey.slice(0, i)}/thumb` : `${storageKey}.thumb`;
 }

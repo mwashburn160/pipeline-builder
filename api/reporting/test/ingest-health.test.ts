@@ -75,9 +75,11 @@ describe('POST /reports/ingest-health', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { ok: true });
   });
 
-  it('attributes to the body orgId for a multi-tenant forwarder (not the token org)', async () => {
+  it('attributes to the body orgId for the deployment-wide forwarder', async () => {
+    // The Lambda that forwards MANY orgs runs as the system org, which is what
+    // earns it cross-org attribution.
     await getHandler()({
-      __orgId: 'forwarder-sys',
+      __orgId: '000000000000000000000001',
       user: { scope: 'reporting:ingest' },
       body: { orgId: 'tenant-b', forwarded: 7, dropped: 0, lastEventAt: '2026-07-05T00:00:00Z' },
     }, res());
@@ -85,6 +87,31 @@ describe('POST /reports/ingest-health', () => {
     // Body orgId wins; it must NOT leak into the health payload passed downstream.
     expect(mockRecordHealth).toHaveBeenCalledWith('tenant-b', { forwarded: 7, dropped: 0, lastEventAt: '2026-07-05T00:00:00Z' });
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { ok: true });
+  });
+
+  it('refuses a TENANT key naming another org, and never writes that org\'s row', async () => {
+    // `reporting:ingest` is the only gate here and a tenant's own ingest key
+    // carries it, so an unconditional body orgId let any tenant overwrite
+    // another org's freshness row — its Reports page would read "flowing" while
+    // its forwarder was dead, or the reverse.
+    await getHandler()({
+      __orgId: 'tenant-a',
+      user: { scope: 'reporting:ingest' },
+      body: { orgId: 'tenant-b', forwarded: 7 },
+    }, res());
+
+    expect(mockRecordHealth).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.any(String));
+  });
+
+  it('lets a tenant key name its OWN org redundantly', async () => {
+    await getHandler()({
+      __orgId: 'tenant-a',
+      user: { scope: 'reporting:ingest' },
+      body: { orgId: 'tenant-a', forwarded: 7 },
+    }, res());
+
+    expect(mockRecordHealth).toHaveBeenCalledWith('tenant-a', { forwarded: 7 });
   });
 
   it('accepts a body orgId even when the token carries no org identity', async () => {

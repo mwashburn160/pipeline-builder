@@ -37,7 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   envInt: (_k: string, d: number) => d,
 }));
 
-const { deleteAttachments, deleteAttachmentsByOrgPrefix, DELETE_OBJECTS_MAX_KEYS, generateThumbnail, thumbnailKeyFor, thumbnailContentType } = await import('../src/services/attachment-storage.js');
+const { deleteAttachments, deleteAttachmentsByOrgPrefix, DELETE_OBJECTS_MAX_KEYS, generateThumbnail, thumbnailSiblingOf, thumbnailContentType } = await import('../src/services/attachment-storage.js');
 const { Jimp } = await import('jimp');
 
 const isList = (cmd: unknown) => cmd?.constructor?.name === 'ListObjectsV2Command';
@@ -180,8 +180,11 @@ describe('deleteAttachments (bulk purge cleanup)', () => {
 });
 
 describe('generateThumbnail + key helpers', () => {
-  it('thumbnailKeyFor lowercases the org and targets a "thumb" sibling', () => {
-    expect(thumbnailKeyFor('ORG-1', 'att-9')).toBe('org-1/att-9/thumb');
+  it('thumbnailSiblingOf targets a "thumb" sibling of the stored blob', () => {
+    // Derived from the STORAGE KEY, never from the attachment row's id: the path
+    // segment is a uuid minted for the blob, and the row id is assigned by the
+    // database. Upload, download and purge must all name the same object.
+    expect(thumbnailSiblingOf('org-1/blob-uuid/photo.png')).toBe('org-1/blob-uuid/thumb');
   });
 
   it('thumbnailContentType keeps PNG (alpha), else JPEG', () => {

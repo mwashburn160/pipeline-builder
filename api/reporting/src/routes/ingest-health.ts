@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody, requirePermission, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { withRoute, requireOrgId, withTenantContext } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -72,10 +72,30 @@ export function createIngestHealthRoutes(): Router {
     const parsed = validateBody(req, healthSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
-    // Per-org (row keyed on org_id). A multi-tenant forwarder attributes to the
-    // resolved org via body `orgId`; otherwise fall back to the token's own org.
+    // Per-org (row keyed on org_id). A multi-tenant forwarder — one Lambda over
+    // many orgs, holding a credential that is NOT org-scoped — attributes each
+    // row via a body `orgId`.
+    //
+    // Attributing ACROSS orgs is the deployment-wide forwarder's privilege, not
+    // every ingest credential's. `reporting:ingest` is the only gate on this
+    // route, and a tenant's own ingest key carries it too — so while the body
+    // value took precedence unconditionally, any tenant could name another org
+    // and overwrite that org's freshness row, making its Reports page read
+    // "flowing" while its forwarder was dead (or the reverse). The module doc
+    // already claimed an org-scoped credential "writes only its own row";
+    // nothing enforced it. Note this is NOT the trust boundary event ingest
+    // relies on: that path resolves the org from the pipeline REGISTRY, never
+    // from the request body.
+    //
+    // So a body `orgId` is honoured only from a credential that is not bound to
+    // a tenant — no org at all, or the system org, which is what the
+    // deployment-wide Lambda holds. A tenant-scoped key writes its own row.
     const { orgId: bodyOrgId, ...health } = parsed.value;
-    const targetOrgId = bodyOrgId ?? orgId;
+    const mayAttributeCrossOrg = !orgId || orgId === SYSTEM_ORG_ID;
+    if (bodyOrgId && !mayAttributeCrossOrg && bodyOrgId !== orgId) {
+      return sendError(res, 403, 'An org-scoped credential cannot report health for another organization', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+    const targetOrgId = (mayAttributeCrossOrg ? bodyOrgId : undefined) ?? orgId;
     if (!targetOrgId) {
       return sendBadRequest(res, 'ingest-health requires an org-scoped token or a body orgId', ErrorCode.VALIDATION_ERROR);
     }

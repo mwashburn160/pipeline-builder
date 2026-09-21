@@ -28,7 +28,7 @@ import {
 import { Router, type Request, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
 import { attachmentService } from '../services/attachment-service.js';
-import { deleteAttachment, getAttachmentStream, getAttachmentStreamOrNull, putAttachment, generateThumbnail, thumbnailKeyFor, thumbnailContentType } from '../services/attachment-storage.js';
+import { deleteAttachment, getAttachmentStream, getAttachmentStreamOrNull, putAttachment, generateThumbnail, thumbnailSiblingOf, thumbnailContentType } from '../services/attachment-storage.js';
 import { messageService } from '../services/message-service.js';
 
 const logger = createLogger('attachment-routes');
@@ -135,7 +135,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       if (file.mimetype.startsWith('image/')) {
         try {
           const thumb = await generateThumbnail(file.buffer, file.mimetype);
-          if (thumb) await putAttachment(thumbnailKeyFor(orgId, id), thumb.body, thumb.contentType);
+          if (thumb) await putAttachment(thumbnailSiblingOf(storageKey), thumb.body, thumb.contentType);
         } catch (err) {
           ctx.log('WARN', 'Thumbnail store failed (serving original)', { error: errorMessage(err) });
         }
@@ -192,7 +192,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       let servedThumb = false;
       let contentType = att.contentType;
       if (wantThumb) {
-        stream = await getAttachmentStreamOrNull(thumbnailKeyFor(att.orgId, att.id));
+        stream = await getAttachmentStreamOrNull(thumbnailSiblingOf(att.storageKey));
         if (stream) { servedThumb = true; contentType = thumbnailContentType(att.contentType); }
       }
       if (!stream) {

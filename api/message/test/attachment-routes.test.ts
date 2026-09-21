@@ -67,7 +67,7 @@ jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
   deleteAttachment: mockDeleteAttachment,
   deleteAttachments: jest.fn(async () => undefined),
   generateThumbnail: mockGenerateThumbnail,
-  thumbnailKeyFor: (orgId: string, id: string) => `${orgId}/${id}/thumb`,
+  thumbnailSiblingOf: (key: string) => `${key.slice(0, key.lastIndexOf('/'))}/thumb`,
   thumbnailContentType: (ct: string) => (ct === 'image/png' ? 'image/png' : 'image/jpeg'),
 }));
 
@@ -130,6 +130,32 @@ describe('POST /attachments (upload)', () => {
     expect(mockPutAttachment).toHaveBeenCalled();
     expect(mockCreatePending).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1', uploadedBy: 'user-1', contentType: 'image/png' }));
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('writes the thumbnail where the download will look for it', async () => {
+    // The round trip, in one test. The blob path segment is a uuid minted for
+    // the STORAGE KEY; the attachment row's id is assigned by the database, and
+    // the two are different values. Upload and purge derived the thumbnail from
+    // the storage key while download derived it from the row id, so every
+    // thumbnail was written somewhere the reader never looked and `?thumb=1`
+    // silently served the full-size original for every image ever uploaded.
+    mockPutAttachment.mockResolvedValue(undefined);
+    mockCreatePending.mockImplementation(async (data: any) =>
+      ({ id: 'att-row-id', storageKey: data.storageKey, filename: 'pic.png', contentType: 'image/png', sizeBytes: 12 }));
+    mockGenerateThumbnail.mockResolvedValue({ body: Buffer.from('t'), contentType: 'image/png' });
+
+    await handler(
+      { file: { buffer: Buffer.from('x'), mimetype: 'image/png', originalname: 'pic.png', size: 12 } } as any,
+      mockRes(),
+    );
+
+    // Whatever key the ORIGINAL went to, the thumbnail is its `/thumb` sibling...
+    const [originalKey] = mockPutAttachment.mock.calls[0] as unknown as [string];
+    const [thumbKey] = mockPutAttachment.mock.calls[1] as unknown as [string];
+    const expected = `${originalKey.slice(0, originalKey.lastIndexOf('/'))}/thumb`;
+    expect(thumbKey).toBe(expected);
+    // ...and it is NOT derived from the row id, which does not appear in it.
+    expect(thumbKey).not.toContain('att-row-id');
   });
 
   it('returns 400 when no file is present', async () => {

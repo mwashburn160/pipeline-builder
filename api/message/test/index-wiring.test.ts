@@ -165,7 +165,7 @@ jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
   getAttachmentStreamOrNull: jest.fn(),
   putAttachment: jest.fn(),
   generateThumbnail: jest.fn(),
-  thumbnailKeyFor: jest.fn(),
+  thumbnailSiblingOf: jest.fn(),
   thumbnailContentType: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
