@@ -61,11 +61,25 @@ export function useQuery<T>(
   const readEpoch = useCallback(() => getKeyEpoch(key), [key]);
   const epoch = useSyncExternalStore(subscribeQueries, readEpoch, readEpoch);
 
+  // The key the current `data`/`error` belong to.
+  const shownKeyRef = useRef(key);
+
   useEffect(() => {
     if (!active || key === null) { setLoading(false); return; }
-    // Repaint from cache on a key change before the request resolves.
     const cached = peekQuery<T>(key);
-    if (cached !== undefined) setData(cached);
+    if (shownKeyRef.current !== key) {
+      // A DIFFERENT query. Show its cache if it has one, and otherwise nothing —
+      // never the previous key's answer. The old code only repainted on a cache
+      // hit, so a miss left the previous date range's rows (and the stat cards
+      // computed from them) on screen while the new range loaded, and if that
+      // request failed, its error sat next to the old range's data. Same-key
+      // re-runs (refetch, invalidation) still keep what is shown while they load.
+      shownKeyRef.current = key;
+      setData(cached ?? null);
+      setError(null);
+    } else if (cached !== undefined) {
+      setData(cached);
+    }
 
     const force = forceRef.current;
     forceRef.current = false;

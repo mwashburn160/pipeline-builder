@@ -111,6 +111,37 @@ describe('useQuery', () => {
   });
 });
 
+describe('useQuery — changing the key', () => {
+  it('does not keep showing the PREVIOUS key while an uncached key loads', async () => {
+    // A cache miss used to leave the previous key's data on screen — the
+    // executions page kept the old date range's rows (and the stat cards built
+    // from them) while the new range loaded.
+    let resolveB!: (v: string) => void;
+    const a: Query<string> = { key: 'range-a', run: () => Promise.resolve('rows-a'), staleMs: 10_000 };
+    const b: Query<string> = { key: 'range-b', run: () => new Promise<string>((r) => { resolveB = r; }), staleMs: 10_000 };
+
+    const { result, rerender } = renderHook(({ q }) => useQuery(q), { initialProps: { q: a } });
+    await waitFor(() => expect(result.current.data).toBe('rows-a'));
+
+    rerender({ q: b });
+    expect(result.current.data).toBeNull();
+
+    await act(async () => { resolveB('rows-b'); });
+    expect(result.current.data).toBe('rows-b');
+  });
+
+  it('does not show the previous key\'s error on the new key', async () => {
+    const failing: Query<string> = { key: 'bad', run: () => Promise.reject(new Error('boom')), staleMs: 10_000 };
+    const pending: Query<string> = { key: 'next', run: () => new Promise<string>(() => {}), staleMs: 10_000 };
+
+    const { result, rerender } = renderHook(({ q }) => useQuery(q), { initialProps: { q: failing } });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    rerender({ q: pending });
+    expect(result.current.error).toBeNull();
+  });
+});
+
 describe('useListPage — cancellation', () => {
   it('aborts the superseded fetch when the filters change', async () => {
     const signals: AbortSignal[] = [];

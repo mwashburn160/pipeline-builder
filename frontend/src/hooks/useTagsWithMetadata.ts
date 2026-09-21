@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 
 const INDEX_MEDIA_TYPES = new Set([
@@ -34,12 +34,25 @@ const MAX_CONCURRENT = 8;
 export function useTagsWithMetadata(repo: string | null, tags: string[] | null) {
   const [metadata, setMetadata] = useState<Map<string, TagMetadata>>(new Map());
   const [loading, setLoading] = useState(false);
+  // The repo the current `metadata` describes.
+  const metadataRepoRef = useRef(repo);
 
   useEffect(() => {
     if (!repo || !tags || tags.length === 0) {
       setMetadata(new Map());
       setLoading(false);
+      metadataRepoRef.current = repo;
       return;
+    }
+    // A different repo: drop the old one's metadata NOW. It is keyed by tag
+    // name and the new run only publishes after a manifest resolves, so moving
+    // from repo A to repo B — both with a `latest` tag — showed A's digest, size
+    // and multi-arch flag on B's `latest` row until B's manifest came back, and
+    // forever if every fetch for B failed. A refresh of the SAME repo keeps what
+    // it has, so the table doesn't flicker.
+    if (metadataRepoRef.current !== repo) {
+      metadataRepoRef.current = repo;
+      setMetadata(new Map());
     }
     let cancelled = false;
     setLoading(true);

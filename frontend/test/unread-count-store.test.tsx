@@ -19,7 +19,8 @@ jest.mock('@/lib/api', () => ({
     getMessages: jest.fn().mockResolvedValue({ data: { messages: [], pagination: { hasMore: false } } }),
   },
 }));
-const mockSse = { unreadCount: 0, connected: true, everConnected: true, onNotification: () => () => {} };
+// The stream hook is transport only — it carries no count (see useMessages).
+const mockSse = { connected: true, everConnected: true, onNotification: () => () => {} };
 jest.mock('../src/hooks/useMessageNotifications', () => ({ useMessageNotifications: () => mockSse }));
 
 // DashboardLayout with its heavy chrome stubbed; the badge count is what matters.
@@ -119,7 +120,7 @@ describe('unread-count store', () => {
     expect(result.current.unreadCount).toBe(4);
   });
 
-  it('on the messages page the layout badge follows the SSE count and the layout stops polling', async () => {
+  it('on the messages page the badge follows the SERVER count and the layout stops polling', async () => {
     function MessagesPage() {
       useMessages('org-1');
       return <DashboardLayout title="Messages"><p>inbox</p></DashboardLayout>;
@@ -130,15 +131,20 @@ describe('unread-count store', () => {
     home.unmount();
     getUnreadCount.mockClear();
 
-    mockSse.unreadCount = 9;
+    // The count comes from the server when the stream connects — never from the
+    // stream itself, whose own count started at 0 and used to overwrite this.
+    getUnreadCount.mockResolvedValue({ data: { count: 9 } });
     const page = render(<MessagesPage />);
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     for (const badge of screen.getAllByTestId('badge')) expect(badge).toHaveTextContent('9');
+    const onConnect = getUnreadCount.mock.calls.length;
+    // ...and while the stream is live there is no interval poll on top of it.
     await act(async () => { jest.advanceTimersByTime(120_000); });
-    expect(getUnreadCount).not.toHaveBeenCalled();
+    expect(getUnreadCount).toHaveBeenCalledTimes(onConnect);
 
     page.unmount();
+    getUnreadCount.mockClear();
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     await act(async () => { await Promise.resolve(); });
     expect(getUnreadCount).toHaveBeenCalledTimes(1); // polling handed back to the layout

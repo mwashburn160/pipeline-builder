@@ -15,7 +15,7 @@
  * also handles their own auth/route guards). The hook intentionally does NOT
  * auto-fetch on mount.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 
 interface ApiResponse<T> {
@@ -64,11 +64,18 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
   const toError = (err: unknown, fallback: string): Error =>
     err instanceof Error ? err : new Error(formatError(err, fallback));
 
+  // Only the LATEST fetch may publish. Callers (RuleList, PolicyManager) refetch
+  // on every filter, sort and page change, and nothing ordered the responses:
+  // picking "critical" then "warning" quickly could leave the critical rules —
+  // with their total and pagination — on screen under the "warning" filter.
+  const fetchGenRef = useRef(0);
   const fetch = useCallback(async (params?: TParams) => {
+    const gen = ++fetchGenRef.current;
     setLoading(true);
     setLoadError(null);
     try {
       const res = await api.list(params);
+      if (gen !== fetchGenRef.current) return;
       if (res.success && res.data) {
         setItems(res.data.items);
         setTotal(res.data.pagination?.total ?? res.data.items.length);
@@ -76,9 +83,10 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
         setLoadError(new Error((res as { message?: string }).message || `Failed to fetch ${entityName}`));
       }
     } catch (err) {
+      if (gen !== fetchGenRef.current) return;
       setLoadError(toError(err, `Failed to fetch ${entityName}`));
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }, [api, entityName]);
 

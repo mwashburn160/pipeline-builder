@@ -128,6 +128,13 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // Current page contents, readable from the (stable) SSE handler.
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
+  // Bumped by every fresh query (tab, search, filters, SSE refresh). A response
+  // is applied only if no newer query started after it. Requests were never
+  // aborted or ordered, so switching All → Announcements with a slow "All"
+  // response showed the whole inbox under the Announcements tab (with its
+  // total/hasMore), a slow older search overwrote a newer one, and a Load more
+  // started on one view appended its page to the next view's list.
+  const queryGenRef = useRef(0);
 
   /** Fetch one page of the ACTIVE view from its own endpoint. */
   const fetchPage = useCallback((offset: number) => {
@@ -147,7 +154,6 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
 
   // SSE notifications
   const {
-    unreadCount: sseUnreadCount,
     connected,
     everConnected,
     onNotification,
@@ -158,27 +164,35 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   const livePaused = everConnected && !connected;
 
   const fetchMessages = useCallback(async () => {
+    const gen = ++queryGenRef.current;
     try {
       setLoading(true);
       setError(null);
       const result = await fetchPage(0);
+      if (gen !== queryGenRef.current) return; // superseded by a newer query
       setMessages(result.data?.messages || []);
       setHasMore(result.data?.pagination?.hasMore ?? false);
       setTotal(result.data?.pagination?.total ?? null);
     } catch (err) {
+      if (gen !== queryGenRef.current) return;
       setError(formatError(err, 'Failed to fetch messages'));
     } finally {
-      setLoading(false);
+      // A stale request must not clear the spinner of the one still running.
+      if (gen === queryGenRef.current) setLoading(false);
     }
   }, [fetchPage]);
 
   const loadMore = useCallback(async () => {
     // Guard re-entrancy: a second click while a page is in flight is a no-op.
     if (loadingMore) return;
+    const gen = queryGenRef.current;
     try {
       setLoadingMore(true);
       setError(null);
       const result = await fetchPage(messages.length);
+      // The query changed while this page was in flight: it belongs to a list
+      // that is no longer on screen.
+      if (gen !== queryGenRef.current) return;
       const next = result.data?.messages ?? [];
       // Dedupe on append: SSE/poll may have shifted the head of the list between
       // pages, so drop any id we already hold rather than rendering a duplicate.
@@ -189,6 +203,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
       setHasMore(result.data?.pagination?.hasMore ?? false);
       setTotal(result.data?.pagination?.total ?? null);
     } catch (err) {
+      if (gen !== queryGenRef.current) return;
       setError(formatError(err, 'Failed to load more messages'));
     } finally {
       setLoadingMore(false);
@@ -297,12 +312,17 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     fetchMessages();
   }, [fetchMessages, search, view, filterKey]);
 
-  // Sync SSE-provided unread count into local state
-  useEffect(() => {
-    if (connected) {
-      setUnreadCount(sseUnreadCount);
-    }
-  }, [sseUnreadCount, connected]);
+  // The shared count is only ever set from the SERVER (`fetchUnreadCount`), never
+  // from a value carried by the stream. This effect used to copy the stream
+  // hook's own count into the store whenever the stream was connected — but that
+  // count starts at 0 and only changes on an UNREAD_COUNT frame, which the server
+  // sends after a mark-read, never on connect. So opening the inbox with 5 unread
+  // published 5, then the stream connected and published 0; with the sidebar
+  // poll switched off (`acquireLiveUnreadSource`), the badge sat at 0. Every
+  // reconnect repeated it over any newer count.
+  //
+  // Refresh on every connection change instead: on connect it catches anything
+  // that happened while the stream was down, on disconnect it seeds the poll.
 
   // Handle SSE notifications for real-time updates
   useEffect(() => {
@@ -312,6 +332,11 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
       switch (notification.data?.action) {
         case 'NEW_MESSAGE':
           fetchMessages();
+          fetchUnreadCount();
+          break;
+        case 'UNREAD_COUNT':
+          // A signal only: the count is per-viewer and the channel per-org, so
+          // the frame cannot carry a number that is right for every recipient.
           fetchUnreadCount();
           break;
         case 'MESSAGE_DELETED':
@@ -344,7 +369,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // outage — not just the badge. Stops as soon as SSE reconnects, so live push
   // never runs alongside polling.
   useEffect(() => {
-    if (!connected) void fetchUnreadCount();
+    void fetchUnreadCount();
   }, [connected, fetchUnreadCount]);
   usePolling(() => {
     void fetchUnreadCount();

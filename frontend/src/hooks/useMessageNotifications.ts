@@ -8,7 +8,7 @@
  * {@link useTicketedSSE}; this hook adds the unread-count state + a listener
  * subscription on top.
  */
-import { useState, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { useTicketedSSE } from './useTicketedSSE';
 import api from '@/lib/api';
 
@@ -37,10 +37,11 @@ export type NotificationListener = (notification: MessageNotification) => void;
  * Connects to the message service SSE endpoint and provides real-time notifications.
  *
  * @param orgId - The org to subscribe to, or null to stay disconnected
- * @returns unreadCount state, connection status, and notification subscription
+ * @returns connection status and a notification subscription. It deliberately
+ *   holds no unread COUNT: that lives in the shared store and is only ever set
+ *   from the server, never from a frame (see useMessages).
  */
 export function useMessageNotifications(orgId: string | null) {
-  const [unreadCount, setUnreadCount] = useState(0);
   const listenersRef = useRef<Set<NotificationListener>>(new Set());
 
   const onNotification = useCallback((listener: NotificationListener) => {
@@ -54,23 +55,11 @@ export function useMessageNotifications(orgId: string | null) {
     buildUrl: (ticket) => `/api/messages/notifications?ticket=${encodeURIComponent(ticket)}`,
     onMessage: (data) => {
       const parsed = data as MessageNotification;
-      if (parsed.data?.action === 'UNREAD_COUNT') {
-        // REFETCH rather than trust the frame. The unread count is viewer-scoped
-        // (a message targeted at one member is unread for them alone) but the
-        // SSE channel is org-scoped, so the server cannot put a number in here
-        // that is correct for every recipient — it used to send the reader's,
-        // which overwrote every other member's badge with someone else's count.
-        // The frame is a signal that something changed; each client asks for its
-        // own number. Failures are ignored: the badge is non-critical.
-        void api.getUnreadCount()
-          .then((result) => setUnreadCount(result.data?.count ?? 0))
-          .catch(() => { /* keep the last known count */ });
-      }
       listenersRef.current.forEach((listener) => {
         try { listener(parsed); } catch { /* ignore listener errors */ }
       });
     },
   });
 
-  return { unreadCount, setUnreadCount, connected, everConnected, onNotification };
+  return { connected, everConnected, onNotification };
 }
