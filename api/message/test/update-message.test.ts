@@ -103,8 +103,11 @@ describe('PUT /messages/:id/read', () => {
     expect(mockSseManager.send).toHaveBeenCalledWith(
       'org-1',
       'MESSAGE',
-      'Unread count updated',
-      expect.objectContaining({ action: 'UNREAD_COUNT', unreadCount: 3 }),
+      'Unread count changed',
+      // Signal only: the count is viewer-scoped but the channel is org-scoped,
+      // so a number here would overwrite every other member's badge with the
+      // reader's. Each client refetches its own.
+      { action: 'UNREAD_COUNT' },
     );
   });
 
@@ -162,8 +165,11 @@ describe('PUT /messages/:id/thread/read', () => {
     expect(mockSseManager.send).toHaveBeenCalledWith(
       'org-1',
       'MESSAGE',
-      'Unread count updated',
-      expect.objectContaining({ action: 'UNREAD_COUNT', unreadCount: 0 }),
+      'Unread count changed',
+      // Signal only: the count is viewer-scoped but the channel is org-scoped,
+      // so a number here would overwrite every other member's badge with the
+      // reader's. Each client refetches its own.
+      { action: 'UNREAD_COUNT' },
     );
   });
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPluginConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
@@ -144,12 +144,15 @@ export class PluginService extends CrudService<
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Plugin, userId: string): Promise<void> {
     try {
       await pluginCache.invalidatePattern(`${entity.orgId}:*`);
-      // System-org content is visible to every tenant via the dashboard;
-      // when a system entity changes, evict the per-id cache key across
-      // every cached org so no tenant serves a stale copy.
-      if (entity.orgId === SYSTEM_ORG_ID) {
-        await pluginCache.invalidatePattern(`*:id:${entity.id}`);
-      }
+      // Cross-org sweep, UNCONDITIONAL. A plugin is cached under every viewing
+      // org's key whenever it is visible to them — system-org content (shown to
+      // every tenant) and any `public` row alike — while a mutation only ever
+      // runs under the owner's tenant. Gating on `orgId === SYSTEM_ORG_ID`
+      // covered the first case and missed the second, so a public plugin owned
+      // by an ordinary org went stale in every OTHER org until its TTL, and a
+      // demotion left the pre-demotion copy readable there. Owner org and
+      // visibility both drop out of the rule this way.
+      await pluginCache.invalidatePattern(`*:id:${entity.id}`);
     } catch (err) {
       logger.debug(`Cache invalidation failed after plugin ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
     }

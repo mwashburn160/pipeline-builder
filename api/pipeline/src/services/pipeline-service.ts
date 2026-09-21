@@ -153,21 +153,27 @@ export class PipelineService extends CrudService<
 
   /**
    * A PUBLIC pipeline (including the system org's shared samples) is cached
-   * under EVERY viewing org's key (`<viewerOrg>:id:<id>`), but a mutation only
-   * ever runs under the owner's tenant — so clearing just `${ownerOrg}:*` leaves
-   * stale copies in every other org's cache. When the row is cross-org-visible,
-   * also drop this id across all orgs. (findVisibleToOrg is uncached, so only
-   * the per-id findById cache needs the cross-org sweep.)
+   * under EVERY viewing org's key (`<viewerOrg>:v:<viewer>:id:<id>`), but a
+   * mutation only ever runs under the owner's tenant — so clearing just
+   * `${ownerOrg}:*` leaves stale copies in every other org's cache.
+   *
+   * UNCONDITIONAL, because the condition it used to carry (`visibility ===
+   * 'public'`) read the row's state AFTER the mutation. A DEMOTION is exactly
+   * the case that matters — public → org/private ends with a non-public row, so
+   * the sweep was skipped and every other org kept serving the copy it had
+   * cached while the pipeline was still shared, for the rest of the TTL. A
+   * promotion has the mirror problem in reverse. Tracking the previous
+   * visibility would work; not needing to know is simpler and cannot be got
+   * wrong. Mutations are rare next to reads, so the extra sweep is cheap.
+   * (`findVisibleToOrg` is uncached, so only the per-id cache needs this.)
    */
-  private async invalidateSharedReadCaches(id: string, visibility?: string): Promise<void> {
-    if (visibility === 'public') {
-      await pipelineCache.invalidatePattern(`*:id:${id}`);
-    }
+  private async invalidateSharedReadCaches(id: string): Promise<void> {
+    await pipelineCache.invalidatePattern(`*:id:${id}`);
   }
 
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string): Promise<void> {
     await pipelineCache.invalidatePattern(`${entity.orgId}:*`);
-    await this.invalidateSharedReadCaches(id, entity.visibility);
+    await this.invalidateSharedReadCaches(id);
     // Carry the owning org's parent (when the mutation ran under a team's tenant
     // context) so async compliance eval sees the same parent `propagateToChildren`
     // rules the live path does. Only trust the context parent when its org matches
@@ -323,7 +329,7 @@ export class PipelineService extends CrudService<
       const inserted = insertedFlag === 1;
 
       await pipelineCache.invalidatePattern(`${data.orgId}:*`);
-      await this.invalidateSharedReadCaches(pipeline.id, pipeline.visibility);
+      await this.invalidateSharedReadCaches(pipeline.id);
       return { pipeline, inserted };
     });
   }

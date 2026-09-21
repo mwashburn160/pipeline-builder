@@ -83,12 +83,15 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('COMPLETED', 'Message marked as read', { id });
 
-    // Push updated unread count to the reader's org
+    // Signal only — the COUNT is deliberately not in the payload. The SSE
+    // fan-out is ORG-scoped (there is no per-user channel), while
+    // `getUnreadCount` is viewer-scoped: it honours the per-user rung, so a
+    // message targeted at one member is unread for them alone. Sending the
+    // reader's number on the org channel overwrote every other member's badge
+    // with a count that was never theirs. Each client refetches its own.
     try {
-      const unreadCount = await messageService.getUnreadCount(orgId);
-      sseManager.send(orgId, 'MESSAGE', 'Unread count updated', {
+      sseManager.send(orgId, 'MESSAGE', 'Unread count changed', {
         action: 'UNREAD_COUNT' as const,
-        unreadCount,
       });
     } catch (err) {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
@@ -113,12 +116,15 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: total });
 
-    // Push updated unread count to the reader's org
+    // Signal only — the COUNT is deliberately not in the payload. The SSE
+    // fan-out is ORG-scoped (there is no per-user channel), while
+    // `getUnreadCount` is viewer-scoped: it honours the per-user rung, so a
+    // message targeted at one member is unread for them alone. Sending the
+    // reader's number on the org channel overwrote every other member's badge
+    // with a count that was never theirs. Each client refetches its own.
     try {
-      const unreadCount = await messageService.getUnreadCount(orgId);
-      sseManager.send(orgId, 'MESSAGE', 'Unread count updated', {
+      sseManager.send(orgId, 'MESSAGE', 'Unread count changed', {
         action: 'UNREAD_COUNT' as const,
-        unreadCount,
       });
     } catch (err) {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });

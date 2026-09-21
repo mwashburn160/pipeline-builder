@@ -27,7 +27,6 @@ export interface MessageNotification {
     subject?: string;
     senderOrgId?: string;
     messageType?: string;
-    unreadCount?: number;
   };
 }
 
@@ -55,8 +54,17 @@ export function useMessageNotifications(orgId: string | null) {
     buildUrl: (ticket) => `/api/messages/notifications?ticket=${encodeURIComponent(ticket)}`,
     onMessage: (data) => {
       const parsed = data as MessageNotification;
-      if (parsed.data?.action === 'UNREAD_COUNT' && parsed.data.unreadCount !== undefined) {
-        setUnreadCount(parsed.data.unreadCount);
+      if (parsed.data?.action === 'UNREAD_COUNT') {
+        // REFETCH rather than trust the frame. The unread count is viewer-scoped
+        // (a message targeted at one member is unread for them alone) but the
+        // SSE channel is org-scoped, so the server cannot put a number in here
+        // that is correct for every recipient — it used to send the reader's,
+        // which overwrote every other member's badge with someone else's count.
+        // The frame is a signal that something changed; each client asks for its
+        // own number. Failures are ignored: the badge is non-critical.
+        void api.getUnreadCount()
+          .then((result) => setUnreadCount(result.data?.count ?? 0))
+          .catch(() => { /* keep the last known count */ });
       }
       listenersRef.current.forEach((listener) => {
         try { listener(parsed); } catch { /* ignore listener errors */ }
