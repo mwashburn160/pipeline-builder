@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8962a39e01204aae42835131117abadf7be6ba46b2baa123d720ac5bdc3d3a9e
+// SOURCE-SHA256: e9a0dc0fc940591d0cffb7edcd2f579091f047e92bbd46d12e5ec03a639523fb
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -185,7 +185,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the five Services that expose an internal route: platform, message, compliance, quota, reporting. Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, which istioctl install does not ship — each target's setup installs the standard channel (GATEWAY_API_VERSION, pinned) when they are absent."
+          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing, plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, which istioctl install does not ship — each target's setup installs the standard channel (GATEWAY_API_VERSION, pinned) when they are absent."
         },
         {
           "type": "list",
@@ -205,7 +205,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "sa/pb-waypoint is listed in those five workloads' ALLOW policies. The original caller has already been checked, at the waypoint."
+          "content": "sa/pb-waypoint is listed in those six workloads' ALLOW policies. The original caller has already been checked, at the waypoint. For image-registry this covers far more than the internal route: nginx's /token and /api/images/* proxying, buildkitd's token fetches from the plugin pod, the bootstrap crane push pods and per-org build pods all address the Service, so all of them now reach the pod as the waypoint — drop sa/pb-waypoint from image-registry-allow and the registry token flow 403s."
         },
         {
           "type": "list",

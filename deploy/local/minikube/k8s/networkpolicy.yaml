@@ -115,7 +115,8 @@ spec:
 
 ---
 # =============================================================================
-# Image-registry API — ingress from plugin (token issuance for buildkit push).
+# Image-registry API — ingress from plugin (token issuance for buildkit push,
+# and POST /internal/plugin-signatures: image-registry signs the pushed image).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

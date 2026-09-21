@@ -15,8 +15,8 @@
  * A string-shape assertion would not have caught either; a shell does.
  */
 
-import { describe, it, expect } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
+import { describe, it, expect } from '@jest/globals';
 import { wrapCommandsForFailureBehavior } from '../src/core/pipeline-helpers.js';
 
 /** Run the commands as CodeBuild would — one shell, in order, `set -e`. */

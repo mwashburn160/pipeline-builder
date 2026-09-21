@@ -1,13 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, signServiceToken, ValidationError, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
+import type { ImageSource } from '@pipeline-builder/pipeline-data';
+
+import { run } from './build-process.js';
+import type { BuildStreamOptions } from './build-process.js';
+import { imageRepository, writeAuthConfig } from './registry-auth.js';
+import type { RegistryInfo } from './registry-auth.js';
+import { attachSupplyChain, DIGEST_RE, SUPPLY_CHAIN_STEPS } from './supply-chain.js';
 
 const logger = createLogger('docker-build');
 
@@ -23,33 +29,14 @@ const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
 // Types
 // -----------------------------------------------------------------------------
 
-interface DockerBuildCfg {
-  tempRoot: string;
-  timeoutMs: number;
-  pushTimeoutMs: number;
-  /** buildctl `--addr` (unix:// or tcp://) for the buildkitd sidecar. */
-  buildkitAddr: string;
-}
-
-export interface RegistryInfo {
-  host: string;
-  port: number;
-  network: string;
-  /**
-   * BuildKit speaks plain HTTP to the registry when true (in-cluster registry
-   * with no TLS). Pushed via `registry.insecure=true` on the buildctl output.
-   */
-  http: boolean;
-}
-
 export type BuildType = 'build_image' | 'prebuilt' | 'metadata_only';
 
 export interface BuildRequest {
   contextDir: string;
   dockerfile: string;
-  /** Plugin name  used as the Docker repository (e.g. `nodejs-build`). */
+  /** Plugin name — used as the Docker repository (e.g. `nodejs-build`). */
   name: string;
-  /** Plugin version  used as the Docker tag (e.g. `1.0.0`). */
+  /** Plugin version — used as the Docker tag (e.g. `1.0.0`). */
   version: string;
   /**
    * Owning org of the plugin being built. Used to derive the registry
@@ -72,45 +59,18 @@ export interface BuildRequest {
 }
 
 export interface BuildResult {
+  /** `<repo>:<version>` — the human-readable tag. Never what CodeBuild pulls. */
   fullImage: string;
-}
-
-/** Receives each MASKED build output line as it is produced (for live SSE). */
-export type BuildLineSink = (line: string, stream: 'stdout' | 'stderr') => void;
-
-export interface BuildStreamOptions {
-  /** Optional live sink for masked build log lines (owner-bound SSE stream). */
-  onLine?: BuildLineSink;
-}
-
-/** Last-N masked build lines retained for a bounded failure summary. */
-export const BUILD_LOG_TAIL_LINES = 25;
-/** Hard cap per streamed/summarized line so a pathological line can't bloat SSE. */
-const BUILD_LOG_MAX_LINE_CHARS = 2000;
-
-/**
- * A build subprocess exited non-zero or timed out. Carries a bounded tail of the
- * last masked output lines + the exit reason so the worker can surface a useful
- * failure summary on the user's SSE stream instead of a generic "Build failed".
- */
-export class BuildProcessError extends Error {
-  readonly tail: string[];
-  readonly exitCode: number | null;
-  readonly timedOut: boolean;
-  constructor(message: string, opts: { tail: string[]; exitCode: number | null; timedOut: boolean }) {
-    super(message);
-    this.name = 'BuildProcessError';
-    this.tail = opts.tail;
-    this.exitCode = opts.exitCode;
-    this.timedOut = opts.timedOut;
-  }
+  /** The pushed, signed digest (`sha256:…`) synth pins CodeBuild to. */
+  digest: string;
+  imageSource: ImageSource;
 }
 
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
 
-function getConfig(): DockerBuildCfg {
+function getConfig() {
   return Config.get('dockerConfig');
 }
 
@@ -130,6 +90,18 @@ export function getBuildkitAddrForTier(tier: string | undefined): string {
   return cfg.buildkitAddr;
 }
 
+/**
+ * The registry credential is minted before the operation and spent across all
+ * of it — the push at the end of a build, then the SBOM scan's pull — so its
+ * TTL covers the operation window plus the supply-chain steps (each bounded by
+ * `pushTimeoutMs`). A shorter TTL lets a long build (gcloud-deploy, playwright)
+ * outlive the token, and the push or SBOM pull fails with a 401 from
+ * image-registry's /token endpoint.
+ */
+function credentialTtlSeconds(operationMs: number): number {
+  return Math.ceil((operationMs + SUPPLY_CHAIN_STEPS * getConfig().pushTimeoutMs) / 1000);
+}
+
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
@@ -137,19 +109,18 @@ export function getBuildkitAddrForTier(tier: string | undefined): string {
 export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: string } & BuildStreamOptions): Promise<BuildResult> {
   validate(req);
   const cfg = getConfig();
-  const image = resolveImage(req.name, req.version, req.registry, req.orgId);
+  const repository = imageRepository(req.name, req.registry, req.orgId);
+  const image = `${repository}:${req.version}`;
   // caller (the worker) supplies the per-tier buildkitd address;
   // fall back to the in-pod sidecar address when unset so the default
   // single-buildkitd deploy keeps working.
   const buildkitAddr = opts?.buildkitAddr ?? cfg.buildkitAddr;
 
-  // The registry-auth token is minted now but only spent at the *end* of the
-  // build (buildctl does build+push in one shot, push last). The whole build+push
-  // is bounded by cfg.timeoutMs, so the token TTL must equal that build window —
-  // otherwise a long build (gcloud-deploy, playwright) outlives a short-TTL token
-  // and the push fails with a 401 from image-registry's /token endpoint.
-  const authTtlSeconds = Math.ceil(cfg.timeoutMs / 1000);
-  const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, authTtlSeconds);
+  const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, credentialTtlSeconds(cfg.timeoutMs));
+  // buildctl writes the pushed digest here — the ONLY authoritative source for
+  // it: re-resolving the tag afterwards would race any other push to that tag.
+  const metaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-buildmeta-'));
+  const metadataFile = path.join(metaDir, 'metadata.json');
 
   // EVERYTHING after the credential exists on disk belongs inside the try.
   // `patchDockerfile` used to run between `writeAuthConfig` and the `try`, so a
@@ -171,47 +142,61 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
       // Pin the published plugin image platform (default linux/amd64 = the
       // CodeBuild runtime). The `FROM` base image must have a matching variant.
       '--opt', `platform=${PUBLISH_PLATFORM}`,
+      // SLSA provenance, stored in the pushed image index and so covered by the
+      // cosign signature over its digest. `min`, never `max`: max mode records
+      // the build args, and those are free-form uploader input that may carry
+      // credentials — max would publish them to every puller of the image.
+      '--opt', 'attest:provenance=mode=min',
       ...flagBuildArgs(req.buildArgs),
       '--output', outputSpec(image, req.registry),
+      '--metadata-file', metadataFile,
     ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
+
+    const digest = readBuildDigest(metadataFile);
+    await attachSupplyChain({ repository, digest, registry: req.registry, orgId: req.orgId, dockerConfigDir, platform: PUBLISH_PLATFORM }, opts);
+    return { fullImage: image, digest, imageSource: 'built' };
   } finally {
     fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+    fs.rmSync(metaDir, { recursive: true, force: true });
   }
-
-  return { fullImage: image };
 }
 
 /**
  * Push a prebuilt image tarball (produced by `docker save`) to the registry.
- * Uses `crane`  buildctl can build but cannot push a pre-existing tarball.
+ * Uses `crane` — buildctl can build but cannot push a pre-existing tarball.
+ * The platform never saw this image built, so it gets an SBOM and a signature
+ * but no provenance (`imageSource: 'uploaded'`).
  */
 export async function loadAndPush( tarPath: string, name: string, version: string, registry: RegistryInfo, orgId: string,
   opts?: BuildStreamOptions,
 ): Promise<BuildResult> {
   validateRegistryAndName(name, registry);
+  if (!RE_TAG.test(version)) throw new ValidationError(`Invalid plugin version (must be a valid Docker tag): ${version}`);
   if (!fs.existsSync(tarPath)) {
     throw new ValidationError(`Tarball not found: ${tarPath}`);
   }
   const cfg = getConfig();
-  const image = resolveImage(name, version, registry, orgId);
+  const repository = imageRepository(name, registry, orgId);
+  const image = `${repository}:${version}`;
 
-  // crane push is bounded by pushTimeoutMs; the token TTL equals that window so
-  // the credential lives exactly as long as the operation that uses it.
-  const authTtlSeconds = Math.ceil(cfg.pushTimeoutMs / 1000);
-  const dockerConfigDir = writeAuthConfig(registry, orgId, authTtlSeconds);
+  const dockerConfigDir = writeAuthConfig(registry, orgId, credentialTtlSeconds(cfg.pushTimeoutMs));
 
   logger.info('Pushing prebuilt image', { image, tarPath });
 
   try {
-    await run('crane', [
+    // crane prints the pushed `<repo>@sha256:…` on stdout — captured raw, since
+    // the log masker would redact the 64-hex digest.
+    const stdout = await run('crane', [
       ...(registry.http ? ['--insecure']: []),
       'push', tarPath, image,
-    ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
+    ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine, captureStdout: true });
+
+    const digest = parseCranePushDigest(stdout);
+    await attachSupplyChain({ repository, digest, registry, orgId, dockerConfigDir }, opts);
+    return { fullImage: image, digest, imageSource: 'uploaded' };
   } finally {
     fs.rmSync(dockerConfigDir, { recursive: true, force: true });
   }
-
-  return { fullImage: image };
 }
 
 // -----------------------------------------------------------------------------
@@ -219,18 +204,8 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
 // -----------------------------------------------------------------------------
 
 /**
- * Compute the registry-side image reference for a plugin. Namespace by
- * owning org so the token service's per-org scopes apply correctly * - `system` org → `<host>:<port>/system/<name>:<version>`
- * - any tenant org → `<host>:<port>/org-<orgId>/<name>:<version>`
- */
-function resolveImage(name: string, version: string, registry: RegistryInfo, orgId?: string): string {
-  const namespace = !orgId || orgId === SYSTEM_ORG_ID ? 'system': `org-${orgId}`;
-  return `${registry.host}:${registry.port}/${namespace}/${name}:${version}`;
-}
-
-/**
  * Build the `--output` value for buildctl. `registry.insecure=true` tells
- * buildkitd to use plain HTTP  required for the in-cluster registry which
+ * buildkitd to use plain HTTP — required for the in-cluster registry which
  * doesn't terminate TLS on its NodePort.
  */
 function outputSpec(image: string, registry: RegistryInfo): string {
@@ -243,76 +218,25 @@ function outputSpec(image: string, registry: RegistryInfo): string {
   return parts.join(',');
 }
 
-/**
- * Mint a platform JWT (TTL = the operation's build window, passed by the caller)
- * and write it to ~/.docker/config.json as Basic-auth credentials for the
- * registry. The token is spent only at push time — the end of a build that may
- * run for many minutes — so `ttlSeconds` matches the build timeout, not a single
- * backend hop. buildctl and crane both read
- * $DOCKER_CONFIG/config.json  image-registry's /token endpoint verifies the
- * JWT and mints a scoped Bearer token in response to the registry's bearer
- * challenge. Username is informational; auth-resolver path 1 uses the
- * password only.
- *
- * We write credentials for **two** hosts * 1. `registry:5000`  the in-cluster registry address we push to.
- * 2. The host derived from `PLATFORM_BASE_URL`  the token realm the
- * registry redirects clients to (see deploy/.../registry.yaml's
- * REGISTRY_AUTH_TOKEN_REALM, which is the public URL so external
- * Docker clients can reach it). Docker clients only send Basic auth
- * to hosts present in `auths`, so without this second entry crane
- * hops to the public realm with no credentials and gets 401.
- */
-function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: number): string {
-  // Write OUTSIDE any build context. The previous in-context `.docker/config.json`
-  // was baked into published images by a plugin Dockerfile's `COPY . .`, leaking
-  // an owner-scoped platform JWT. buildctl/crane read it via the DOCKER_CONFIG
-  // env, so its location is independent of the build context. Caller removes it
-  // after the build/push completes.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-dockercfg-'));
-  // Least-privilege registry credential: the image-registry authorizer grants
-  // push when `isAdmin || permissions.includes('plugins:write')` (auth-resolver
-  // canWritePlugins), so a member-role token carrying just `plugins:write` can
-  // push the built plugin image WITHOUT the org-wide `isAdmin` blast radius an
-  // owner token would leak if the auth config were ever exposed (as it once was
-  // via a Dockerfile `COPY . .`). Pull is open to all members either way.
-  // Signed as `plugin` — this IS the plugin service, and since #14 a service
-  // holds only its own key, so the old `serviceName: 'platform'` here could no
-  // longer be minted (nor verified: the `kid` would name plugin while the `sub`
-  // said platform). image-registry's authorizer never looked at the name, only
-  // at `plugins:write`, so the credential is unchanged in what it can do.
-  const password = signServiceToken({ serviceName: 'plugin', orgId, role: 'member', permissions: ['plugins:write'], ttlSeconds });
-  const auth = Buffer.from(`_token:${password}`).toString('base64');
-
-  const auths: Record<string, { auth: string }> = {
-    [`${registry.host}:${registry.port}`]: { auth },
-  };
-
-  // Add the token-realm host so crane sends Basic auth when the registry
-  // redirects it to the realm to mint a bearer token. URL.host already
-  // includes any non-default port (e.g. `nginx:8080`), which matches how
-  // Docker keys auths.
-  //
-  // The realm URL is whatever the registry advertises via
-  // REGISTRY_AUTH_TOKEN_REALM. In production this is PLATFORM_BASE_URL
-  // (public) so external Docker clients can reach it; in local dev it's
-  // an in-cluster URL (http://nginx:8080/...) because the published
-  // localhost:8443 is not routable from inside the plugin container.
-  // Prefer the explicit env var so the plugin stays in lockstep with the
-  // registry's advertised realm regardless of which deploy this is.
-  const realmUrl = process.env.IMAGE_REGISTRY_TOKEN_REALM
-    || (process.env.PLATFORM_BASE_URL ? `${process.env.PLATFORM_BASE_URL}/image-registry/token` : undefined);
-  if (realmUrl) {
-    try {
-      const realmHost = new URL(realmUrl).host;
-      if (realmHost) auths[realmHost] = { auth };
-    } catch {
-      // Malformed URL  skip silently; the in-cluster auth still works
-      // for in-cluster realms (or when the registry isn't redirecting).
-    }
+/** The pushed digest from buildctl's `--metadata-file` (the index digest when attestations are attached). */
+function readBuildDigest(metadataFile: string): string {
+  let digest: unknown;
+  try {
+    digest = (JSON.parse(fs.readFileSync(metadataFile, 'utf-8')) as Record<string, unknown>)['containerimage.digest'];
+  } catch (err) {
+    throw new Error(`buildctl metadata unreadable at ${metadataFile}: ${(err as Error).message}`);
   }
+  if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) {
+    throw new Error(`buildctl reported no pushed image digest (containerimage.digest=${String(digest)})`);
+  }
+  return digest;
+}
 
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths }));
-  return dir;
+/** `crane push` stdout is the pushed reference, `<repo>@sha256:<hex>`. */
+function parseCranePushDigest(stdout: string): string {
+  const match = /@(sha256:[0-9a-f]{64})\s*$/.exec(stdout.trim());
+  if (!match) throw new Error(`crane push reported no image digest (stdout: ${stdout.trim().slice(0, 200)})`);
+  return match[1]!;
 }
 
 /**
@@ -360,74 +284,4 @@ function validate({ registry, name, version, buildArgs }: BuildRequest) {
     if (!RE_ARG_KEY.test(k)) throw new ValidationError(`Invalid build arg key: ${k}`);
     if (typeof v !== 'string' || v.length > 4096) throw new ValidationError(`Invalid build arg value for ${k}`);
   }
-}
-
-// -----------------------------------------------------------------------------
-// Secret masking
-// -----------------------------------------------------------------------------
-
-const SECRET_RE = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIALS|AUTH)([=: ]+)([^\s"']+)/gi;
-const BEARER_RE = /\b(BEARER)\s+(\S+)/gi;
-// JWT-shaped (three base64url segments) or long base64 runs (≥32 chars).
-const JWT_RE = /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g;
-const LONG_B64_RE = /\b[A-Za-z0-9+/]{32,}={0,2}\b/g;
-
-export function maskSecrets(line: string): string {
-  return line
-    .replace(SECRET_RE, '$1$2***')
-    .replace(BEARER_RE, '$1 ***')
-    .replace(JWT_RE, '***')
-    .replace(LONG_B64_RE, '***');
-}
-
-// -----------------------------------------------------------------------------
-// Process runner
-// -----------------------------------------------------------------------------
-
-function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.ProcessEnv, opts?: BuildStreamOptions): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: env ? { ...process.env, ...env } : process.env,
-    });
-    let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
-
-    // Bounded ring buffer of the last N MASKED lines — the failure summary the
-    // worker surfaces on the user's SSE stream instead of a generic message.
-    const tail: string[] = [];
-    /** Record + (optionally) live-stream one already-masked output line. */
-    const emit = (masked: string, stream: 'stdout' | 'stderr'): void => {
-      logger.info(masked, { stream });
-      tail.push(masked);
-      if (tail.length > BUILD_LOG_TAIL_LINES) tail.shift();
-      if (opts?.onLine) {
-        // A streaming-sink failure must NEVER fail the build (SSE is best-effort).
-        try { opts.onLine(masked.slice(0, BUILD_LOG_MAX_LINE_CHARS), stream); } catch { /* ignore */ }
-      }
-    };
-
-    // Per-stream line buffer so a chunked JWT (split mid-token across two data
-    // events) still resolves to a single line before masking runs.
-    const buffers = { stdout: '', stderr: '' };
-    const pipe = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
-      buffers[stream] += data.toString();
-      const lines = buffers[stream].split('\n');
-      buffers[stream] = lines.pop() ?? '';
-      for (const line of lines) if (line) emit(maskSecrets(line), stream);
-    };
-    child.stdout.on('data', pipe('stdout'));
-    child.stderr.on('data', pipe('stderr'));
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      for (const stream of ['stdout', 'stderr'] as const) {
-        if (buffers[stream]) emit(maskSecrets(buffers[stream]), stream);
-      }
-      if (timedOut) reject(new BuildProcessError(`Build timed out after ${timeoutMs}ms`, { tail: [...tail], exitCode: code, timedOut: true }));
-      else if (code !== 0) reject(new BuildProcessError(`Build failed with exit code ${code}`, { tail: [...tail], exitCode: code, timedOut: false }));
-      else resolve();
-    });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
-  });
 }

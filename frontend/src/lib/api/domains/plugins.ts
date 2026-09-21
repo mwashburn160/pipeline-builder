@@ -29,6 +29,7 @@ export interface QueuePagination {
 export const PLUGIN_LIST_FIELDS = [
   'id', 'orgId', 'name', 'description', 'keywords', 'category', 'version', 'pluginType', 'computeType',
   'timeout', 'failureBehavior', 'visibility', 'isDefault', 'isActive', 'createdBy', 'createdAt', 'updatedAt',
+  'buildType', 'imageDigest', 'imageSource',
 ] as const satisfies ReadonlyArray<keyof Plugin>;
 
 /** A plugin row as the list view receives it (see {@link PLUGIN_LIST_FIELDS}). */
@@ -70,6 +71,29 @@ export function pluginsApi(core: ApiCore) {
 
     getPluginById: async (id: string) => {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`);
+    },
+
+    /**
+     * The plugin image's SPDX JSON SBOM as a file (`GET /plugins/:id/sbom`). The
+     * server reads it from the image's SIGNED attestation, so a successful
+     * download also proves the attestation verified; a 409
+     * `IMAGE_VERIFICATION_FAILED` means it did not. A raw fetch (the body is a
+     * file, not JSON), so failures are rebuilt from the error envelope here.
+     */
+    downloadPluginSbom: async (id: string): Promise<{ blob: Blob; filename: string }> => {
+      await core.ensureFreshToken();
+      const res = await fetch(`${API_URL}/api/plugins/${encodeURIComponent(id)}/sbom`, {
+        headers: core.authHeaders() as Record<string, string>,
+        credentials: 'same-origin',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { code?: string; message?: string };
+        throw new ApiError(data.message || 'SBOM download failed', res.status, data.code);
+      }
+      // Prefer the server's `<name>-<version>.spdx.json` over rebuilding one.
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      return { blob: await res.blob(), filename: match?.[1] ?? 'sbom.spdx.json' };
     },
 
     uploadPlugin: async (file: File, visibility: Visibility, options?: { signal?: AbortSignal }) => {

@@ -47,8 +47,14 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
+jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
+  verifyImageSignature: jest.fn(),
+  fetchImageSbom: jest.fn(),
+  ImageVerificationError: class extends Error {},
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
+  Config: { get: () => ({}) },
   // The route was migrated from direct `db.execute(...)` to
   // `withTenantTx(tx => tx.execute(...))`. The mock hands back a tx whose
   // execute funnels through the same mockExecute spy so per-test

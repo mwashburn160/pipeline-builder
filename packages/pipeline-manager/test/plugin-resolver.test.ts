@@ -79,6 +79,28 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
   });
 });
 
+describe('resolvePluginsForProps — image signature verification', () => {
+  /** Stub ApiClient whose POST rejects the way ApiClient does on an HTTP error. */
+  function clientRejecting(status: number, data: unknown): ApiClient {
+    return {
+      post: async () => { throw Object.assign(new Error((data as { message?: string })?.message ?? 'failed'), { status, response: { status, data } }); },
+    } as unknown as ApiClient;
+  }
+
+  // A plugin whose image signature doesn't verify must stop the synth — falling
+  // back to deploy-time resolution would quietly turn it into an unresolved step.
+  it('aborts on 409 IMAGE_VERIFICATION_FAILED instead of falling back', async () => {
+    const client = clientRejecting(409, { success: false, code: 'IMAGE_VERIFICATION_FAILED', message: 'failed signature verification' });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto')))
+      .rejects.toThrow(/java-corretto" image failed signature verification/);
+  });
+
+  it('still falls back (non-fatal) on an ordinary lookup failure', async () => {
+    const client = clientRejecting(503, { success: false, code: 'SERVICE_UNAVAILABLE', message: 'down' });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto'))).resolves.toEqual({});
+  });
+});
+
 describe('resolvePluginsForProps — lookup filter carries the plugin name', () => {
   // A name-less filter matches ANY plugin with those attributes; the endpoint
   // returns an arbitrary one (seen: dockerfile-multi-provider). So every lookup

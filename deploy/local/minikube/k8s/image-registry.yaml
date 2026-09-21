@@ -9,6 +9,12 @@
 # The underlying registry (registry.yaml) delegates auth to /token via its
 # REGISTRY_AUTH_TOKEN_REALM. The same JWT signing keypair (registry-token-secret)
 # is mounted here for issuing and on the registry for verifying.
+#
+# It is also the plugin-IMAGE signer: POST /internal/plugin-signatures (service
+# token, caller must be `plugin`) runs cosign sign + attest (SPDX SBOM) with the
+# plugin-signing key. This pod is that key's ONLY holder — the plugin pod gets
+# just the public half, because it shares a network namespace with the
+# buildkitd sidecar that runs untrusted tenant Dockerfile RUN steps.
 # =============================================================================
 apiVersion: v1
 kind: Service
@@ -16,6 +22,15 @@ metadata:
   name: image-registry
   labels:
     app: image-registry
+    # This Service exposes an INTERNAL route (POST /internal/plugin-signatures),
+    # so its traffic goes through the `pb-waypoint` proxy, which is the only
+    # thing in an ambient mesh that can enforce a per-ROUTE (L7)
+    # AuthorizationPolicy. See k8s/istio-internal-routes.yaml — removing this
+    # label is the rollback: the policies then match nothing and the app-side
+    # `requireInternalService` gate carries the route alone. /token and
+    # /api/images/* pass through unchanged (the waypoint's identity is in
+    # image-registry-allow in k8s/istio.yaml).
+    istio.io/use-waypoint: pb-waypoint
 spec:
   type: ClusterIP
   ports:
@@ -140,6 +155,18 @@ spec:
               value: "pipeline-image-registry"
             - name: REGISTRY_TOKEN_EXPIRES_IN
               value: "300"
+            # Plugin-image signing. PLUGIN_SIGNING_MODE (local | kms) and, for
+            # kms, PLUGIN_SIGNING_KMS_KEY_ID (alias/<name>) come from app-env
+            # (.env). The key path is pinned HERE because it is where the
+            # plugin-signing-key Secret is mounted below; in kms mode that
+            # Secret does not exist and the file is never read.
+            - name: PLUGIN_SIGNING_KEY_FILE
+              value: "/etc/pipeline-builder/plugin-signing/plugin-signing.key"
+            # cosign writes its TUF cache, the imported (password-encrypted)
+            # key and each SBOM predicate under os.tmpdir() — the scratch-tmp
+            # emptyDir below, since the root filesystem is read-only.
+            - name: TMPDIR
+              value: "/tmp"
             # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD come from
             # the image-registry-build-svc-secret envFrom above. Same creds
             # as the registry container's htpasswd; setup.sh keeps them
@@ -165,6 +192,15 @@ spec:
               mountPath: /etc/registry/jwt-public.pem
               subPath: jwt-public.pem
               readOnly: true
+            # The plugin-image signing key. Mounted into IMAGE-REGISTRY ONLY —
+            # plugin mounts the public half (plugin-signing-public-key).
+            - name: plugin-signing-key
+              mountPath: /etc/pipeline-builder/plugin-signing
+              readOnly: true
+            # readOnlyRootFilesystem: true means Node (and the cosign it
+            # spawns) can't write anywhere under `/` — signing needs a tempdir.
+            - name: scratch-tmp
+              mountPath: /tmp
           resources:
             limits:
               cpu: "500m"
@@ -216,6 +252,16 @@ spec:
                 path: jwt-public.pem
               - key: jwt-private.pem
                 path: jwt-private.pem
+        # `optional: true` so a KMS-signing install (where bin/k8s-resources.sh
+        # creates no plugin-signing-key Secret) still schedules.
+        - name: plugin-signing-key
+          secret:
+            secretName: plugin-signing-key
+            optional: true
+            defaultMode: 0444
+        - name: scratch-tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 # =============================================================================
 # Image Registry HorizontalPodAutoscaler

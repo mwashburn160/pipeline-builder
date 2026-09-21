@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fb4eabdda4abf10b9ed9ff59aa9acb2111e840c9fb0bccf51233c72528211c1c
+// SOURCE-SHA256: 4699e3b75b8e29994bb15cec313267ee8e5051d827f3bbc336985db704df85fd
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -339,7 +339,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Image registry",
-              "registry.gc, registry.image.delete, registry.image.copy (all carry affectedOrgId = the org owning the repository — org-<id>/…, or the system org for system/… — so that org's admins see changes an operator made to their images)"
+              "registry.gc, registry.image.delete, registry.image.copy (all carry affectedOrgId = the org owning the repository — org-<id>/…, or the system org for system/… — so that org's admins see changes an operator made to their images); registry.image.sign — a plugin image signed and SBOM-attested with the platform plugin-signing key at the plugin build worker's request (details.digest; affectedOrgId = the owning org)"
             ],
             [
               "Message",

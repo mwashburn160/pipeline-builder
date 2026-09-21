@@ -231,6 +231,25 @@
     "audit": []
   },
   {
+    "method": "POST",
+    "path": "/internal/plugin-signatures",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "registry.image.sign"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/metrics",
     "auth": false,

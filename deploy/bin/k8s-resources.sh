@@ -168,6 +168,36 @@ pb_create_token_signing_secret() {
   pb_secret token-signing-key "${_args[@]}"
 }
 
+# The plugin-IMAGE signing keypair (cosign), as TWO Secrets because its halves
+# go to different pods. Args: <plugin_signing_dir> (the `plugin-signing/`
+# directory deploy/bin/plugin-signing-keys.sh writes).
+#
+#   plugin-signing-key         PRIVATE key — mounted by image-registry ONLY. It
+#                              signs at POST /internal/plugin-signatures on the
+#                              plugin service's behalf. Created in local mode
+#                              only: under PLUGIN_SIGNING_MODE=kms the key never
+#                              leaves AWS, so any Secret left by an earlier local
+#                              run is DELETED rather than left lying around (the
+#                              manifest mounts it `optional: true`, so image-
+#                              registry still schedules without it).
+#   plugin-signing-public-key  PUBLIC key — mounted by plugin, which only runs
+#                              `cosign verify`. Always created (in kms mode it is
+#                              the key exported from KMS). Plugin must never get
+#                              the private Secret: its pod shares a network
+#                              namespace with the buildkitd sidecar that runs
+#                              untrusted tenant Dockerfile RUN steps.
+pb_create_plugin_signing_secrets() {
+  local _dir="${1:?pb_create_plugin_signing_secrets needs the plugin-signing dir}"
+  [ -f "$_dir/plugin-signing.pub" ] || { echo "ERROR: no plugin signing public key at $_dir/plugin-signing.pub (run deploy/bin/plugin-signing-keys.sh)" >&2; return 1; }
+  if [ "${PLUGIN_SIGNING_MODE:-local}" = "local" ]; then
+    pb_secret plugin-signing-key --from-file=plugin-signing.key="$_dir/plugin-signing.key"
+  else
+    $PB_KUBECTL delete secret plugin-signing-key -n "$PB_NAMESPACE" --ignore-not-found >/dev/null
+    echo "  plugin signing: KMS mode, no private key Secret"
+  fi
+  pb_secret plugin-signing-public-key --from-file=plugin-signing.pub="$_dir/plugin-signing.pub"
+}
+
 # The PER-SERVICE internal-token signing keys (#14), as one Secret per service
 # plus one shared PUBLIC bundle. Args: <service_keys_dir> (the `service-keys/`
 # directory deploy/bin/service-signing-keys.sh writes).

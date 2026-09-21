@@ -117,9 +117,10 @@ right workload identity.
 - **A waypoint, because these are L7 rules.** Per-route means path + method, and
   ztunnel is L4-only — an L7 `AuthorizationPolicy` is enforced by a waypoint proxy
   or not at all. The `pb-waypoint` Gateway is attached (via the
-  `istio.io/use-waypoint` label on the **Service**) to exactly the five Services
+  `istio.io/use-waypoint` label on the **Service**) to exactly the six Services
   that expose an internal route: `platform`, `message`, `compliance`, `quota`,
-  `reporting`. Not namespace-wide, which would put an Envoy hop in front of the
+  `reporting`, `image-registry` (`POST /internal/plugin-signatures` — plugin-image
+  signing, `plugin` only). Not namespace-wide, which would put an Envoy hop in front of the
   datastores too. It needs the Kubernetes Gateway API CRDs, which
   `istioctl install` does not ship — each target's setup installs the standard
   channel (`GATEWAY_API_VERSION`, pinned) when they are absent.
@@ -129,8 +130,13 @@ right workload identity.
   `notPrincipals` + a path match expresses "only these callers, on this route"
   without restating every service's full caller list.
 - **Traffic through a waypoint arrives as the WAYPOINT's identity**, so
-  `sa/pb-waypoint` is listed in those five workloads' ALLOW policies. The original
-  caller has already been checked, at the waypoint.
+  `sa/pb-waypoint` is listed in those six workloads' ALLOW policies. The original
+  caller has already been checked, at the waypoint. For `image-registry` this
+  covers far more than the internal route: nginx's `/token` and `/api/images/*`
+  proxying, buildkitd's token fetches from the plugin pod, the bootstrap crane
+  push pods and per-org build pods all address the Service, so all of them now
+  reach the pod as the waypoint — drop `sa/pb-waypoint` from
+  `image-registry-allow` and the registry token flow 403s.
 - **Path matching** is exact / prefix (`/x/*`) / suffix (`*/x`) only — no wildcard
   in the middle — so a route with an `:orgId` segment is matched by suffix or
   prefix (e.g. `*/increment`). The app-side gate matches the exact route

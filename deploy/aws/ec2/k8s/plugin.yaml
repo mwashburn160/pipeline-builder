@@ -237,6 +237,14 @@ spec:
               value: "true"
             - name: TMPDIR
               value: "/tmp"
+            # Public key plugin images are verified against (`cosign verify`)
+            # before an image plugin is handed out (synth pins CodeBuild to the
+            # verified digest). The PRIVATE half lives only in
+            # image-registry, which signs at POST /internal/plugin-signatures;
+            # this pod must never hold it (it shares a network namespace with
+            # the buildkitd sidecar that runs tenant Dockerfile RUN steps).
+            - name: PLUGIN_SIGNING_PUBLIC_KEY_FILE
+              value: "/etc/pipeline-builder/plugin-signing/plugin-signing.pub"
           volumeMounts:
             # This pod's OWN internal-token signing key (#14) and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
@@ -249,6 +257,11 @@ spec:
               readOnly: true
             - name: service-key-bundle
               mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
+            # Plugin-image signing PUBLIC key only (verification). Secret from
+            # deploy/bin/plugin-signing-keys.sh via bin/k8s-resources.sh.
+            - name: plugin-signing-public-key
+              mountPath: /etc/pipeline-builder/plugin-signing
               readOnly: true
             # Mount at the SAME absolute path as the host (which buildkit
             # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
@@ -303,6 +316,12 @@ spec:
         - name: service-key-bundle
           secret:
             secretName: service-key-bundle
+            defaultMode: 0444
+        # NOT optional: it exists in both signing modes (kms exports it), and a
+        # plugin that cannot verify must fail loudly at mount, not at push.
+        - name: plugin-signing-public-key
+          secret:
+            secretName: plugin-signing-public-key
             defaultMode: 0444
         # Node-local build scratch (transient ZIP + extracted context). Single
         # dir now — the durable cross-pod build context lives in object storage

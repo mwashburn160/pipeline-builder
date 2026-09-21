@@ -1754,6 +1754,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /quotas/:orgId/decrement',
     'POST /quotas/:orgId/increment',
   ], { category: 'machine-only', why: 'Service-principal quota accounting called by every service on a write; no user token is admitted.' }),
+  'image-registry POST /internal/plugin-signatures': { category: 'machine-only', why: 'Service-principal route: the plugin build worker asks image-registry (the plugin-signing key\'s only holder) to sign + SBOM-attest each pushed image; no user token is admitted.' },
   'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
 
   // ── Machine credentials: a scoped key, never a session ────────────────────

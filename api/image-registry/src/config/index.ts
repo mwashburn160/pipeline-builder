@@ -78,6 +78,24 @@ export interface AppConfig {
     readonly host: string;
     readonly port: number;
   };
+
+  /**
+   * The plugin-signing key. This service is the ONLY holder: the plugin build
+   * worker asks it to sign every pushed plugin image (`/internal/plugin-signatures`)
+   * rather than hold the key itself, because the plugin pod shares its network
+   * namespace with untrusted tenant builds (see api/plugin supply-chain.ts).
+   *
+   * - `local` — EC P-256 PKCS#8 PEM on disk (env: `PLUGIN_SIGNING_KEY_FILE`).
+   * - `kms`   — an AWS KMS `ECC_NIST_P256` `SIGN_VERIFY` key, BY ALIAS
+   *             (env: `PLUGIN_SIGNING_KMS_KEY_ID`); an ARN embeds the account id.
+   */
+  readonly pluginSigning: {
+    readonly mode: 'local' | 'kms';
+    readonly keyFile: string;
+    readonly kmsKeyId: string;
+    /** Upper bound on one cosign invocation (env: `PLUGIN_SIGNING_TIMEOUT_MS`). */
+    readonly timeoutMs: number;
+  };
 }
 
 export function loadConfig(): AppConfig {
@@ -106,6 +124,13 @@ export function loadConfig(): AppConfig {
     platformService: {
       host: process.env.PLATFORM_SERVICE_HOST || 'platform',
       port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+    },
+
+    pluginSigning: {
+      mode: process.env.PLUGIN_SIGNING_MODE === 'kms' ? 'kms' : 'local',
+      keyFile: process.env.PLUGIN_SIGNING_KEY_FILE || '/etc/pipeline-builder/plugin-signing/plugin-signing.key',
+      kmsKeyId: process.env.PLUGIN_SIGNING_KMS_KEY_ID || '',
+      timeoutMs: parseInt(process.env.PLUGIN_SIGNING_TIMEOUT_MS || '120000', 10),
     },
   };
 }

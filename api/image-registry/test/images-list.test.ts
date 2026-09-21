@@ -111,6 +111,15 @@ describe('GET /api/images/:name/tags', () => {
     expect(body.data).toEqual({ name: 'org-acme/app', tags: ['1.0', 'latest'] });
   });
 
+  it('hides cosign signature/attestation tags — they describe an image, they are not one', async () => {
+    const hex = 'a'.repeat(64);
+    listTags.mockResolvedValue({ name: 'org-acme/app', tags: ['1.0', `sha256-${hex}.sig`, `sha256-${hex}.att`] });
+
+    const { body } = await getTags('org-acme/app');
+
+    expect(body.data).toEqual({ name: 'org-acme/app', tags: ['1.0'] });
+  });
+
   it('propagates a non-NotFound registry error (not swallowed as 404)', async () => {
     // The error carries its own statusCode (503) — the handler must NOT convert it
     // to 404; it re-throws so the error's status propagates.

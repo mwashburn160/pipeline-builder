@@ -478,6 +478,8 @@ export const ALL_AUDIT_ACTIONS = [
   'registry.gc',
   'registry.image.delete',
   'registry.image.copy',
+  // Plugin image signed + SBOM-attested with the platform plugin-signing key.
+  'registry.image.sign',
   // Messaging (api/message) — admin broadcast announcements + destructive
   // deletes (metadata only, never message body content).
   'message.announcement.create',

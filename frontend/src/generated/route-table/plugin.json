@@ -231,6 +231,29 @@
     ]
   },
   {
+    "method": "GET",
+    "path": "/plugins/:id/sbom",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "POST",
     "path": "/plugins/bulk/delete",
     "auth": true,

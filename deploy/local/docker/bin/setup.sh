@@ -109,6 +109,16 @@ bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 # rule as the registry keypair above (Docker would otherwise create the mount
 # path as a directory and platform would refuse to boot). Idempotent.
 bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
+# Plugin-image signing keypair → certs/plugin-signing/plugin-signing.{key,pub}.
+# The .key is bind-mounted into image-registry ONLY (it signs pushed plugin
+# images); plugin gets just the .pub (it only verifies). Same must-exist-before-
+# `up` rule as the keys above. The mode is read from .env (compose passes the
+# same value to image-registry) — `local` unless someone has deliberately wired
+# AWS credentials into this stack for kms. Idempotent (never regenerates an
+# existing key: that would orphan every signature already pushed).
+PLUGIN_SIGNING_MODE="$(grep -E '^PLUGIN_SIGNING_MODE=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
+PLUGIN_SIGNING_KMS_KEY_ID="$(grep -E '^PLUGIN_SIGNING_KMS_KEY_ID=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
+  bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14) →
 # certs/service-keys/<service>.key plus the public certs/service-keys/bundle.json.
 # Each container bind-mounts ONLY its own key (plus the shared public bundle), so

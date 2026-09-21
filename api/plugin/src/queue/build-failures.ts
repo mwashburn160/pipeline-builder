@@ -14,7 +14,7 @@ import { AppError, createLogger, errorMessage, extractDbError } from '@pipeline-
 import { db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { UnrecoverableError } from 'bullmq';
 import type { Job } from 'bullmq';
-import { BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
+import { BuildProcessError, maskSecrets } from '../helpers/build-process.js';
 import type { FailureCategory } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');

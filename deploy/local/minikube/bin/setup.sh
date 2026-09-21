@@ -553,6 +553,23 @@ _token_signing_args=(--from-file=token-signing.key="$CERT_DIR/token-signing/toke
   && _token_signing_args+=(--from-file=token-signing-previous.key="$CERT_DIR/token-signing/token-signing-previous.key")
 secret token-signing-key "${_token_signing_args[@]}"
 
+# The plugin-image signing keypair, split across two Secrets because its halves
+# go to different pods: `plugin-signing-key` (PRIVATE) is mounted by
+# image-registry ONLY — it signs pushed plugin images at POST
+# /internal/plugin-signatures — and `plugin-signing-public-key` by plugin, which
+# only verifies (its pod shares a network namespace with the buildkitd that runs
+# tenant Dockerfile steps, so it must never hold the private key). The script
+# honours PLUGIN_SIGNING_MODE from the sourced .env; in kms mode it writes no
+# private key, so none is uploaded (and a stale one is removed). Idempotent:
+# re-running setup never regenerates the key (that orphans every signature).
+bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
+if [ "${PLUGIN_SIGNING_MODE:-local}" = "local" ]; then
+  secret plugin-signing-key --from-file=plugin-signing.key="$CERT_DIR/plugin-signing/plugin-signing.key"
+else
+  kubectl delete secret plugin-signing-key -n "$NAMESPACE" --ignore-not-found >/dev/null
+fi
+secret plugin-signing-public-key --from-file=plugin-signing.pub="$CERT_DIR/plugin-signing/plugin-signing.pub"
+
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14): one
 # `service-key-<name>` Secret per service (mounted by that service ALONE — which
 # is what stops a compromised pod signing as another) plus the public
@@ -570,7 +587,7 @@ for _svc_key in "$CERT_DIR"/service-keys/*.key; do
 done
 
 # (No registry htpasswd: the registry uses token auth — nothing mounts registry-auth-secret.)
-echo "  TLS + registry + user-token signing keys done"
+echo "  TLS + registry + user-token + plugin signing keys done"
 
 # -- ConfigMaps ---------------------------------------------------------------
 

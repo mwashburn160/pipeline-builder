@@ -20,8 +20,9 @@
 # mode ztunnel is L4-only and cannot evaluate an HTTP path, so an L7
 # AuthorizationPolicy is enforced by a waypoint proxy or not at all. The
 # `pb-waypoint` Gateway below is that proxy, attached (via
-# `istio.io/use-waypoint`) to exactly the five Services that expose an internal
-# route — not namespace-wide, which would put an Envoy hop in front of the
+# `istio.io/use-waypoint`) to exactly the six Services that expose an internal
+# route (platform, message, compliance, quota, reporting, image-registry) — not
+# namespace-wide, which would put an Envoy hop in front of the
 # datastores too.
 #
 # -- Why DENY rather than ALLOW ----------------------------------------------
@@ -276,3 +277,30 @@ spec:
         - operation:
             methods: ["PUT"]
             paths: ["/reports/retention-sync/*"]
+---
+# -- image-registry ----------------------------------------------------------
+# POST /internal/plugin-signatures — image-registry cosign-signs a freshly pushed
+# plugin image (and attaches its SBOM) with the plugin-signing key it alone
+# holds. Only the plugin worker may ask: a signature is what synth trusts to pin
+# CodeBuild to a digest, so a signing oracle open to any other caller would let
+# it launder an arbitrary image. /token and /api/images/* are untouched.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-plugin-signatures
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/internal/plugin-signatures"]

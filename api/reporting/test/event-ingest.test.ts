@@ -217,27 +217,27 @@ describe('POST /reports/events', () => {
       mockIngestEvents.mockImplementationOnce(async () =>
         // No onMetric call: a PIPELINE/BUILD-only batch.
         ({ inserted: 2, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] }));
-  
+
       await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
-  
+
       expect(mockSseSend).toHaveBeenCalledWith('acme', 'MESSAGE', 'execution-updated', expect.any(Object));
     });
-  
+
     it('sends one frame per affected org, not one per event', async () => {
       mockIngestEvents.mockImplementationOnce(async () =>
         ({ inserted: 50, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme', 'globex'] }));
-  
+
       await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
-  
+
       expect(mockSseSend).toHaveBeenCalledTimes(2);
     });
-  
+
     it('stays silent when nothing landed', async () => {
       mockIngestEvents.mockImplementationOnce(async () =>
         ({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['p-x'], affectedOrgs: [] }));
-  
+
       await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
-  
+
       expect(mockSseSend).not.toHaveBeenCalled();
     });
   });

@@ -69,14 +69,22 @@ function withRows(pages: Row[][]) {
 }
 
 const root = (id: string, quotas: Record<string, number>, used: Record<string, number> = {}): Row => ({
-  _id: id, name: id, slug: id, tier: 'team', parentOrgId: null,
+  _id: id,
+  name: id,
+  slug: id,
+  tier: 'team',
+  parentOrgId: null,
   quotas,
   usage: Object.fromEntries(Object.entries(used).map(([k, v]) => [k, { used: v, resetAt: future }])),
 });
 
 /** A team: its OWN limits are -1, which is the whole trap. */
 const team = (id: string, parentOrgId: string, used: Record<string, number> = {}): Row => ({
-  _id: id, name: id, slug: id, tier: 'team', parentOrgId,
+  _id: id,
+  name: id,
+  slug: id,
+  tier: 'team',
+  parentOrgId,
   quotas: { plugins: -1, pipelines: -1 },
   usage: Object.fromEntries(Object.entries(used).map(([k, v]) => [k, { used: v, resetAt: future }])),
 });

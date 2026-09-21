@@ -109,6 +109,7 @@ the links below.
 - **IAM roles (pipeline / step / action, OIDC)** — [CDK: IAM Roles](cdk-usage.md#iam-roles), [Metadata Keys: IAM Role](metadata-keys.md#iam-role-configuration), [Samples: IAM Role Levels](samples.md#iam-role-levels)
 - **Impersonation (sysadmin view-as-user, read-only)** — [Permissions: Impersonation](permissions.md#impersonation-view-as-user), [Audit: admin.impersonate.start](audit-events.md#action-catalog)
 - **Impersonation policy (consent, open, emergencies only)** — [Permissions: Administrator access policy](permissions.md#administrator-access-policy)
+- **Image signing (plugin images, cosign, digest pinning)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance), [Architecture: Plugin Upload & Build](architecture-flow.md#flow-1-plugin-upload--build), [Env vars: Plugin-image signing](environment-variables.md#plugin-image-signing-cosign--image-registry-signs-plugin-verifies), [Runbook: Plugin-signing key](runbooks/secret-rotation.md#plugin-signing-key)
 - **Incident reporting setup (admin UI, self-serve token, per-org window)** — [Admin UI](incidents-webhook.md#admin-ui), [Getting a token](incidents-webhook.md#getting-a-token-self-serve), [Per-org window](incidents-webhook.md#per-org-correlation-window)
 - **Incident webhook — Alertmanager adapter (native payload)** — [Alertmanager adapter](incidents-webhook.md#alertmanager-adapter-native)
 - **Incident webhook (PagerDuty/Datadog/Alertmanager → automated CFR + MTTR)** — [Incident Webhook](incidents-webhook.md), [Correlation window](incidents-webhook.md#correlation-window)
@@ -160,6 +161,7 @@ the links below.
 - **Plugins (catalog, categories, structure)** — [Plugin Catalog](plugins/README.md), [Categories](plugins/README.md#categories), by type: [AI](plugins/ai.md) · [Artifact](plugins/artifact.md) · [Deploy](plugins/deploy.md) · [Infrastructure](plugins/infrastructure.md) · [Language](plugins/language.md) · [Monitoring](plugins/monitoring.md) · [Notification](plugins/notification.md) · [Quality](plugins/quality.md) · [Security](plugins/security.md) · [Testing](plugins/testing.md)
 - **Plugin contract (requiredMetadata / requiredVars / metadataTypes)** — [Templates: Plugin contract](templates.md#plugin-contract-declare-your-requirements)
 - **Policies (compliance)** — [Compliance: Policies](compliance.md#policies)
+- **Provenance (SLSA, BuildKit `mode=min`)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance)
 - **Private vs public deployment** — [AWS Deployment: Deployment modes](aws-deployment.md#deployment-modes-public-vs-private)
 - **Promotions / referrals** — [Billing Discounts: Promotions](billing-discounts.md#promotions)
 
@@ -178,6 +180,7 @@ the links below.
 
 ## S
 
+- **SBOM (plugin image SPDX, signed attestation, download)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance), [API: Plugin Service](api-reference.md#plugin-service)
 - **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#loading-samples)
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **SCIM (directory provisioning, Okta / Entra)** — [Authentication: SCIM 2.0 provisioning](authentication.md#scim-20-provisioning), [API: SCIM 2.0](api-reference.md#scim-20-apiscimv2), [Permissions: SCIM is a scope, not a permission](permissions.md#scim-apiscimv2--a-capability-scope-not-a-permission), [Audit: SCIM provisioning](audit-events.md#action-catalog)
@@ -185,7 +188,7 @@ the links below.
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
 - **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5--store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
-- **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
+- **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key, plugin-signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
 - **Slack alert delivery (ops-team channels)** — [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
 - **Self-references (pipeline.json cross-refs)** — [Templates: pipeline-level self-references](templates.md#example-pipeline-level-self-references)

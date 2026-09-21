@@ -39,6 +39,7 @@ import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metri
 import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import type { BuildResult } from '../helpers/docker-build.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { getAuditClient } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -147,6 +148,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
         let fullImage = '';
+        // The signed digest + where the image came from, persisted with the row so
+        // synth pins CodeBuild to exactly this image. Stays null for approval steps.
+        let image: { imageDigest: string; imageSource: BuildResult['imageSource'] } | null = null;
 
         const strategy = getBuildStrategy(buildRequest.buildType);
         // isApprovalStep is a second, orthogonal "skip build" axis (pluginType), kept here.
@@ -161,10 +165,15 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             onLine: (line, stream) => { sseManager.send(requestId, 'MESSAGE', line, { stream, log: true }); },
           });
           fullImage = result.fullImage;
-          sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
+          image = { imageDigest: result.digest, imageSource: result.imageSource };
+          sseManager.send(requestId, 'INFO', 'Image pushed and signed', { fullImage, digest: result.digest });
         }
 
-        const result = await pluginService.deployVersion(pluginRecord, userId, access);
+        const result = await pluginService.deployVersion(
+          { ...pluginRecord, imageDigest: image?.imageDigest ?? null, imageSource: image?.imageSource ?? null },
+          userId,
+          access,
+        );
 
         recordBuildEvent(orgId, 'completed', job, {
           pluginName: result.name,
@@ -200,6 +209,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             pluginVersion: result.version,
             jobId: job.id,
             durationMs,
+            ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
           },
         }, 'plugin');
 
@@ -208,6 +218,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           name: result.name,
           version: result.version,
           fullImage,
+          digest: image?.imageDigest,
         });
 
         cleanupBuildArtifacts(buildRequest);

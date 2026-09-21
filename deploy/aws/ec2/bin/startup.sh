@@ -418,6 +418,17 @@ fi
 pb_create_token_signing_secret "$CERT_DIR/token-signing/token-signing.key" "$CERT_DIR/token-signing/token-signing-previous.key"
 echo "  user-token signing key done"
 
+# The plugin-image signing keypair. Runs in BOTH modes: local generates the
+# private key (image-registry only) + its public half; kms writes no private key
+# and exports the public half from KMS by alias (the instance role running this
+# needs kms:GetPublicKey). Plugin gets only the public Secret — see
+# pb_create_plugin_signing_secrets. Idempotent: never regenerates a key, since
+# that would orphan the signature on every plugin image already pushed.
+bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
+[ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR"/plugin-signing/plugin-signing.* 2>/dev/null || true
+pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
+echo "  plugin-image signing key done"
+
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14): one
 # `service-key-<name>` Secret per service — mounted by that service ALONE, which
 # is what stops a compromised pod signing as another — plus the public

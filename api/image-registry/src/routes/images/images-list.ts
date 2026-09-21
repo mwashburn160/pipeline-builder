@@ -15,7 +15,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canReadRepo } from './repo-access.js';
-import { COPY_PARALLEL_BLOBS } from './shared.js';
+import { COPY_PARALLEL_BLOBS, isCosignCompanionTag } from './shared.js';
 import {
   listRepositories,
   listTags,
@@ -56,7 +56,7 @@ export function registerListRoutes(router: Router): void {
       await runConcurrent(repositories, COPY_PARALLEL_BLOBS, async (repo) => {
         try {
           const { tags } = await listTags(repo);
-          if ((tags?.length ?? 0) > 0) withTags.add(repo);
+          if ((tags ?? []).some((tag) => !isCosignCompanionTag(tag))) withTags.add(repo);
         } catch (err) {
           // A repo that 404s on tags/list mid-list is treated as empty (skip).
           if (!isNotFound(err)) throw err;
@@ -86,8 +86,11 @@ export function registerListRoutes(router: Router): void {
     // axios error bubble up as a 500.
     try {
       const result = await listTags(name);
-      ctx.log('COMPLETED', 'Listed tags', { name, count: result.tags.length });
-      return sendSuccess(res, 200, result);
+      // Hide cosign's signature/attestation tags — they describe an image, they
+      // aren't one (see isCosignCompanionTag).
+      const tags = (result.tags ?? []).filter((tag) => !isCosignCompanionTag(tag));
+      ctx.log('COMPLETED', 'Listed tags', { name, count: tags.length });
+      return sendSuccess(res, 200, { ...result, tags });
     } catch (err) {
       if (isNotFound(err)) return sendEntityNotFound(res, 'Image');
       throw err;

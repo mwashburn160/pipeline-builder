@@ -19,6 +19,13 @@ export interface PluginSecret {
 }
 
 /**
+ * Where a plugin's image came from: `built` by the platform's BuildKit (carries
+ * SLSA provenance) or `uploaded` as a prebuilt `image.tar` (SBOM + signature
+ * only — the platform never saw the build).
+ */
+export type ImageSource = 'built' | 'uploaded';
+
+/**
  * Table for storing reusable plugin configurations.
  * Plugins define the behavior of synth/build steps in CDK pipelines.
  *
@@ -118,6 +125,15 @@ export const plugin = pgTable('plugins', {
     .default('build_image')
     .notNull(),
 
+  // Supply chain. Set by the build worker once the image is pushed, signed and
+  // carries its SBOM attestation; NULL for plugins that produce no image
+  // (metadata_only, approval steps). `imageDigest` is what synth pins CodeBuild
+  // to (`<repo>@sha256:…`) — never the mutable `name:version` tag.
+  // `imageSource` separates an image this platform BUILT (BuildKit provenance
+  // attached) from an UPLOADED `image.tar` whose build it never saw.
+  imageDigest: varchar('image_digest', { length: 71 }),
+  imageSource: varchar('image_source', { length: 10 }).$type<ImageSource>(),
+
   // Developer-portal catalog metadata (ownership / lifecycle / classification).
   // ownerId defaults to the creating user (set at insert), so every plugin has
   // an owner for "my services" views; ownerType distinguishes user vs team.
@@ -195,6 +211,12 @@ export const plugin = pgTable('plugins', {
   // Check constraints
   versionCheck: check( 'plugin_version_check',
     sql`${table.version} ~ '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'`,
+  ),
+  imageDigestCheck: check('plugin_image_digest_check',
+    sql`${table.imageDigest} IS NULL OR ${table.imageDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+  ),
+  imageSourceCheck: check('plugin_image_source_check',
+    sql`${table.imageSource} IS NULL OR ${table.imageSource} IN ('built', 'uploaded')`,
   ),
 }));
 

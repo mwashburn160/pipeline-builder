@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Boxes, Star, Trash2 } from 'lucide-react';
+import { Boxes, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { AccessCell } from '@/components/ui/AccessCell';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -13,6 +13,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { CATEGORY_DISPLAY_NAMES, type PluginCategory } from '@/lib/plugin-categories';
 import { registryHrefFor } from './PluginDetailModal';
+import { pluginProducesImage } from './PluginSupplyChain';
 
 /**
  * DataTable column id → the server-side sort field the plugins list endpoint
@@ -116,6 +117,15 @@ export function usePluginColumns({
                 {p.name}
               </button>
               {p.version && <span className="shrink-0 text-2xs font-mono text-fg-subtle border border-default rounded px-1 py-0.5">v{p.version}</span>}
+              {pluginProducesImage(p) && (p.imageDigest ? (
+                <span title="Signed image" className="inline-flex text-success">
+                  <ShieldCheck className="w-3.5 h-3.5" aria-label="Signed image" />
+                </span>
+              ) : (
+                <span title="Unsigned image — rebuild or re-upload to use in pipelines" className="inline-block">
+                  <Badge color="yellow">Unsigned</Badge>
+                </span>
+              ))}
               {!p.isActive && <Badge color="red">Inactive</Badge>}
               {used > 0 && (
                 <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">

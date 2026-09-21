@@ -435,6 +435,11 @@ export class PluginService extends CrudService<
             installCommands: data.installCommands,
             commands: data.commands,
             dockerfile: data.dockerfile,
+            buildType: data.buildType,
+            // A re-upload is a new image: the old digest/signature no longer
+            // describes this row (null when the new version builds no image).
+            imageDigest: data.imageDigest ?? null,
+            imageSource: data.imageSource ?? null,
             visibility: data.visibility,
             isDefault: true,
             isActive: true,

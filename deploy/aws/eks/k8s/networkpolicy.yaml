@@ -114,7 +114,8 @@ spec:
 
 ---
 # =============================================================================
-# Image-registry API — ingress from plugin (token issuance for buildkit push).
+# Image-registry API — ingress from plugin (token issuance for buildkit push,
+# and POST /internal/plugin-signatures: image-registry signs the pushed image).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -647,6 +648,61 @@ spec:
   policyTypes:
     - Egress
   egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Image-registry KMS Egress — used only under PLUGIN_SIGNING_MODE=kms
+# In kms mode image-registry signs plugin images through AWS KMS
+# (kms:Sign / kms:GetPublicKey on alias/<name>), so it needs two legs that the
+# namespace-wide policies above do not open:
+#   - the EKS Pod Identity agent (169.254.170.23:80), which hands the
+#     image-registry ServiceAccount the credentials of the role bin/setup.sh
+#     Phase 5 associates with it (kms:Sign + kms:GetPublicKey on exactly the
+#     plugin-signing key, nothing else);
+#   - 443 on the public internet, where the regional KMS endpoint lives.
+#
+# Why image-registry may reach link-local when PLUGIN deliberately may not
+# (allow-plugin-external-egress excepts 169.254.0.0/16): image-registry runs NO
+# untrusted code. The plugin pod shares a network namespace with the buildkitd
+# sidecar that executes tenant Dockerfile RUN steps — which is exactly why the
+# signing key lives here and not there. The agent address is a single /32, not
+# the whole link-local range, so IMDS (169.254.169.254) stays closed.
+#
+# The public leg carves out every private range like the platform rule above;
+# in-namespace traffic (registry, redis, platform) is unaffected — it is allowed
+# by `allow-internal-egress`, and NetworkPolicies are additive.
+# FQDN-scoping (kms.<region>.amazonaws.com only) needs Cilium — see
+# cilium-network-policies.yaml.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-image-registry-kms-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: image-registry
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 169.254.170.23/32 # EKS Pod Identity agent (node-local)
+      ports:
+        - port: 80
+          protocol: TCP
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

@@ -46,9 +46,15 @@ const mockSpawn = jest.fn<(cmd: string, args: string[], opts?: any) => any>(() =
 
 jest.unstable_mockModule('child_process', () => ({ spawn: mockSpawn }));
 
+const DIGEST = `sha256:${'d'.repeat(64)}`;
+
 const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
-const mockReadFileSync = jest.fn<(...args: any[]) => any>().mockReturnValue('FROM node:24-slim\nRUN echo hello');
+/** Dockerfile reads get a Dockerfile; buildctl's `--metadata-file` read gets the pushed digest. */
+const readFileDefault = (file: string): string => (String(file).endsWith('metadata.json')
+  ? JSON.stringify({ 'containerimage.digest': DIGEST })
+  : 'FROM node:24-slim\nRUN echo hello');
+const mockReadFileSync = jest.fn<(...args: any[]) => any>(readFileDefault);
 const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(true);
 // The docker auth config is written to a fresh temp dir (outside the build
 // context) and removed after the build/push — mock both.
@@ -77,6 +83,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   signServiceToken: mockSignServiceToken,
 }));
 
+// The SBOM + signing step has its own suite (supply-chain.test.ts).
+const mockAttachSupplyChain = jest.fn<(...args: any[]) => Promise<void>>(async () => undefined);
+jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
+  attachSupplyChain: mockAttachSupplyChain,
+  DIGEST_RE: /^sha256:[0-9a-f]{64}$/,
+  SUPPLY_CHAIN_STEPS: 2,
+}));
+
 const mockConfigGet = (section: string) => {
   if (section === 'dockerConfig') {
     return {
@@ -93,13 +107,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { get: mockConfigGet, getAny: mockConfigGet },
 }));
 
-const {
-  buildAndPush,
-  loadAndPush,
-  BuildProcessError,
-} = await import('../src/helpers/docker-build.js');
+const { buildAndPush, loadAndPush } = await import('../src/helpers/docker-build.js');
+const { BuildProcessError } = await import('../src/helpers/build-process.js');
 type BuildRequest = import('../src/helpers/docker-build.js').BuildRequest;
-type RegistryInfo = import('../src/helpers/docker-build.js').RegistryInfo;
+type RegistryInfo = import('../src/helpers/registry-auth.js').RegistryInfo;
 
 function makeRegistry(overrides: Partial<RegistryInfo> = {}): RegistryInfo {
   return { host: 'registry', port: 5000, network: '', http: true, ...overrides };
@@ -122,6 +133,45 @@ describe('buildAndPush', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSpawn.mockImplementation(() => createMockChild(0));
+    mockReadFileSync.mockImplementation(readFileDefault);
+  });
+
+  it('attaches mode=min provenance (never max — build args may carry secrets)', async () => {
+    await buildAndPush(makeRequest());
+    const args = mockSpawn.mock.calls[0][1];
+    expect(args).toEqual(expect.arrayContaining(['--opt', 'attest:provenance=mode=min']));
+    expect(args.join(' ')).not.toContain('mode=max');
+  });
+
+  it('returns the digest buildctl wrote to its metadata file, as a built image', async () => {
+    const result = await buildAndPush(makeRequest({ orgId: 'acme', name: 'foo', version: '2.1.0' }));
+    const args = mockSpawn.mock.calls[0][1];
+    expect(args[args.indexOf('--metadata-file') + 1]).toMatch(/metadata\.json$/);
+    expect(result).toEqual({ fullImage: 'registry:5000/org-acme/foo:2.1.0', digest: DIGEST, imageSource: 'built' });
+  });
+
+  it('signs + SBOM-attests the pushed digest (by digest, with the publish platform)', async () => {
+    await buildAndPush(makeRequest({ orgId: 'acme', name: 'foo' }));
+    expect(mockAttachSupplyChain).toHaveBeenCalledWith(expect.objectContaining({
+      repository: 'registry:5000/org-acme/foo',
+      digest: DIGEST,
+      orgId: 'acme',
+      dockerConfigDir: '/tmp/pb-dockercfg-test',
+      platform: 'linux/amd64',
+    }), undefined);
+  });
+
+  it('fails the build when buildctl reports no pushed digest', async () => {
+    mockReadFileSync.mockImplementation((file: string) => (String(file).endsWith('metadata.json')
+      ? JSON.stringify({}) : 'FROM node:24-slim'));
+    await expect(buildAndPush(makeRequest())).rejects.toThrow(/no pushed image digest/);
+    expect(mockAttachSupplyChain).not.toHaveBeenCalled();
+  });
+
+  it('fails the build when signing fails — and still removes the registry credential', async () => {
+    mockAttachSupplyChain.mockRejectedValueOnce(new Error('image-registry refused to sign'));
+    await expect(buildAndPush(makeRequest())).rejects.toThrow(/refused to sign/);
+    expect(mockRmSync).toHaveBeenCalledWith('/tmp/pb-dockercfg-test', expect.objectContaining({ recursive: true }));
   });
 
   it('invokes buildctl with the configured addr and frontend', async () => {
@@ -174,14 +224,14 @@ describe('buildAndPush', () => {
     expect(parsed.auths['registry:5000'].auth).toBe(Buffer.from('_token:test-jwt-token').toString('base64'));
   });
 
-  it('mints the registry-auth token with a TTL equal to the build window', async () => {
-    // Regression: the token is spent only at push time (end of the build).
-    // A short default TTL (5 min) expired before long builds (gcloud-deploy,
-    // playwright) finished pushing, yielding a 401 from image-registry/token.
-    // The whole build+push is bounded by timeoutMs, so TTL must equal it (900s).
+  it('mints the registry-auth token with a TTL covering the build window + supply-chain steps', async () => {
+    // Regression: the token is spent only at push time (end of the build), then
+    // by the SBOM scan. A short default TTL (5 min) expired before long builds
+    // (gcloud-deploy, playwright) finished pushing, yielding a 401 from
+    // image-registry/token. TTL = timeoutMs (900s) + 2 supply-chain steps × 300s.
     await buildAndPush(makeRequest());
     expect(mockSignServiceToken).toHaveBeenCalledWith(
-      expect.objectContaining({ ttlSeconds: 900 }),
+      expect.objectContaining({ ttlSeconds: 1500, permissions: ['plugins:write'] }),
     );
   });
 
@@ -277,7 +327,7 @@ describe('buildAndPush', () => {
 describe('build log streaming + failure summary', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockReadFileSync.mockReturnValue('FROM node:24-slim\nRUN echo hello');
+    mockReadFileSync.mockImplementation(readFileDefault);
     mockExistsSync.mockReturnValue(true);
   });
 
@@ -337,9 +387,12 @@ describe('build log streaming + failure summary', () => {
 });
 
 describe('loadAndPush', () => {
+  // crane prints the pushed reference (with digest) on stdout.
+  const cranePushed = () => createMockChildWithOutput([`registry:5000/org-acme/foo@${DIGEST}`], 0);
+
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSpawn.mockImplementation(() => createMockChild(0));
+    mockSpawn.mockImplementation(cranePushed);
     mockExistsSync.mockReturnValue(true);
   });
 
@@ -351,11 +404,33 @@ describe('loadAndPush', () => {
     expect(args).toEqual(expect.arrayContaining(['push', '/tmp/image.tar', 'registry:5000/org-acme/foo:1.0.0']));
   });
 
-  it('mints the registry-auth token with a TTL equal to the push window', async () => {
-    // crane push is bounded by pushTimeoutMs (300s); the token TTL equals it.
+  it('returns the digest crane pushed, as an uploaded image, and signs it', async () => {
+    const result = await loadAndPush('/tmp/image.tar', 'foo', '1.0.0', makeRegistry(), 'acme');
+    expect(result).toEqual({ fullImage: 'registry:5000/org-acme/foo:1.0.0', digest: DIGEST, imageSource: 'uploaded' });
+    expect(mockAttachSupplyChain).toHaveBeenCalledWith(expect.objectContaining({
+      repository: 'registry:5000/org-acme/foo', digest: DIGEST, orgId: 'acme',
+    }), undefined);
+    // An uploaded image is scanned as-is — no platform to pin.
+    expect(mockAttachSupplyChain.mock.calls[0][0]).not.toHaveProperty('platform');
+  });
+
+  it('fails when crane reports no digest', async () => {
+    mockSpawn.mockImplementation(() => createMockChildWithOutput(['pushed'], 0));
+    await expect(loadAndPush('/tmp/image.tar', 'foo', '1.0.0', makeRegistry(), 'acme'))
+      .rejects.toThrow(/no image digest/);
+    expect(mockAttachSupplyChain).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid version (it becomes the pushed tag)', async () => {
+    await expect(loadAndPush('/tmp/image.tar', 'foo', '.bad', makeRegistry(), 'acme'))
+      .rejects.toThrow(/Invalid plugin version/);
+  });
+
+  it('mints the registry-auth token with a TTL covering the push window + supply-chain steps', async () => {
+    // crane push is bounded by pushTimeoutMs (300s), then 2 supply-chain steps × 300s.
     await loadAndPush('/tmp/image.tar', 'foo', '1.0.0', makeRegistry(), 'acme');
     expect(mockSignServiceToken).toHaveBeenCalledWith(
-      expect.objectContaining({ ttlSeconds: 300 }),
+      expect.objectContaining({ ttlSeconds: 900 }),
     );
   });
 

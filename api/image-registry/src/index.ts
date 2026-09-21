@@ -6,6 +6,7 @@ import { createApp, runServer, attachRequestContext } from '@pipeline-builder/ap
 
 import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
+import { PLUGIN_SIGNATURES_PATH } from './routes/internal.js';
 import { getAuditClient } from './services/audit.js';
 import { startGcScheduler } from './services/gc-scheduler.js';
 
@@ -20,7 +21,9 @@ const logger = createLogger('pipeline-image-registry');
 // this simply never fires for those — registering it is still correct.)
 wireServiceSecurity('image-registry', getAuditClient);
 
-const { app, sseManager } = createApp({});
+// The plugin-signature route carries a multi-MB SBOM and parses its own body
+// with a larger limit, so the global 1mb JSON parser must skip it.
+const { app, sseManager } = createApp({ jsonBodyExclude: [PLUGIN_SIGNATURES_PATH] });
 
 app.use(attachRequestContext(sseManager));
 

@@ -6,6 +6,7 @@ import type { Express } from 'express';
 
 import { createAdminRoutes } from './routes/admin.js';
 import { createImageRoutes } from './routes/images.js';
+import { createInternalRoutes } from './routes/internal.js';
 import { createTokenRoute } from './routes/token.js';
 
 /**
@@ -29,4 +30,8 @@ export function mountRoutes(app: Express): void {
   // namespace runs in-process (see startGcScheduler in index.ts), not through
   // this route.
   app.use('/api/admin', requireAuth, createAdminRoutes());
+
+  // Service-to-service routes (plugin → plugin-image signing). Each route
+  // carries its own `requireInternalService` caller allow-list.
+  app.use('/internal', requireAuth, createInternalRoutes());
 }

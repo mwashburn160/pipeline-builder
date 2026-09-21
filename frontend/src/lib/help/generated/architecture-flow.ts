@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9341b59b19a4c445da45daa3ea09cdb0096fa62058d9891dc3fc780994c4212c
+// SOURCE-SHA256: 91deeda3d4e72864529733aade7dd51c5df9ee35798ed71011043a5ac72a2205
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -46,8 +46,12 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant Dev as Developer\n    participant API as Plugin API\n    participant Queue as Build Queue<br/>(BullMQ)\n    participant BK as buildkitd Sidecar\n    participant Reg as Registry\n    participant DB as PostgreSQL\n\n    Dev->>API: POST /plugins (multipart: plugin.zip)\n    API->>API: Extract ZIP (spec, Dockerfile, config)\n    API->>API: Compliance check (fail-closed)\n    API-->>Dev: 202 Accepted\n\n    API->>Queue: Enqueue build job\n\n    Queue->>BK: buildctl build --frontend dockerfile.v0\n    BK->>Reg: push (bearer-token auth)\n    Queue->>DB: Store plugin (name, version, commands, env)\n    Queue-->>Dev: SSE: build complete",
+          "content": "sequenceDiagram\n    participant Dev as Developer\n    participant API as Plugin API\n    participant Queue as Build Queue<br/>(BullMQ)\n    participant BK as buildkitd Sidecar\n    participant Reg as Registry\n    participant IR as image-registry<br/>(signer)\n    participant DB as PostgreSQL\n\n    Dev->>API: POST /plugins (multipart: plugin.zip)\n    API->>API: Extract ZIP (spec, Dockerfile, config)\n    API->>API: Compliance check (fail-closed)\n    API-->>Dev: 202 Accepted\n\n    API->>Queue: Enqueue build job\n\n    Queue->>BK: buildctl build --frontend dockerfile.v0<br/>attest:provenance=mode=min\n    BK->>Reg: push image index (bearer-token auth)\n    BK-->>Queue: pushed digest (--metadata-file)\n    Queue->>Reg: syft scan <repo>@<digest> → SPDX SBOM\n    Queue->>IR: POST /internal/plugin-signatures {repo, digest, sbom}\n    IR->>Reg: cosign sign + cosign attest (sha256-<digest>.sig / .att)\n    Queue->>DB: Store plugin (name, version, commands, env, imageDigest, imageSource)\n    Queue-->>Dev: SSE: build complete",
           "language": "mermaid"
+        },
+        {
+          "type": "text",
+          "content": "Every pushed image is signed by digest and carries a signed SPDX SBOM attestation before the plugin row is written — a failure in either step fails the build. The signing key lives only in image-registry: the plugin pod shares its network namespace with the buildkitd sidecar running untrusted tenant RUN steps, so it holds just the public key. For a build_image plugin the signed digest is an image index that also carries BuildKit's SLSA provenance (mode=min — max would publish build args); a prebuilt upload gets the SBOM and signature but no provenance (imageSource: uploaded). See Plugin supply chain."
         },
         {
           "type": "text",
@@ -64,7 +68,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart LR\n    subgraph build_image\n        DF2[Dockerfile] --> Build[buildctl build] --> Push1[buildkit push] --> R1[Registry]\n    end\n\n    subgraph prebuilt\n        TAR2[image.tar] --> Push2[crane push] --> R2[Registry]\n    end\n\n    subgraph metadata_only\n        Spec2[plugin-spec.yaml] --> Direct[Deploy directly<br/>No Docker build]\n    end",
+          "content": "flowchart LR\n    subgraph build_image\n        DF2[Dockerfile] --> Build[buildctl build<br/>+ provenance] --> Push1[buildkit push] --> Sign1[SBOM + sign] --> R1[Registry]\n    end\n\n    subgraph prebuilt\n        TAR2[image.tar] --> Push2[crane push] --> Sign2[SBOM + sign] --> R2[Registry]\n    end\n\n    subgraph metadata_only\n        Spec2[plugin-spec.yaml] --> Direct[Deploy directly<br/>No Docker build]\n    end",
           "language": "mermaid"
         }
       ]
@@ -108,6 +112,10 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "pipeline-manager pre-resolves every plugin through the same POST /api/plugins/lookup before synth. For a plugin that runs on its own image, the plugin service first runs cosign verify against the plugin-signing public key and answers 409 IMAGE_VERIFICATION_FAILED if the signature doesn't verify (or the plugin has no signed digest) — which aborts the synth rather than falling back. The synthesized CodeBuild image is then pinned by digest (<repo>@sha256:…), never by the mutable name:version tag."
+        },
+        {
+          "type": "text",
           "content": "Generated CloudFormation Resources"
         },
         {
@@ -136,7 +144,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart LR\n    subgraph Database\n        Plugin[Plugin Record<br/>name: eslint<br/>version: 1.0.0<br/>commands: npx eslint .<br/>computeType: SMALL]\n    end\n\n    subgraph \"CDK Synth Time\"\n        CBS[CodeBuildStep<br/>Image: registry/org-acme/eslint:1.0.0<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]\n    end\n\n    subgraph \"CodePipeline Runtime\"\n        CB2[CodeBuild pulls image<br/>Runs install + build commands<br/>In plugin container]\n    end\n\n    Plugin --> CBS --> CB2",
+          "content": "flowchart LR\n    subgraph Database\n        Plugin[Plugin Record<br/>name: eslint<br/>version: 1.0.0<br/>imageDigest: sha256:…<br/>commands: npx eslint .<br/>computeType: SMALL]\n    end\n\n    subgraph \"CDK Synth Time\"\n        CBS[CodeBuildStep<br/>Image: registry/org-acme/eslint@sha256:…<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]\n    end\n\n    subgraph \"CodePipeline Runtime\"\n        CB2[CodeBuild pulls image<br/>Runs install + build commands<br/>In plugin container]\n    end\n\n    Plugin --> CBS --> CB2",
           "language": "mermaid"
         }
       ]

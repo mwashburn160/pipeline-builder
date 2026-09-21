@@ -107,6 +107,15 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     build_type VARCHAR(20) NOT NULL DEFAULT 'build_image',
     primary_output_directory VARCHAR(28),
 
+    -- Supply chain (set by the build worker after push + sign + SBOM attest; NULL
+    -- for plugins with no image). Synth pins CodeBuild to image_digest, never the
+    -- mutable name:version tag. image_source: 'built' (BuildKit provenance) vs
+    -- 'uploaded' (a prebuilt image.tar the platform never saw built).
+    image_digest VARCHAR(71) CONSTRAINT plugin_image_digest_check
+                             CHECK (image_digest IS NULL OR image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    image_source VARCHAR(10) CONSTRAINT plugin_image_source_check
+                             CHECK (image_source IS NULL OR image_source IN ('built', 'uploaded')),
+
     -- Runtime Configuration
     env JSONB NOT NULL DEFAULT '{}',
     build_args JSONB NOT NULL DEFAULT '{}',

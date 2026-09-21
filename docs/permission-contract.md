@@ -178,6 +178,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | image-registry | GET | `/api/images/:name/manifests/:reference` | `any(registry:read)` |
 | image-registry | GET | `/api/images/:name/tags` | `any(registry:read)` |
 | image-registry | POST | `/api/images/copy` | `all(registry:read|registry:write)` |
+| image-registry | POST | `/internal/plugin-signatures` | `service-principal + internal(plugin)` |
 | message | GET | `/messages` | `any(messages:read)` |
 | message | POST | `/messages` | `any(messages:write)` |
 | message | DELETE | `/messages/:id` | `any(messages:write)` |
@@ -362,6 +363,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | plugin | POST | `/plugins` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/:id` | `any(plugins:write)` |
 | plugin | GET | `/plugins/:id` | `any(plugins:read)` |
+| plugin | GET | `/plugins/:id/sbom` | `any(plugins:read)` |
 | plugin | PUT | `/plugins/:id` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/purge` | `any(plugins:write) + step-up(any)` |
 | plugin | POST | `/plugins/:id/restore` | `any(plugins:write) + step-up(any)` |

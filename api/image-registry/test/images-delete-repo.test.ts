@@ -210,3 +210,46 @@ describe('DELETE /api/images/:name', () => {
     expect(incCounter).not.toHaveBeenCalled();
   });
 });
+
+describe('DELETE /api/images/:name/manifests/:reference', () => {
+  const hex = 'c'.repeat(64);
+  const digest = `sha256:${hex}`;
+  const delManifest = async (name: string, ref: string) => {
+    const res = await fetch(`${baseUrl}/api/images/${encodeURIComponent(name)}/manifests/${encodeURIComponent(ref)}`, { method: 'DELETE' });
+    return { status: res.status, body: await res.json() as Record<string, unknown> };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getManifest.mockReset();
+    deleteManifest.mockReset();
+  });
+
+  it('also deletes the cosign signature + attestation tags of the deleted digest', async () => {
+    getManifest.mockImplementation(async (_name, ref) => {
+      if (ref === '1.0.0') return { digest };
+      if (ref === `sha256-${hex}.sig`) return { digest: 'sha256:sig' };
+      if (ref === `sha256-${hex}.att`) return { digest: 'sha256:att' };
+      throw Object.assign(new Error('nope'), { statusCode: 404 });
+    });
+    deleteManifest.mockResolvedValue(undefined);
+
+    const { status } = await delManifest('org-acme/foo', '1.0.0');
+
+    expect(status).toBe(200);
+    expect(deleteManifest.mock.calls.map((c) => c[1])).toEqual([digest, 'sha256:sig', 'sha256:att']);
+  });
+
+  it('tolerates an unsigned image (no companion tags)', async () => {
+    getManifest.mockImplementation(async (_name, ref) => {
+      if (ref === '1.0.0') return { digest };
+      throw Object.assign(new Error('nope'), { statusCode: 404 });
+    });
+    deleteManifest.mockResolvedValue(undefined);
+
+    const { status } = await delManifest('org-acme/foo', '1.0.0');
+
+    expect(status).toBe(200);
+    expect(deleteManifest).toHaveBeenCalledTimes(1);
+  });
+});

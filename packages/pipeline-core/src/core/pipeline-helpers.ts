@@ -223,8 +223,13 @@ function resolveExternalPullTarget(
  *      `undefined` and the metadata wins.
  *   2. Otherwise, if the plugin has a `name`+`version` AND the registry
  *      config is populated, build a `LinuxBuildImage.fromDockerRegistry()`
- *      image pointing at `<registry-host>:<port>/<ns>/<name>:<version>`
- *      where `<ns>` is `system` or `org-<orgId>`. CodeBuild authenticates by
+ *      image pointing at `<registry-host>:<port>/<ns>/<name>@<imageDigest>`
+ *      where `<ns>` is `system` or `org-<orgId>`. Pinned BY DIGEST — the one
+ *      the plugin service verified against its signing key before returning
+ *      this record — never by the mutable `:<version>` tag, which anyone
+ *      holding the org's registry push credential could re-point. A plugin
+ *      that needs an image but carries no digest is refused (throws): running
+ *      an unverified image is worse than a failed synth. CodeBuild authenticates by
  *      sending the per-org platform Secret as Basic auth to
  *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
  *      resolves to a registry token scoped to the org.
@@ -248,6 +253,16 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
       'CodeBuild will run on aws/codebuild/standard:8.0 and won\'t have the plugin\'s baked tools.',
     );
     return undefined;
+  }
+
+  // No digest ⇒ the plugin service never signed an image for this row (or the
+  // record didn't come from `/plugins/lookup`). Fail the synth rather than fall
+  // back to the tag.
+  if (!plugin.imageDigest || !/^sha256:[0-9a-f]{64}$/.test(plugin.imageDigest)) {
+    throw new Error(
+      `Plugin "${plugin.name}:${plugin.version}" has buildType=${plugin.buildType} but no signed image digest. ` +
+      'Rebuild the plugin (re-upload it) so the platform can build, sign and record its image.',
+    );
   }
 
   let registry;
@@ -304,7 +319,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   // `org-<objectid>/…` → build-time pull failure. `SYSTEM_ORG_ID` is the
   // well-known ObjectId (NOT the string 'system').
   const namespace = plugin.orgId === SYSTEM_ORG_ID ? 'system' : `org-${plugin.orgId}`;
-  const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
+  const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}@${plugin.imageDigest}`;
 
   // CodeBuild reads `pipeline-builder/<orgId>/registry-push` and sends its
   // `username`/`password` fields as HTTP Basic to the registry. The registry

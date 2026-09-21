@@ -24,8 +24,9 @@ import path from 'path';
 import { ValidationError } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 
+import type { BuildLineSink } from './build-process.js';
 import { buildAndPush, loadAndPush } from './docker-build.js';
-import type { BuildRequest, BuildResult, BuildType, BuildLineSink } from './docker-build.js';
+import type { BuildRequest, BuildResult, BuildType } from './docker-build.js';
 import type { PluginConfig } from './plugin-helpers.js';
 import { validateSafePath } from './safe-path.js';
 

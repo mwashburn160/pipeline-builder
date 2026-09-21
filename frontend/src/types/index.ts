@@ -699,6 +699,17 @@ export interface Plugin {
   /** Computed image URI: `<namespace>/<name>:<version>`. Server-side derived. */
   uri: string;
   dockerfile?: string;
+  /** How the image is produced; `metadata_only` plugins have no image of their own. */
+  buildType: 'build_image' | 'prebuilt' | 'metadata_only';
+
+  // Supply chain — set once the image is pushed, cosign-signed and carries its
+  // SBOM attestation (signing failure fails the build, so a digest ⇒ signed).
+  // NULL for plugins that produce no image, and for an image-producing plugin
+  // that predates signing (synth refuses those; see `pluginProducesImage`).
+  /** `sha256:<64 hex>` of the pushed, signed image. */
+  imageDigest: string | null;
+  /** `built` = BuildKit on the platform (SLSA provenance); `uploaded` = a prebuilt image.tar (no provenance). */
+  imageSource: 'built' | 'uploaded' | null;
 
   // Developer-portal catalog metadata (ownership / lifecycle / classification)
   ownerId?: string | null;

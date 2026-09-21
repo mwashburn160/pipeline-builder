@@ -57,6 +57,8 @@ export function loadServerConfig(): ServerConfig {
       billingHost: process.env.BILLING_SERVICE_HOST || 'billing',
       billingPort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
       billingTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10),
+      imageRegistryHost: process.env.IMAGE_REGISTRY_SERVICE_HOST || 'image-registry',
+      imageRegistryPort: parseInt(process.env.IMAGE_REGISTRY_SERVICE_PORT || '3000', 10),
     },
   };
 }

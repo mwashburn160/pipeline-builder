@@ -131,6 +131,16 @@ async function mintManagementToken(scopes: RegistryScope[]): Promise<string> {
 }
 
 /**
+ * A management bearer token for pull+push on ONE repository — handed to cosign
+ * (as a Docker-config `registrytoken`) when this service signs a plugin image.
+ * Never cached or reused beyond the one signing operation.
+ */
+export function mintRepositoryPushToken(repository: string): Promise<string> {
+  encodeRepoName(repository); // same shape guard every registry call applies
+  return mintManagementToken([{ type: 'repository', name: repository, actions: ['pull', 'push'] }]);
+}
+
+/**
  * Return an axios instance pre-authed with a bearer token scoped to the given
  * repo + actions, reusing a cached instance (and its token) until the reuse
  * window elapses. See {@link authedClientCache}.

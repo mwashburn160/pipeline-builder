@@ -114,7 +114,8 @@ spec:
 
 ---
 # =============================================================================
-# Image-registry API — ingress from plugin (token issuance for buildkit push).
+# Image-registry API — ingress from plugin (token issuance for buildkit push,
+# and POST /internal/plugin-signatures: image-registry signs the pushed image).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -658,6 +659,58 @@ spec:
               - 172.16.0.0/12 # RFC1918
               - 192.168.0.0/16 # RFC1918 — private LAN
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Image-registry KMS Egress — used only under PLUGIN_SIGNING_MODE=kms
+# In kms mode image-registry signs plugin images through AWS KMS
+# (kms:Sign / kms:GetPublicKey on alias/<name>), so it needs two legs that the
+# namespace-wide policies above do not open:
+#   - IMDS (169.254.169.254:80), where the AWS SDK inside cosign picks up the
+#     INSTANCE ROLE's credentials (single-node minikube on one EC2 instance has
+#     no per-pod identity). That role needs kms:Sign + kms:GetPublicKey on the
+#     plugin-signing key — see PLUGIN_SIGNING_* in .env.example;
+#   - 443 to the KMS endpoint. 0.0.0.0/0 INCLUDING RFC1918, deliberately: the
+#     private-VPC template reaches KMS through an interface VPC endpoint whose
+#     ENIs sit on 10.x, and the public stack reaches the public regional
+#     endpoint. Link-local stays excepted (IMDS is opened above on :80 only).
+#
+# Why image-registry may reach IMDS when PLUGIN deliberately may not
+# (allow-plugin-external-egress excepts 169.254.0.0/16): image-registry runs NO
+# untrusted code. The plugin pod shares a network namespace with the buildkitd
+# sidecar that executes tenant Dockerfile RUN steps — which is exactly why the
+# signing key lives here and not there. The IMDS rule is a single /32 on :80.
+#
+# In-namespace traffic (registry, redis, platform) is unaffected — it is allowed
+# by `allow-internal-egress`, and NetworkPolicies are additive.
+# FQDN-scoping (kms.<region>.amazonaws.com only) needs Cilium — see
+# cilium-network-policies.yaml.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-image-registry-kms-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: image-registry
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32 # EC2 instance metadata (instance-role creds)
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local — IMDS only via the /32 rule above
       ports:
         - port: 443
           protocol: TCP

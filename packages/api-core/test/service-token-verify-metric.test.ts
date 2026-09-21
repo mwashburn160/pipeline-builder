@@ -56,7 +56,7 @@ function verify(token: string, kid = kidOf(token)): void {
 describe(METRIC, () => {
   it('still records successes after the FIRST verification a pod saw was a failure', () => {
     verify('not-a-jwt', 'kid-that-does-not-exist'); // unknown_kid — first emission
-    verify(keys.sign('billing'));                     // ok
+    verify(keys.sign('billing')); // ok
 
     expect(rejected).toEqual([]);
     expect(accepted.map((l) => l.result)).toEqual(['unknown_kid', 'ok']);
@@ -64,9 +64,9 @@ describe(METRIC, () => {
 
   it('keeps every outcome on one label set', () => {
     const good = keys.sign('billing');
-    verify(`${good.slice(0, -4)}AAAA`);             // invalid signature
-    verify(keys.signAs('billing', 'quota'));        // subject_mismatch
-    verify(good);                                   // ok
+    verify(`${good.slice(0, -4)}AAAA`); // invalid signature
+    verify(keys.signAs('billing', 'quota')); // subject_mismatch
+    verify(good); // ok
 
     expect(rejected).toEqual([]);
     expect(new Set(accepted.map((l) => Object.keys(l).sort().join(','))).size).toBe(1);

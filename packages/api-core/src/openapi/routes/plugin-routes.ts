@@ -21,10 +21,47 @@ export function registerPluginRoutes(): void {
     method: 'get',
     path: '/plugins/find',
     summary: 'Find a single plugin',
-    description: 'Find a single plugin matching the query filters.',
+    description: 'Find a single plugin matching the query filters. For a plugin that runs on its own image, '
+      + 'the image\'s cosign signature is verified first; `imageDigest` in the response is the verified digest '
+      + 'pipelines pin CodeBuild to.',
     tags,
     security: auth,
-    responses: { 200: { description: 'Plugin found' }, 404: { description: 'Not found' } },
+    responses: {
+      200: { description: 'Plugin found' },
+      404: { description: 'Not found' },
+      409: { description: 'IMAGE_VERIFICATION_FAILED — the plugin image has no signed digest, or its signature did not verify' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/plugins/lookup',
+    summary: 'Resolve a single plugin (synth)',
+    description: 'Same as `GET /plugins/find` with the filter in the body — the endpoint pipeline synth resolves '
+      + 'plugins through. Verifies the plugin image signature before returning it.',
+    tags,
+    security: auth,
+    responses: {
+      200: { description: 'Plugin found' },
+      400: { description: 'Missing or invalid filter' },
+      404: { description: 'Not found' },
+      409: { description: 'IMAGE_VERIFICATION_FAILED — the plugin image has no signed digest, or its signature did not verify' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/plugins/{id}/sbom',
+    summary: 'Download a plugin image SBOM',
+    description: 'The SPDX JSON SBOM of the plugin image, read from its signed in-toto attestation — so the '
+      + 'document returned is exactly what the platform generated and signed at build time.',
+    tags,
+    security: auth,
+    responses: {
+      200: { description: 'SPDX JSON document (application/spdx+json, served as an attachment)' },
+      404: { description: 'Plugin not found, or the plugin has no image' },
+      409: { description: 'IMAGE_VERIFICATION_FAILED — no SBOM attestation verified against the plugin-signing key' },
+    },
   });
 
   registry.registerPath({

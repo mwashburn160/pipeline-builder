@@ -342,6 +342,35 @@ owning user, so the master-key rotation notes above apply to them too.
 | `IMAGE_REGISTRY_HTTP` | `true` | Plugin builds talk to the in-cluster registry over plain HTTP. Set `false` only if the registry is exposed via a TLS-terminating proxy with a publicly trusted cert. |
 | `IMAGE_REGISTRY_TOKEN_REALM` | `${PLATFORM_BASE_URL}/image-registry/token` | Bearer-token realm the plugin keys its registry credential under. **Must match the registry's `REGISTRY_AUTH_TOKEN_REALM`** (e.g. `http://image-registry:3000/token` in-cluster) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / `insufficient_scope`. |
 
+### Plugin-image signing (cosign) — image-registry signs, plugin verifies
+
+Every plugin image the plugin service pushes is signed with cosign (key-based,
+transparency log off) and gets a signed SPDX SBOM attestation; synth pins
+CodeBuild to the verified digest. The **private** key lives only in
+**image-registry**, which signs at `POST /internal/plugin-signatures` (service
+token; the caller must be `plugin`). The plugin service holds only the
+**public** key: its pod shares a network namespace with the buildkitd sidecar
+that runs untrusted tenant Dockerfile `RUN` steps, so it must never hold the
+private key or be able to reach AWS credentials. Keys come from
+`deploy/bin/plugin-signing-keys.sh`; rotation invalidates every existing
+signature — see [Plugin-signing key](runbooks/secret-rotation.md#plugin-signing-key).
+
+**image-registry**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLUGIN_SIGNING_MODE` | `local` | `local` signs with a PEM from disk; `kms` keeps the private key inside AWS KMS (asymmetric `ECC_NIST_P256`, `SIGN_VERIFY`). |
+| `PLUGIN_SIGNING_KEY_FILE` | `/etc/pipeline-builder/plugin-signing/plugin-signing.key` | `local` mode: the EC P-256 private key (PKCS#8 PEM), mounted from the `plugin-signing-key` Kubernetes Secret (image-registry only). Imported into cosign's own format once per process, under a random in-memory password. |
+| `PLUGIN_SIGNING_KMS_KEY_ID` | — | **Required in `kms` mode.** The KMS key, **by alias** (`alias/pipeline-builder-plugin-signing`) — an ARN embeds the AWS account id and is refused. image-registry's role (not plugin's) needs `kms:Sign` + `kms:GetPublicKey`. |
+| `PLUGIN_SIGNING_TIMEOUT_MS` | `120000` | Upper bound on one cosign invocation (`sign` / `attest`). |
+| `TMPDIR` | `/tmp` | cosign writes its TUF cache, the imported key and each SBOM predicate under the temp dir — a writable `scratch-tmp` emptyDir on the k8s targets (the root filesystem is read-only). |
+
+**plugin**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLUGIN_SIGNING_PUBLIC_KEY_FILE` | `/etc/pipeline-builder/plugin-signing/plugin-signing.pub` | PEM public key plugin images are verified against (`cosign verify`), mounted from the `plugin-signing-public-key` Secret. In `kms` mode it is exported from KMS by the deploy script. |
+
 ---
 
 ## Plugin Builds
@@ -467,6 +496,8 @@ Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bound
 | `BILLING_SERVICE_PORT` | `3000` | Billing service port |
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service hostname |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
+| `IMAGE_REGISTRY_SERVICE_HOST` | `image-registry` | image-registry API hostname — the plugin worker asks it to sign pushed images (`POST /internal/plugin-signatures`). Not the registry itself (`IMAGE_REGISTRY_HOST`). |
+| `IMAGE_REGISTRY_SERVICE_PORT` | `3000` | image-registry API port |
 
 ---
 

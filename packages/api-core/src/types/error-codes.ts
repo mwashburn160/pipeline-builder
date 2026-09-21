@@ -63,6 +63,10 @@ export enum ErrorCode {
   CONFLICT = 'CONFLICT',
   DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
   SCAN_CONFLICT = 'SCAN_CONFLICT',
+  /** A plugin image's cosign signature (or its signed SBOM attestation) did
+   *  not verify against the platform's plugin-signing key — the registry
+   *  content no longer matches what the platform built and signed. */
+  IMAGE_VERIFICATION_FAILED = 'IMAGE_VERIFICATION_FAILED',
 
   // Billing errors
   PAYMENT_METHOD_REQUIRED = 'PAYMENT_METHOD_REQUIRED', // 402
@@ -118,6 +122,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.CONFLICT]: 409,
   [ErrorCode.DUPLICATE_ENTRY]: 409,
   [ErrorCode.SCAN_CONFLICT]: 409,
+  [ErrorCode.IMAGE_VERIFICATION_FAILED]: 409,
   [ErrorCode.PAYMENT_METHOD_REQUIRED]: 402,
   [ErrorCode.DISCOUNT_CEILING_EXCEEDED]: 400,
   [ErrorCode.DISCOUNT_NOT_FOUND]: 404,

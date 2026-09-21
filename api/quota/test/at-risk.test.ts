@@ -90,8 +90,14 @@ function makeRes() {
 
 /** One at-risk row as the service hands it to the route. */
 const entry = (orgId: string, percent: number, type = 'plugins') => ({
-  orgId, name: orgId, slug: orgId, tier: 'developer',
-  type, used: percent, limit: 100, percent,
+  orgId,
+  name: orgId,
+  slug: orgId,
+  tier: 'developer',
+  type,
+  used: percent,
+  limit: 100,
+  percent,
 });
 
 describe('GET /quotas/at-risk', () => {

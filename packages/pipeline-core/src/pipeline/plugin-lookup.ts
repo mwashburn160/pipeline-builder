@@ -335,6 +335,8 @@ export class PluginLookup extends Construct {
       commands: [],
       dockerfile: null,
       buildType: 'metadata_only',
+      imageDigest: null,
+      imageSource: null,
       ownerId: null,
       ownerType: null,
       lifecycle: 'production',

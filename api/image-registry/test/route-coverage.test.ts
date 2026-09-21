@@ -18,7 +18,9 @@ import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
   declaredAuditActions,
+  findInternalRouteViolations,
   findRouteCoverageViolations,
+  type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
 
@@ -52,6 +54,19 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
 ];
 
+/**
+ * This service's INTERNAL routes and the services allowed to call them — the ONE
+ * place it is written down. `findInternalRouteViolations` checks it against the
+ * code in both directions, so a new internal route, or a widened caller list,
+ * cannot land here unnoticed.
+ *
+ * Plugin-image signing is the plugin build worker's alone: the signing key is
+ * what synth trusts, so no user token and no other service may request it.
+ */
+const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
+  { method: 'POST', path: '/internal/plugin-signatures', callers: ['plugin'] },
+];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -77,6 +92,10 @@ describe('image-registry route coverage', () => {
   it('has no stale coverage exceptions', () => {
     const { unusedExceptions } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(unusedExceptions).toEqual([]);
+  });
+
+  it('admits only the declared callers on every internal route', () => {
+    expect(findInternalRouteViolations(table, INTERNAL_ROUTES)).toEqual([]);
   });
 
   it('declares only audit actions platform accepts from a service', () => {

@@ -206,7 +206,7 @@ describe('requireAssurance (standalone, for a service with its own requireAuth)'
     it('admits the request the predicate names', () => {
       const { next, res } = runGate(weak, { minAssurance: 2, exempt: { reason: 'bootstrap-setup', when: () => true } });
       expect(next).toHaveBeenCalled();
-      expect(res._json).toBeNull();   // nothing was sent — the gate passed it on
+      expect(res._json).toBeNull(); // nothing was sent — the gate passed it on
     });
 
     it('refuses every other request on the same route', () => {

@@ -28,6 +28,15 @@ export function pluginUri(plugin: { orgId: string; name: string; version: string
 }
 
 /**
+ * Whether a plugin row runs on its own image — and so must carry a signed
+ * `imageDigest`. Mirrors the worker's skip rules: `metadata_only` builds no
+ * image, and a `ManualApprovalStep` never runs one.
+ */
+export function pluginRequiresImage(plugin: { buildType: string; pluginType: string }): boolean {
+  return plugin.buildType !== 'metadata_only' && plugin.pluginType !== 'ManualApprovalStep';
+}
+
+/**
  * Shape a Plugin row for HTTP responses: normalize array-typed columns and
  * attach the computed `uri`. Single seam so all read routes return the
  * same shape.

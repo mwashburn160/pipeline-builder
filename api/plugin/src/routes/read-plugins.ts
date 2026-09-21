@@ -1,17 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePermission, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { withTenantTx } from '@pipeline-builder/pipeline-data';
 import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import { shapePlugin } from '../helpers/plugin-helpers.js';
+import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
+import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
@@ -121,6 +122,19 @@ export function createReadPluginRoutes(
     const parentOrgId = parentOrgIdOf(req);
     const result = await pluginService.findFirst(filter, orgId, parentOrgId);
     if (!result) return sendEntityNotFound(res, 'Plugin');
+    // These are the endpoints synth resolves plugins through, and synth pins
+    // CodeBuild to the returned `imageDigest` — so never hand out a digest whose
+    // signature doesn't verify against the plugin-signing key (or a plugin that
+    // needs an image but has no signed digest at all).
+    if (pluginRequiresImage(result)) {
+      try {
+        await verifyImageSignature(result, Config.get('registry'));
+      } catch (err) {
+        if (!(err instanceof ImageVerificationError)) throw err;
+        ctx.log('WARN', 'Plugin image failed verification', { id: result.id, name: result.name, error: err.message });
+        return sendError(res, 409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED);
+      }
+    }
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
@@ -153,6 +167,34 @@ export function createReadPluginRoutes(
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { plugins: deleted.map(shapePlugin) });
+  }));
+
+  // GET /plugins/:id/sbom — the plugin image's SPDX JSON SBOM, read from its
+  // SIGNED attestation (so it is exactly what the platform generated and signed
+  // at build time). Registered before `/:id`.
+  router.get('/:id/sbom', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+    const id = getParam(req.params, 'id');
+    if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    const result = await pluginService.findById(id, orgId, parentOrgIdOf(req));
+    if (!result) return sendEntityNotFound(res, 'Plugin');
+    if (!pluginRequiresImage(result)) {
+      return sendError(res, 404, 'Plugin has no image, so no SBOM', ErrorCode.NOT_FOUND);
+    }
+
+    let sbom: Record<string, unknown>;
+    try {
+      sbom = await fetchImageSbom(result, Config.get('registry'));
+    } catch (err) {
+      if (!(err instanceof ImageVerificationError)) throw err;
+      ctx.log('WARN', 'Plugin SBOM failed verification', { id: result.id, name: result.name, error: err.message });
+      return sendError(res, 409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED);
+    }
+
+    ctx.log('COMPLETED', 'Retrieved plugin SBOM', { id: result.id, name: result.name });
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.name}-${result.version}.spdx.json"`);
+    res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }));
 
   // GET /plugins/:id — single plugin by UUID

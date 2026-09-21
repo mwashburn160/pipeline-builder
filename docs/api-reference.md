@@ -105,10 +105,11 @@ answer before any credential exists:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/plugins` | List plugins (filterable, paginated) |
-| `GET` | `/plugins/find` | Find one plugin by query |
+| `GET` | `/plugins/find` | Find one plugin by query (verifies the image signature first — 409 `IMAGE_VERIFICATION_FAILED` if it doesn't verify) |
 | `GET` | `/plugins/:id` | Get by ID |
+| `GET` | `/plugins/:id/sbom` | Download the plugin image's SPDX JSON SBOM, read from its signed attestation (404 no image, 409 `IMAGE_VERIFICATION_FAILED`) |
 | `POST` | `/plugins` | Upload plugin (ZIP multipart) |
-| `POST` | `/plugins/lookup` | Find plugin by validated filter body (POST for URL-length safety) |
+| `POST` | `/plugins/lookup` | Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through: verifies the image signature and returns `imageDigest`, which synth pins CodeBuild to; 409 `IMAGE_VERIFICATION_FAILED` otherwise |
 | `PUT` | `/plugins/:id` | Update plugin |
 | `PUT` | `/plugins/bulk/update` | Bulk-update plugins (strict whitelist of mutable fields) |
 | `DELETE` | `/plugins/:id` | Delete plugin |

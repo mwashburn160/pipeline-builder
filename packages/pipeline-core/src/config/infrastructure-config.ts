@@ -128,6 +128,8 @@ export function loadComplianceConfig(): ComplianceConfig {
  * - `DOCKER_PUSH_TIMEOUT_MS` — Push timeout in milliseconds (default: `300000` / 5 min)
  * - `BUILDKIT_HOST` — buildctl `--addr` value for the buildkitd sidecar
  *   (default: `unix:///run/buildkit/buildkitd.sock`)
+ * - `PLUGIN_SIGNING_PUBLIC_KEY_FILE` — PEM public key plugin images are verified
+ *   against (default: `/etc/pipeline-builder/plugin-signing/plugin-signing.pub`)
  */
 export function loadDockerConfig(): BuildConfig {
   return {
@@ -135,6 +137,7 @@ export function loadDockerConfig(): BuildConfig {
     timeoutMs: parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10),
     pushTimeoutMs: parseInt(process.env.DOCKER_PUSH_TIMEOUT_MS || '300000', 10),
     buildkitAddr: process.env.BUILDKIT_HOST || 'unix:///run/buildkit/buildkitd.sock',
+    signingPublicKeyFile: process.env.PLUGIN_SIGNING_PUBLIC_KEY_FILE || '/etc/pipeline-builder/plugin-signing/plugin-signing.pub',
   };
 }
 

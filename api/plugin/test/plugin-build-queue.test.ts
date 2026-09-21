@@ -119,7 +119,8 @@ function registerMocks() {
     // and puts the job straight back on the wait list, undoing the delay.)
     class MockDelayedError extends Error { name = 'DelayedError'; }
     return {
-      Queue: MockQueue, Worker: MockWorker,
+      Queue: MockQueue,
+      Worker: MockWorker,
       UnrecoverableError: MockUnrecoverableError,
       DelayedError: MockDelayedError,
     };
@@ -170,6 +171,8 @@ function registerMocks() {
     loadAndPush: jest.fn(),
     BUILD_TEMP_ROOT: '/tmp',
     getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
+  }));
+  jest.unstable_mockModule('../src/helpers/build-process.js', () => ({
     // maskSecrets identity here — real masking is covered by docker-build.test.ts.
     maskSecrets: (s: string) => s,
     BuildProcessError: MockBuildProcessError,
@@ -474,7 +477,8 @@ describe('plugin-build-queue', () => {
       queueModule.startWorker(sse, quota);
 
       const insertedPlugin = { id: 'plugin-1', name: 'my-plugin', version: '1.0.0' };
-      mockBuildAndPush.mockResolvedValue({ fullImage: 'registry:5000/plugin:p-test-abc123' });
+      const digest = `sha256:${'c'.repeat(64)}`;
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'registry:5000/plugin:p-test-abc123', digest, imageSource: 'built' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
 
       const jobData = makeJobData();
@@ -485,11 +489,16 @@ describe('plugin-build-queue', () => {
       // added a second arg with the per-tier buildkitd address.
       expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest, expect.objectContaining({ buildkitAddr: expect.any(String) }));
       // The uploader's visibility authority, snapshotted into the job, reaches the
-      // deploy so the worker applies the same overwrite gate the route did.
-      expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1', { isSystemAdmin: false, canPublish: false });
+      // deploy so the worker applies the same overwrite gate the route did — and
+      // the signed digest + image source are persisted with the row.
+      expect(mockDeployVersion).toHaveBeenCalledWith(
+        { ...jobData.pluginRecord, imageDigest: digest, imageSource: 'built' },
+        'user-1',
+        { isSystemAdmin: false, canPublish: false },
+      );
 
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
-      expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Image pushed', expect.any(Object));
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Image pushed and signed', expect.objectContaining({ digest }));
       expect(sse.send).toHaveBeenCalledWith('req-123', 'COMPLETED', 'Plugin deployed', expect.objectContaining({
         id: 'plugin-1',
         name: 'my-plugin',

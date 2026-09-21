@@ -76,6 +76,7 @@ sequenceDiagram
     participant Queue as Build Queue<br/>(BullMQ)
     participant BK as buildkitd Sidecar
     participant Reg as Registry
+    participant IR as image-registry<br/>(signer)
     participant DB as PostgreSQL
 
     Dev->>API: POST /plugins (multipart: plugin.zip)
@@ -85,11 +86,24 @@ sequenceDiagram
 
     API->>Queue: Enqueue build job
 
-    Queue->>BK: buildctl build --frontend dockerfile.v0
-    BK->>Reg: push (bearer-token auth)
-    Queue->>DB: Store plugin (name, version, commands, env)
+    Queue->>BK: buildctl build --frontend dockerfile.v0<br/>attest:provenance=mode=min
+    BK->>Reg: push image index (bearer-token auth)
+    BK-->>Queue: pushed digest (--metadata-file)
+    Queue->>Reg: syft scan <repo>@<digest> → SPDX SBOM
+    Queue->>IR: POST /internal/plugin-signatures {repo, digest, sbom}
+    IR->>Reg: cosign sign + cosign attest (sha256-<digest>.sig / .att)
+    Queue->>DB: Store plugin (name, version, commands, env, imageDigest, imageSource)
     Queue-->>Dev: SSE: build complete
 ```
+
+Every pushed image is signed by digest and carries a signed SPDX SBOM attestation
+before the plugin row is written — a failure in either step fails the build. The
+signing key lives only in **image-registry**: the plugin pod shares its network
+namespace with the buildkitd sidecar running untrusted tenant `RUN` steps, so it
+holds just the public key. For a `build_image` plugin the signed digest is an
+image index that also carries BuildKit's SLSA provenance (`mode=min` — `max` would
+publish build args); a `prebuilt` upload gets the SBOM and signature but no
+provenance (`imageSource: uploaded`). See [Plugin supply chain](plugins/README.md#supply-chain-sbom-signature-provenance).
 
 ### Plugin ZIP Structure
 
@@ -106,11 +120,11 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph build_image
-        DF2[Dockerfile] --> Build[buildctl build] --> Push1[buildkit push] --> R1[Registry]
+        DF2[Dockerfile] --> Build[buildctl build<br/>+ provenance] --> Push1[buildkit push] --> Sign1[SBOM + sign] --> R1[Registry]
     end
 
     subgraph prebuilt
-        TAR2[image.tar] --> Push2[crane push] --> R2[Registry]
+        TAR2[image.tar] --> Push2[crane push] --> Sign2[SBOM + sign] --> R2[Registry]
     end
 
     subgraph metadata_only
@@ -205,6 +219,14 @@ sequenceDiagram
     CDK-->>CLI: CloudFormation template
 ```
 
+`pipeline-manager` pre-resolves every plugin through the same `POST /api/plugins/lookup`
+before synth. For a plugin that runs on its own image, the plugin service first runs
+`cosign verify` against the plugin-signing public key and answers **409
+`IMAGE_VERIFICATION_FAILED`** if the signature doesn't verify (or the plugin has no
+signed digest) — which aborts the synth rather than falling back. The synthesized
+CodeBuild image is then pinned **by digest** (`<repo>@sha256:…`), never by the
+mutable `name:version` tag.
+
 ### Generated CloudFormation Resources
 
 ```mermaid
@@ -266,11 +288,11 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph Database
-        Plugin[Plugin Record<br/>name: eslint<br/>version: 1.0.0<br/>commands: npx eslint .<br/>computeType: SMALL]
+        Plugin[Plugin Record<br/>name: eslint<br/>version: 1.0.0<br/>imageDigest: sha256:…<br/>commands: npx eslint .<br/>computeType: SMALL]
     end
 
     subgraph "CDK Synth Time"
-        CBS[CodeBuildStep<br/>Image: registry/org-acme/eslint:1.0.0<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]
+        CBS[CodeBuildStep<br/>Image: registry/org-acme/eslint@sha256:…<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]
     end
 
     subgraph "CodePipeline Runtime"

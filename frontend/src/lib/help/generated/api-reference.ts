@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dfb62c2516823d07a8da1d97c42c41d4e34bf7c64050b84f9126beb9c8a43445
+// SOURCE-SHA256: fd5c3cb2578d4b6249cff8d08d75d847937776527c01623ed4bc06dc2f4a4aae
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -260,12 +260,17 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/find",
-              "Find one plugin by query"
+              "Find one plugin by query (verifies the image signature first — 409 IMAGE_VERIFICATION_FAILED if it doesn't verify)"
             ],
             [
               "GET",
               "/plugins/:id",
               "Get by ID"
+            ],
+            [
+              "GET",
+              "/plugins/:id/sbom",
+              "Download the plugin image's SPDX JSON SBOM, read from its signed attestation (404 no image, 409 IMAGE_VERIFICATION_FAILED)"
             ],
             [
               "POST",
@@ -275,7 +280,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/lookup",
-              "Find plugin by validated filter body (POST for URL-length safety)"
+              "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through: verifies the image signature and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise"
             ],
             [
               "PUT",

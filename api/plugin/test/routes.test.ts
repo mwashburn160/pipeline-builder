@@ -94,8 +94,15 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
+// Signature verification is covered by lookup-validation.test.ts; here it always passes.
+jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
+  verifyImageSignature: jest.fn(async () => undefined),
+  fetchImageSbom: jest.fn(),
+  ImageVerificationError: class extends Error {},
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: { plugin: {} },
+  Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',

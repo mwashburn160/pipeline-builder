@@ -18,9 +18,9 @@ import {
   syncProviderAddons,
   type PrunedAddon,
 } from './billing-helpers.js';
+import { isGraceDowngraded } from './subscription-status.js';
 import type { BillingEventType } from '../models/billing-event.js';
 import type { BillingInterval } from '../models/subscription.js';
-import { isGraceDowngraded } from './subscription-status.js';
 import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-addon-prune');

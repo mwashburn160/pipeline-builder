@@ -132,6 +132,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   // cross-tenant copy moves data across customer boundaries, so it needs the
   // durable, tamper-evident trail — not just the Loki operator line.
   'registry.image.copy',
+  // A plugin image signed + SBOM-attested by the platform's plugin-signing key
+  // (api/image-registry POST /internal/plugin-signatures, called by the plugin
+  // build worker). The key is what synth trusts, so every use is on the trail.
+  'registry.image.sign',
   // Messaging (api/message) — admin BROADCAST announcements + destructive
   // deletes. 1:1 user messages are intentionally NOT audited (noise + they would
   // pull private content into the trail). `details` carry metadata only

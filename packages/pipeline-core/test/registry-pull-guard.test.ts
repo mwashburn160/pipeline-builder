@@ -8,8 +8,12 @@ const { Config } = await import('../src/config/app-config.js');
 const { resolveDefaultBuildImage, resolvePluginImage } = await import('../src/core/pipeline-helpers.js');
 const { parsePlatformBaseUrl } = await import('../src/config/infrastructure-config.js');
 
-/** Minimal image-backed plugin that reaches the pull-host resolution. */
-const imagePlugin = { name: 'trivy', version: '1.0.0', buildType: 'build_image', orgId: '000000000000000000000001' } as never;
+const DIGEST = `sha256:${'a'.repeat(64)}`;
+
+/** Minimal image-backed plugin (signed digest recorded) that reaches the pull-host resolution. */
+const imagePlugin = {
+  name: 'trivy', version: '1.0.0', buildType: 'build_image', orgId: '000000000000000000000001', imageDigest: DIGEST,
+} as never;
 
 /**
  * The CodeBuild image URI must use a registry host AWS CodeBuild can resolve.
@@ -97,6 +101,47 @@ describe('registry pull-host guard (resolveDefaultBuildImage)', () => {
     const call = () => resolveDefaultBuildImage(stack, 'org1');
     if (unreachable) expect(call).toThrow(/CodeBuild cannot reach/);
     else expect(call).not.toThrow();
+  });
+});
+
+/**
+ * CodeBuild must pull the plugin image BY the digest the plugin service verified,
+ * never by the mutable `name:version` tag — and a plugin that needs an image but
+ * has no signed digest must fail the synth rather than fall back to the tag.
+ */
+describe('resolvePluginImage digest pinning', () => {
+  beforeEach(() => {
+    process.env.IMAGE_REGISTRY_PULL_HOST = 'registry.example.com';
+    process.env.IMAGE_REGISTRY_PULL_PORT = '443';
+    Config._resetForTesting();
+  });
+  afterEach(() => {
+    delete process.env.IMAGE_REGISTRY_PULL_HOST;
+    delete process.env.IMAGE_REGISTRY_PULL_PORT;
+    Config._resetForTesting();
+  });
+
+  it('pins the image URI to the recorded digest', () => {
+    const stack = new Stack(new App(), 'S');
+    const image = resolvePluginImage(stack, imagePlugin, 'org1') as { imageId: string };
+    expect(image.imageId).toBe(`registry.example.com/system/trivy@${DIGEST}`);
+    expect(image.imageId).not.toContain(':1.0.0');
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['malformed', 'sha256:not-hex'],
+  ])('refuses an image plugin whose digest is %s', (_label, imageDigest) => {
+    const stack = new Stack(new App(), 'S');
+    const plugin = { ...(imagePlugin as object), imageDigest } as never;
+    expect(() => resolvePluginImage(stack, plugin, 'org1')).toThrow(/no signed image digest/);
+  });
+
+  it('needs no digest for a metadata_only plugin', () => {
+    const stack = new Stack(new App(), 'S');
+    const plugin = { ...(imagePlugin as object), buildType: 'metadata_only', imageDigest: null } as never;
+    expect(resolvePluginImage(stack, plugin, 'org1')).toBeUndefined();
   });
 });
 

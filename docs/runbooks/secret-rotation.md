@@ -26,7 +26,9 @@ holds two live keys for a while, which is the same idea reached from the other
 end), and the [SAML service-provider
 keys](#saml-service-provider-keys-signing-encryption-test-marker) cannot have one,
 because the trust they rely on lives in each customer's IdP rather than in our
-config. Both are announced, coordinated events instead.
+config. Both are announced, coordinated events instead. The [plugin-signing
+key](#plugin-signing-key) has none either: a signature cannot outlive the key
+that made it, so rotating it means re-signing every plugin image.
 
 **An unfinished rotation is not a rotation.** While a `_PREVIOUS` value is set,
 the old credential still works — including the compromised one you may be
@@ -48,7 +50,7 @@ rotation or explain the alert; do not silence it.
 |---|---|---|---|
 | `docker` | `deploy/local/docker/.env` | `docker-compose.yml` → `x-common-env` (`${SECRET_ENCRYPTION_KEY_PREVIOUS:-}` …) | nothing to recreate — recreate containers |
 | `minikube` | `deploy/local/minikube/.env` | `app-env` ConfigMap + `app-secrets` Secret (`envFrom`), plus the `service-key-*` and `alertmanager-relay` Secrets | `deploy/local/minikube/bin/setup.sh` re-run, or the targeted `kubectl patch` below |
-| `aws/ec2` | `deploy/aws/ec2/.env` (on the instance) | same Secrets as minikube, created by `deploy/bin/k8s-resources.sh` (`pb_create_app_secrets`, `pb_create_token_signing_secret`) | `kubectl patch` below, or re-run `bin/startup.sh` |
+| `aws/ec2` | `deploy/aws/ec2/.env` (on the instance) | same Secrets as minikube, created by `deploy/bin/k8s-resources.sh` (`pb_create_app_secrets`, `pb_create_token_signing_secret`, `pb_create_plugin_signing_secrets`) | `kubectl patch` below, or re-run `bin/startup.sh` |
 | `aws/eks` | `deploy/aws/eks/.env` | same as ec2 | `kubectl patch` below, or re-run `bin/setup.sh` |
 
 The signing KEYS are not env values: they are files. The user-token key lives in
@@ -67,6 +69,7 @@ Key-by-key:
 | `SECRET_ENCRYPTION_KEY` (+ `_PREVIOUS`) | platform only | `.env`; k8s `app-secrets` Secret |
 | `ALERT_WEBHOOK_INSTANCE_TOKEN` (+ `_PREVIOUS`) | platform (verifier) + Alertmanager (sender) | `.env`; k8s `alertmanager-relay` Secret; platform's `ALERT_WEBHOOK_INSTANCES` JSON |
 | image-registry signing key | image-registry (signs) + the Docker registry (verifies) | `deploy/*/certs/image-registry-jwt.{key,crt}` (docker); k8s `registry-token-secret` |
+| **plugin-signing key** (cosign, EC P-256) — plugin images + SBOM attestations | **image-registry only** (signs); plugin holds the PUBLIC key (verifies) | `deploy/*/certs/plugin-signing/plugin-signing.key` → k8s `plugin-signing-key` Secret, or AWS KMS under `PLUGIN_SIGNING_KMS_KEY_ID`; public half `plugin-signing.pub` → `plugin-signing-public-key` |
 | SAML **service-provider** keys (signing, encryption, test-marker) | platform only | Mongo, collection `saml_sp_keys` — private halves wrapped under `SECRET_ENCRYPTION_KEY`. Nothing on disk, nothing in `.env` |
 
 ### Shared mechanics
@@ -530,6 +533,113 @@ exist — keep them until the window closes).
 
 **Proof** — `api/image-registry/test/token-signing-rotation.test.ts` (simulates
 the registry's own `x5c`-against-bundle check).
+
+---
+
+## Plugin-signing key
+
+Every plugin image the plugin service pushes is signed with cosign (key-based,
+transparency log off) and gets a signed SPDX SBOM attestation, both stored in
+the registry as cosign's `sha256-<digest>.sig` / `.att` tags. The plugin service
+**verifies** that signature before it hands out an image-producing plugin, and
+synth pins CodeBuild to the verified digest.
+
+**Who holds what.** The PRIVATE key lives in **image-registry only**, which
+signs at `POST /internal/plugin-signatures` (service token; the caller must be
+`plugin`, and on the mesh targets the `image-registry-internal-plugin-signatures`
+waypoint policy refuses everyone else too). The plugin service gets only the
+PUBLIC key: its pod shares a network namespace with the buildkitd sidecar that
+runs untrusted tenant Dockerfile `RUN` steps, so it must never hold the private
+key or reach AWS credentials. Both halves come from
+`deploy/bin/plugin-signing-keys.sh`, which every target's setup/startup runs.
+
+Two signers, chosen by `PLUGIN_SIGNING_MODE` (read by image-registry):
+
+| Mode | Where the private key lives | What setup does |
+|---|---|---|
+| `local` (default everywhere) | `deploy/<target>/certs/plugin-signing/plugin-signing.key`, mounted into image-registry at `/etc/pipeline-builder/plugin-signing` | generates the key once (never regenerates), derives `plugin-signing.pub` |
+| `kms` (recommended on AWS) | AWS KMS, asymmetric `ECC_NIST_P256`, `SIGN_VERIFY`; image-registry holds only `kms:Sign` + `kms:GetPublicKey` | writes NO private key (deletes any stale `plugin-signing-key` Secret), exports `plugin-signing.pub` from KMS by alias |
+
+**There is no overlap window.** Verification accepts exactly one public key, and
+a signature cannot outlive the key that made it. Rotating — or switching
+`local` ↔ `kms`, which is the same thing — is a hard cutover: from the moment
+plugin mounts the new public key, **every existing plugin image fails
+verification** until it is re-signed, and a failing plugin cannot be used in a
+pipeline. Re-signing happens only on push, so the remedy is to **rebuild /
+re-upload every image plugin** (system plugins via the deploy's plugin loader;
+org plugins by their owners). Plan it as a maintenance window with the rebuild
+list in hand. Rotate only on suspicion of exposure or a policy requirement —
+there is no calendar cadence, and for exactly that reason `kms` is the right
+home for this key in production. Keeping old signatures verifiable instead means
+not rotating: leave the current key in place until the rebuilds are ready.
+
+### Set up `kms` mode (AWS targets)
+
+1. Create the key and alias it — **always by alias, never by ARN** (an ARN
+   embeds the AWS account id, which must never reach config):
+   ```bash
+   KEY=$(aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY \
+     --description "pipeline-builder plugin-image signing" \
+     --query KeyMetadata.KeyId --output text)
+   aws kms create-alias --alias-name alias/pipeline-builder-plugin-signing \
+     --target-key-id "$KEY"
+   ```
+2. Grant **image-registry's** role — never plugin's — `kms:Sign` +
+   `kms:GetPublicKey` on that key:
+   - **eks**: automatic. `bin/setup.sh` Phase 5 resolves the alias, creates
+     `<cluster>-eks-plugin-signing` scoped to exactly that key, and associates
+     it with the `image-registry` ServiceAccount via Pod Identity.
+     `allow-image-registry-kms-egress` (k8s/networkpolicy.yaml) lets
+     image-registry reach the Pod Identity agent and KMS.
+   - **ec2**: manual. Attach a policy with those two actions on the key's ARN
+     to the **instance role** (there is no per-pod identity on single-node
+     minikube). `allow-image-registry-kms-egress` opens IMDS
+     (`169.254.169.254:80`) and 443 to the KMS endpoint — in the private-VPC
+     stack, the KMS interface VPC endpoint on 10.x.
+3. Set in `deploy/<target>/.env`:
+   ```bash
+   PLUGIN_SIGNING_MODE=kms
+   PLUGIN_SIGNING_KMS_KEY_ID=alias/pipeline-builder-plugin-signing
+   ```
+4. Re-run the target's setup/startup. The operator's credentials need
+   `kms:GetPublicKey` (to export the public half for plugin). Because this
+   switches signer, remove the old local key first —
+   `plugin-signing-keys.sh` refuses to run in `kms` mode while
+   `certs/plugin-signing/plugin-signing.key` exists, so a stale private key is
+   never left behind by accident.
+5. Rebuild every image plugin (see above), then verify.
+
+### Rotate
+
+- **`local`**: delete `deploy/<target>/certs/plugin-signing/plugin-signing.{key,pub}`,
+  re-run setup (it generates a fresh pair and re-creates both Secrets), restart
+  **image-registry and plugin** (`kubectl -n pipeline-builder rollout restart
+  deploy/image-registry deploy/plugin`; docker: `docker compose up -d
+  --force-recreate image-registry plugin`), then rebuild every image plugin.
+- **`kms`**: create a new key, point the SAME alias at it (`aws kms
+  update-alias --alias-name alias/pipeline-builder-plugin-signing
+  --target-key-id <new>`), update image-registry's grant to the new key (eks:
+  edit `<cluster>-eks-plugin-signing` — setup reuses an existing policy as-is),
+  re-run setup so the new public key is exported and mounted, restart both
+  services, rebuild every image plugin. Schedule the old key for deletion only
+  after the rebuilds — until then it is your rollback.
+
+**Compromise response** — a leaked `local` key lets anyone produce an image the
+platform will accept. Rotate immediately and treat every plugin image pushed
+since the suspected exposure as untrusted until rebuilt; switch to `kms` while
+you are at it.
+
+**Verify** — a fresh plugin build succeeds end to end (image-registry signs,
+plugin's `cosign verify` passes); a plugin that was not rebuilt fails with
+`Plugin image signature did not verify` (or `has no signed image digest`) rather
+than running unverified. image-registry must be able to write `/tmp` (the
+`scratch-tmp` emptyDir) — a `cosign … failed` error mentioning a read-only file
+system means that mount is missing.
+
+**Rollback** — `local`: restore the previous `plugin-signing.{key,pub}` from
+backup, re-run setup, restart both services; images re-signed with the new key
+then need rebuilding again. `kms`: point the alias back at the old key and
+re-run setup.
 
 ---
 

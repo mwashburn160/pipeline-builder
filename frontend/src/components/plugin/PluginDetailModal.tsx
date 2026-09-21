@@ -6,6 +6,7 @@ import { Boxes } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatDateTime } from '@/lib/format';
+import { PluginSupplyChain } from './PluginSupplyChain';
 
 /**
  * Parse a Plugin URI of shape `<repo-path>:<tag>` (optionally prefixed with
@@ -96,6 +97,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose }: {
             )}
           </div>
         )}
+        <PluginSupplyChain plugin={plugin} />
         <div className="grid grid-cols-2 gap-3 text-xs text-fg-muted">
           <div>Created: {formatDateTime(plugin.createdAt)}</div>
           <div>Updated: {formatDateTime(plugin.updatedAt)}</div>

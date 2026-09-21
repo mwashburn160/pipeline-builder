@@ -15,8 +15,8 @@
 #      Observability infra (loki/alertmanager/thanos/jaeger) is left at
 #      STRICT-mTLS-only (no AuthZ) to bound the enumeration surface.
 #
-# WAYPOINT: the five Services that expose INTERNAL routes (platform, message,
-# compliance, quota, reporting) are attached to the `pb-waypoint` proxy so their
+# WAYPOINT: the six Services that expose INTERNAL routes (platform, message,
+# compliance, quota, reporting, image-registry) are attached to the `pb-waypoint` proxy so their
 # per-route L7 policies can be enforced (k8s/istio-internal-routes.yaml). Traffic
 # to them therefore arrives at their ztunnel as the WAYPOINT's identity, which is
 # why `sa/pb-waypoint` appears in those policies' principal lists below — the
@@ -608,6 +608,12 @@ spec:
               # `default` = crane push pods from init-platform.sh request a push
               # token here (image-registry:3000/token) before pushing base images.
               - cluster.local/ns/pipeline-builder/sa/default
+              # The Service is waypoint-attached (POST /internal/plugin-signatures),
+              # so EVERY Service-addressed call — nginx's /token + /api/images/*
+              # proxying, buildkitd's token fetches from the plugin pod, the crane
+              # push pods above — reaches this ztunnel as the waypoint. Without
+              # this entry the waypoint cutover would 403 the registry token flow.
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]

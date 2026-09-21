@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { errorMessage } from '@pipeline-builder/api-core';
+import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
 import { ApiClient } from './api-client.js';
 import { printWarning } from './output-utils.js';
 
@@ -71,6 +71,12 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
   return refs;
 }
 
+/** The plugin service's 409 `IMAGE_VERIFICATION_FAILED` answer from `/plugins/lookup`. */
+function isImageVerificationFailure(err: unknown): boolean {
+  const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
+  return !!data && typeof data === 'object' && (data as { code?: unknown }).code === ErrorCode.IMAGE_VERIFICATION_FAILED;
+}
+
 /**
  * Pre-resolve plugins by calling the same `POST /api/plugins/lookup` endpoint
  * the deploy-time custom resource Lambda uses. Returning the full Plugin
@@ -81,7 +87,8 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
  *
  * Failures are non-fatal: a missing plugin or unreachable API logs a warning
  * and falls through to the deploy-time custom resource path so partial
- * platform outages don't block synth/deploy.
+ * platform outages don't block synth/deploy. The exception is an image that
+ * fails signature verification — that aborts the synth.
  *
  * Keyed by `alias || name` to match `PluginLookup.plugin()`.
  */
@@ -125,6 +132,11 @@ export async function resolvePluginsForProps(
         printWarning(`Plugin "${ref.name}" lookup returned no record — falling back to deploy-time resolution`);
       }
     } catch (err) {
+      // A plugin whose image signature doesn't verify is NOT an outage to ride
+      // out: falling back would quietly turn it into an unresolved step. Stop.
+      if (isImageVerificationFailure(err)) {
+        throw new Error(`Plugin "${ref.name}" image failed signature verification: ${errorMessage(err)}`);
+      }
       const msg = errorMessage(err);
       printWarning(`Plugin "${ref.name}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);
     }

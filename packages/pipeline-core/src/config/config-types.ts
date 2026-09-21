@@ -64,6 +64,10 @@ export interface ServerConfig {
     readonly billingHost: string;
     readonly billingPort: number;
     readonly billingTimeout: number;
+    /** image-registry service — the plugin worker asks it to sign pushed images (env: `IMAGE_REGISTRY_SERVICE_HOST`). */
+    readonly imageRegistryHost: string;
+    /** env: `IMAGE_REGISTRY_SERVICE_PORT` */
+    readonly imageRegistryPort: number;
   };
 }
 
@@ -164,6 +168,13 @@ export interface BuildConfig {
    * buildkitd sidecar.
    */
   readonly buildkitAddr: string;
+  /**
+   * PEM public key plugin images are verified against (env:
+   * `PLUGIN_SIGNING_PUBLIC_KEY_FILE`). The PRIVATE half lives only in the
+   * image-registry service, which signs every pushed plugin image — never in the
+   * plugin pod, whose network namespace is shared with untrusted builds.
+   */
+  readonly signingPublicKeyFile: string;
 }
 
 export interface ObservabilityConfig {

@@ -20,6 +20,10 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"      # deploy/aws/eks
 CONFIG_DIR="$DEPLOY_DIR/config"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 K8S_DIR="$DEPLOY_DIR/k8s"
+# deploy/bin (shared key generators). Phase 4 calls token-signing-keys.sh,
+# plugin-signing-keys.sh and service-signing-keys.sh through it; it was
+# referenced without being defined, which `set -u` turns into an abort there.
+BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"
 ENV_FILE="$DEPLOY_DIR/.env"
 
 # ---- Config (flags override) ----
@@ -301,6 +305,16 @@ if [ "${TOKEN_SIGNING_MODE:-local}" = "local" ]; then
 fi
 pb_create_token_signing_secret "$DEPLOY_DIR/certs/token-signing/token-signing.key" "$DEPLOY_DIR/certs/token-signing/token-signing-previous.key"
 
+# The plugin-image signing keypair. Persistent cert dir for the same reason as
+# the user-token key: regenerating it would orphan the signature on every plugin
+# image already pushed. Runs in BOTH modes — local generates the private key
+# (mounted by image-registry ONLY) plus its public half; kms writes no private
+# key and exports the public half from KMS by alias (so YOUR credentials need
+# kms:GetPublicKey here; image-registry's own kms:Sign grant is Phase 5). Plugin
+# only ever gets the public Secret — see pb_create_plugin_signing_secrets.
+AWS_REGION="$REGION" bash "$BIN_DIR/plugin-signing-keys.sh" "$DEPLOY_DIR/certs"
+pb_create_plugin_signing_secrets "$DEPLOY_DIR/certs/plugin-signing"
+
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14). Like the
 # user-token key these must SURVIVE the deploy (regenerating one would break
 # every in-flight internal call from that service), so they live in the
@@ -433,6 +447,39 @@ else
 fi
 # CodePipeline exec is consumed by the pipeline service → bind to the 'pipeline' SA.
 associate_pod_identity pipeline "$PIPE_POLICY_ARN"
+
+# Plugin-image signing via KMS (PLUGIN_SIGNING_MODE=kms only). image-registry is
+# the ONLY signer, so kms:Sign + kms:GetPublicKey on exactly the plugin-signing
+# key goes to the 'image-registry' SA — never to 'plugin', whose pod shares a
+# network namespace with the buildkitd that runs tenant Dockerfile steps (and
+# whose egress deliberately cannot reach the Pod Identity agent). The app and
+# every env var name the key BY ALIAS; the ARN is resolved here only because an
+# IAM policy Resource must be a key ARN (aliases are not IAM resources), and it
+# stays in a local shell variable — never written to .env or any config.
+# image-registry reaches the agent + KMS via allow-image-registry-kms-egress
+# (k8s/networkpolicy.yaml).
+if [ "${PLUGIN_SIGNING_MODE:-local}" = "kms" ]; then
+  case "${PLUGIN_SIGNING_KMS_KEY_ID:-}" in
+    alias/?*) ;;
+    *) echo "ERROR: PLUGIN_SIGNING_MODE=kms needs PLUGIN_SIGNING_KMS_KEY_ID=alias/<name> in .env (by alias, never ARN)" >&2; exit 1 ;;
+  esac
+  _plugin_signing_key_arn=$(aws kms describe-key --key-id "$PLUGIN_SIGNING_KMS_KEY_ID" --region "$REGION" \
+    --query KeyMetadata.Arn --output text)
+  SIGN_POLICY_NAME="${CLUSTER_NAME}-eks-plugin-signing"
+  SIGN_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${SIGN_POLICY_NAME}"
+  if ! aws iam get-policy --policy-arn "$SIGN_POLICY_ARN" >/dev/null 2>&1; then
+    aws iam create-policy --policy-name "$SIGN_POLICY_NAME" \
+      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PluginImageSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_plugin_signing_key_arn}\"}]}" >/dev/null
+    echo "  created scoped IAM policy $SIGN_POLICY_NAME (kms:Sign + kms:GetPublicKey on $PLUGIN_SIGNING_KMS_KEY_ID)"
+  else
+    echo "  reusing IAM policy $SIGN_POLICY_NAME (edit it if $PLUGIN_SIGNING_KMS_KEY_ID now targets a different key)"
+  fi
+  unset _plugin_signing_key_arn
+  # Plugin-image signing is performed by image-registry → bind to the 'image-registry' SA.
+  associate_pod_identity image-registry "$SIGN_POLICY_ARN"
+else
+  echo "  PLUGIN_SIGNING_MODE=local — no KMS grant for image-registry"
+fi
 
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
 log "Phase 6: KEDA operator"

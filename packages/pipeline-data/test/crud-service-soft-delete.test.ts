@@ -233,8 +233,14 @@ describe('CrudService tombstone visibility', () => {
   // A schema that HAS the ladder columns; `lifecycleSchema` deliberately has
   // neither, which is the "nothing to gate on" branch covered at the end.
   const visibilitySchema = {
-    id: {}, name: {}, isActive: {}, isDefault: {}, deletedAt: {}, purgeAfter: {},
-    visibility: {}, createdBy: {},
+    id: {},
+    name: {},
+    isActive: {},
+    isDefault: {},
+    deletedAt: {},
+    purgeAfter: {},
+    visibility: {},
+    createdBy: {},
   } as unknown as PgTable;
 
   /** Capture the SQL handed to `.where(...)` on the findDeleted chain. */

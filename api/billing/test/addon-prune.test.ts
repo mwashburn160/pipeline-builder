@@ -307,8 +307,12 @@ describe('applyPlanTierChange', () => {
   it('lets the SYSADMIN override lift a lapsed sub — a human deliberately granting a tier', async () => {
     const s = { ...sub(), metadata: { gracePeriodDowngradedAt: new Date().toISOString() } };
     await applyPlanTierChange(s, { tier: 'enterprise' }, {
-      oldPlanId: 'pro', newPlanId: 'enterprise', pruned: [], actorId: 'admin-1',
-      source: 'admin_plan_change', allowLapsedRestore: true,
+      oldPlanId: 'pro',
+      newPlanId: 'enterprise',
+      pruned: [],
+      actorId: 'admin-1',
+      source: 'admin_plan_change',
+      allowLapsedRestore: true,
     })();
 
     expect(syncedPayload()).toContain('enterprise');

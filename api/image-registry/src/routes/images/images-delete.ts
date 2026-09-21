@@ -17,7 +17,7 @@ import {
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canWriteRepo, repoOwnerOrgId } from './repo-access.js';
-import { logger, RegistryMetrics, COPY_PARALLEL_BLOBS } from './shared.js';
+import { logger, RegistryMetrics, COPY_PARALLEL_BLOBS, cosignCompanionTags } from './shared.js';
 import { emitImageRegistryAudit } from '../../services/audit.js';
 import {
   listTags,
@@ -25,6 +25,25 @@ import {
   deleteManifest,
   isNotFound,
 } from '../../services/registry-client.js';
+
+/**
+ * Delete the cosign signature/attestation tags that describe `digest`, once the
+ * manifest itself is gone. Missing companions are normal (a copied or
+ * base image was never signed). Returns how many were removed.
+ */
+async function deleteCosignCompanions(name: string, digest: string): Promise<number> {
+  let deleted = 0;
+  for (const tag of cosignCompanionTags(digest)) {
+    try {
+      const companion = await getManifest(name, tag);
+      await deleteManifest(name, companion.digest);
+      deleted++;
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
+  }
+  return deleted;
+}
 
 /**
  * Register the destructive routes (each gated on `registry:write`):
@@ -50,7 +69,8 @@ export function registerDeleteRoutes(router: Router): void {
       // Distribution requires DELETE by digest, not tag. Resolve first.
       const { digest } = await getManifest(name, reference);
       await deleteManifest(name, digest);
-      ctx.log('COMPLETED', 'Deleted manifest', { name, reference, digest });
+      const deletedCompanions = await deleteCosignCompanions(name, digest);
+      ctx.log('COMPLETED', 'Deleted manifest', { name, reference, digest, deletedCompanions });
       // Intentional dual-emit (NOT an accidental duplication): two independent
       // consumers. The Loki line below (`emitAudit` → winston) feeds the operator
       // Audit-Activity dashboard / RecentActionsPanel — a short-retention, human-
