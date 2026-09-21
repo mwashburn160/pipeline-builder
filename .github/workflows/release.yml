@@ -89,6 +89,8 @@ jobs:
       contents: write
       packages: read
       id-token: write
+    outputs:
+      RELEASED_SHA: ${{ steps.released_sha.outputs.RELEASED_SHA }}
     if: ${{ needs.init.outputs.AFFECTED_PROJECTS != '[]' || needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
@@ -198,6 +200,9 @@ jobs:
       - name: Push new tag to the repository
         id: push_new_tag_to_the_repository
         run: git push --follow-tags
+      - name: Record released commit
+        id: released_sha
+        run: echo RELEASED_SHA=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
   publish:
     name: publish image
     needs:
@@ -373,6 +378,8 @@ jobs:
       - name: Set git user
         id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Advance .nx_base to the released HEAD
-        id: advance_nx_base_to_the_released_head
-        run: 'git pull --ff-only origin main && echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'
+      - name: Advance .nx_base to the released commit
+        id: advance_nx_base_to_the_released_commit
+        env:
+          RELEASED_SHA: ${{ needs.build.outputs.RELEASED_SHA }}
+        run: 'git pull --ff-only origin main && test -n "$RELEASED_SHA" && git merge-base --is-ancestor "$RELEASED_SHA" HEAD && echo "$RELEASED_SHA" > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'

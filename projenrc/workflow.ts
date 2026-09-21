@@ -225,6 +225,9 @@ export class Workflow extends Component {
                 // before falling back to NPM_TOKEN.
                 idToken: JobPermission.WRITE,
             },
+            outputs: {
+                RELEASED_SHA: { stepId: 'released_sha', outputName: 'RELEASED_SHA' },
+            },
             if: '${{ needs.init.outputs.AFFECTED_PROJECTS != \'[]\' || needs.init.outputs.AFFECTED_IMAGES != \'[]\' }}',
             steps: [
                 ...this.bootstrapSteps(),
@@ -337,6 +340,16 @@ export class Workflow extends Component {
                 {
                     name: 'Push new tag to the repository',
                     run: 'git push --follow-tags',
+                },
+                {
+                    // The version-bump commit `nx release` just made and tagged —
+                    // exactly what this run built and shipped. `record_build`
+                    // records THIS, not main's tip: commits that land on main while
+                    // the release runs were never built, and recording the tip would
+                    // drop them from the next run's affected set.
+                    id: 'released_sha',
+                    name: 'Record released commit',
+                    run: 'echo RELEASED_SHA=$(git rev-parse HEAD) >> $GITHUB_OUTPUT',
                 },
                 // NOTE: `.nx_base` is intentionally NOT advanced here. It is
                 // committed by the downstream `record_build` job, which runs only
@@ -609,7 +622,7 @@ export class Workflow extends Component {
     }
 
     /**
-     * Records a successful release by advancing `.nx_base` to the built HEAD.
+     * Records a successful release by advancing `.nx_base` to the released commit.
      *
      * This is deliberately a SEPARATE, final job rather than a step in `build`.
      * The affected-detection base (`.nx_base`) may only move forward once every
@@ -653,11 +666,16 @@ export class Workflow extends Component {
                     run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"',
                 },
                 {
-                    // main may have advanced (build pushed version-bump commits);
-                    // record the current tip so the next run's affected set starts
-                    // from exactly what this release built and verified.
-                    name: 'Advance .nx_base to the released HEAD',
-                    run: 'git pull --ff-only origin main && echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
+                    // Record the commit this release built (build's RELEASED_SHA),
+                    // NOT main's tip: anything pushed to main while the release ran
+                    // was never built, and recording the tip would silently drop it
+                    // from the next run's affected set. The ancestor check refuses a
+                    // SHA that isn't on main (e.g. a version commit whose push lost).
+                    name: 'Advance .nx_base to the released commit',
+                    env: {
+                        RELEASED_SHA: '${{ needs.build.outputs.RELEASED_SHA }}',
+                    },
+                    run: 'git pull --ff-only origin main && test -n "$RELEASED_SHA" && git merge-base --is-ancestor "$RELEASED_SHA" HEAD && echo "$RELEASED_SHA" > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
                 },
             ],
         };
