@@ -16,7 +16,7 @@ import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { Worker } from 'bullmq';
+import { DelayedError, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 
 import { recordBuildEvent } from './build-failures.js';
@@ -110,7 +110,14 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       const slotJobId = `${job.queueName}:${job.id ?? job.name}`;
       if (!await tryAcquireOrgSlot(orgId, slotJobId)) {
         await job.moveToDelayed(Date.now() + ORG_SLOT_DELAY_MS, token);
-        throw Worker.RateLimitError();
+        // `DelayedError` is the sentinel that PAIRS with `moveToDelayed`: the
+        // worker leaves the job delayed and picks up the next one.
+        // `Worker.RateLimitError()` takes a different branch — it calls
+        // `moveLimitedBackToWait`, which put the job straight back on the wait
+        // list and undid the `moveToDelayed` above. The org's backoff never
+        // applied, so a job whose org was at its slot limit span through the
+        // worker again and again instead of waiting ORG_SLOT_DELAY_MS.
+        throw new DelayedError();
       }
       try {
         if (job.timestamp) {
@@ -207,7 +214,16 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
         return { pluginId: result.id, fullImage };
       } finally {
-        await releaseOrgSlot(orgId, slotJobId);
+        // NEVER let the slot release decide the job's outcome. A rejection here
+        // (a Redis blip) replaced the processor's return value, so a build that
+        // had already published its image was reported FAILED and retried from
+        // scratch. Releasing the slot is bookkeeping; `scrubOrgSlots` reclaims
+        // anything this drops.
+        await releaseOrgSlot(orgId, slotJobId).catch((err) => {
+          logger.warn('Org build slot release failed; leaving it for the scrubber', {
+            orgId, slotJobId, error: errorMessage(err),
+          });
+        });
       }
     }), {
       'pb.org_id': orgId,

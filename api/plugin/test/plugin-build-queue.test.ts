@@ -114,7 +114,15 @@ function registerMocks() {
     }
     // Mirrors bullmq's UnrecoverableError (fail now, skip remaining attempts).
     class MockUnrecoverableError extends Error {}
-    return { Queue: MockQueue, Worker: MockWorker, UnrecoverableError: MockUnrecoverableError };
+    // The sentinel that PAIRS with `moveToDelayed`: bullmq leaves the job
+    // delayed and moves on. (`Worker.RateLimitError()` takes the other branch
+    // and puts the job straight back on the wait list, undoing the delay.)
+    class MockDelayedError extends Error { name = 'DelayedError'; }
+    return {
+      Queue: MockQueue, Worker: MockWorker,
+      UnrecoverableError: MockUnrecoverableError,
+      DelayedError: MockDelayedError,
+    };
   });
 
   jest.unstable_mockModule('ioredis', () => {

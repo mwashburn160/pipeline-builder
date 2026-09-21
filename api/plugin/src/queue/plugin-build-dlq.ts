@@ -226,15 +226,27 @@ export function startDlqWorker(quotaService: QuotaService): void {
 
       const { failureCategory: _, lastError: __, ...cleanData } = job.data;
       const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
-      await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
 
-      // The re-queued job (fresh data, quotaReleased unset) now OWNS this org's
-      // plugin-quota slot and will release it on its terminal. Mark the original
-      // DLQ job's slot as already accounted so purgeDlq / auto-purge don't release
-      // the SAME slot again (double-release) when they later evict this lingering
-      // completed DLQ job (retained up to removeOnComplete's count cap).
+      // Mark the hand-off BEFORE making it. The re-queued job (fresh data,
+      // quotaReleased unset) owns this org's plugin-quota slot and releases it
+      // on its terminal, so the original DLQ record must stop claiming it or
+      // `purgeDlq` / the auto-purge will release the SAME slot again when they
+      // evict this lingering completed record.
+      //
+      // Ordering matters because either write can fail. Adding first left a
+      // window where the retry was live but the record still claimed the slot —
+      // a double-release, which frees capacity that is genuinely in use.
+      // Marking first can only strand a slot if the `add` then fails, and a
+      // stranded slot is the conservative direction: it self-heals at the quota
+      // period reset instead of over-admitting builds now.
       job.data.quotaReleased = true;
       await job.updateData(job.data);
+
+      // Deterministic job id so a re-run of this processor (BullMQ retries it on
+      // any throw below) cannot enqueue the same build twice.
+      await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData, {
+        jobId: `dlq-retry:${job.id}`,
+      });
     },
     {
       connection: getConnectionForDb(0) as ConnectionOptions,
