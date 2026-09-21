@@ -51,6 +51,32 @@ describe('createRemoteAuditClient.record', () => {
     jest.clearAllMocks();
   });
 
+  it('never produces an unhandled rejection when the service token cannot be minted', async () => {
+    // The signing key can be unreadable, the wrong curve, or `SERVICE_NAME` can
+    // mismatch this client's name — and minting used to sit OUTSIDE deliver's
+    // try. `record` fires with a bare `.then`, so the rejection went unhandled,
+    // runServer's crash handler exited, and the pod crash-looped on its first
+    // audited write or authz.denied event.
+    const { getServiceAuthHeader } = await import('../src/middleware/auth.js');
+    (getServiceAuthHeader as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('service signing key unavailable');
+    });
+    const unhandled = jest.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const client = createRemoteAuditClient();
+      expect(() => client.record(EVENT, 'pipeline')).not.toThrow();
+      // Let every microtask in the chain settle.
+      await new Promise((r) => setImmediate(r));
+
+      expect(unhandled).not.toHaveBeenCalled();
+      // Nothing was sent — the event is simply undeliverable.
+      expect(mockPost).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
   it('posts to /audit/events with a retry budget (transient failures are not single-shot)', async () => {
     const client = createRemoteAuditClient();
     client.record(EVENT, 'pipeline');

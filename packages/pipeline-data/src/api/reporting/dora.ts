@@ -60,9 +60,28 @@ export async function getDoraMetrics(
   const { pipelineId, environment } = opts;
   const pipelineClause = pipelineId ? sql`AND e.pipeline_id = ${pipelineId}` : sql``;
   const pipelineClauseR = pipelineId ? sql`AND r.pipeline_id = ${pipelineId}` : sql``;
+  // Post-deploy outcomes carry no pipeline id, only the execution that
+  // produced them, so a per-pipeline view has to scope them THROUGH the
+  // execution. Without it the outcome and MTTR scans read every pipeline in the
+  // org: another pipeline's `failed` marker counted against this one's change
+  // failure rate (ten clean deploys could drop from elite to high) and its
+  // recoveries fed this one's MTTR.
+  const outcomePipelineClause = pipelineId
+    ? sql`AND o.execution_id IN (SELECT pe.execution_id FROM ${schema.pipelineEvent} pe WHERE pe.pipeline_id = ${pipelineId})`
+    : sql``;
+  // `envClause` is the STRICT filter (coverage, and the output). The deploy and
+  // incident SCANS use the widened `scanEnvClause`/`scanIncidentEnvClause`
+  // instead, which always admit production: MTTR is production-only and
+  // documented as independent of the environment filter, but incident-sourced
+  // MTTR correlates each production incident against production DEPLOY rows.
+  // Filtering both scans to `?environment=staging` removed every production
+  // incident and every production deploy, so incident recovery silently dropped
+  // out of MTTR the moment anyone looked at a non-production environment.
+  // `shapeDora` narrows the reported environments back to the requested one.
   const envClause = environment ? sql`AND e.environment = ${environment}` : sql``;
+  const scanEnvClause = environment ? sql`AND e.environment IN (${environment}, ${HEADLINE_ENV})` : sql``;
   const outcomeEnvClause = environment ? sql`AND o.environment = ${environment}` : sql``;
-  const incidentEnvClause = environment ? sql`AND i.environment = ${environment}` : sql``;
+  const scanIncidentEnvClause = environment ? sql`AND i.environment IN (${environment}, ${HEADLINE_ENV})` : sql``;
 
   // Effective incident-correlation window (per-org override or the global
   // default). Computed here (not just in shapeDora) because the deploy scan
@@ -99,7 +118,7 @@ export async function getDoraMetrics(
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
-          ${pipelineClause} ${envClause}
+          ${pipelineClause} ${scanEnvClause}
           AND e.completed_at >= ${lookbackFrom}::timestamptz AND e.completed_at <= ${to}::timestamptz
         GROUP BY e.environment, e.execution_id
       ),
@@ -128,7 +147,7 @@ export async function getDoraMetrics(
   const outcomeSql = sql`
       SELECT o.environment AS environment, o.outcome AS outcome, o.execution_id AS execution_id
       FROM ${schema.deploymentOutcome} o
-      WHERE o.org_id ${pred} ${outcomeEnvClause}
+      WHERE o.org_id ${pred} ${outcomeEnvClause} ${outcomePipelineClause}
         AND o.at >= ${from}::timestamptz AND o.at <= ${to}::timestamptz`;
 
   // (3) MTTR — PRODUCTION-ONLY, independent of the env filter. Every production
@@ -146,7 +165,7 @@ export async function getDoraMetrics(
            WHERE p2.org_id ${pred} AND d.execution_id = o.execution_id
              AND d.event_type = 'STAGE' AND d.environment = ${HEADLINE_ENV})::text AS deployed_at
       FROM ${schema.deploymentOutcome} o
-      WHERE o.org_id ${pred} AND o.environment = ${HEADLINE_ENV}
+      WHERE o.org_id ${pred} AND o.environment = ${HEADLINE_ENV} ${outcomePipelineClause}
         AND o.at >= ${from}::timestamptz AND o.at <= ${to}::timestamptz`;
 
   // (5) Incidents opened in-window (per env). Correlated in JS to the most
@@ -155,7 +174,7 @@ export async function getDoraMetrics(
   const incidentSql = sql`
       SELECT i.environment AS environment, i.opened_at::text AS opened_at, i.resolved_at::text AS resolved_at
       FROM ${schema.incident} i
-      WHERE i.org_id ${pred} ${incidentEnvClause}
+      WHERE i.org_id ${pred} ${scanIncidentEnvClause}
         AND i.opened_at >= ${from}::timestamptz AND i.opened_at <= ${to}::timestamptz`;
 
   // (4) Coverage: registered pipelines vs those that actually deployed in-window.
@@ -338,6 +357,11 @@ function shapeDora(
   for (const [env, set] of postDeployExecsByEnv) postDeployByEnv.set(env, set.size);
 
   const environments: DoraEnvMetrics[] = [...envs.entries()]
+    // The deploy and incident scans admit PRODUCTION alongside a requested
+    // environment so MTTR can correlate production incidents (see
+    // `scanEnvClause`). That production row is plumbing for MTTR, not something
+    // the caller asked to see — report only the environment that was requested.
+    .filter(([environment]) => !filters.environment || environment === filters.environment)
     .map(([environment, a]) => {
       const postDeployFailures = postDeployByEnv.get(environment) ?? 0;
       const rawPerDay = a.deployments / days;

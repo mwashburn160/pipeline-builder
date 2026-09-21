@@ -607,6 +607,29 @@ describe('ReportingService', () => {
       expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
     });
 
+    it('keeps production incident recovery in MTTR under a NON-production env filter', async () => {
+      // MTTR is production-only and documented as independent of the env
+      // filter. Incident-sourced MTTR correlates a production incident against a
+      // production DEPLOY, so both scans must still return production rows when
+      // the caller asks for staging. They used to be filtered strictly, and
+      // incident recovery vanished from MTTR the moment anyone looked at a
+      // non-production environment.
+      const stagingDeploy = { environment: 'staging', execution_id: 'exec-S', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null };
+      wireScans(
+        [stagingDeploy, prodDeploy],
+        [], [],
+        [{ registered: 1, deploying: 1 }],
+        [{ environment: 'production', opened_at: '2026-07-02T02:00:00Z', resolved_at: '2026-07-02T03:00:00Z' }],
+      );
+
+      const result = await service.getDoraMetrics('acme', FROM, TO, undefined, { environment: 'staging' });
+
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
+      // ...while the REPORTED environments are only the one that was asked for.
+      // Production was fetched as plumbing for MTTR, not to be shown.
+      expect(result.environments.map((e) => e.environment)).toEqual(['staging']);
+    });
+
     it('correlates at the exact window boundary (24h) but NOT one second past it', async () => {
       // Boundary-inclusive: an incident opened exactly 24h after the deploy correlates.
       wireScans(
@@ -1117,9 +1140,43 @@ describe('ReportingService', () => {
 
       const { sql, params } = rendered(0);
       expect(sql).toContain('e.pipeline_id =');
-      expect(sql).toContain('e.environment =');
+      // The deploy SCAN admits production alongside the requested env, because
+      // incident-sourced MTTR (production-only, independent of the env filter)
+      // correlates production incidents against production deploys. Filtering
+      // the scan strictly dropped them all under `?environment=staging`.
+      expect(sql).toContain('e.environment IN (');
       expect(params).toContain('p-1');
       expect(params).toContain('staging');
+      expect(params).toContain('production');
+    });
+
+    it('getDoraMetrics: coverage stays STRICT to the requested env', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraMetrics('acme', FROM, TO, undefined, { environment: 'staging' });
+
+      // Scan order: 0=deploy, 1=outcomes, 2=mttr, 3=coverage, 4=incidents.
+      expect(rendered(3).sql).toContain('e.environment =');
+      expect(rendered(3).sql).not.toContain('e.environment IN (');
+    });
+
+    it('getDoraMetrics: per-pipeline scopes post-deploy outcomes and MTTR through the execution', async () => {
+      // Outcomes carry no pipeline id. Unscoped, another pipeline's `failed`
+      // marker counted against this one's change-failure rate and its
+      // recoveries fed this one's MTTR.
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraMetrics('acme', FROM, TO, undefined, { pipelineId: 'p-1' });
+
+      for (const scan of [1, 2]) {
+        const { sql, params } = rendered(scan);
+        expect(sql).toContain('o.execution_id IN (SELECT pe.execution_id');
+        expect(params).toContain('p-1');
+      }
+    });
+
+    it('getDoraMetrics: org-wide leaves the outcome scans unscoped', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraMetrics('acme', FROM, TO);
+      expect(rendered(1).sql).not.toContain('pe.execution_id');
     });
 
     it('getDoraTrend: buckets deploy-stage terminal executions (no PIPELINE roll-up)', async () => {

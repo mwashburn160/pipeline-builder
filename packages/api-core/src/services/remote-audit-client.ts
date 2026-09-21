@@ -327,12 +327,20 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
    * the same key as its original live attempt — the two collapse to one row.
    */
   async function deliver(event: RemoteAuditEvent, serviceName: string): Promise<boolean> {
-    const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
-    const headers: Record<string, string> = {
-      'Authorization': authHeader,
-      'Idempotency-Key': event.idempotencyKey ?? randomUUID(),
-    };
     try {
+      // Minting the token is INSIDE the try on purpose. It can throw — the
+      // signing key unreadable, not an EC P-256 key, or `SERVICE_NAME` not
+      // matching this client's name — and it used to sit above the `try`, so
+      // `deliver` rejected instead of resolving `false` as documented. `record`
+      // fires it with a bare `.then` and no `.catch`, so the rejection went
+      // unhandled, `runServer`'s crash handler exited, and the pod crash-looped
+      // on its first audited write or `authz.denied` event. Now a key problem is
+      // just an undeliverable event: spooled, or dropped and metered.
+      const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
+      const headers: Record<string, string> = {
+        'Authorization': authHeader,
+        'Idempotency-Key': event.idempotencyKey ?? randomUUID(),
+      };
       const response = await client.post('/audit/events', event, { headers, ...AUDIT_REQUEST_OPTIONS });
       const ok = !!response && response.statusCode >= 200 && response.statusCode < 300;
       if (!ok) {
@@ -414,6 +422,13 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
         } else {
           emitCounter('audit_dropped_total', { service: serviceName });
         }
+      }).catch((err) => {
+        // Belt and braces. `deliver` no longer rejects, but anything that throws
+        // in the continuation would otherwise become an unhandled rejection —
+        // and in this process that is a crash, not a log line. An audit event
+        // must never take the service down.
+        emitCounter('audit_dropped_total', { service: serviceName });
+        logger.error('Remote audit record failed unexpectedly', { action: stamped.action, error: errorMessage(err) });
       });
     },
     close() {
