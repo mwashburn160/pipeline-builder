@@ -57,8 +57,13 @@ function detectRepoUrl(props: BuilderProps | undefined | null): string | null {
 function parameterizeProps(props: BuilderProps, rows: EditableInput[]): BuilderProps {
   let json = JSON.stringify(props);
   for (const r of rows) {
-    if (!r.replaces.trim()) continue;
-    json = json.split(r.replaces).join(`{{ vars.${r.name} }}`);
+    // Only rows that also become a declared input (`toTemplateInputs` keeps
+    // named rows, trimmed). A nameless row used to be substituted anyway,
+    // writing `{{ vars. }}` — a reference to nothing — into the saved props, so
+    // every instance of the template got a broken value (typically the repo URL).
+    const name = r.name.trim();
+    if (!name || !r.replaces.trim()) continue;
+    json = json.split(r.replaces).join(`{{ vars.${name} }}`);
   }
   return JSON.parse(json) as BuilderProps;
 }
@@ -213,6 +218,11 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     if (!name.trim()) { setError('Template name is required.'); return; }
     if (!source?.props) { setError('Select a pipeline to base the template on.'); return; }
     for (const r of inputs) {
+      // A value to replace with no name to replace it by is a half-filled row,
+      // not an empty one — say so rather than quietly dropping the intent.
+      if (!r.name.trim() && r.replaces.trim()) {
+        setError(`Give the input that replaces "${r.replaces.trim()}" a name.`); return;
+      }
       if (r.name.trim() && !INPUT_NAME_RE.test(r.name.trim())) {
         setError(`Input name "${r.name}" must be a valid identifier (letters/digits/_, not starting with a digit).`); return;
       }
@@ -221,6 +231,11 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     setError(null);
     setSuccess(null);
     setSaving(true);
+    // On success the modal stays open ~1.5s to show the confirmation, and
+    // clearing `saving` in `finally` re-armed the submit button for exactly that
+    // window: a second click created a duplicate template (or a name-conflict
+    // error stacked on the success banner). Stay locked until it closes.
+    let created = false;
     try {
       // Declared inputs → vars.<name>; swap each input's `replaces` literal in the
       // captured props for `{{ vars.<name> }}` so the template is parameterized
@@ -238,6 +253,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         inputs: templateInputs,
       });
       if (res.success) {
+        created = true;
         setSuccess(`Template "${name.trim()}" saved as ${VISIBILITY_BLURB[visibility]}.`);
         onCreated();
         setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
@@ -247,7 +263,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     } catch (err) {
       setError(formatError(err, 'Failed to create template'));
     } finally {
-      setSaving(false);
+      if (!created) setSaving(false);
     }
   };
 

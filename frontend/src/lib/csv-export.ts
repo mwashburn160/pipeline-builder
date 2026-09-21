@@ -23,7 +23,12 @@ function toCsvRow(values: ReadonlyArray<unknown>): string {
   return values.map((v) => {
     const raw = v === null || v === undefined ? '' : String(v);
     const str = escapeCsvCell(raw);
-    return str.includes(',') || str.includes('"') || str.includes('\n') ? `"${str.replace(/"/g, '""')}"` : str;
+    // Quote on `\r` too. The formula guard above only inspects the FIRST
+    // character, and a bare carriage return is a row break to Excel: an
+    // unquoted `x\r=HYPERLINK(...)` (a build error message is enough) put the
+    // formula at the start of a NEW cell, where it executed. Inside quotes the
+    // CR is just data and the cell still starts with `x`.
+    return /[,"\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   }).join(',');
 }
 
@@ -40,7 +45,11 @@ export function triggerBlobDownload(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Deferred, as MessageAttachments already does: revoking synchronously after
+  // `click()` can cancel the download before the browser has read the blob,
+  // which showed up as an occasional empty or failed file on the large exports
+  // (the streamed log export, the org YAML export).
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /**

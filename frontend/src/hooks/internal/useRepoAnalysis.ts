@@ -10,6 +10,7 @@ import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { formatJSON } from '@/lib/constants';
+import { useUnmountedRef } from '../useUnmountedRef';
 
 /** Analysis data returned by the backend analyzing event. */
 export interface RepoAnalysisData {
@@ -69,8 +70,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
   // mid-generation) so the async SSE loop stops consuming events + stops
   // calling setState on a dead component, and the generator's abort/`finally`
   // fires (server-side git clone is torn down).
-  const cancelledRef = useRef(false);
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  const cancelledRef = useUnmountedRef();
 
   /**
    * Typing a new URL invalidates whatever the last run found, so the URL setter

@@ -54,9 +54,16 @@ export function redactString(s: string): string {
 }
 
 function redactValue(value: unknown, depth: number): unknown {
-  // Cap depth so a pathological / deeply-nested blob can't lock the render.
-  if (depth > 8) return value;
+  // Cap depth so a pathological / deeply-nested blob can't lock the render —
+  // but fail CLOSED. Returning the subtree as-is (the old behaviour) meant
+  // anything nested past the cap was shown and exported in the clear,
+  // sensitive keys and account ids included: the one part of the blob this
+  // function had not inspected was the part it handed out.
+  if (depth > 8) return REDACTED;
   if (typeof value === 'string') return redactString(value);
+  // A 12-digit account id stored as a NUMBER (`{ owner: 123456789012 }`) is
+  // the same leak as the string form; only strings used to be scrubbed.
+  if (typeof value === 'number') return redactString(String(value)) === String(value) ? value : REDACTED;
   if (value == null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((v) => redactValue(v, depth + 1));
   const out: Record<string, unknown> = {};

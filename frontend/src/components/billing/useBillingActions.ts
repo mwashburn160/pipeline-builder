@@ -101,6 +101,11 @@ export function useBillingActions({
 
   const doSubscribe = async (planId: string) => {
     setActionLoading(true);
+    // Set once we hand the tab to Stripe. A `return` inside `try` still runs
+    // `finally`, so the old "keep the loading state while navigating away"
+    // comment was false: the buttons re-enabled while Checkout was loading, and
+    // a second click opened a second Checkout session.
+    let navigating = false;
     try {
       if (subscription) {
         const res = await api.changeSubscription(subscription.id, { planId, interval: billingInterval });
@@ -129,8 +134,9 @@ export function useBillingActions({
         if (action === 'checkout') {
           const res = await api.createCheckoutSession(planId, billingInterval);
           if (res.success && res.data?.url) {
+            navigating = true;
             window.location.href = res.data.url; // leave for hosted Checkout
-            return; // keep the loading state while navigating away
+            return;
           }
           throw new Error('Could not start checkout');
         }
@@ -144,7 +150,7 @@ export function useBillingActions({
     } catch (err) {
       toast.error(formatError(err, 'Failed to update subscription'));
     } finally {
-      setActionLoading(false);
+      if (!navigating) setActionLoading(false);
     }
   };
 
@@ -171,17 +177,20 @@ export function useBillingActions({
    *  returning to this page afterward. */
   const openBillingPortal = async () => {
     setPortalLoading(true);
+    // Same `finally` trap as `doSubscribe`: stay locked once we are leaving.
+    let navigating = false;
     try {
       const res = await api.createBillingPortalSession();
       if (res.success && res.data?.url) {
+        navigating = true;
         window.location.href = res.data.url;
-        return; // navigating away
+        return;
       }
       toast.error('Could not open the payment portal');
     } catch (err) {
       toast.error(formatError(err, 'Could not open the payment portal'));
     } finally {
-      setPortalLoading(false);
+      if (!navigating) setPortalLoading(false);
     }
   };
 

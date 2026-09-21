@@ -85,6 +85,9 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
       : (requested === 'org' ? 'org' : 'private');
 
     setSaving(true);
+    // Stay locked after success — see CreateTemplateModal: the modal lingers
+    // ~1.5s on the confirmation and a re-armed button imported it twice.
+    let imported = false;
     try {
       const res = await api.createPipelineTemplate({
         name: parsed.name.trim(),
@@ -96,6 +99,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
         inputs: Array.isArray(parsed.inputs) ? parsed.inputs : [],
       });
       if (res.success) {
+        imported = true;
         const note = requested === 'public' && !canPublish ? ' (imported as org-shared — publishing needs templates:publish)' : '';
         setSuccess(`Template "${parsed.name.trim()}" imported${note}.`);
         onImported();
@@ -106,7 +110,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
     } catch (err) {
       setError(formatError(err, 'Failed to import template'));
     } finally {
-      setSaving(false);
+      if (!imported) setSaving(false);
     }
   };
 

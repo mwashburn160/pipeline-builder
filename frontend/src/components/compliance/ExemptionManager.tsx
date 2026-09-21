@@ -143,7 +143,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   // Bulk-import exemptions from a user-uploaded CSV.
   // Required columns: ruleId, entityType, entityId, reason.
   // Optional: entityName, expiresAt (ISO datetime).
-  // Caps at 500 rows server-side; the frontend validates each row before send.
+  // Caps at 500 rows server-side; entityType is validated here before send.
   const REQUIRED_COLS = ['ruleId', 'entityType', 'entityId', 'reason'];
   const handleBulkImport = async (file: File) => {
     setBulkError(null);
@@ -165,16 +165,36 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         return;
       }
 
+      // entityType is VALIDATED, not coerced. Anything other than the exact
+      // string `pipeline` used to become `'plugin'`, so a row saying `Pipeline`
+      // or `pipeline ` (cells are not trimmed) created a PLUGIN exemption
+      // carrying the pipeline's id — reported as created, and never exempting
+      // the pipeline it was meant for. Trim and case-fold, and refuse the file
+      // rather than guess.
+      const badType: number[] = [];
       const exemptions = parsed.rows
-        .filter((r) => r.ruleId && r.entityId && r.reason)
-        .map((r) => ({
-          ruleId: r.ruleId,
-          entityType: (r.entityType === 'pipeline' ? 'pipeline' : 'plugin') as 'plugin' | 'pipeline',
-          entityId: r.entityId,
-          entityName: r.entityName || undefined,
-          reason: r.reason,
-          expiresAt: r.expiresAt || undefined,
-        }));
+        .map((r, i) => ({ r, row: i + 2 })) // +2: 1-based, after the header
+        .filter(({ r }) => r.ruleId?.trim() && r.entityId?.trim() && r.reason?.trim())
+        .map(({ r, row }) => {
+          const entityType = (r.entityType ?? '').trim().toLowerCase();
+          if (entityType !== 'plugin' && entityType !== 'pipeline') badType.push(row);
+          return {
+            ruleId: r.ruleId.trim(),
+            entityType: entityType as 'plugin' | 'pipeline',
+            entityId: r.entityId.trim(),
+            entityName: r.entityName?.trim() || undefined,
+            reason: r.reason.trim(),
+            expiresAt: r.expiresAt?.trim() || undefined,
+          };
+        });
+
+      if (badType.length > 0) {
+        setBulkError(
+          `entityType must be "plugin" or "pipeline" — check row(s) ${badType.slice(0, 10).join(', ')}`
+          + `${badType.length > 10 ? ` and ${badType.length - 10} more` : ''}. Nothing was imported.`,
+        );
+        return;
+      }
 
       if (exemptions.length === 0) {
         setBulkError('No rows had all required fields filled.');

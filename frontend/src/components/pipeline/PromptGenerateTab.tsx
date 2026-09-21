@@ -1,4 +1,4 @@
-import { useState, useImperativeHandle, forwardRef, useCallback, useEffect, useRef } from 'react';
+import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { Sparkles, ChevronDown, Plug } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -15,6 +15,7 @@ import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
+import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 
 /**
  * Methods exposed to the parent modal via ref. Intentionally identical to
@@ -173,8 +174,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
 
     // Set on unmount (e.g. the create modal closes mid-generation) so the async
     // stream loop stops consuming + stops calling setState on a dead component.
-    const cancelledRef = useRef(false);
-    useEffect(() => () => { cancelledRef.current = true; }, []);
+    const cancelledRef = useUnmountedRef();
 
     const handleGenerate = async () => {
       if (!prompt.trim()) {

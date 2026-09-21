@@ -127,3 +127,23 @@ describe('display-surface redaction', () => {
     expect(claim.scope).toBe('acct:[REDACTED]');
   });
 });
+
+describe('redactDetails — fails closed', () => {
+  it('redacts, rather than returns, anything nested past the depth cap', () => {
+    // It used to hand back the uninspected subtree verbatim — sensitive keys and
+    // account ids included — i.e. exactly the part it had not checked.
+    let deep: Record<string, unknown> = { token: 'sk-live-secret', owner: 'acct:123456789012' };
+    for (let i = 0; i < 12; i++) deep = { child: deep };
+    const text = JSON.stringify(redactDetails(deep));
+    expect(text).not.toContain('sk-live-secret');
+    expect(text).not.toContain('123456789012');
+  });
+
+  it('scrubs a 12-digit account id stored as a NUMBER', () => {
+    expect(redactDetails({ owner: 123456789012 }).owner).toBe('[REDACTED]');
+  });
+
+  it('leaves ordinary numbers alone', () => {
+    expect(redactDetails({ count: 42, big: 1234567890123 })).toEqual({ count: 42, big: 1234567890123 });
+  });
+});

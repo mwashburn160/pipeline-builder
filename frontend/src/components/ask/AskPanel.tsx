@@ -19,6 +19,7 @@ import { invalidate } from '@/lib/api-cache';
 import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
 import type { BuilderProps } from '@/types';
 import { formatError } from '@/lib/constants';
+import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 
 /** A reviewable draft the agent produced (nothing is created until the user commits). */
 interface Proposal {
@@ -147,8 +148,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // Set on unmount (panel close) so the in-flight stream loop stops iterating and
   // stops calling setState on a dead component; stopping iteration also aborts the
   // underlying SSE fetch (streamRequest's AbortController runs in its `finally`).
-  const cancelledRef = useRef(false);
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  const cancelledRef = useUnmountedRef();
 
   useEffect(() => {
     // Optional-chain the method: jsdom (and some older browsers) don't implement
