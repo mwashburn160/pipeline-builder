@@ -967,10 +967,44 @@ export abstract class CrudService<
     const conditions: SQL[] = [
       eq(this.cols.isActive, false),
       sql`${this.cols.deletedAt} IS NOT NULL`,
+      ...this.tombstoneVisibilityConditions(),
     ];
     if (id !== undefined) conditions.unshift(this.exactIdCondition(id));
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
     return conditions;
+  }
+
+  /**
+   * The `private` rung, for TOMBSTONE reads and restore.
+   *
+   * Deleting a row does not declassify it. These conditions carried only
+   * `isActive=false + deletedAt IS NOT NULL + org_id = O`, so the "recently
+   * deleted" list handed every member of an org the tombstones of everyone
+   * else's PRIVATE pipelines, plugins and templates — rows the very same member
+   * could not read one second before they were deleted. `restore` shared the
+   * clause, so they could also bring one back.
+   *
+   * Mirrors the live read ladder (`visibility <> 'private' OR created_by = V`)
+   * rather than the delete ladder: this gates who may SEE a tombstone, and a
+   * tombstone should be visible to exactly whoever could see the row. A
+   * super-admin administers the whole catalog, so the rung lifts for them.
+   *
+   * Fails CLOSED: with no author column or no viewer (background jobs, the
+   * retention sweep) the private rung is not offered at all rather than
+   * matching every private row. `purgeExpired` deliberately does not use this —
+   * it runs org-wide under a sysadmin scope and must reach every tombstone.
+   */
+  private tombstoneVisibilityConditions(): SQL[] {
+    const accessCol = this.cols.visibility;
+    if (!accessCol) return [];
+    const ctx = getTenantContext();
+    if (ctx?.isSuperAdmin) return [];
+
+    const createdByCol = this.cols.createdBy;
+    const viewer = ctx?.userId;
+    const rungs: SQL[] = [sql`${accessCol} <> 'private'`];
+    if (createdByCol && viewer) rungs.push(eq(createdByCol, viewer));
+    return [or(...rungs) as SQL];
   }
 
   async restore(id: string, orgId: string, userId: string): Promise<TEntity | null> {

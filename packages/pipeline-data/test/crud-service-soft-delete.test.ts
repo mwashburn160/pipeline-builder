@@ -30,12 +30,15 @@ jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
 // runWithTenantContext just runs its fn (the sysadmin-scope wrapping is verified
 // by the tenancy module's own tests + the sweep test's spy).
 const runWithTenantContextSpy = jest.fn(<T>(_ctx: unknown, fn: () => T): T => fn());
+// Mutable so the tombstone-visibility cases can be the viewer they need to be.
+// Defaults to "no scope", which is what the rest of this file assumes.
+let tenantCtx: { userId?: string; isSuperAdmin?: boolean } | undefined;
 jest.unstable_mockModule('../src/database/tenancy.js', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: mockSelect, update: mockUpdate, delete: mockDelete, execute: mockExecute,
   }),
   runWithTenantContext: runWithTenantContextSpy,
-  getTenantContext: () => undefined,
+  getTenantContext: () => tenantCtx,
   tenantContext: { run: <T>(_c: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
 
@@ -107,7 +110,7 @@ function mockPurge(ids: string[]) {
   mockDelete.mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
 }
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => { jest.clearAllMocks(); tenantCtx = undefined; });
 
 describe('CrudService.restore', () => {
   it('restores a tombstone (clears isActive/deletedAt/deletedBy/purgeAfter) and returns the row', async () => {
@@ -212,5 +215,94 @@ describe('CrudService.purgeExpired', () => {
     await svc.purgeExpired(new Date());
     expect(onBeforePurge).toHaveBeenCalledWith(['a', 'b']);
     expect(onAfterPurge).toHaveBeenCalledWith(['a', 'b']);
+  });
+});
+
+/**
+ * The `private` rung on TOMBSTONE reads.
+ *
+ * Deleting a row does not declassify it. Before this, `tombstoneConditions`
+ * carried only `isActive=false + deletedAt IS NOT NULL + org_id`, so the
+ * "recently deleted" list handed every member of an org the tombstones of
+ * everyone else's PRIVATE rows — rows they could not read one second earlier —
+ * and `restore` shared the clause, so they could bring one back. Only the
+ * pipeline-TEMPLATE route compensated in-route; the identical pipeline and
+ * plugin routes did not, which is why this belongs in the shared service.
+ */
+describe('CrudService tombstone visibility', () => {
+  // A schema that HAS the ladder columns; `lifecycleSchema` deliberately has
+  // neither, which is the "nothing to gate on" branch covered at the end.
+  const visibilitySchema = {
+    id: {}, name: {}, isActive: {}, isDefault: {}, deletedAt: {}, purgeAfter: {},
+    visibility: {}, createdBy: {},
+  } as unknown as PgTable;
+
+  /** Capture the SQL handed to `.where(...)` on the findDeleted chain. */
+  function captureWhere(): () => unknown {
+    let captured: unknown;
+    mockSelect.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn((arg: unknown) => {
+          captured = arg;
+          return { orderBy: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ offset: jest.fn().mockResolvedValue([]) }) }) };
+        }),
+      }),
+    });
+    return () => captured;
+  }
+
+  // The rung is built from drizzle SQL fragments; serializing the captured
+  // clause is enough to tell whether it is present and whose id it names,
+  // without reaching into drizzle's internals.
+  const rendered = (clause: unknown) => JSON.stringify(clause);
+
+  it('restricts a plain member to non-private rows plus their own', async () => {
+    tenantCtx = { userId: 'user-a', isSuperAdmin: false };
+    const svc = new BaseTestService(visibilitySchema);
+    const where = captureWhere();
+    await svc.findDeleted('org1');
+
+    const sqlText = rendered(where());
+    expect(sqlText).toContain('private');
+    // Their OWN drafts stay visible — a freshly deleted personal row must not
+    // vanish from its own author's restore list.
+    expect(sqlText).toContain('user-a');
+  });
+
+  it('does not name another user, so one member cannot inherit another\'s rung', async () => {
+    tenantCtx = { userId: 'user-a', isSuperAdmin: false };
+    const svc = new BaseTestService(visibilitySchema);
+    const where = captureWhere();
+    await svc.findDeleted('org1');
+    expect(rendered(where())).not.toContain('user-b');
+  });
+
+  it('lifts the rung for a super-admin, who administers the whole catalog', async () => {
+    tenantCtx = { userId: 'root', isSuperAdmin: true };
+    const svc = new BaseTestService(visibilitySchema);
+    const where = captureWhere();
+    await svc.findDeleted('org1');
+    expect(rendered(where())).not.toContain('private');
+  });
+
+  it('fails CLOSED with no viewer — the private rung is not offered at all', async () => {
+    // Background jobs and the retention sweep have no viewer. The rung must
+    // narrow to non-private rather than match every private row.
+    tenantCtx = undefined;
+    const svc = new BaseTestService(visibilitySchema);
+    const where = captureWhere();
+    await svc.findDeleted('org1');
+
+    const sqlText = rendered(where());
+    expect(sqlText).toContain('private');
+    expect(sqlText).not.toContain('createdBy');
+  });
+
+  it('adds nothing for an entity with no visibility column', async () => {
+    tenantCtx = { userId: 'user-a', isSuperAdmin: false };
+    const svc = new BaseTestService(lifecycleSchema);
+    const where = captureWhere();
+    await svc.findDeleted('org1');
+    expect(rendered(where())).not.toContain('private');
   });
 });

@@ -43,6 +43,14 @@ jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => (
   PR_REGISTRY_OWNED_BY_OTHER_ORG: 'PR_REGISTRY_OWNED_BY_OTHER_ORG',
 }));
 
+// -- Visibility re-resolve: the registry is only a deployment index, so
+// `resolve` also reads the pipeline through the read ladder. Defaults to
+// "visible"; the cross-viewer case below makes it return null.
+const mockPipelineFindById = jest.fn<(id: string, orgId?: string) => Promise<unknown>>();
+jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
+  pipelineService: { findById: mockPipelineFindById },
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendBadRequest: jest.fn(),
@@ -111,6 +119,8 @@ describe('pipeline execution write routes', () => {
     mockRelease.mockResolvedValue(undefined);
     router = createExecutionRoutes(quotaServiceStub);
     mockFindByPipelineId.mockResolvedValue({ pipelineName: 'acme-pipe', region: 'us-east-1' });
+    // Visible to the caller by default; the cross-viewer case overrides it.
+    mockPipelineFindById.mockResolvedValue({ id: 'p1', pipelineName: 'acme-pipe' });
   });
 
   function handlerFor(path: string) {
@@ -218,6 +228,20 @@ describe('pipeline execution write routes', () => {
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
   });
 
+  it('trigger: a pipeline the caller cannot SEE → 404 and no AWS call', async () => {
+    // Registered to the org, so the registry resolves it — but the read ladder
+    // does not, which is a colleague's `private` pipeline. Holding
+    // `pipelines:write` must not let a member start someone else's private run.
+    // The refusal reuses the not-registered 404 so it cannot be used to probe
+    // which ids exist.
+    mockPipelineFindById.mockResolvedValue(null);
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-private' } }, res);
+
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
+  });
+
   it('trigger: AWS PipelineNotFoundException (stale registry) → 404', async () => {
     mockSend.mockRejectedValue(awsError('PipelineNotFoundException'));
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
@@ -320,6 +344,17 @@ describe('pipeline execution write routes', () => {
     mockFindByPipelineId.mockResolvedValue(null);
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     await stopHandler()({ params: { pipelineId: 'p-other', executionId: 'exec-9' }, body: {} }, res);
+
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
+  });
+
+  it('stop: a pipeline the caller cannot SEE → 404 and no AWS call', async () => {
+    // Stop shares `resolve` with trigger, so it must refuse on the same rung —
+    // cancelling a colleague's private run is as much a write as starting one.
+    mockPipelineFindById.mockResolvedValue(null);
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await stopHandler()({ params: { pipelineId: 'p-private', executionId: 'exec-9' }, body: {} }, res);
 
     expect(mockSend).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));

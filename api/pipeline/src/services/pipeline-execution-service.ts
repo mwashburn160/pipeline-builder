@@ -8,6 +8,7 @@ import {
 } from '@aws-sdk/client-codepipeline';
 import { scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { pipelineRegistryService } from './pipeline-registry-service.js';
+import { pipelineService } from './pipeline-service.js';
 
 // Error-code constants (mirrors the `PR_*` convention in the registry service).
 // Routes map these to HTTP status codes; the raw AWS client internals never
@@ -69,6 +70,16 @@ class PipelineExecutionService {
   private async resolve(pipelineId: string, orgId: string) {
     const row = await pipelineRegistryService.findByPipelineId(pipelineId, orgId);
     if (!row) throw new PipelineExecutionError(PE_PIPELINE_NOT_REGISTERED);
+    // The registry is a DEPLOYMENT INDEX, not an authorization surface: its only
+    // predicate is `pipeline_id = P AND org_id = O`. Resolving through it alone
+    // let any member holding `pipelines:write` start or stop a COLLEAGUE'S
+    // PRIVATE pipeline — one they cannot read, edit or even list. So re-resolve
+    // the pipeline itself, which applies the read ladder against the request's
+    // viewer, and treat "cannot see it" exactly like "not registered" so the
+    // refusal does not confirm that the id exists.
+    if (!(await pipelineService.findById(pipelineId, orgId))) {
+      throw new PipelineExecutionError(PE_PIPELINE_NOT_REGISTERED);
+    }
     // A pipeline may be deployed to a different region than the platform; fall
     // back to the pod's AWS_REGION only when the registry row has none.
     const region = row.region || process.env.AWS_REGION || '';

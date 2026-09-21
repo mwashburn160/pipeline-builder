@@ -129,9 +129,12 @@ export function createPipelineTemplateRoutes(): Router {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pipelineTemplateService.findDeleted(orgId, { limit, offset });
 
-    // `findDeleted` is org-scoped, not visibility-scoped (tombstones share one
-    // code path across every entity), so re-apply the private rung here — a
-    // deleted personal draft must not surface in a colleague's restore list.
+    // `findDeleted` now applies the private rung itself (CrudService
+    // `tombstoneVisibilityConditions`), which is where it belongs — this route
+    // used to be the ONLY one that compensated, so the identical pipeline and
+    // plugin restore lists leaked colleagues' personal drafts. Kept as
+    // defence in depth, and because `canSeeTemplate` is the authority on what a
+    // template viewer may see.
     const visible = deleted.filter((t) => canSeeTemplate(t, userId, req.user?.isSuperAdmin === true));
 
     ctx.log('COMPLETED', 'Listed deleted pipeline templates', { count: visible.length });
