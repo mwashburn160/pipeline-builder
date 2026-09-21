@@ -25,13 +25,6 @@
  */
 
 import { audited, requireStepUp } from '@pipeline-builder/api-core';
-// PLATFORM's `requireAuth`, not api-core's. Only this one consults the
-// bootstrap-admin allowlist (`bootstrapSessionMayReach`), which names
-// `/auth/totp/` precisely so the install's only admin can enrol a first factor.
-// api-core's copy refuses an `mfaEnrollmentPending` token OUTRIGHT, so importing
-// it here made enrolment unreachable from the one session that needs it — the
-// admin was locked out of the product and out of the fix for it.
-import { requireAuth } from '../middleware/index.js';
 import { Router } from 'express';
 import {
   activateTotp,
@@ -39,7 +32,13 @@ import {
   enrolTotp,
   totpStatus,
 } from '../controllers/totp.js';
-import { requireInteractiveSession } from '../middleware/index.js';
+// PLATFORM's `requireAuth`, not api-core's. Only this one consults the
+// bootstrap-admin allowlist (`bootstrapSessionMayReach`), which names
+// `/auth/totp/` precisely so the install's only admin can enrol a first factor.
+// api-core's copy refuses an `mfaEnrollmentPending` token OUTRIGHT, so importing
+// it here made enrolment unreachable from the one session that needs it — the
+// admin was locked out of the product and out of the fix for it.
+import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 
 const router: Router = Router();
 

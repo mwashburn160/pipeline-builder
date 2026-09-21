@@ -13,15 +13,14 @@
  */
 
 import { audited, requireStepUp } from '@pipeline-builder/api-core';
+import { Router } from 'express';
+import { recoveryCodeStatus, regenerateRecoveryCodes } from '../controllers/recovery-codes.js';
 // PLATFORM's `requireAuth`, like every other platform route — so the
 // bootstrap allowlist stays the single place that decides what an
 // enrolment-pending session may reach. Recovery codes are NOT on that list
 // (they follow a first factor, by which point the exception has closed), so
 // this changes no answer today; it keeps the decision in one place.
-import { requireAuth } from '../middleware/index.js';
-import { Router } from 'express';
-import { recoveryCodeStatus, regenerateRecoveryCodes } from '../controllers/recovery-codes.js';
-import { requireInteractiveSession } from '../middleware/index.js';
+import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 
 const router: Router = Router();
 

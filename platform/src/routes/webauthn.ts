@@ -23,10 +23,6 @@
  */
 
 import { audited, requireStepUp } from '@pipeline-builder/api-core';
-// PLATFORM's `requireAuth`, not api-core's — see the note in `totp.ts`. The
-// bootstrap allowlist names `/auth/webauthn/` so a fresh install's admin can
-// register a first passkey; api-core's copy refuses the flag outright.
-import { requireAuth } from '../middleware/index.js';
 import { Router } from 'express';
 import {
   listPasskeys,
@@ -37,7 +33,10 @@ import {
   removePasskey,
   renamePasskey,
 } from '../controllers/webauthn.js';
-import { requireInteractiveSession } from '../middleware/index.js';
+// PLATFORM's `requireAuth`, not api-core's — see the note in `totp.ts`. The
+// bootstrap allowlist names `/auth/webauthn/` so a fresh install's admin can
+// register a first passkey; api-core's copy refuses the flag outright.
+import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 import { extractClientIp } from '../middleware/rate-limit-keys.js';
 import { createLimiter } from '../middleware/rate-limiter.js';
 
