@@ -42,7 +42,10 @@ Filter     := "|" ws "default" ws ":" ws Quoted
 Quoted     := "'...'"  |  "\"...\""
 ```
 
-- Escape a literal `{{` as `{{{{` (doubled).
+- Escape a literal `{{` as `{{{{` (doubled). The `}}` that closes it is then literal
+  too, so a Go / Helm / GitHub-style template passes through untouched:
+  `docker inspect -f '{{{{.State.Status}}'` runs as `docker inspect -f '{{.State.Status}}'`.
+  An unmatched `}}` is still rejected.
 - Max path depth: 5 identifiers.
 - Max templated-field size: 4 KiB.
 - Supported filters: `| default: '...'`, `| number`, `| bool`, `| json`.
@@ -94,7 +97,7 @@ Plugin templates see a richer scope assembled per-synth from the pipeline invoki
 | `pipeline.metadata.*` | Any key set on the pipeline's `metadata` object |
 | `pipeline.vars.*` | Any key set on the pipeline's `vars` object |
 | `plugin.name` / `plugin.version` | Plugin record fields |
-| `env.FOO` | Any key declared in the same plugin's `env:` map |
+| `env.FOO` | Any key declared in the same plugin's `env:` map. `env` values may reference each other (`B: '{{ env.A }}-svc'`); they resolve in dependency order, and a cycle is an error. |
 
 Templatable fields in a plugin spec: `description`, `commands[]`, `installCommands[]`, `env.*` values, `buildArgs.*` values. Identity/security fields (`name`, `version`, `pluginType`, `computeType`, `timeout`, `secrets`, `failureBehavior`) are **not** templatable.
 

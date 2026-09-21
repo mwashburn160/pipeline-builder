@@ -1,6 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4fb9bc62e5a46501964d9a2c78f70a0ff20cebb96a64091f9175ff39a438148e
+// SOURCE-SHA256: 573084bf73c6fc344adf2a126c32251f52db9de64475c32eddc2757e9b52e1b3
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -71,7 +71,16 @@ export const templatesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Escape a literal {{ as {{{{ (doubled).",
+            "Escape a literal {{ as {{{{ (doubled). The }} that closes it is then literal"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "too, so a Go / Helm / GitHub-style template passes through untouched: docker inspect -f '{{{{.State.Status}}' runs as docker inspect -f '{{.State.Status}}'. An unmatched }} is still rejected."
+        },
+        {
+          "type": "list",
+          "items": [
             "Max path depth: 5 identifiers.",
             "Max templated-field size: 4 KiB.",
             "Supported filters: | default: '...', | number, | bool, | json.",
@@ -167,7 +176,7 @@ export const templatesTopic: HelpTopic = {
             ],
             [
               "env.FOO",
-              "Any key declared in the same plugin's env: map"
+              "Any key declared in the same plugin's env: map. env values may reference each other (B: '{{ env.A }}-svc'); they resolve in dependency order, and a cycle is an error."
             ]
           ]
         },
