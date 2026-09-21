@@ -94,6 +94,14 @@ export function buildPipelineConditions(
   // Use generic builder for common conditions (access control, ID, booleans, visibility)
   const conditions = pipelineBuilder.buildCommonConditions(filter, orgId, parentOrgId);
 
+  // Explicit owner-org narrowing, as the plugin and template builders already
+  // do. The schema accepts `?orgId=` for pipelines too, but this builder dropped
+  // it, so the filter silently did nothing. It is AND'd onto the access
+  // predicate above, so it can only NARROW the visible set, never widen it.
+  if (filter.orgId !== undefined) {
+    conditions.push(eq(schema.pipeline.orgId, normalizeStringFilter(filter.orgId)));
+  }
+
   // Add pipeline-specific filters
   if (filter.project !== undefined) {
     conditions.push(eq(schema.pipeline.project, normalizeStringFilter(filter.project)));

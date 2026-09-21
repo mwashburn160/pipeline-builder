@@ -758,6 +758,11 @@ export class ReportingService {
     const windowHours = resolveIncidentWindowHours(incidentWindowHours);
     const limit = Math.max(1, Math.min(opts.limit, 200));
     const offset = Math.max(0, opts.offset);
+    // The correlation window is expressed in SECONDS as a double, not as
+    // `make_interval(hours => N::int)`. The window is validated as any positive
+    // number (0.5h is legal) and the in-memory DORA correlation uses it exactly;
+    // the int cast made Postgres reject a fractional value, so a 0.5h window
+    // returned 500 from this endpoint and from the correlation lookup below.
     return withTenantTx((tx) => tx.execute(sql`
         SELECT
           i.incident_id AS "incidentId",
@@ -777,7 +782,7 @@ export class ReportingService {
           WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE'
             AND e.environment = i.environment AND e.status = 'SUCCEEDED'
             AND e.completed_at <= i.opened_at
-            AND e.completed_at >= i.opened_at - make_interval(hours => ${windowHours}::int)
+            AND e.completed_at >= i.opened_at - make_interval(secs => ${windowHours * 3600}::double precision)
           ORDER BY e.completed_at DESC
           LIMIT 1
         ) corr ON true
@@ -811,7 +816,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE'
           AND e.environment = ${env} AND e.status = 'SUCCEEDED'
           AND e.completed_at <= ${openedAt}::timestamptz
-          AND e.completed_at >= ${openedAt}::timestamptz - make_interval(hours => ${windowHours}::int)
+          AND e.completed_at >= ${openedAt}::timestamptz - make_interval(secs => ${windowHours * 3600}::double precision)
         ORDER BY e.completed_at DESC
         LIMIT 1
       `))).rows);
@@ -992,7 +997,15 @@ export class ReportingService {
           const eventCutoff = retentionCutoff(now, eventDays);
           counts.standardEvents += await this.#purgeReportingTableBatched(
             eventsTable,
-            sql`org_id = ${orgId} AND environment IS NULL AND created_at < ${eventCutoff}`,
+            // Spare rows carrying a commit timestamp: they are DORA SOURCE data.
+            // Lead time joins deploys to the execution's earliest
+            // `commit_timestamp`, and that enrichment rides the PIPELINE/source
+            // event (environment IS NULL), never the deploy STAGE row. Purging
+            // them on this short window while the deploys they explain live on
+            // the DORA window made lead time read "unknown" for every range
+            // older than the standard retention — silently, with the deploys
+            // still counted. They follow the DORA window below instead.
+            sql`org_id = ${orgId} AND environment IS NULL AND commit_timestamp IS NULL AND created_at < ${eventCutoff}`,
             batchSize, maxBatches,
           );
         }
@@ -1001,7 +1014,7 @@ export class ReportingService {
           const doraCutoff = retentionCutoff(now, doraDays);
           counts.doraEvents += await this.#purgeReportingTableBatched(
             eventsTable,
-            sql`org_id = ${orgId} AND environment IS NOT NULL AND created_at < ${doraCutoff}`,
+            sql`org_id = ${orgId} AND (environment IS NOT NULL OR commit_timestamp IS NOT NULL) AND created_at < ${doraCutoff}`,
             batchSize, maxBatches,
           );
           counts.deploymentOutcomes += await this.#purgeReportingTableBatched(

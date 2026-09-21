@@ -964,7 +964,10 @@ describe('ReportingService', () => {
       const dialect = new PgDialect();
       const { sql } = dialect.sqlToQuery(mockExecute.mock.calls[1]?.[0] as SQL);
       expect(sql).toContain('LATERAL');
-      expect(sql).toContain('make_interval');
+      // Seconds as a double, never `hours => …::int`: a legal fractional window
+      // (0.5h) made Postgres reject the cast and the endpoint 500.
+      expect(sql).toContain('make_interval(secs =>');
+      expect(sql).not.toContain('::int)');
       expect(sql).toContain("e.status = 'SUCCEEDED'");
     });
 
@@ -1489,9 +1492,16 @@ describe('reporting retention (Phase 7)', () => {
       expect(std.params).toContain('acme');
       expect(std.params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 30).getTime())).toBe(true);
 
-      // DORA-event delete: environment IS NOT NULL, cut at the 180-day window.
+      // A row carrying a COMMIT timestamp is DORA source data even with no
+      // environment: lead time joins deploys to it. It used to be purged on the
+      // 30-day standard window while the deploys it explains lived 180 days, so
+      // lead time read "unknown" for every older range.
+      expect(std.sql).toContain('commit_timestamp IS NULL');
+
+      // DORA-event delete: deploy rows AND commit-bearing source rows, cut at
+      // the 180-day window.
       const dora = render(3);
-      expect(dora.sql).toContain('environment IS NOT NULL');
+      expect(dora.sql).toContain('environment IS NOT NULL OR commit_timestamp IS NOT NULL');
       expect(dora.params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 180).getTime())).toBe(true);
 
       // deployment_outcomes + incidents both use the DORA (180-day) window.

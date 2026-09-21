@@ -44,8 +44,10 @@ export function resolveIncidentWindowHours(override?: number | null): number {
  * `deployment_outcomes`, and `incidents` grow unbounded without a sweep, so a
  * split, per-org retention purge (see {@link ReportingService.purgeExpiredReportingData})
  * hard-deletes rows older than these windows, by `created_at`:
- *  - **Standard events** — `pipeline_events` with `environment IS NULL`
- *    (non-deploy STAGE/ACTION/build). High volume → short default (30 days).
+ *  - **Standard events** — `pipeline_events` with `environment IS NULL` and no
+ *    `commit_timestamp` (non-deploy STAGE/ACTION/build). High volume → short
+ *    default (30 days). A row that DOES carry a commit timestamp is DORA source
+ *    data — lead time joins on it — so it follows the DORA window instead.
  *  - **DORA source** — `pipeline_events` with `environment IS NOT NULL` (deploy
  *    stages) plus all of `deployment_outcomes` and `incidents`. Low volume →
  *    longer default (180 days). DORA history is therefore bounded by this window;

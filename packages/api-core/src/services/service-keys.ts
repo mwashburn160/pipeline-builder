@@ -353,8 +353,15 @@ export function verifyServiceJwt<T = Record<string, unknown>>(
   options: { kid: string; issuer?: string; audience?: string },
 ): T {
   const entry = verificationKeys().get(options.kid);
+  // EVERY emission of this counter carries the same label KEYS. The Prometheus
+  // counter is registered lazily with whatever keys its first emission used,
+  // and an increment with a different set throws — which `emitCounter`
+  // swallows. So when the first token a pod verified was bad (`{ result }`
+  // alone), every later `ok` and `subject_mismatch` (`{ result, service }`) was
+  // silently dropped for the life of the process: the metric that tells you
+  // service-to-service auth is healthy went quiet exactly when it mattered.
   if (!entry) {
-    emitCounter('service_token_verify_total', { result: 'unknown_kid' });
+    emitCounter('service_token_verify_total', { result: 'unknown_kid', service: 'unknown' });
     throw new jwt.JsonWebTokenError(`No published service key for kid ${options.kid}`);
   }
   let claims: T & { sub?: unknown };
@@ -365,7 +372,7 @@ export function verifyServiceJwt<T = Record<string, unknown>>(
       ...(options.audience ? { audience: options.audience } : {}),
     }) as T & { sub?: unknown };
   } catch (error) {
-    emitCounter('service_token_verify_total', { result: 'invalid' });
+    emitCounter('service_token_verify_total', { result: 'invalid', service: entry.serviceName });
     throw error;
   }
   if (claims.sub !== `${SERVICE_SUBJECT_PREFIX}${entry.serviceName}`) {

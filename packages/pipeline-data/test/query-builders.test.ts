@@ -29,6 +29,15 @@ describe('buildPipelineConditions', () => {
     expect(withProject.length).toBeGreaterThan(withoutProject.length);
   });
 
+  it('narrows by explicit orgId, as plugins and templates already do', () => {
+    // `?orgId=` is accepted by the pipeline schema but this builder used to drop
+    // it, so the filter silently did nothing. It only ever ANDs onto the access
+    // predicate, so it can narrow the visible set but never widen it.
+    const withOrgId = buildPipelineConditions({ orgId: 'org-2' }, 'org-1');
+    const without = buildPipelineConditions({}, 'org-1');
+    expect(withOrgId.length).toBe(without.length + 1);
+  });
+
   it('adds organization filter when specified', () => {
     const withOrg = buildPipelineConditions({ organization: 'my-org' }, 'org-1');
     const withoutOrg = buildPipelineConditions({}, 'org-1');

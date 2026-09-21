@@ -42,7 +42,8 @@ const { entityEvents } = await import('../src/services/entity-events.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
-  post.mockResolvedValue(undefined);
+  // The real client RESOLVES with a response for any terminal status.
+  post.mockResolvedValue({ statusCode: 202, body: {}, headers: {} });
   // Subscribers accumulate on a module-level singleton; start each test clean.
   (entityEvents as unknown as { subscribers: unknown[] }).subscribers = [];
 });
@@ -124,6 +125,16 @@ describe('registerComplianceEventSubscriber', () => {
       service: 'billing',
       target: 'pipeline',
     });
+  });
+
+  // The http client returns a terminal 4xx/5xx instead of throwing, so an
+  // unchecked call counted a 403 (mis-provisioned service identity) or a 500
+  // (broken compliance deploy) as delivered — no metric, no log, and every
+  // post-mutation re-validation quietly lost.
+  it.each([403, 500])('treats a %i RESPONSE as a drop, not a delivery', async (statusCode) => {
+    post.mockResolvedValue({ statusCode, body: {}, headers: {} });
+    await expect(emit('billing')).resolves.toBeUndefined();
+    expect(emitCounter).toHaveBeenCalledWith('compliance_event_drop_total', { service: 'billing', target: 'pipeline' });
   });
 
   it('emits no drop counter on success', async () => {
