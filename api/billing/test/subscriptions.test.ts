@@ -682,6 +682,31 @@ describe('PUT /subscriptions/:id', () => {
     );
   });
 
+  it('re-anchors the period at the change instead of leaving its end in the past', async () => {
+    // Annual -> monthly. `currentPeriodStart` is a year old, so recomputing the
+    // end from it (`start + 1 month`) produced a date that had ALREADY passed:
+    // the subscription read as expired the instant the customer downgraded
+    // cadence, and every consumer of `currentPeriodEnd` -- renewal, the dunning
+    // clock, "next invoice" in the portal -- read a date in the past.
+    const sub = makeSubscription({
+      interval: 'annual',
+      currentPeriodStart: new Date('2026-01-01'),
+      currentPeriodEnd: new Date('2027-01-01'),
+    });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'monthly' } });
+
+    const before = Date.now();
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // The period restarts at the change...
+    expect(sub.currentPeriodStart.getTime()).toBeGreaterThanOrEqual(before);
+    // ...and the new end is computed from THAT, not from the year-old start.
+    const [startUsed, intervalUsed] = mockCalculatePeriodEnd.mock.calls.at(-1) as unknown as [Date, string];
+    expect(startUsed.getTime()).toBeGreaterThanOrEqual(before);
+    expect(intervalUsed).toBe('monthly');
+  });
+
   it('interval-only change pushes the NEW interval to the provider (mischarge fix)', async () => {
     const sub = makeSubscription({ planId: 'pro', interval: 'monthly' });
     mockSubscriptionFindOne.mockResolvedValue(sub);

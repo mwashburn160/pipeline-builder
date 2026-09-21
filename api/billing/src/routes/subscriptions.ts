@@ -395,7 +395,15 @@ export function createSubscriptionRoutes(): Router {
     if (intervalChanged) {
       const oldInterval = subscription.interval;
       subscription.interval = effectiveInterval;
-      // Keep the local period end consistent with the cadence pushed above.
+      // RE-ANCHOR the period at the change, rather than recomputing the end from
+      // the old start. Going annual → monthly, `currentPeriodStart` can be up to
+      // a year old, so `start + 1 month` lands in the PAST: the subscription
+      // immediately looks expired, and everything that reads
+      // `currentPeriodEnd` (renewal, the dunning clock, the portal's "next
+      // invoice") reads a date that has already gone. The cadence changed, so
+      // the period restarts now; for a provider-backed sub the next webhook
+      // overwrites both fields with the provider's authoritative dates anyway.
+      subscription.currentPeriodStart = new Date();
       subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, effectiveInterval);
       await createBillingEvent(orgId, 'interval_changed', {
         oldInterval, newInterval: effectiveInterval,
