@@ -485,12 +485,42 @@ export class Workflow extends Component {
                     // attach as OCI REFERRERS, so they don't add a platform entry to the
                     // manifest index and `docker:verify` above stays happy (unlike
                     // buildx's native --provenance, which is why that stays disabled).
+                    //
+                    // Installed directly rather than via sigstore/cosign-installer: the
+                    // action's bootstrap `curl -fsL` has no retry, so a single transient
+                    // GitHub Releases error failed whole publish jobs. Pinned v2 binary
+                    // + hardcoded SHA256 (from the release's cosign_checksums.txt) —
+                    // bump both together.
                     name: 'Install cosign',
-                    uses: 'sigstore/cosign-installer@v3',
+                    run: [
+                        'set -euo pipefail',
+                        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/cosign https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64',
+                        'echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -',
+                        'sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign',
+                        'cosign version',
+                    ].join(' && '),
+                    env: {
+                        COSIGN_VERSION: 'v2.6.5',
+                        COSIGN_SHA256: 'c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644',
+                    },
                 },
                 {
+                    // Same pattern as cosign above: retrying download of a pinned
+                    // release + hardcoded SHA256 (from syft_<ver>_checksums.txt) instead
+                    // of anchore/sbom-action/download-syft. Bump both together.
                     name: 'Install syft (SBOM generator)',
-                    uses: 'anchore/sbom-action/download-syft@v0',
+                    run: [
+                        'set -euo pipefail',
+                        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz',
+                        'echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -',
+                        'tar -xzf /tmp/syft.tar.gz -C /tmp syft',
+                        'sudo install -m 0755 /tmp/syft /usr/local/bin/syft',
+                        'syft version',
+                    ].join(' && '),
+                    env: {
+                        SYFT_VERSION: '1.52.0',
+                        SYFT_SHA256: 'caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d',
+                    },
                 },
                 {
                     // Sign + attest by DIGEST (not the mutable tag). Resolve the digest
