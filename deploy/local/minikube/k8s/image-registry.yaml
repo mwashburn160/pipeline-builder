@@ -105,7 +105,7 @@ spec:
               echo "Registry ready"
       containers:
         - name: image-registry
-          image: ghcr.io/mwashburn160/image-registry:4.1.13
+          image: ghcr.io/mwashburn160/image-registry:4.1.14
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
