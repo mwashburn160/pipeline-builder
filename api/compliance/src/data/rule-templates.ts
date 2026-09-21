@@ -75,24 +75,22 @@ export const RULE_TEMPLATES: RuleTemplate[] = [
     description: 'Enforce lowercase alphanumeric pipeline names with hyphens',
     target: 'pipeline',
     severity: 'warning',
-    field: 'name',
+    // `pipelineName`, the actual column. The entity handed to the engine is the
+    // row's own keys (`toComplianceAttributes` only redacts secrets, it never
+    // renames), and a pipeline row has no `name` — so this matched `undefined`
+    // on every pipeline and warned about all of them.
+    field: 'pipelineName',
     operator: 'regex',
     value: '^[a-z][a-z0-9-]{2,63}$',
     priority: 20,
     tags: ['naming', 'convention'],
     category: 'convention',
   },
-  {
-    id: 'tpl-max-timeout',
-    name: 'max-pipeline-timeout',
-    description: 'Limit pipeline timeout to 120 minutes to prevent runaway builds',
-    target: 'pipeline',
-    severity: 'error',
-    field: 'timeoutInMinutes',
-    operator: 'lte',
-    value: 120,
-    priority: 70,
-    tags: ['cost', 'reliability'],
-    category: 'cost',
-  },
+  // REMOVED: `max-pipeline-timeout`, which asserted `timeoutInMinutes <= 120`.
+  // No such field exists — not on the pipeline row, not in `props`. `timeout` is
+  // a per-STEP metadata passthrough key (see metadata-builder), never a
+  // pipeline-level value, so there is nothing for this rule to read. It matched
+  // `undefined` at `error` severity, which meant applying this starter template
+  // blocked EVERY pipeline in the org. Re-add it if a pipeline-level timeout
+  // ever exists; there is no field to point it at today.
 ];

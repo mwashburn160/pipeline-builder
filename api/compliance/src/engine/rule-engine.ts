@@ -135,7 +135,16 @@ function evaluateCrossFieldRule(
   const mode = rule.conditionMode || 'all';
 
   const results = conditions
-    .filter((c) => !c.dependsOnRule && c.field && c.operator) // Skip dependency-only conditions
+    // Evaluate every condition that carries a real predicate. `dependsOnRule` is
+    // a GATE on the rule (applied before this runs, against `passedRuleIds`), not
+    // an alternative to the predicate — and the request schema requires `field`
+    // and `operator` on every condition, so a "dependency-only" condition cannot
+    // be authored in the first place. Excluding `c.dependsOnRule` here therefore
+    // never skipped a dependency-only condition; it silently DISCARDED the
+    // predicate of any condition that named a dependency, and when every
+    // condition named one it left `results` empty and the fail-closed branch
+    // below blocked the entity outright.
+    .filter((c) => c.field && c.operator)
     .map((condition) => {
       const fieldValue = getFieldValue(entity, condition.field!);
       const passed = evaluateOperator(condition.operator!, fieldValue, condition.value);
@@ -291,6 +300,17 @@ export function evaluateRules(
     if (exemption) {
       exemptionsApplied.push(exemption.id);
       rulesSkipped++;
+      // An exemption says THIS rule does not apply to THIS entity. It must not
+      // cascade: leaving the rule out of `passedRuleIds` made every rule that
+      // depends on it fail its gate and be skipped too, so exempting one rule
+      // silently switched off unrelated checks downstream — the opposite of what
+      // an operator granting a narrow exemption is asking for. An exempted rule
+      // did not FAIL, so its dependents stay enforced.
+      //
+      // Deliberately different from the `isRuleEffective` skip above: a rule
+      // outside its effective window is not in force at all, so a dependent
+      // gated on it has nothing to stand on.
+      passedRuleIds.add(rule.id);
       continue;
     }
 

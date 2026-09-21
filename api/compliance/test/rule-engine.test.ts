@@ -277,3 +277,80 @@ describe('evaluateRules', () => {
     expect(result.blocked).toBe(false);
   });
 });
+
+// ============================================
+// dependsOnRule + exemptions: the two ways a gate used to eat a rule
+// ============================================
+
+describe('dependsOnRule does not swallow the predicate it travels with', () => {
+  it('still evaluates a condition that carries BOTH a dependency and a predicate', () => {
+    // The request schema REQUIRES `field` and `operator` on every condition, so
+    // this — not a bare `{ dependsOnRule }` — is what an author can actually
+    // write. The engine used to drop any condition naming a dependency, which
+    // silently discarded its predicate: rule-b passed no matter what `y` was.
+    const rules = [
+      makeRule({ id: 'rule-a', name: 'rule-a', priority: 10, field: 'x', operator: 'eq', value: 'match' }),
+      makeRule({
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 5,
+        conditions: [{ dependsOnRule: 'rule-a', field: 'y', operator: 'eq', value: 'expected' }],
+      }),
+    ];
+
+    const result = evaluateRules(rules, { x: 'match', y: 'wrong' });
+
+    expect(result.violations.map((v) => v.ruleName)).toEqual(['rule-b']);
+  });
+
+  it('does not blanket-block when every condition names a dependency', () => {
+    // With all conditions filtered out, `results` was empty and the fail-closed
+    // branch raised a violation against an entity that satisfied the rule.
+    const rules = [
+      makeRule({ id: 'rule-a', name: 'rule-a', priority: 10, field: 'x', operator: 'eq', value: 'match' }),
+      makeRule({
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 5,
+        conditions: [{ dependsOnRule: 'rule-a', field: 'y', operator: 'eq', value: 'expected' }],
+      }),
+    ];
+
+    const result = evaluateRules(rules, { x: 'match', y: 'expected' });
+
+    expect(result.violations).toEqual([]);
+  });
+});
+
+describe('an exemption applies to its own rule only', () => {
+  it('leaves rules that depend on the exempted rule enforced', () => {
+    // Exempting rule-a used to drop it out of `passedRuleIds`, so rule-b failed
+    // its dependency gate and was skipped too — one narrow exemption quietly
+    // switched off an unrelated check. An exempted rule did not FAIL.
+    const rules = [
+      makeRule({ id: 'rule-a', name: 'rule-a', priority: 10, field: 'x', operator: 'eq', value: 'match' }),
+      makeRule({
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 5,
+        conditions: [{ dependsOnRule: 'rule-a', field: 'y', operator: 'eq', value: 'expected' }],
+      }),
+    ];
+    const exemptions: ActiveExemption[] = [{ id: 'exempt-1', ruleId: 'rule-a' }];
+
+    const result = evaluateRules(rules, { x: 'anything', y: 'wrong' }, exemptions);
+
+    expect(result.exemptionsApplied).toContain('exempt-1');
+    expect(result.violations.map((v) => v.ruleName)).toEqual(['rule-b']);
+  });
+
+  it('still reports the exempted rule as skipped, not evaluated', () => {
+    const rules = [makeRule({ id: 'rule-a', name: 'rule-a', field: 'x', operator: 'eq', value: 'match' })];
+    const exemptions: ActiveExemption[] = [{ id: 'exempt-1', ruleId: 'rule-a' }];
+
+    const result = evaluateRules(rules, { x: 'nope' }, exemptions);
+
+    expect(result.violations).toEqual([]);
+    expect(result.rulesSkipped).toBe(1);
+  });
+});
