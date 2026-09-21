@@ -35,6 +35,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     buildPipelineConditions: jest.fn(() => []),
 
     withViewerContext: <T>(filter: T): T => filter,
+    // The viewer is part of the findById cache key (the read predicate carries a
+    // per-user `private` rung), so the mock must provide it or the module fails
+    // to load. Constant here: this suite exercises the key's SHAPE; the
+    // per-viewer behaviour is pinned in `pipeline-cache-viewer.test.ts`.
+    viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
     schema: {
       pipeline: {
@@ -80,6 +85,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     buildPipelineConditions: jest.fn(() => []),
 
     withViewerContext: <T>(filter: T): T => filter,
+    // The viewer is part of the findById cache key (the read predicate carries a
+    // per-user `private` rung), so the mock must provide it or the module fails
+    // to load. Constant here: this suite exercises the key's SHAPE; the
+    // per-viewer behaviour is pinned in `pipeline-cache-viewer.test.ts`.
+    viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
     schema: {
       pipeline: {

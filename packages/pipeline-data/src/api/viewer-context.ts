@@ -46,6 +46,29 @@ export function currentViewerUserId(): string | undefined {
 }
 
 /**
+ * The viewer's identity as a CACHE-KEY segment.
+ *
+ * Any cache in front of a read whose predicate carries the per-user rung must
+ * include this, because the viewer is part of the answer, not just part of the
+ * authorization: `visibility <> 'private' OR created_by = V` returns different
+ * rows to two members of the same org. Keyed on org alone, the first reader
+ * populates the entry and every later one is served THEIR row — which is how an
+ * author's private pipeline (and its `props`, holding source tokens and env)
+ * reached the rest of the org.
+ *
+ * Super-admins collapse to one bucket: the private rung is lifted for all of
+ * them, so their slice is identical and per-operator entries would only waste
+ * space. Fails CLOSED-ish on an absent viewer by keying a distinct `none`
+ * bucket, so a viewer-less read (background job, migration) can neither read nor
+ * poison an authed caller's entry.
+ */
+export function viewerCacheSegment(): string {
+  const ctx = getTenantContext();
+  if (ctx?.isSuperAdmin) return 'sa';
+  return ctx?.userId ?? 'none';
+}
+
+/**
  * Stamp the request's viewer identity onto a filter.
  *
  * An EXPLICIT value on the filter always wins, so a caller that deliberately

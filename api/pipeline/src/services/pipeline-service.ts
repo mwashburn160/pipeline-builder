@@ -3,7 +3,7 @@
 
 import { ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, withViewerContext, type PipelineFilter } from '@pipeline-builder/pipeline-data';
+import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -113,15 +113,22 @@ export class PipelineService extends CrudService<
 
   // -- Cached reads -----------------------------------------------------------
 
-  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:id). The
-   *  parent segment keeps a team's parent-widened read from colliding with the
+  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:v:viewer:id).
+   *  The parent segment keeps a team's parent-widened read from colliding with the
    *  own-org-only read under the same orgId (mirrors plugin-service). */
   async findById(id: string, orgId?: string, parentOrgId?: string): Promise<Pipeline | null> {
     // Skip caching for anonymous reads: cached entries from an authed caller
     // could leak across a visibility flip (private → public or vice versa),
     // and the anon path bypasses the orgId scoping the cache key relies on.
     if (!orgId) return super.findById(id, orgId, parentOrgId);
-    const cacheKey = `${orgId}${parentOrgId ? `:p:${parentOrgId}` : ''}:id:${id}`;
+    // The VIEWER is part of the key because it is part of the answer. The read
+    // predicate is `org_id = O AND (visibility <> 'private' OR created_by = V)`,
+    // so two members of one org get legitimately different rows for the same id.
+    // Keyed on org alone, the author's own `private` pipeline — `props` and all,
+    // which carries source tokens and env — was served from cache to everyone
+    // else in the org. Super-admins share one bucket: the private rung is lifted
+    // for all of them, so their slice is identical.
+    const cacheKey = `${orgId}${parentOrgId ? `:p:${parentOrgId}` : ''}:v:${viewerCacheSegment()}:id:${id}`;
     return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 

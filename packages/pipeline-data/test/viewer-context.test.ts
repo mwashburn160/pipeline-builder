@@ -14,7 +14,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const { runWithTenantContext } = await import('../src/database/tenancy.js');
-const { withViewerContext, currentViewerUserId } = await import('../src/api/viewer-context.js');
+const { withViewerContext, currentViewerUserId, viewerCacheSegment } = await import('../src/api/viewer-context.js');
 
 describe('withViewerContext', () => {
   it('stamps the tenant context viewer onto a bare filter', () => {
@@ -80,5 +80,45 @@ describe('currentViewerUserId', () => {
 
   it('returns undefined outside a scope', () => {
     expect(currentViewerUserId()).toBeUndefined();
+  });
+});
+
+describe('viewerCacheSegment', () => {
+  const seg = (ctx: Parameters<typeof runWithTenantContext>[0]) =>
+    runWithTenantContext(ctx, () => viewerCacheSegment());
+
+  it('separates two members of the SAME org', () => {
+    // The whole point. `visibility <> 'private' OR created_by = V` returns
+    // different rows to these two, so a cache in front of it must not hand the
+    // first one's entry to the second — that is how an author's private pipeline
+    // (with `props`: source tokens, env) reached the rest of their org.
+    const a = seg({ orgId: 'org-1', userId: 'user-a', isSuperAdmin: false });
+    const b = seg({ orgId: 'org-1', userId: 'user-b', isSuperAdmin: false });
+    expect(a).not.toBe(b);
+  });
+
+  it('gives super-admins one shared bucket, distinct from any real user', () => {
+    // The private rung is lifted for every super-admin, so their slice is
+    // identical and per-operator entries would only waste space.
+    const one = seg({ orgId: 'org-1', userId: 'admin-1', isSuperAdmin: true });
+    const two = seg({ orgId: 'org-1', userId: 'admin-2', isSuperAdmin: true });
+    expect(one).toBe(two);
+    expect(one).not.toBe(seg({ orgId: 'org-1', userId: 'admin-1', isSuperAdmin: false }));
+  });
+
+  it('buckets a viewer-less read separately, so it can neither read nor poison an authed entry', () => {
+    const anon = viewerCacheSegment();
+    expect(anon).toBe('none');
+    expect(anon).not.toBe(seg({ orgId: 'org-1', userId: 'user-a', isSuperAdmin: false }));
+  });
+
+  it('agrees with the stamp that builds the predicate', () => {
+    // A segment derived from a different source than the predicate is the same
+    // bug wearing a different hat, so pin that they read the one context.
+    const both = runWithTenantContext(
+      { orgId: 'org-1', userId: 'user-a', isSuperAdmin: false },
+      () => ({ segment: viewerCacheSegment(), stamped: withViewerContext({}).viewerUserId }),
+    );
+    expect(both.segment).toBe(both.stamped);
   });
 });

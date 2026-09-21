@@ -3,7 +3,7 @@
 
 import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import { CrudService, buildPluginConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -110,11 +110,16 @@ export class PluginService extends CrudService<
 
   // -- Cached reads -----------------------------------------------------------
 
-  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:id). The
-   *  parent segment keeps a team's parent-widened read from colliding with the
+  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:v:viewer:id).
+   *  The parent segment keeps a team's parent-widened read from colliding with the
    *  own-org-only read under the same orgId. */
   async findById(id: string, orgId?: string, parentOrgId?: string): Promise<Plugin | null> {
-    const cacheKey = `${orgId || 'anon'}${parentOrgId ? `:p:${parentOrgId}` : ''}:id:${id}`;
+    // The VIEWER is part of the key because it is part of the answer: the read
+    // predicate is `org_id = O AND (visibility <> 'private' OR created_by = V)`,
+    // so two members of one org legitimately see different rows for one id.
+    // Keyed on org alone, an author's private draft was served from cache to the
+    // rest of the org. See `viewerCacheSegment`.
+    const cacheKey = `${orgId || 'anon'}${parentOrgId ? `:p:${parentOrgId}` : ''}:v:${viewerCacheSegment()}:id:${id}`;
     return pluginCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 
