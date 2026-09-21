@@ -93,12 +93,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // so the counter is emitted via this hook rather than from the route (which
     // never sees the trusted org). `pipeline_deploy_result_total` is a subset —
     // only stage events that carry a deploy environment.
-    // Orgs whose execution state changed in this batch — one live SSE frame is
-    // pushed to each after the ingest commits (deduped so a big batch → one frame
-    // per org, not one per event).
-    const touchedOrgs = new Set<string>();
     const onMetric = (m: IngestMetric): void => {
-      touchedOrgs.add(m.orgId);
       incCounter('pipeline_stage_result_total', {
         pipeline_id: m.pipelineId,
         stage: m.stage,
@@ -116,7 +111,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     };
 
     // see ReportingService.ingestEvents for the cross-tenant rationale
-    const { inserted, skipped, unregisteredPipelineIds } = await runWithTenantContext(
+    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs } = await runWithTenantContext(
       { isSuperAdmin: true },
       () => reportingService.ingestEvents(events, onMetric),
     );
@@ -131,8 +126,13 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // Live-notify each org whose execution state changed (best-effort; cross-pod
     // via the SSEManager relay). The frontend refetches its execution counts on
     // receipt — replacing the dashboard's manual-refresh/poll with a live update.
+    // Driven off `affectedOrgs` (every org with a row in this batch), NOT the
+    // stage-metric hook it used to use. That hook only fires for STAGE events,
+    // so a batch of PIPELINE or BUILD events landed rows and pushed no frame at
+    // all — the dashboard quietly fell back to manual refresh for exactly the
+    // events an execution view exists to show.
     if (inserted > 0) {
-      for (const org of touchedOrgs) {
+      for (const org of affectedOrgs) {
         try {
           sseManager.send(org, 'MESSAGE', 'execution-updated', { at: new Date().toISOString() });
         } catch (err) {

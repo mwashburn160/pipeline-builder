@@ -152,7 +152,18 @@ export async function computeStorageUsage(
     for (const repo of repos) {
       try {
         const head = await headBlob(repo, digest);
-        if (typeof head.contentLength === 'number') totalBytes += head.contentLength;
+        // A 200 with no `Content-Length` is NOT a measurement. Marking the blob
+        // counted here added zero bytes while telling the rollup it was
+        // complete, so the total silently under-counted and the fail-closed
+        // push gate — whose whole job is to refuse when it cannot prove the org
+        // is under budget — waved the push through. Treat it like any other
+        // repo that could not answer: try the next one, and if none can, fall
+        // through to the `!counted` branch and mark the rollup incomplete.
+        if (typeof head.contentLength !== 'number') {
+          logger.warn('Blob HEAD returned no Content-Length during storage rollup', { digest, repo });
+          continue;
+        }
+        totalBytes += head.contentLength;
         counted = true;
         break; // measured once against a repo that has it
       } catch (err) {

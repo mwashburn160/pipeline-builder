@@ -223,7 +223,7 @@ export class ReportingService {
       ));
     }
 
-    return { inserted, skipped, unregisteredPipelineIds };
+    return { inserted, skipped, unregisteredPipelineIds, affectedOrgs };
   }
 
   // ── Category 1: Pipeline Execution & Performance ──

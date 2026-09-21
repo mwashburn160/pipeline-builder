@@ -48,8 +48,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'invalid' }),
 }));
 
+const mockSseSend = jest.fn();
 const mockIngestEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>()
-  .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [] });
+  .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] });
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -82,7 +83,9 @@ describe('POST /reports/events', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createEventIngestRoutes();
+    // A real send spy: the live-execution fan-out is a behaviour of this route,
+    // and it was passing an empty manager that swallowed everything.
+    router = createEventIngestRoutes({ send: mockSseSend } as never);
 
     // Default: registry lookup returns a match
     const mockFrom = jest.fn().mockReturnValue({
@@ -179,7 +182,7 @@ describe('POST /reports/events', () => {
   it('fans a terminal deploy-stage metric into pipeline_stage_result_total + pipeline_deploy_result_total', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
       onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' });
-      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [] };
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] };
     });
 
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
@@ -193,12 +196,49 @@ describe('POST /reports/events', () => {
   it('does NOT emit the deploy counter for a non-deploy stage metric (no environment)', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
       onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Build', environment: null, result: 'failed' });
-      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [] };
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] };
     });
 
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
 
     expect(mockIncCounter).toHaveBeenCalledWith('pipeline_stage_result_total', expect.objectContaining({ result: 'failed', environment: '' }));
     expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
+  });
+  /**
+   * The live execution channel. The fan-out used to be driven off the
+   * stage-metric hook, which only fires for STAGE events — so a batch of
+   * PIPELINE or BUILD events landed rows and pushed NO frame, and the dashboard
+   * quietly fell back to manual refresh for exactly the events an execution view
+   * exists to show. It is driven off `affectedOrgs` (every org with a row in the
+   * batch) instead.
+   */
+  describe('live execution SSE', () => {
+    it('pushes a frame for a batch that produced no stage metric at all', async () => {
+      mockIngestEvents.mockImplementationOnce(async () =>
+        // No onMetric call: a PIPELINE/BUILD-only batch.
+        ({ inserted: 2, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] }));
+  
+      await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+  
+      expect(mockSseSend).toHaveBeenCalledWith('acme', 'MESSAGE', 'execution-updated', expect.any(Object));
+    });
+  
+    it('sends one frame per affected org, not one per event', async () => {
+      mockIngestEvents.mockImplementationOnce(async () =>
+        ({ inserted: 50, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme', 'globex'] }));
+  
+      await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+  
+      expect(mockSseSend).toHaveBeenCalledTimes(2);
+    });
+  
+    it('stays silent when nothing landed', async () => {
+      mockIngestEvents.mockImplementationOnce(async () =>
+        ({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['p-x'], affectedOrgs: [] }));
+  
+      await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+  
+      expect(mockSseSend).not.toHaveBeenCalled();
+    });
   });
 });

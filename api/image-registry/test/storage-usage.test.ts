@@ -109,6 +109,44 @@ describe('computeStorageUsage — blob HEAD 404 handling', () => {
     expect(usage.bytes).toBe(200); // cfg + L, counted once each
   });
 
+  it('treats a HEAD with no Content-Length as unmeasured, not as zero bytes', async () => {
+    // A 200 without `Content-Length` is not a measurement. It used to mark the
+    // blob counted while adding nothing, so the total silently under-counted
+    // and still reported `incomplete: false` — and the push gate, whose whole
+    // job is to refuse when it cannot prove the org is under budget, waved the
+    // push through.
+    listRepositoriesUnderPrefix.mockResolvedValue(['org/a']);
+    listTags.mockResolvedValue({ tags: ['v1'] });
+    getManifest.mockResolvedValue({
+      body: { config: { digest: 'sha256:cfg' }, layers: [] },
+      digest: 'sha256:m',
+      mediaType: MANIFEST,
+    });
+    headBlob.mockResolvedValue({}); // 200, but the registry gave no length
+
+    const usage = await computeStorageUsage('org', { force: true });
+
+    expect(usage.incomplete).toBe(true);
+    expect(usage.bytes).toBe(0);
+  });
+
+  it('falls through to another repo when the first gives no Content-Length', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue(['org/a', 'org/b']);
+    listTags.mockResolvedValue({ tags: ['v1'] });
+    getManifest.mockResolvedValue({
+      body: { config: { digest: 'sha256:cfg' }, layers: [] },
+      digest: 'sha256:m',
+      mediaType: MANIFEST,
+    });
+    headBlob.mockImplementation(async (repo: string) =>
+      (repo === 'org/a' ? {} : { contentLength: 100 }));
+
+    const usage = await computeStorageUsage('org', { force: true });
+
+    expect(usage.incomplete).toBe(false);
+    expect(usage.bytes).toBe(100);
+  });
+
   it('marks the rollup incomplete when EVERY referencing repo 404s a blob', async () => {
     // A referenced blob that 404s everywhere means the total under-counts, so the
     // fail-closed push-gate must treat it as inconclusive, not "under budget".

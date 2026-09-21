@@ -439,6 +439,17 @@ export interface IngestResult {
   inserted: number;
   skipped: number;
   unregisteredPipelineIds: string[];
+  /**
+   * Every org with at least one row in this batch, deduped.
+   *
+   * Already computed for post-commit cache invalidation; surfaced because the
+   * ingest route needs the same set to push its live SSE frame. That fan-out
+   * used to be driven off the stage-metric hook, which only fires for STAGE
+   * events — so a batch of PIPELINE or BUILD events landed rows and pushed no
+   * frame at all, and the dashboard silently went back to needing a manual
+   * refresh for exactly the events an execution view is about.
+   */
+  affectedOrgs: string[];
 }
 
 /**

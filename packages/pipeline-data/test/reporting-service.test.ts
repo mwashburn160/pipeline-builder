@@ -112,7 +112,8 @@ describe('ReportingService', () => {
         },
       ]);
 
-      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [] });
+      // `affectedOrgs` drives the ingest route's live-execution SSE fan-out.
+      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] });
 
       const [row] = wire.getRows();
       // Tenant binding comes from the registry, never the event.
@@ -186,7 +187,7 @@ describe('ReportingService', () => {
         { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
       ]);
 
-      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'] });
+      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [] });
       expect(wire.values).not.toHaveBeenCalled();
     });
 
