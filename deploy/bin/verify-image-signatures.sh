@@ -45,17 +45,40 @@ fi
 
 # cosign is required. Install it best-effort if missing; a hard failure to obtain
 # it is an INFRA error (exit 3), distinct from a real verification failure (exit 1),
-# so an operator can tell "couldn't check" from "check failed".
+# so an operator can tell "couldn't check" from "check failed". The download is
+# pinned to COSIGN_VERSION and checked against a per-OS/arch SHA-256 — this binary
+# is the thing deciding whether an image is trusted, so a swapped release asset
+# must fail closed. Same version as .github/workflows/release.yml.
+COSIGN_VERSION="v2.6.5"
 if ! command -v cosign >/dev/null 2>&1; then
-  echo "cosign not found — installing…"
+  echo "cosign not found — installing ${COSIGN_VERSION}…"
   arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; esac
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  if ! curl -fsSL "https://github.com/sigstore/cosign/releases/latest/download/cosign-${os}-${arch}" -o /usr/local/bin/cosign 2>/dev/null \
-      && ! sudo curl -fsSL "https://github.com/sigstore/cosign/releases/latest/download/cosign-${os}-${arch}" -o /usr/local/bin/cosign 2>/dev/null; then
-    echo "ERROR: could not download cosign — cannot verify image signatures." >&2
+  case "${os}-${arch}" in
+    linux-amd64)  cosign_sha256=c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644 ;;
+    linux-arm64)  cosign_sha256=426193b4c5da4d4d643e822f48fe0cc8a476ca1782a272704831f5a0cef716d7 ;;
+    darwin-amd64) cosign_sha256=0f8a1a70c81de9740a2b62e91307ff396ce54e7dd80568d42411bb2d9d44269c ;;
+    darwin-arm64) cosign_sha256=4d41cc18f0563907c0c785b51db76e1d1af10db4422b605ba876b1758e1771ab ;;
+    *) echo "ERROR: no pinned cosign build for ${os}-${arch} — cannot verify image signatures." >&2; exit 3 ;;
+  esac
+  tmp_cosign="$(mktemp)"
+  trap 'rm -f "$tmp_cosign"' EXIT
+  if ! curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${os}-${arch}" -o "$tmp_cosign"; then
+    echo "ERROR: could not download cosign ${COSIGN_VERSION} — cannot verify image signatures." >&2
     exit 3
   fi
-  chmod +x /usr/local/bin/cosign 2>/dev/null || sudo chmod +x /usr/local/bin/cosign
+  # shasum ships on macOS and most Linux; sha256sum is the coreutils fallback.
+  if command -v sha256sum >/dev/null 2>&1; then actual_sha256="$(sha256sum "$tmp_cosign" | awk '{print $1}')"
+  else actual_sha256="$(shasum -a 256 "$tmp_cosign" | awk '{print $1}')"; fi
+  if [ "$actual_sha256" != "$cosign_sha256" ]; then
+    echo "ERROR: cosign ${COSIGN_VERSION} checksum mismatch (got ${actual_sha256}, want ${cosign_sha256})." >&2
+    exit 3
+  fi
+  if ! install -m 0755 "$tmp_cosign" /usr/local/bin/cosign 2>/dev/null \
+      && ! sudo install -m 0755 "$tmp_cosign" /usr/local/bin/cosign; then
+    echo "ERROR: could not install cosign to /usr/local/bin — cannot verify image signatures." >&2
+    exit 3
+  fi
 fi
 
 # Distinct semver-pinned ghcr refs under deploy/ (same gather as verify-image-tags.sh).

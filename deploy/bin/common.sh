@@ -103,6 +103,66 @@ sha256_hash() {
 }
 
 # ---------------------------------------------------------------------------
+# fetch_verified <url> <sha256> <dest> — download <url> to <dest> and fail closed
+# unless its SHA-256 equals <sha256>. Every binary the deploy scripts install
+# from a release page goes through this (pinned VERSION + SHA-256), so a swapped
+# or truncated release asset stops the run instead of being executed. <dest> is
+# only written on a match; a mismatch leaves nothing behind. Returns non-zero on
+# download failure or mismatch (callers decide whether that is fatal).
+# ---------------------------------------------------------------------------
+fetch_verified() {
+  local _url="$1" _want="$2" _dest="$3" _tmp _got
+  _tmp="$(mktemp)" || return 1
+  if ! curl -fsSL --retry 3 -o "$_tmp" "$_url"; then
+    echo "ERROR: download failed: $_url" >&2
+    rm -f "$_tmp"; return 1
+  fi
+  _got="$(sha256_hash < "$_tmp")"
+  if [ "$_got" != "$_want" ]; then
+    echo "ERROR: SHA-256 mismatch for $_url (got $_got, want $_want)" >&2
+    rm -f "$_tmp"; return 1
+  fi
+  mv -f "$_tmp" "$_dest"
+}
+
+# Host OS/arch in release-asset spelling: _pb_os = linux|darwin, _pb_arch = amd64|arm64.
+_pb_platform() {
+  _pb_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  _pb_arch="$(uname -m)"; case "$_pb_arch" in x86_64|amd64) _pb_arch=amd64 ;; aarch64|arm64) _pb_arch=arm64 ;; esac
+}
+
+# ---------------------------------------------------------------------------
+# ensure_eksctl — install the pinned eksctl if none is on PATH (a prereq, like
+# kubectl). SHARED by eks setup.sh + shutdown.sh. To bump: change the version
+# and the four hashes together, from the release's eksctl_checksums.txt.
+# ---------------------------------------------------------------------------
+EKSCTL_VERSION="v0.230.0"
+ensure_eksctl() {
+  command -v eksctl >/dev/null 2>&1 && return 0
+  local _os _sum _bindir _tmp
+  _pb_platform
+  case "${_pb_os}-${_pb_arch}" in
+    linux-amd64)  _os=Linux  _sum=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;;
+    linux-arm64)  _os=Linux  _sum=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;;
+    darwin-amd64) _os=Darwin _sum=9c169be56572dae079dc1e5e2a6efff83c4cc6fc8507e54d0a6e8f4ef14df312 ;;
+    darwin-arm64) _os=Darwin _sum=1412b7ea32efab8141c4c7ccdf96690814d659accefdf72e4e6277ea5c87470c ;;
+    *) echo "ERROR: no pinned eksctl for ${_pb_os}-${_pb_arch} — install eksctl manually." >&2; return 1 ;;
+  esac
+  echo "  eksctl not found — installing ${EKSCTL_VERSION}..."
+  _bindir=/usr/local/bin; [ -w "$_bindir" ] || _bindir="$HOME/.local/bin"; mkdir -p "$_bindir"
+  _tmp="$(mktemp -d)"
+  if ! fetch_verified "https://github.com/eksctl-io/eksctl/releases/download/${EKSCTL_VERSION}/eksctl_${_os}_${_pb_arch}.tar.gz" \
+         "$_sum" "$_tmp/eksctl.tgz" \
+      || ! tar -xzf "$_tmp/eksctl.tgz" -C "$_tmp" eksctl; then
+    rm -rf "$_tmp"; return 1
+  fi
+  install -m 0755 "$_tmp/eksctl" "$_bindir/eksctl"
+  rm -rf "$_tmp"
+  case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
+  echo "  installed eksctl ${EKSCTL_VERSION} to $_bindir"
+}
+
+# ---------------------------------------------------------------------------
 # require_yq — ensure `yq` (mikefarah's Go YAML parser) is on PATH.
 #
 # Replaced ~150 lines of brittle awk YAML state-machine code in
@@ -179,13 +239,28 @@ ensure_istioctl() {
   else
     echo "  istioctl not found — installing $_want..."
   fi
-  local _os _arch _tmp
-  _os="$(uname -s | tr '[:upper:]' '[:lower:]')"; case "$_os" in darwin) _os=osx ;; esac
-  _arch="$(uname -m)"; case "$_arch" in x86_64) _arch=amd64 ;; arm64|aarch64) _arch=arm64 ;; esac
+  # Pinned SHA-256 per version × platform (from the release's
+  # istioctl-<ver>-<os>-<arch>.tar.gz.sha256). An ISTIO_VERSION with no pinned
+  # hash is refused rather than installed unverified — add its four hashes here
+  # when bumping ISTIO_VERSION in the targets' setup/startup scripts.
+  local _os _tmp _sum=""
+  _pb_platform
+  _os="$_pb_os"; case "$_os" in darwin) _os=osx ;; esac
+  case "${_want}:${_os}-${_pb_arch}" in
+    1.30.3:linux-amd64) _sum=7b8559fb0a91466a3ff726ad291bedbcf5e4a24f1d9108dbe51a99e11f2010c8 ;;
+    1.30.3:linux-arm64) _sum=58102643b66d49232a51fdd130f5a207e9e1b40ef1230930b016bdeb41261560 ;;
+    1.30.3:osx-amd64)   _sum=ba7bbba3a07cdc9acad26616d089c497d2d043eb72621ed2ab5c771f56daec2b ;;
+    1.30.3:osx-arm64)   _sum=b52f492e6c2306c9d209d2a30534e546c63f2623d6c150f0153c566c819299f0 ;;
+  esac
+  if [ -z "$_sum" ]; then
+    echo "ERROR: no pinned SHA-256 for istioctl ${_want} (${_os}-${_pb_arch}) — add it to ensure_istioctl in deploy/bin/common.sh." >&2
+    exit 1
+  fi
   _tmp="$(mktemp -d)"
-  if ! curl -fsSL "https://github.com/istio/istio/releases/download/${_want}/istioctl-${_want}-${_os}-${_arch}.tar.gz" \
-       | tar -xz -C "$_tmp" istioctl 2>/dev/null; then
-    echo "ERROR: failed to download istioctl ${_want} (${_os}-${_arch})." >&2
+  if ! fetch_verified "https://github.com/istio/istio/releases/download/${_want}/istioctl-${_want}-${_os}-${_pb_arch}.tar.gz" \
+         "$_sum" "$_tmp/istioctl.tgz" \
+      || ! tar -xzf "$_tmp/istioctl.tgz" -C "$_tmp" istioctl 2>/dev/null; then
+    echo "ERROR: failed to install istioctl ${_want} (${_os}-${_pb_arch})." >&2
     echo "  Install it manually and re-run: https://istio.io/latest/docs/setup/getting-started/#download" >&2
     rm -rf "$_tmp"; exit 1
   fi
@@ -247,10 +322,14 @@ ensure_kubectl() {
 
   if [ ! -x "$_dir/kubectl" ]; then
     mkdir -p "$_dir"
-    if ! curl -fsSL -o "$_dir/kubectl" \
-         "https://dl.k8s.io/release/${_want}/bin/${_os}/${_arch}/kubectl"; then
+    # The version tracks the running cluster, so there is no static hash to pin;
+    # verify against the .sha256 dl.k8s.io publishes beside each binary (the
+    # upstream-documented check). A mismatch leaves nothing in the cache dir.
+    local _base="https://dl.k8s.io/release/${_want}/bin/${_os}/${_arch}/kubectl" _sum
+    if ! _sum="$(curl -fsSL "${_base}.sha256")" \
+        || ! fetch_verified "$_base" "${_sum%% *}" "$_dir/kubectl"; then
       rm -f "$_dir/kubectl"
-      echo "  WARNING: could not download kubectl ${_want} (${_os}-${_arch})." >&2
+      echo "  WARNING: could not download a verified kubectl ${_want} (${_os}-${_arch})." >&2
       echo "  WARNING: continuing with ${_have:-no} client — bring-up may fail on version skew." >&2
       echo "  WARNING: install it manually: https://kubernetes.io/docs/tasks/tools/" >&2
       return 0

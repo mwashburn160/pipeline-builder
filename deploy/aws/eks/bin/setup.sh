@@ -105,16 +105,8 @@ PB_NAMESPACE="$NAMESPACE"
 
 echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE k8s=$EKS_VERSION domain=$DOMAIN ==="
 
-# eksctl: install the latest binary if it's not already on PATH (a prereq, like kubectl).
-if ! command -v eksctl >/dev/null 2>&1; then
-  echo "  eksctl not found — installing the latest binary..."
-  case "$(uname -m)" in x86_64|amd64) _arch=amd64 ;; aarch64|arm64) _arch=arm64 ;; *) _arch=amd64 ;; esac
-  _bindir=/usr/local/bin; [ -w "$_bindir" ] || _bindir="$HOME/.local/bin"; mkdir -p "$_bindir"
-  curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_${_arch}.tar.gz" | tar xz -C "$_bindir" eksctl
-  chmod +x "$_bindir/eksctl"
-  case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
-  echo "  installed eksctl to $_bindir"
-fi
+# eksctl: install the pinned binary if it's not already on PATH (a prereq, like kubectl).
+ensure_eksctl
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
 log "Phase 1: EKS Auto Mode cluster"

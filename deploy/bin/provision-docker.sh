@@ -53,7 +53,10 @@ case "$TARGET" in
     # eks setup.sh needs aws (deploy), eksctl (create the Auto Mode cluster), kubectl
     # (apply manifests), openssl (registry token keypair) and envsubst/gettext-base
     # (cluster.yaml + manifest token expansion). Mount ~/.aws + ~/.kube.
-    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_$(dpkg --print-architecture).tar.gz" | tar -xz -C /usr/local/bin eksctl && curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl'
+    # eksctl: pinned VERSION + SHA-256 (keep in step with EKSCTL_VERSION in
+    # deploy/bin/common.sh). kubectl: the current stable release, checked against
+    # the .sha256 dl.k8s.io publishes beside it.
+    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && a=$(dpkg --print-architecture) && case $a in amd64) s=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;; arm64) s=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;; *) echo "no pinned eksctl for $a" >&2; exit 1 ;; esac && curl -fsSL -o /tmp/eksctl.tgz "https://github.com/eksctl-io/eksctl/releases/download/v0.230.0/eksctl_Linux_${a}.tar.gz" && echo "$s  /tmp/eksctl.tgz" | sha256sum -c - && tar -xzf /tmp/eksctl.tgz -C /usr/local/bin eksctl && rm -f /tmp/eksctl.tgz && k=$(curl -fsSL https://dl.k8s.io/release/stable.txt) && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl" && echo "$(curl -fsSL "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl'
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
     [ -d "$HOME/.kube" ] && mounts+=( -v "$HOME/.kube:/root/.kube:ro" )
     ;;
@@ -67,7 +70,8 @@ case "$TARGET" in
     # to openssl). (Linux host: the CLI mount works as-is. macOS: the Docker Desktop
     # CLI is a mac binary that can't run in a Linux container — run local on the host.)
     apt="$apt openssl"
-    extra='curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$(dpkg --print-architecture)" -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq'
+    # yq: pinned VERSION + SHA-256 (same pin as deploy/aws/ec2/bin/bootstrap.sh).
+    extra='a=$(dpkg --print-architecture) && case $a in amd64) s=654d2943ca1d3be2024089eb4f270f4070f491a0610481d128509b2834870049 ;; arm64) s=ceea73d4c86f2e5c91926ee0639157121f5360da42beeb8357783d79c2cc6a1d ;; *) echo "no pinned yq for $a" >&2; exit 1 ;; esac && curl -fsSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_${a}" && echo "$s  /usr/local/bin/yq" | sha256sum -c - && chmod 0755 /usr/local/bin/yq'
     mounts+=( -v /var/run/docker.sock:/var/run/docker.sock --network host )
     docker_bin="$(command -v docker || true)"
     [ -n "$docker_bin" ] && mounts+=( -v "$docker_bin:/usr/bin/docker:ro" )

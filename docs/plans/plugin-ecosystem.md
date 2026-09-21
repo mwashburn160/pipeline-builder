@@ -1,6 +1,6 @@
 # Plan: Plugin Ecosystem
 
-**Status:** PLAN, rev 2.5 — no code yet (2026-09-21; rev 2.5: plans and limits D15, implicit Official installs D16, docs and help G47)
+**Status:** PLAN, rev 2.6 — no code yet (2026-09-21; rev 2.5: plans and limits D15, implicit Official installs D16, docs and help G47; rev 2.6: category and vendor icons G49–G51, D17)
 **Goal:** turn the plugin catalog from "what the platform ships plus what each org
 uploads for itself" into a public ecosystem:
 
@@ -15,7 +15,7 @@ convention).
 
 ---
 
-## 0. Review log: gaps found and what changed (rev 2: G1–G24; rev 2.4: G25–G46; rev 2.5: G47–G48)
+## 0. Review log: gaps found and what changed (rev 2: G1–G24; rev 2.4: G25–G46; rev 2.5: G47–G48; rev 2.6: G49–G51)
 
 Rev 1 was reviewed against the code. Findings marked **(verified)** were checked in
 the source.
@@ -69,6 +69,9 @@ the source.
 | G46 | **Small gaps:** magic-link rules, terms re-acceptance, auto-update notice, retention of rejected items. | Low | §4.2, §3.1, N27, §8. |
 | G47 | **Docs and help were under-planned.** "Regenerate frontend help" alone doesn't surface anything: the help manifest (`frontend/scripts/generate-help.mjs`) **deliberately excludes `docs/plugins/*`**, so new publishing/installing docs would never reach the help center. The hand-authored `plugins` and `registry` topics (with a stale ~76-entry `PLUGIN_CATALOG`) and "What's new" weren't mentioned; many affected docs weren't named. | Medium | §12a rewritten: help manifest entries, hand-authored topic rewrites, What's-new entries, a per-workstream docs checklist, and the drift, corpus and search tests as done-criteria. |
 | G48 | **"Publishing on Pro and above" conflicted with anonymous submissions.** A Developer user who can't publish signed-in would just submit anonymously: lower trust, more moderation. | Medium | D15 revised: publishing on every plan within a `listings` limit (§3.7). |
+| G49 | **No plugin or category icons (verified).** Neither `plugin-spec.yaml` nor the `plugins` table has an icon field; category cards in §6a mentioned an icon with no source. A directory of 119 text-only cards is hard to scan. | Medium | §6a.1: a lucide glyph per category, and a vendor logo per plugin from a curated, committed icon set, with a fixed fallback chain. |
+| G50 | **Vendor logos are trademarks, and the free set has holes (verified).** Simple Icons (CC0, 3,461 logos) covers about 85 of the 119 plugins, but several vendors had their marks **removed** at their request: AWS (~9 plugins), Microsoft/Azure/Teams, Slack, SonarCloud (7), Semgrep, Veracode, Fortify, Mend, Playwright, Oracle. | Medium (legal) | Per-icon source and license recorded; vendor press-kit marks only where their terms allow; otherwise a generated monogram. Nominative use only, never implying endorsement; honour removal requests (§6a.1, D17). |
+| G51 | **A logo can impersonate a vendor.** A Community "trivy-scanner" wearing Aqua's Trivy logo looks official, which undoes the trust tiers. Uploaded SVG is also an XSS vector. | High | Curated vendor marks are reserved for Official listings and Verified publishers who own the mark. Everyone else gets an uploaded **raster** icon (re-encoded server-side, moderated like the README) or a monogram. The tier badge always sits next to the icon (§6a.1). |
 | G23 | **Incomplete audit catalog.** Audit actions were mentioned piecemeal, with no anonymous-actor sentinel and no `affectedOrgId` rules. | Medium | §5c: full action catalog, actor and `affectedOrgId` rules, details redaction, and the lists to update. |
 
 ---
@@ -157,6 +160,8 @@ permissions (§5a).
 Each request shows diffs against the previous **approved** version:
 
 - plugin spec (commands, env, declared secrets, `network.egress`);
+- icon, shown side by side with the previous one and flagged when it resembles a
+  curated vendor mark (G51);
 - Dockerfile;
 - SBOM package diff;
 - vulnerability summary diff;
@@ -713,6 +718,8 @@ M, W4 M, W5 L, W6 M, W7 S, W8 M), plus ongoing **moderation staffing** (§9a).
      `smokeTest`;
    - add `readme` (markdown ≤ 64 KB, stored sanitized, G6), `license` (SPDX),
      `changelog`, `homepageUrl` and `sourceUrl`;
+   - add `icon` (a curated icon key, §6a.1) to the spec and the `plugins` table,
+     and set it on all 119 Official plugins (G49);
    - the loader imports the 117 existing `README.md` files (G18);
    - optional `network.egress` (declared hostnames) in the spec, shown to
      consumers and compared in review and auto-approval (G35);
@@ -811,7 +818,8 @@ M, W4 M, W5 L, W6 M, W7 S, W8 M), plus ongoing **moderation staffing** (§9a).
 A dedicated, public, searchable web page. Full design in §6a.
 
 - **W3a:** the Official catalog only, built on listings (W0.8). Needs W0.2
-  (README, license).
+  (README, license, icon). Ships the category glyphs and the curated vendor icon
+  set (§6a.1).
 - **W3b:** adds publishers, tiers, ratings and installs as W1/W2/W4 land.
 
 ### W4 — Reviews and ratings (M)
@@ -835,7 +843,8 @@ moderation can't be bypassed (G19).
 - `pipeline-manager plugin test`: runs install + build commands locally in the
   image against a sample workspace, and checks `primaryOutputDirectory`.
 - `plugin new` scaffolds from `pipeline-<eco>-base` with `USER`, `smokeTest`,
-  README, license and changelog.
+  README, license, changelog and an `icon` (picked from the curated set, or a
+  placeholder for an uploaded one).
 - CLI `validate` uses the server's Zod schema (shared from api-core).
 - `plugin publish` with a local pre-flight (lint, scan preview).
 - AI generation gets catalog context ("similar plugins exist") to curb duplicates.
@@ -932,7 +941,7 @@ moderation can't be bypassed (G19).
 
 ### Categories: high-level descriptions
 
-`CATEGORY_DESCRIPTIONS` and icons live beside `CATEGORY_DISPLAY_NAMES` in
+`CATEGORY_DESCRIPTIONS` live beside `CATEGORY_DISPLAY_NAMES` (icons are in §6a.1) in
 `frontend/src/lib/plugin-categories.ts`, kept dependency-free (the bundle-size
 reason documented there). Cards show an icon, the description, a live count from
 facets (no hard-coded "119"), and the top 3 plugins. Category pages add "where it
@@ -951,9 +960,96 @@ fits" and a link to `docs/plugins/<category>.md`.
 | Notification | Tell people what happened: Slack, Teams, email and webhook notifications. | Any stage |
 | AI | AI-assisted steps, e.g. generating Dockerfiles or reviewing changes. | Any stage |
 
+
+### 6a.1 Icons: one per category, one per plugin (G49–G51)
+
+**Category icons.** Each of the 10 categories gets a
+[lucide](https://lucide.dev) glyph (`lucide-react` is already a frontend
+dependency), drawn in the current text colour so it works in both themes:
+
+| Category | Glyph | Category | Glyph |
+|---|---|---|---|
+| Language | `code-xml` | Deploy | `rocket` |
+| Security | `shield-check` | Infrastructure | `layers` |
+| Quality | `sparkles` | Monitoring | `activity` |
+| Testing | `flask-conical` | Notification | `bell` |
+| Artifact & Registry | `package` | AI | `bot` |
+
+`CATEGORY_ICONS` lives in a new `frontend/src/lib/plugin-category-icons.ts`, **not**
+in `plugin-categories.ts`, which must stay dependency-free (the bundle-size reason
+documented there). Category icons appear on the directory's category grid,
+category landing pages, the search facet list, and as the fallback plugin icon.
+
+**Plugin icons: the curated set.**
+
+- Logos are committed SVGs under `deploy/plugins/_icons/<key>.svg`, keyed by vendor
+  or tool, not by plugin: `snyk` serves all 7 `snyk-*` plugins, `sonarcloud` all
+  7 `sonarcloud-*`, `aws` serves `cdk-deploy`, `ecr-push`, `lambda-deploy` and the
+  rest. A plugin sets `icon: trivy` in its spec.
+- Language variants (`snyk-python`, `sonarcloud-go`) show a small language badge
+  in the corner, taken from the same set (`python`, `go`). The spec field is
+  `icon: { key: snyk, badge: python }`; the short form `icon: trivy` means no badge.
+- `deploy/plugins/_icons/SOURCES.md` records every icon's source, licence and date
+  (G50):
+  - **Simple Icons** (CC0) first. It covers about 85 of the 119 plugins: Trivy,
+    Snyk, Docker, Terraform, Pulumi, Helm, Kubernetes, GitHub, Datadog, Sentry,
+    PagerDuty, Jest, Cypress, k6, the languages and more.
+  - **Vendor press-kit marks** only where the vendor's brand terms permit
+    third-party integration listings (to check per vendor: AWS, Microsoft,
+    Slack, Sonar, Semgrep, Veracode, OpenText/Fortify, Mend, Oracle, Playwright).
+  - Otherwise **no logo**: the plugin gets a monogram (below). We never redraw
+    a mark that a vendor had removed from Simple Icons.
+- Use is nominative: a logo identifies which tool the plugin runs, and the plugin
+  page says "Not affiliated with or endorsed by <vendor>" unless the publisher is
+  that vendor. A vendor's removal request is honoured within 5 business days by
+  dropping the key (plugins fall back to monograms; no re-release needed).
+- **Serving:** the set is copied into the frontend's static assets at build time
+  and served as `/plugin-icons/<key>.svg` with a long `Cache-Control` and a
+  content hash in the URL. It's rendered with `<img>`, so an SVG can't run
+  script, and none of the 119 logos end up in the JS bundle. `alt=""`: the plugin
+  name always sits next to the icon.
+- **Theme:** icons are drawn as a CSS `mask-image` filled with the vendor's brand
+  colour (Simple Icons ships the hex). When that colour fails 3:1 contrast
+  against the card background in the current theme, the fill falls back to the
+  text colour. So Trivy stays teal in both themes, and near-black marks (GitHub,
+  Rust) invert in dark mode.
+
+**Who may use which icon (G51).**
+
+| Listing | Icon source |
+|---|---|
+| Official (`pipeline-builder` publisher) | Any curated key. |
+| Verified publisher | Curated keys it owns (Aqua → `trivy`), approved when the publisher is verified; otherwise the Community rule. |
+| Community, and anonymous submissions (W5) | An **uploaded raster** icon or a monogram. Never a curated vendor key. |
+
+- **Uploaded icons:** PNG, JPEG or WebP only (**no SVG**), ≤ 256 KB, square,
+  ≥ 128 px. Image-registry decodes and re-encodes them to 256 px and 64 px WebP,
+  stripping metadata. They're stored per listing version, shown in the review
+  diff (§3.0.2), and a perceptual hash is compared against the curated set, so
+  near-copies of a vendor mark are held for moderation.
+- **Monogram:** the first one or two letters of the plugin name on a tile coloured
+  from a hash of the name, with the category glyph in the corner. It's
+  deterministic and needs no storage.
+- The trust-tier badge is always rendered beside the icon, at every size, so a
+  logo alone never signals trust.
+
+**Fallback chain** (resolved server-side; the API returns `iconUrl` and
+`iconKind: vendor | uploaded | monogram | category`):
+uploaded icon (if allowed) → curated key → monogram → category glyph.
+
+**Where icons show:** directory cards, search results, the plugin page header,
+category landing pages (top 3), the in-app plugin catalog, the pipeline builder's
+step nodes, the installs list, and OG images for shared plugin links.
+
+**Tests:** every Official spec's `icon` resolves to a file in `_icons/`; every file
+has a `SOURCES.md` row; every category has a glyph; an SVG lint for the curated
+set (no `<script>`, event handlers, `<foreignObject>` or external references;
+single `viewBox`); a Community listing with a curated key is rejected at submit;
+the upload pipeline refuses SVG and polyglot files.
+
 ### Plugin page
 
-- **Header:** title, publisher and tier badge, one-liner, **Install** /
+- **Header:** icon (§6a.1), title, publisher and tier badge, one-liner, **Install** /
   **Sign in to install**, rating summary, and a banner for an active advisory or
   `unmaintained` state.
 - **Tabs:**
@@ -1140,6 +1236,7 @@ verify cache is invalidated).
 | D14 | Can publishers pause their own listing or version without approval? | **DECIDED (2026-09-21): yes.** Pausing only narrows their own reach (hidden from new installs, never breaks existing ones). Unpausing is a request. |
 | D15 | Product packaging: which plans can publish, install and be Verified? (G41) | **Recommended (rev 2.5), §3.7:** install, review and all safety controls on **every** plan. **Publishing on every plan** within a `listings` limit (3 / 10 / 25 / 100). **Verified eligibility** on Team and Enterprise only, earned through review and never purchasable. No paid priority review. Downgrades keep listings listed, freeze non-security updates while over the limit, and give Verified a 30-day grace period. |
 | D16 | Official plugins auto-installed for every org? (G26) | **Recommended (rev 2.5):** yes, as a **virtual implicit install** (no rows; resolution fallback; policy `minor`; majors never automatic). Orgs can override with an explicit install, opt out entirely (`officialInstalls: explicit`) or block individual listings (`blockedListings`). An org's own same-name plugin still wins, with a shadowing warning. Rejected: explicit installs for everything (breaks every existing pipeline), and seeding install rows at org creation (misses later Official plugins, and adds rows for nothing). |
+| D17 | Vendor logos (G50, G51): where do they come from, and who may use them? | **Recommended (rev 2.6):** Simple Icons (CC0) first, vendor press-kit marks only where the vendor's terms allow, monograms otherwise; curated marks only on Official listings and on Verified publishers who own the mark; Community listings upload raster icons or get a monogram. Rejected: letting any publisher pick any logo (impersonation), and accepting SVG uploads (XSS). |
 
 ## 12. Non-goals
 

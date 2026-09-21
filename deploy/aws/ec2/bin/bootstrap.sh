@@ -189,16 +189,17 @@ dnf install -y conntrack-tools socat jq
 # Distro repos may have an old python-yq; install mikefarah's Go binary
 # directly to /usr/local/bin so the version matches what plugin scripts expect.
 echo "  Installing yq..."
+# Pinned VERSION + per-arch SHA-256 (the SHA-256 column of the release's
+# `checksums` file); fetch_verified fails closed on a mismatch.
 YQ_VERSION="v4.45.1"
-ARCH=$(uname -m)
-case "$ARCH" in
-  x86_64)  YQ_ARCH=amd64 ;;
-  aarch64) YQ_ARCH=arm64 ;;
-  *) echo "  WARNING: unknown arch $ARCH, defaulting to amd64"; YQ_ARCH=amd64 ;;
+case "$(uname -m)" in
+  x86_64)  YQ_ARCH=amd64 YQ_SHA256=654d2943ca1d3be2024089eb4f270f4070f491a0610481d128509b2834870049 ;;
+  aarch64) YQ_ARCH=arm64 YQ_SHA256=ceea73d4c86f2e5c91926ee0639157121f5360da42beeb8357783d79c2cc6a1d ;;
+  *) echo "  ERROR: no pinned yq for arch $(uname -m)" >&2; exit 1 ;;
 esac
-curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" \
-  -o /usr/local/bin/yq
-chmod +x /usr/local/bin/yq
+fetch_verified "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" \
+  "$YQ_SHA256" /usr/local/bin/yq
+chmod 0755 /usr/local/bin/yq
 echo "  yq $(/usr/local/bin/yq --version)"
 
 # =============================================================================
