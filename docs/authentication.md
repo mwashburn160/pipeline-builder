@@ -1762,14 +1762,26 @@ narrow, self-closing and audited:
 - Two of those setup routes — creating the `setup` service account and issuing its
   key — are also **always `aal: 2`** routes, which this session can never be: the
   install has no factor to be MFA-grade with yet. So the assurance gate carries one
-  **named exemption**, `bootstrap-setup`, which requires BOTH the
-  `mfaEnrollmentPending` flag and a path the allowlist already admits. It grants no
-  extra reach, step-up still applies (the admin's password earns it), the action is
-  still audited as `org.service-account.create` / `.key.create`, every use
-  increments `assurance_exempted_total{reason="bootstrap-setup"}`, and the
+  **named exemption**, `bootstrap-setup`, which requires the
+  `mfaEnrollmentPending` flag, a path the allowlist already admits, AND a live
+  re-read (`resolveBootstrapSetupWindow`) confirming that the install is still
+  inside `BOOTSTRAP_SETUP_WINDOW_MS` (default 24 h) and that the exception has not
+  already closed. The live re-read matters because `mfaEnrollmentPending` is a
+  token claim that outlives what it describes: enrolment clears it from the refresh
+  slots, but an access token already issued keeps it for the rest of its ~15-minute
+  life, and would otherwise still mint a durable superadmin key at `aal: 1`. It
+  grants no extra reach, step-up still applies (the admin's password earns it), the
+  action is still audited as `org.service-account.create` / `.key.create`, every use
+  increments `assurance_exempted_total{reason="bootstrap-setup"}`, a refusal
+  increments `platform_mfa_bootstrap_setup_refused_total{reason}`, and the
   generated route table records it as `aal2(except bootstrap-setup)`. Without it a
   fresh install could not finish: init would stop at **401 `MFA_REQUIRED`**, and
   nothing else the bootstrap session can reach would let it proceed.
+- Only this *credential-minting* half is time-bounded. **Reach** — enrolment,
+  sign-out, refresh — is never bounded, so an admin who comes back to a
+  long-neglected install is never locked out; they are only asked to enrol a factor
+  before minting machine credentials. Past the window, re-run `init-platform.sh`
+  after enrolling.
 - It **closes permanently at the first enrolment** of any factor and never
   reopens, even if that factor is later removed.
 - System-org "require MFA" **cannot be turned on while it is open** — doing so

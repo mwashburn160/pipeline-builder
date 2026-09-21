@@ -32,7 +32,7 @@
  */
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import type { Request } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { UserDocument } from '../models/user.js';
 import { incCounter } from '../observability/metrics.js';
 
@@ -54,6 +54,25 @@ function meter(name: string, labels?: Record<string, string>): void {
 
 /** A bootstrap session older than this since the install is worth alerting on. */
 export const BOOTSTRAP_ALERT_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long after the install the `bootstrap-setup` assurance exemption stays
+ * available. Overridable with `BOOTSTRAP_SETUP_WINDOW_MS` for an install that
+ * legitimately takes longer than a day to finish.
+ *
+ * This bounds ONLY the exemption that lets a password-alone session mint the
+ * `setup` service account and its key. Without a bound it never expired: an
+ * install whose admin never enrols a factor keeps a permanent path from "knows
+ * the password" to "holds a durable system-org superadmin `pb_sa_` key", which
+ * is precisely the property the `aal: 2` requirement on those two routes exists
+ * to deny. The REACH allowlist is deliberately NOT bounded — enrolment, sign-out
+ * and refresh stay open forever, so a late admin is never locked out; they are
+ * only asked to enrol a factor before minting machine credentials.
+ */
+export function bootstrapSetupWindowMs(): number {
+  const raw = Number(process.env.BOOTSTRAP_SETUP_WINDOW_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : BOOTSTRAP_ALERT_AFTER_MS;
+}
 
 /**
  * Is this email operator-authorized as a platform super-admin (listed in
@@ -259,7 +278,10 @@ const BOOTSTRAP_SESSION_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegE
  *     sign-in mints that, only while the exception is open, and it is stored on
  *     the session slot so a refresh cannot shed it;
  *   - the request must be one {@link BOOTSTRAP_SESSION_ALLOWLIST} already admits,
- *     so the exemption can never widen the reach; and
+ *     so the exemption can never widen the reach;
+ *   - {@link resolveBootstrapSetupWindow} must have confirmed, from a LIVE read,
+ *     that the install is still inside {@link bootstrapSetupWindowMs} and that the
+ *     exception has not already closed — the token claim alone is not enough; and
  *   - step-up still applies. Creating the account and issuing the key each need a
  *     fresh `X-Step-Up-Token`, which the admin's password earns — so the action
  *     is still confirmed, and still audited as `org.service-account.*`.
@@ -267,7 +289,73 @@ const BOOTSTRAP_SESSION_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegE
  */
 export function isBootstrapSetupRequest(req: Request): boolean {
   const claims = (req as { user?: { mfaEnrollmentPending?: boolean } }).user;
+  // The install-age check is resolved by `resolveBootstrapSetupWindow`, which
+  // must run before the assurance gate. Its absence means "not established",
+  // which fails CLOSED — a route that forgets the middleware simply requires
+  // `aal: 2` from everybody, the same answer as before the exemption existed.
+  if ((req as BootstrapSetupWindowRequest).bootstrapSetupInWindow !== true) return false;
   return claims?.mfaEnrollmentPending === true && bootstrapSessionMayReach(req);
+}
+
+/** `req` once {@link resolveBootstrapSetupWindow} has answered for it. */
+type BootstrapSetupWindowRequest = Request & { bootstrapSetupInWindow?: boolean };
+
+/**
+ * Decide whether the `bootstrap-setup` exemption is still available for this
+ * request and record the answer, so the (synchronous) assurance exemption can
+ * consult it. Mount immediately before the gate on every route naming
+ * `bootstrap-setup`.
+ *
+ * Two conditions, both read LIVE rather than taken from the token:
+ *   1. the install is still inside {@link bootstrapSetupWindowMs}; and
+ *   2. the exception is still genuinely open for this account
+ *      ({@link isBootstrapExceptionOpen}).
+ *
+ * (2) is what makes "closes at the first enrolment" true for the privileged
+ * half of the exception. `mfaEnrollmentPending` is a CLAIM: enrolment clears it
+ * from the refresh slots, but an access token already in hand keeps it for the
+ * rest of its ~15-minute life, and that token would otherwise still mint a
+ * durable system-org superadmin key at `aal: 1` after the factor that was
+ * supposed to end the exception exists. Re-reading the account closes that
+ * window immediately, without bumping `tokenVersion` — which would sign the
+ * admin out the instant they added a passkey, the exact stranding
+ * `closeBootstrapExceptionOnEnrolment` goes out of its way to avoid. Reach to
+ * enrolment and sign-out is unaffected; only credential minting is.
+ *
+ * Only reads for a session that could actually use the exemption, so the common
+ * request pays nothing. Fails CLOSED on a lookup error. A null install time means
+ * the system org does not exist yet (the register step itself) — inside any window.
+ */
+export async function resolveBootstrapSetupWindow(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  const claims = (req as { user?: { mfaEnrollmentPending?: boolean; sub?: string } }).user;
+  if (claims?.mfaEnrollmentPending !== true) return next();
+  try {
+    const since = await installedAt();
+    const inWindow = !since || Date.now() - since.getTime() <= bootstrapSetupWindowMs();
+    if (!inWindow) {
+      meter('platform_mfa_bootstrap_setup_refused_total', { reason: 'window_expired' });
+      logger.warn('Bootstrap setup exemption refused — the install is past its window; enrol a factor first', {
+        userId: claims.sub, windowMs: bootstrapSetupWindowMs(),
+      });
+    }
+    let stillOpen = false;
+    if (inWindow) {
+      const { User } = await import('../models/index.js');
+      const user = await User.findById(claims.sub).select('email mfaBootstrapClosedAt').lean();
+      stillOpen = !!user && await isBootstrapExceptionOpen(user as Pick<UserDocument, '_id' | 'email' | 'mfaBootstrapClosedAt'>);
+      if (!stillOpen) {
+        meter('platform_mfa_bootstrap_setup_refused_total', { reason: 'exception_closed' });
+        logger.warn('Bootstrap setup exemption refused — the exception has already closed for this account', {
+          userId: claims.sub,
+        });
+      }
+    }
+    (req as BootstrapSetupWindowRequest).bootstrapSetupInWindow = inWindow && stillOpen;
+  } catch (error) {
+    (req as BootstrapSetupWindowRequest).bootstrapSetupInWindow = false;
+    logger.warn('Could not establish the bootstrap setup window — refusing the exemption', { error: String(error) });
+  }
+  next();
 }
 
 /** Whether an enrolment-pending session may reach this request. Fails closed. */

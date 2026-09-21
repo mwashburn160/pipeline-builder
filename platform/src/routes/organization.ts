@@ -90,7 +90,7 @@ import {
   updatePasswordPolicy,
 } from '../controllers/org-security-policy.js';
 import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
-import { isBootstrapSetupRequest } from '../helpers/bootstrap-admin.js';
+import { isBootstrapSetupRequest, resolveBootstrapSetupWindow } from '../helpers/bootstrap-admin.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
@@ -479,6 +479,7 @@ router.post(
   '/:id/service-accounts',
   requireAuth,
   requirePermission('service_accounts:manage'),
+  resolveBootstrapSetupWindow,
   setupMfaGrade,
   requireStepUp,
   audited('org.service-account.create'),
@@ -510,6 +511,7 @@ router.post(
   '/:id/service-accounts/:accountId/keys',
   requireAuth,
   requirePermission('service_accounts:manage'),
+  resolveBootstrapSetupWindow,
   setupMfaGrade,
   requireStepUp,
   audited('org.service-account.key.create'),

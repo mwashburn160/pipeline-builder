@@ -56,7 +56,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | `feature(f)` | Paid entitlement `f` required |
 | `scope(s)` | Machine-credential scope `s` required |
 | `aalN` | Authenticator assurance level ≥ N |
-| `aalN(except c)` | …of every caller **except** the named carve-out `c`. Today the only one is `bootstrap-setup`: a fresh install's single administrator, who has no second factor to be MFA-grade with yet, on the setup calls `init-platform.sh` makes. Step-up still applies, and the reach stays limited to the bootstrap allowlist |
+| `aalN(except c)` | …of every caller **except** the named carve-out `c`. Today the only one is `bootstrap-setup`: a fresh install's single administrator, who has no second factor to be MFA-grade with yet, on the setup calls `init-platform.sh` makes. Step-up still applies, the reach stays limited to the bootstrap allowlist, and a live re-read bounds it to `BOOTSTRAP_SETUP_WINDOW_MS` (default 24 h) after the install and to an exception that has not yet closed |
 | `step-up(m,…)` | Recent re-authentication with one of these methods |
 | `org-admin-assurance` | The org's "administrative actions require MFA" policy applies |
 | `authenticated` | Signed in, nothing more |

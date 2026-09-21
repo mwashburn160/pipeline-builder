@@ -186,13 +186,20 @@ describe('isBootstrapSetupRequest — the one assurance exemption', () => {
   // A fresh install's only admin has no factor, so their session is `aal: 1` and
   // cannot satisfy the `minAssurance: 2` on the two service-account mints that
   // init-platform.sh must make. That is what this predicate names — and it must
-  // name nothing else: both halves (the flag AND the allowlist) are required, so
-  // an ordinary weak session gets no exemption and a bootstrap session gets no
-  // extra reach.
+  // name nothing else: all three parts (the LIVE window answer, the flag AND the
+  // allowlist) are required, so an ordinary weak session gets no exemption and a
+  // bootstrap session gets no extra reach.
+  //
+  // `bootstrapSetupInWindow` is what `resolveBootstrapSetupWindow` records after
+  // re-reading the install age and the account. It is required here because the
+  // `mfaEnrollmentPending` CLAIM outlives the thing it describes: enrolment clears
+  // the flag from the refresh slots, but an access token already issued keeps it
+  // for the rest of its ~15-minute life.
   const req = (over: Record<string, unknown>) => ({
     method: 'POST',
     path: '/organization/000000000000000000000001/service-accounts',
     originalUrl: '/organization/000000000000000000000001/service-accounts',
+    bootstrapSetupInWindow: true,
     ...over,
   } as never);
 
@@ -204,6 +211,17 @@ describe('isBootstrapSetupRequest — the one assurance exemption', () => {
       path: '/organization/000000000000000000000001/service-accounts/a1/keys',
       originalUrl: '/organization/000000000000000000000001/service-accounts/a1/keys',
     }))).toBe(true);
+  });
+
+  it('refuses when the live window check has not answered, or answered no', () => {
+    const pending = { user: { mfaEnrollmentPending: true } };
+    // Middleware never ran (route forgot to mount it) — fails CLOSED, so the
+    // route simply requires `aal: 2` from everybody, as it did before the
+    // exemption existed.
+    expect(isBootstrapSetupRequest(req({ ...pending, bootstrapSetupInWindow: undefined }))).toBe(false);
+    // Install past its window, or the exception already closed by an enrolment:
+    // reach to enrolment is untouched, but minting a durable key is not.
+    expect(isBootstrapSetupRequest(req({ ...pending, bootstrapSetupInWindow: false }))).toBe(false);
   });
 
   it('exempts nobody whose session is not an enrolment session', () => {
