@@ -12,7 +12,8 @@
  *   Filter     := "|" ws "default" ws ":" ws Quoted
  *   Quoted     := "'" ... "'" | "\"" ... "\""
  *
- * `{{{{` is the escape sequence for a literal `{{`.
+ * `{{{{` is the escape sequence for a literal `{{`; the `}}` that closes it is
+ * then literal too, so `{{{{ .X }}` renders `{{ .X }}`.
  */
 
 export const MAX_FIELD_SIZE_BYTES = 4 * 1024;
@@ -102,10 +103,20 @@ export function tokenize(source: string): Token[] {
 
   startLiteral();
 
+  // How many escaped `{{{{` are still waiting for their closing `}}`. The escape
+  // exists so plugin commands can carry Go / Helm / GitHub-style templates
+  // (`docker inspect -f '{{{{.State.Status}}'` → `{{.State.Status}}`), but any
+  // `}}` outside an expression used to throw — so the escape could only ever
+  // produce an UNCLOSED `{{`, and every real use of it was rejected at upload
+  // and at synth. A `}}` that closes an escaped open is literal text; an
+  // unmatched one is still an error, which keeps catching `{ x }}` typos.
+  let escapedOpen = 0;
+
   while (i < source.length) {
     // Escape: `{{{{` → literal `{{`
     if (source.startsWith('{{{{', i)) {
       advance(4);
+      escapedOpen++;
       continue;
     }
     // Expression start
@@ -126,8 +137,13 @@ export function tokenize(source: string): Token[] {
       startLiteral();
       continue;
     }
-    // Stray `}}` outside an expression
+    // `}}` outside an expression: the close of an escaped `{{{{`, or a stray.
     if (source.startsWith('}}', i)) {
+      if (escapedOpen > 0) {
+        escapedOpen--;
+        advance(2);
+        continue;
+      }
       throw new TokenizerError("Unexpected '}}' outside expression", { line, col });
     }
     advance(1);

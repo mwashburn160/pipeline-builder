@@ -47,6 +47,32 @@ describe('tokenize', () => {
     expect((t[0] as any).value).toBe('echo {{foo{{ more');
   });
 
+  it('closes an escaped {{{{ with a plain }} — the whole point of the escape', () => {
+    // Go / Helm / GitHub-style templates in plugin commands. Any `}}` outside
+    // an expression used to throw, so the escape could only ever produce an
+    // UNCLOSED `{{` and every real use of it was rejected at upload and synth.
+    for (const [src, out] of [
+      ['echo {{{{ x }}', 'echo {{ x }}'],
+      ["docker inspect -f '{{{{.State.Status}}'", "docker inspect -f '{{.State.Status}}'"],
+      ['{{{{a}} and {{{{b}}', '{{a}} and {{b}}'],
+    ] as const) {
+      const t = tokenize(src);
+      expect(t).toHaveLength(1);
+      expect((t[0] as any).value).toBe(out);
+    }
+  });
+
+  it('mixes an escaped template with a real expression', () => {
+    const t = tokenize('{{{{ .Name }} = {{ pipeline.metadata.env }}');
+    expect(t.map((x) => x.kind)).toEqual(['literal', 'expr']);
+    expect((t[0] as any).value).toBe('{{ .Name }} = ');
+  });
+
+  it('still rejects a }} with no escaped open to close', () => {
+    // Keeps catching `{ x }}` typos.
+    expect(() => tokenize('{{{{ a }} }}')).toThrow(TokenizerError);
+  });
+
   it('tracks source positions on literals and expressions', () => {
     const t = tokenize('a\n  {{ x.y }}');
     const expr = t.find(x => x.kind === 'expr');

@@ -94,3 +94,41 @@ describe('resolvePluginTemplates', () => {
     expect(plugin.commands).toEqual(frozenCommands);
   });
 });
+
+/**
+ * `env` values that reference other `env` values. The scope root used to be the
+ * ORIGINAL, unresolved env map, so `{{ env.A }}` substituted A's raw template
+ * text and a literal `{{ … }}` was baked into the CodeBuild environment and the
+ * shell command with no error at all.
+ */
+describe('resolvePluginTemplates — env referencing env', () => {
+  const plugin = (env: Record<string, string>, commands: string[] = []) =>
+    ({ name: 'p', version: '1.0.0', commands, env } as any);
+  const scope = { pipeline: { metadata: { env: 'prod' } } };
+
+  it('resolves a chain in dependency order, whatever the declaration order', () => {
+    const out = resolvePluginTemplates(
+      plugin({ B: '{{ env.A }}-svc', A: '{{ pipeline.metadata.env }}' }, ['run {{ env.B }}']),
+      scope,
+    );
+    expect(out.env).toEqual({ A: 'prod', B: 'prod-svc' });
+    expect(out.commands).toEqual(['run prod-svc']);
+  });
+
+  it('reports a cycle instead of shipping template text', () => {
+    expect(() => resolvePluginTemplates(plugin({ A: '{{ env.B }}', B: '{{ env.A }}' }), scope))
+      .toThrow(/cycle/i);
+  });
+
+  it('does not re-tokenize an env value produced by an escape', () => {
+    const out = resolvePluginTemplates(plugin({ FMT: '{{{{.State.Status}}' }, ['echo {{ env.FMT }}']), scope);
+    expect(out.env).toEqual({ FMT: '{{.State.Status}}' });
+    expect(out.commands).toEqual(['echo {{.State.Status}}']);
+  });
+
+  it('never mutates the caller\'s plugin', () => {
+    const original = plugin({ A: '{{ pipeline.metadata.env }}' });
+    resolvePluginTemplates(original, scope);
+    expect(original.env.A).toBe('{{ pipeline.metadata.env }}');
+  });
+});
