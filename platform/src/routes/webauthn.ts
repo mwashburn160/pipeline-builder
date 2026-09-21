@@ -22,7 +22,11 @@
  *   - SIGN-IN is public by construction, like `/auth/login`.
  */
 
-import { audited, requireAuth, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireStepUp } from '@pipeline-builder/api-core';
+// PLATFORM's `requireAuth`, not api-core's — see the note in `totp.ts`. The
+// bootstrap allowlist names `/auth/webauthn/` so a fresh install's admin can
+// register a first passkey; api-core's copy refuses the flag outright.
+import { requireAuth } from '../middleware/index.js';
 import { Router } from 'express';
 import {
   listPasskeys,

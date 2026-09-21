@@ -23,7 +23,13 @@ const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, ne
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireStepUp: tagged('requireStepUp'),
-  requireAuth: tagged('requireAuth'),
+  // Tagged DISTINCTLY from platform's `requireAuth` below. TOTP, WebAuthn and
+  // recovery-code routes must use PLATFORM's, because only it consults the
+  // bootstrap-admin allowlist that lets a fresh install's only admin reach
+  // enrolment. While both mocks answered to the same tag, a route wired to
+  // api-core's copy — which refuses an `mfaEnrollmentPending` token outright —
+  // passed every assertion here while locking that admin out for real.
+  requireAuth: tagged('apiCore:requireAuth'),
   audited: (...actions: string[]) => tagged(`audited:${actions.join(',')}`),
   verifyServicePrincipal: () => false,
   sendError: jest.fn(),
