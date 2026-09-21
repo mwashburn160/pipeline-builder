@@ -19,7 +19,7 @@ import { classifyFailure, isFinalAttempt, recordBuildEvent, summarizeBuildFailur
 import { releasePluginQuota } from './build-quota.js';
 import { cleanupBuildArtifacts } from './build-workspace.js';
 import { dlqJobId, getBuildCfg, getDeadLetterQueue, totalAttemptBudget } from './connections.js';
-import { enforceDlqMaxSize } from './plugin-build-dlq.js';
+import { emitTerminalBuildFailure, enforceDlqMaxSize } from './plugin-build-dlq.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { getAuditClient } from '../services/audit.js';
 
@@ -173,8 +173,18 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
           });
         })
         .catch((dlqErr) => {
-          logger.warn('Failed to move job to DLQ, cleaning up', { jobId: job.id, error: errorMessage(dlqErr) });
+          // The hand-off failed, so this job will never run again — that is
+          // TERMINAL, and it has to be finished properly rather than merely
+          // swept up. Cleaning the artifacts alone left the org's build slot
+          // reserved (the comment above defers that decrement to "the DLQ
+          // exhaustion path", which this job never reaches, so nothing released
+          // it until the quota period reset) and emitted no terminal event, so
+          // the build simply disappeared from the user's point of view. Do what
+          // the DLQ's own give-up path does.
+          logger.warn('Failed to move job to DLQ — abandoning the build', { jobId: job.id, error: errorMessage(dlqErr) });
           cleanupBuildArtifacts(buildRequest);
+          releasePluginQuota(job, quotaService);
+          emitTerminalBuildFailure(job, error.message);
         });
     });
   };

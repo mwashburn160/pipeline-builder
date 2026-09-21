@@ -27,7 +27,7 @@ const cleanupBuildArtifacts = jest.fn();
 // connections live in connections.js, slot release in build-quota.js, and the
 // build context/artifact and build-event helpers in build-workspace.js /
 // build-failures.js, so each is mocked at its own specifier.
-const dlqQueue = { getJobs: jest.fn<(states: string[]) => Promise<unknown[]>>(), getJobCounts: jest.fn<(...s: string[]) => Promise<Record<string, number>>>(), add: jest.fn() };
+const dlqQueue = { getJobs: jest.fn<(states: string[]) => Promise<unknown[]>>(), getJobCounts: jest.fn<(...s: string[]) => Promise<Record<string, number>>>(), add: jest.fn(), obliterate: jest.fn<() => Promise<void>>() };
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   DLQ_NAME: 'plugin-build-dlq',
   getBuildCfg: () => ({ dlqMaxSize: 3, dlqMaxAttempts: 3, dlqBackoffBaseMs: 1000, maxAttempts: 2 }),
@@ -46,7 +46,7 @@ const getJobCounts = dlqQueue.getJobCounts;
 jest.unstable_mockModule('bullmq', () => ({
   Worker: jest.fn(),
 }));
-const { enforceDlqMaxSize } = await import('../src/queue/plugin-build-dlq.js');
+const { enforceDlqMaxSize, purgeDlq } = await import('../src/queue/plugin-build-dlq.js');
 
 const quotaService = {} as never;
 
@@ -163,5 +163,55 @@ describe('enforceDlqMaxSize', () => {
     // Nothing evictable → no releases, and the pending doubles have no `remove`
     // for the enforcer to have called.
     expect(releasePluginQuota).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `purgeDlq` — the operator "clear the dead-letter queue" action.
+ *
+ * It shares the DLQ's central subtlety with `enforceDlqMaxSize` above and used
+ * to get it wrong: a `completed` DLQ record means the processor SUCCEEDED in
+ * re-queueing the build, so a retry is in flight on the MAIN queue and that new
+ * job owns the org's build slot and the build artifacts. `purgeDlq` released
+ * both for every job it found, so clearing the DLQ freed slots that were still
+ * in use and deleted the inputs live builds were about to read.
+ */
+describe('purgeDlq', () => {
+  beforeEach(() => {
+    dlqQueue.obliterate.mockResolvedValue(undefined);
+  });
+
+  /** `purgeDlq` fetches the two classes separately; answer per requested state. */
+  function withJobs(completed: unknown[], other: unknown[]) {
+    getJobs.mockImplementation(async (states: string[]) =>
+      (states.includes('completed') ? completed : other));
+  }
+
+  it('does NOT release the slot or artifacts of a re-queued job', async () => {
+    withJobs([requeued('a', 1)], []);
+
+    await purgeDlq(quotaService);
+
+    expect(releasePluginQuota).not.toHaveBeenCalled();
+    expect(cleanupBuildArtifacts).not.toHaveBeenCalled();
+    expect(dlqQueue.obliterate).toHaveBeenCalled();
+  });
+
+  it('DOES release both for a job that will never run again', async () => {
+    // Terminal failures still hold the slot and the artifacts, and nothing else
+    // will ever hand them back, so purging must.
+    withJobs([], [terminal('b', 2)]);
+
+    await purgeDlq(quotaService);
+
+    expect(releasePluginQuota).toHaveBeenCalledTimes(1);
+    expect(cleanupBuildArtifacts).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts every purged record, released or not', async () => {
+    withJobs([requeued('a', 1)], [terminal('b', 2), terminal('c', 3)]);
+    expect(await purgeDlq(quotaService)).toBe(3);
+    // ...but only the abandoned two handed anything back.
+    expect(releasePluginQuota).toHaveBeenCalledTimes(2);
   });
 });

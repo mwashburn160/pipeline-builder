@@ -38,8 +38,13 @@ const logger = createLogger('plugin-build-queue');
  * carries the underlying build failure (`job.data.lastError`) so the audit
  * records why the BUILD died, not the DLQ plumbing; `.timeout` is chosen when
  * that cause looks like a timeout, mirroring the tier queue's classification.
+ *
+ * Exported for the ONE case of abandonment that happens outside this module:
+ * `failure-handler` failing to hand a retryable job over to the DLQ at all. That
+ * job never enters the DLQ, so no path here can emit for it, and "exactly once"
+ * still holds.
  */
-function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: string | undefined): void {
+export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: string | undefined): void {
   const { orgId, userId, pluginRecord } = job.data;
   const causeText = causeMessage ?? 'Build failed after exhausting all retries';
   const isTimeout = /timed out|timeout/i.test(causeText);
@@ -154,15 +159,26 @@ export async function enforceDlqMaxSize(quotaService: QuotaService): Promise<voi
 
 export async function purgeDlq(quotaService: QuotaService): Promise<number> {
   const q = getDeadLetterQueue();
-  const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
-  for (const job of jobs) {
+  // Split by state for the SAME reason `enforceDlqMaxSize` does. A DLQ job's
+  // processor succeeds by re-queueing the build onto the MAIN queue, so a
+  // `completed` DLQ record means a retry is in flight and the new main-queue job
+  // now owns the org's build slot AND the build artifacts. Releasing those here
+  // freed a slot still in use and deleted the inputs a live build was about to
+  // read — an operator "clear the DLQ" quietly broke every in-flight retry.
+  // Only jobs that will never run again hand their resources back.
+  const [requeued, abandoned] = await Promise.all([
+    q.getJobs(['completed']),
+    q.getJobs(['waiting', 'delayed', 'failed']),
+  ]);
+
+  for (const job of abandoned) {
     // Release each still-reserved slot before obliterating — jobs that never
     // reached a terminal handler would otherwise leak quota until period reset.
     releasePluginQuota(job, quotaService);
     cleanupBuildArtifacts(job.data.buildRequest);
   }
   await q.obliterate({ force: true });
-  return jobs.length;
+  return requeued.length + abandoned.length;
 }
 
 // ---------------------------------------------------------------------------

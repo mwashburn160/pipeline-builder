@@ -150,11 +150,17 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   // and the push fails with a 401 from image-registry's /token endpoint.
   const authTtlSeconds = Math.ceil(cfg.timeoutMs / 1000);
   const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, authTtlSeconds);
-  patchDockerfile(req.contextDir, req.dockerfile);
 
-  logger.info('Building image', { image, buildkitAddr });
-
+  // EVERYTHING after the credential exists on disk belongs inside the try.
+  // `patchDockerfile` used to run between `writeAuthConfig` and the `try`, so a
+  // throw from it (an unreadable or malformed Dockerfile — attacker-influenced
+  // input, since the context is the uploaded plugin) skipped the `finally` and
+  // left the registry auth config behind on the build host.
   try {
+    patchDockerfile(req.contextDir, req.dockerfile);
+
+    logger.info('Building image', { image, buildkitAddr });
+
     await run('buildctl', [
       '--addr', buildkitAddr,
       'build',
