@@ -286,6 +286,43 @@ describe('applyPlanTierChange', () => {
     };
   }
 
+  /** Everything the entitlement sync PUT carried, as text — the tier travels in its body. */
+  const syncedPayload = () => JSON.stringify(mockSafePut.mock.calls);
+
+  it('does NOT restore the paid tier for a sub whose grace already lapsed', async () => {
+    // `past_due` remains MANAGEABLE after the grace downgrade so the customer can
+    // fix their billing, and its status does not change — only
+    // `gracePeriodDowngradedAt` tells the two halves apart. Without this guard a
+    // lapsed customer could change plan and get paid entitlements back for free,
+    // permanently, because the drift reconciler skips past_due rows.
+    const s = { ...sub(), metadata: { gracePeriodDowngradedAt: new Date().toISOString() } };
+    await applyPlanTierChange(s, { tier: 'enterprise' }, {
+      oldPlanId: 'pro', newPlanId: 'enterprise', pruned: [], actorId: 'user-1', source: 'plan_change',
+    })();
+
+    expect(syncedPayload()).toContain('developer');
+    expect(syncedPayload()).not.toContain('enterprise');
+  });
+
+  it('lets the SYSADMIN override lift a lapsed sub — a human deliberately granting a tier', async () => {
+    const s = { ...sub(), metadata: { gracePeriodDowngradedAt: new Date().toISOString() } };
+    await applyPlanTierChange(s, { tier: 'enterprise' }, {
+      oldPlanId: 'pro', newPlanId: 'enterprise', pruned: [], actorId: 'admin-1',
+      source: 'admin_plan_change', allowLapsedRestore: true,
+    })();
+
+    expect(syncedPayload()).toContain('enterprise');
+  });
+
+  it('syncs the real tier for a sub that never lapsed', async () => {
+    const s = sub();
+    await applyPlanTierChange(s, { tier: 'enterprise' }, {
+      oldPlanId: 'pro', newPlanId: 'enterprise', pruned: [], actorId: 'user-1', source: 'plan_change',
+    })();
+
+    expect(syncedPayload()).toContain('enterprise');
+  });
+
   it('returns a deferred thunk that syncs, writes a plan_changed row, and finalizes the prune', async () => {
     const s = sub();
     const pruned = applyTierIncludedAddonPrune(s, 'enterprise', { orgId: 'org-1', subscriptionId: 'sub-1', source: 'plan_change' });

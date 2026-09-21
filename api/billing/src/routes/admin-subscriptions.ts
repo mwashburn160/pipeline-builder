@@ -206,6 +206,10 @@ export function createAdminSubscriptionRoutes(): Router {
         // reflects the prune, so the reduced set is what syncs.
         const runPlanSideEffects = applyPlanTierChange(subscription, plan, {
           oldPlanId, newPlanId: planId, pruned, actorId: overrideActorId, source: 'admin_plan_change',
+          // A sysadmin deliberately granting a tier is the one caller allowed to
+          // lift a lapsed sub back to paid entitlements without a payment; every
+          // other path (self-service PUT, Stripe webhook, marketplace) must not.
+          allowLapsedRestore: true,
         });
 
         deferred.push(async () => {

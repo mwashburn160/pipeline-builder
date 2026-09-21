@@ -46,6 +46,7 @@ import {
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
 import { getComboDiscounts } from '../helpers/combo-pricing.js';
+import { isGraceDowngraded } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -121,7 +122,22 @@ async function commitAddonChange(args: {
   if (!committed) return null;
 
   const subscriptionId = committed._id.toString();
-  await syncEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, next);
+  // Push the EFFECTIVE tier, not the plan's nominal one. A `past_due` sub whose
+  // grace already lapsed has been synced down to `developer` with no add-ons,
+  // but it stays manageable (so the customer can still fix their billing), and
+  // its plan still names the paid tier. Syncing `plan.tier` here therefore
+  // RESTORED the paid tier on any add-on add or remove — free, and permanently,
+  // because the drift reconciler deliberately skips `past_due` rows so nothing
+  // ever put it back. The add-ons themselves stay persisted on the subscription
+  // (the customer owns them); they simply carry no entitlement until they pay.
+  const lapsed = isGraceDowngraded(committed);
+  await syncEntitlements(
+    orgId,
+    lapsed ? 'developer' : tier,
+    billingServiceAuth(orgId),
+    subscriptionId,
+    lapsed ? [] : next,
+  );
   await syncProviderAddons(committed.externalId, next, committed.interval, orgId, subscriptionId, source);
   await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, eventActorId);
   getAuditClient().record({

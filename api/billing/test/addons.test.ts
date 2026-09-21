@@ -422,6 +422,42 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(mockSyncEntitlements).toHaveBeenCalled();
   });
 
+  it('does NOT hand the paid tier back to a sub whose grace already lapsed', async () => {
+    // `past_due` stays MANAGEABLE after `expireGracePeriods` has synced the org
+    // down to developer, so the customer can still fix their billing — and the
+    // status does NOT change, so only `gracePeriodDowngradedAt` distinguishes
+    // the two halves of past_due. Syncing the plan's nominal tier here restored
+    // the paid tier for free, and permanently: the drift reconciler skips
+    // past_due rows, so nothing ever put it back.
+    withActiveSub(makeSubscription({
+      status: 'past_due',
+      metadata: { gracePeriodDowngradedAt: new Date().toISOString() },
+    }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 3 } }), mockRes());
+
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('still PERSISTS the add-on for a lapsed sub — they own it, it just carries no entitlement', async () => {
+    withActiveSub(makeSubscription({
+      status: 'past_due',
+      metadata: { gracePeriodDowngradedAt: new Date().toISOString() },
+    }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 3 } }), mockRes());
+
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'seat_pack', quantity: 3 }]);
+  });
+
+  it('syncs the real tier for a past_due sub still INSIDE its grace window', async () => {
+    // The grace window is the whole point of past_due — entitlements survive it.
+    // Only the post-downgrade marker changes the answer.
+    withActiveSub(makeSubscription({ status: 'past_due', metadata: {} }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 3 } }), mockRes());
+
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
+  });
+
   it('402s a paid increase when the account has no payment method on file', async () => {
     withActiveSub();
     mockHasPaymentMethod.mockResolvedValue(false);

@@ -20,6 +20,7 @@ import {
 } from './billing-helpers.js';
 import type { BillingEventType } from '../models/billing-event.js';
 import type { BillingInterval } from '../models/subscription.js';
+import { isGraceDowngraded } from './subscription-status.js';
 import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-addon-prune');
@@ -151,6 +152,8 @@ interface PlanTierChangeSubscription {
   interval: BillingInterval;
   externalId?: string | null;
   addons?: Array<{ bundleId: string; quantity: number }>;
+  /** Carries `gracePeriodDowngradedAt` — see `allowLapsedRestore`. */
+  metadata?: Record<string, unknown> | null;
 }
 
 /** Options for {@link applyPlanTierChange}. */
@@ -182,6 +185,21 @@ export interface PlanTierChangeOptions {
    * newPlanId. When omitted, a `plan_changed` row is written.
    */
   event?: { type: BillingEventType; details: Record<string, unknown> };
+  /**
+   * Let this change hand the paid tier back to a subscription whose dunning
+   * grace already LAPSED (`metadata.gracePeriodDowngradedAt`).
+   *
+   * Defaults to false, which is the safe direction: `past_due` stays manageable
+   * after the grace downgrade so the customer can fix their billing, and a plan
+   * change from that state would otherwise re-sync the plan's nominal tier and
+   * restore paid entitlements without a payment — permanently, since the drift
+   * reconciler skips `past_due` rows. The Stripe webhook is authoritative about
+   * WHICH plan the sub is on, not about whether the invoice was paid, so it
+   * keeps the default too; `handlePaymentSucceeded` clears the marker on real
+   * recovery. Only the sysadmin override opts out, because that is a human
+   * deliberately granting a tier.
+   */
+  allowLapsedRestore?: boolean;
 }
 
 /**
@@ -211,7 +229,17 @@ export function applyPlanTierChange(
   return async () => {
     // undefined ⇒ mint a service token; '' ⇒ let syncEntitlements mint (marketplace).
     const auth = opts.authHeader ?? billingServiceAuth(orgId);
-    await syncEntitlements(orgId, plan.tier, auth, subscriptionId, subscription.addons ?? []);
+    // A sub whose grace already lapsed has been synced down to `developer` with
+    // no add-ons; pushing `plan.tier` here would restore the paid tier for free.
+    // See `allowLapsedRestore`.
+    const lapsed = isGraceDowngraded(subscription) && !opts.allowLapsedRestore;
+    await syncEntitlements(
+      orgId,
+      lapsed ? 'developer' : plan.tier,
+      auth,
+      subscriptionId,
+      lapsed ? [] : (subscription.addons ?? []),
+    );
     if (opts.event) {
       await createBillingEvent(orgId, opts.event.type, opts.event.details, subscriptionId, opts.actorId);
     } else {
