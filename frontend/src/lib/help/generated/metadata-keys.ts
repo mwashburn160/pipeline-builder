@@ -1,5 +1,6 @@
 // GENERATED FROM docs/metadata-keys.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 90b01a4c0e3f82e0727a8cb8f061b72613c5ebc69102d57ca846d43c62dcbc01
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';

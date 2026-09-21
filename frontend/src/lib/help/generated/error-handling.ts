@@ -1,5 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 0c943fd8f2243729d7f76c9e3900233d07caf1a46f9cc65f40e5cae0610ad41e
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';

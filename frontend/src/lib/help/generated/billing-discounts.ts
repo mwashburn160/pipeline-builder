@@ -1,5 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 6ec7189d30da735e8f5543478d7f0803a4a2192b56698a161afb6415bc4d0853
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';

@@ -1,5 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 06a70d99d43db5b3195f5a40fb43f5a9ba3407aa4db4be66ece39263eba558d4
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';

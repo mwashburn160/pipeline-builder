@@ -1,5 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 9341b59b19a4c445da45daa3ea09cdb0096fa62058d9891dc3fc780994c4212c
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';

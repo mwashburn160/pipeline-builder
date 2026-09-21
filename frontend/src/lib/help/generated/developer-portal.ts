@@ -1,5 +1,6 @@
 // GENERATED FROM docs/developer-portal.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: dc6a488f1a90f644984798e62f147b04fa1afd9fd88c243b926139596ee1d4ed
 // SPDX-License-Identifier: Apache-2.0
 import { LayoutDashboard } from 'lucide-react';
 import type { HelpTopic } from '../types';

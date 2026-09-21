@@ -1,5 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 39947ac1f93d5c252e62615d314c8612af2f7dfd69fb92bc99144809c0808834
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';

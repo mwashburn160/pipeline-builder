@@ -1,5 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: efd33ac738602e0ed7366766304bebd3859df0a1e4bfe4496136a5c0c841a35d
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2426,7 +2427,7 @@ export const authenticationTopic: HelpTopic = {
             [
               "Create a service account / issue its key",
               "POST /organization/:id/service-accounts, …/:accountId/keys",
-              "Always, + step-up",
+              "Always, + step-up — with ONE exemption, the bootstrap-administrator window (assurance_exempted_total{reason=\"bootstrap-setup\"})",
               "403"
             ],
             [
@@ -2701,6 +2702,26 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "aal: 1, that can reach only enrolment, sign-out and the routes init-platform.sh calls (read the org and its roles, create the setup service account, issue and revoke its keys). Every other service refuses such a token outright with 403 MFA_ENROLLMENT_REQUIRED; the dashboard sends them straight to Security → Factors."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Two of those setup routes — creating the setup service account and issuing its"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "key — are also always aal: 2 routes, which this session can never be: the install has no factor to be MFA-grade with yet. So the assurance gate carries one named exemption, bootstrap-setup, which requires the mfaEnrollmentPending flag, a path the allowlist already admits, AND a live re-read (resolveBootstrapSetupWindow) confirming that the install is still inside BOOTSTRAP_SETUP_WINDOW_MS (default 24 h) and that the exception has not already closed. The live re-read matters because mfaEnrollmentPending is a token claim that outlives what it describes: enrolment clears it from the refresh slots, but an access token already issued keeps it for the rest of its ~15-minute life, and would otherwise still mint a durable superadmin key at aal: 1. It grants no extra reach, step-up still applies (the admin's password earns it), the action is still audited as org.service-account.create / .key.create, every use increments assurance_exempted_total{reason=\"bootstrap-setup\"}, a refusal increments platform_mfa_bootstrap_setup_refused_total{reason}, and the generated route table records it as aal2(except bootstrap-setup). Without it a fresh install could not finish: init would stop at 401 MFA_REQUIRED, and nothing else the bootstrap session can reach would let it proceed."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Only this credential-minting half is time-bounded. Reach — enrolment,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "sign-out, refresh — is never bounded, so an admin who comes back to a long-neglected install is never locked out; they are only asked to enrol a factor before minting machine credentials. Past the window, re-run init-platform.sh after enrolling."
         },
         {
           "type": "list",
@@ -3622,6 +3643,16 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
+            "both mints happen while the bootstrap exception"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "is still open, under its bootstrap-setup assurance exemption — which is why init creates the account immediately after signing in, and why enrolling a factor first (closing the exception) is the operator's next step, not the script's;"
+        },
+        {
+          "type": "list",
+          "items": [
             "the key expires by itself in 24 hours, so a half-finished install leaves no"
           ]
         },
@@ -3638,7 +3669,17 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "previous keys are revoked before the new one is issued, so the 5-key cap can never fail a re-run. Override the lifetime with SETUP_KEY_TTL_SECONDS."
+          "content": "previous keys are revoked before the new one is issued, so the 5-key cap can never fail a re-run. Override the lifetime with SETUP_KEY_TTL_SECONDS;"
+        },
+        {
+          "type": "list",
+          "items": [
+            "re-running it after the admin enrols needs a second factor, because the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "exemption closed with the exception. An account with an authenticator app is offered a challenge at sign-in, so init finishes it: set PLATFORM_TOTP_CODE to a current code (or a recovery code), or answer the prompt when running interactively. A passkey-only admin has no code to give a script — enrol an authenticator app for that account, or re-run init from a host where a human can drive the dashboard instead."
         },
         {
           "type": "text",

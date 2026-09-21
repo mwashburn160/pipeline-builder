@@ -1,5 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 6f5e52075e237260fd8a5f2e3389fa343fc4bfd744549461f3077298489e2049
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1419,7 +1420,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "cd deploy\n\nbash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)\nbash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)\nbash bin/init-platform.sh docker       # Docker Compose\nbash bin/init-platform.sh minikube    # Minikube\n\nexport PLATFORM_BASE_URL=https://pipeline.example.com\nexport PLATFORM_IDENTIFIER=admin@internal\nexport PLATFORM_PASSWORD=SecurePassword123!\nbash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2\n\nPARALLEL_JOBS=2 bash bin/init-platform.sh docker\n\nPLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2\n\nbash bin/init-platform.sh --force ec2\n\n./deploy/bin/init-platform.sh --cleanup docker\n./deploy/bin/load-plugins.sh --rebuild --cleanup\n\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2",
+          "content": "cd deploy\n\nbash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)\nbash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)\nbash bin/init-platform.sh docker       # Docker Compose\nbash bin/init-platform.sh minikube    # Minikube\n\nexport PLATFORM_BASE_URL=https://pipeline.example.com\nexport PLATFORM_IDENTIFIER=admin@internal\nexport PLATFORM_PASSWORD='<a strong secret you generate>'\nbash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2\n\nPARALLEL_JOBS=2 bash bin/init-platform.sh docker\n\nPLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2\n\nbash bin/init-platform.sh --force ec2\n\n./deploy/bin/init-platform.sh --cleanup docker\n./deploy/bin/load-plugins.sh --rebuild --cleanup\n\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2",
           "language": "bash"
         },
         {
@@ -1450,8 +1451,8 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "PLATFORM_PASSWORD",
-              "SecurePassword123!",
-              "Admin password"
+              "Pipeline-Builder-Dev-2026! (local targets only)",
+              "Admin password. The dev default is REFUSED on ec2/eks — set a strong secret there."
             ],
             [
               "PLUGIN_BUILD_STRATEGY",

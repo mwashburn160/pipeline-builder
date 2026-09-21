@@ -1,5 +1,6 @@
 // GENERATED FROM docs/samples.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 8898b94d175941e1b33be0ab5b9127657afecd8cf2b10b439fc6b32895cc157b
 // SPDX-License-Identifier: Apache-2.0
 import { FolderGit2 } from 'lucide-react';
 import type { HelpTopic } from '../types';

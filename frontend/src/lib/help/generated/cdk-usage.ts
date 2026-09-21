@@ -1,5 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: a09e209710a7d866e717cb4eaf3b305c659ddc937456c687fa9d45e19d47eb5b
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';

@@ -1,5 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 4fb9bc62e5a46501964d9a2c78f70a0ff20cebb96a64091f9175ff39a438148e
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';

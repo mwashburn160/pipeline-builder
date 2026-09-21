@@ -1,5 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 96d97d0524bfb70848bbc5055b16efd09106ad8fcc3ebd7d0a00b1f1c9b1b2c8
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';

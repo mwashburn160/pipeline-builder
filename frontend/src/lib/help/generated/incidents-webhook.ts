@@ -1,5 +1,6 @@
 // GENERATED FROM docs/incidents-webhook.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: c3cd9fb8aedc5f5ae4305976e654eb05a536687050c09293e74526d63281bb75
 // SPDX-License-Identifier: Apache-2.0
 import { Siren } from 'lucide-react';
 import type { HelpTopic } from '../types';

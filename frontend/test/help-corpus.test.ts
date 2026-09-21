@@ -7,7 +7,8 @@
  * the docs/*.md it came from (so the help↔docs link is explicit, not a silent
  * hand-copy). Regenerate with `npm run generate:help`.
  */
-import { readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadHelpGroups, loadHelpTopics, type HelpTopic, type HelpTopicGroup } from '../src/lib/help';
 
@@ -74,5 +75,48 @@ describe('help corpus', () => {
     const grouped = new Set(HELP_GROUPS.flatMap((g) => g.topics.map((t) => t.id)));
     const orphans = HELP_TOPICS.filter((t) => !grouped.has(t.id)).map((t) => t.id);
     expect(orphans).toEqual([]);
+  });
+
+  /**
+   * FRESHNESS, as opposed to the shape checks above. Nothing re-runs
+   * `generate:help` automatically, so a docs edit that skipped it shipped help
+   * that disagreed with the product — the deploy topic went on telling operators
+   * to use the dev password `SecurePassword123!` after the platform had started
+   * refusing it as breached, because `docs/aws-deployment.md` was fixed and the
+   * generated copy was not. A stale file is perfectly well-formed, so none of the
+   * shape checks can see it.
+   *
+   * Compares the `SOURCE-SHA256` the generator stamps into each file against a
+   * fresh hash of the doc it names — a string comparison, not a regeneration.
+   * These live HERE rather than in a suite of their own on purpose: the frontend
+   * jest run sits right at its parallel resource limit, and adding a 237th suite
+   * reliably pushed unrelated render-heavy suites past their timeouts.
+   */
+  const GENERATED = join(__dirname, '..', 'src', 'lib', 'help', 'generated');
+  const REPO = join(__dirname, '..', '..');
+
+  /** The two header lines the generator stamps: which doc, and its digest. */
+  const stamped = (file: string): { doc: string; sha: string } => {
+    const head = readFileSync(join(GENERATED, file), 'utf8').slice(0, 512);
+    const doc = /^\/\/ GENERATED FROM (\S+) /m.exec(head)?.[1];
+    const sha = /^\/\/ SOURCE-SHA256: ([0-9a-f]{64})$/m.exec(head)?.[1];
+    if (!doc || !sha) throw new Error(`${file} has no generator stamp — run \`npm run generate:help\``);
+    return { doc, sha };
+  };
+
+  it('every generated topic records the digest of the doc it came from', () => {
+    // Guards the guard: a file written by an older generator carries no stamp
+    // and would otherwise be silently exempt from the freshness check below.
+    const files = readdirSync(GENERATED).filter((f) => f.endsWith('.ts'));
+    expect(files.length).toBeGreaterThanOrEqual(10);
+    for (const f of files) expect(() => stamped(f)).not.toThrow();
+  });
+
+  it('no generated topic is stale with respect to its source doc', () => {
+    const stale = readdirSync(GENERATED).filter((f) => f.endsWith('.ts')).filter((f) => {
+      const { doc, sha } = stamped(f);
+      return createHash('sha256').update(readFileSync(join(REPO, doc))).digest('hex') !== sha;
+    }).sort();
+    expect({ stale, fix: 'npm run generate:help' }).toEqual({ stale: [], fix: 'npm run generate:help' });
   });
 });

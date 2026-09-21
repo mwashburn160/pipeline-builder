@@ -1,5 +1,6 @@
 // GENERATED FROM docs/observability-logs.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: 9380e30d31d1954b896c39fae25b7310e57b955ecd0a1d65d2b7802d303d0eb4
 // SPDX-License-Identifier: Apache-2.0
 import { FileSearch } from 'lucide-react';
 import type { HelpTopic } from '../types';
