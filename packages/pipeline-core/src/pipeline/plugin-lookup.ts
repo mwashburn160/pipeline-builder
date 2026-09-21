@@ -154,6 +154,21 @@ export class PluginLookup extends Construct {
     // template can ship with the real CodeBuild image baked in.
     const cacheKey = props.alias || props.name;
     const preResolved = this._resolvedPlugins?.[cacheKey];
+    // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
+    // steps sharing an alias across different plugins used to get the first
+    // one's record back — the second step silently ran the wrong image and
+    // commands. The CLI refuses such a pipeline too; this covers any other
+    // caller that supplies `resolvedPlugins`.
+    // Compare against the name the lookup actually TARGETED: an explicit
+    // `filter.name` overrides the ref's `name` by design, and that is not a
+    // collision.
+    const targetName = (props.filter as { name?: string } | undefined)?.name ?? props.name;
+    if (preResolved && preResolved.name !== targetName) {
+      throw new Error(
+        `Plugin alias "${cacheKey}" resolves to "${preResolved.name}", not "${targetName}". `
+        + 'Each alias must name exactly one plugin.',
+      );
+    }
     if (preResolved) {
       log.debug(`Plugin "${props.name}" pre-resolved (alias=${cacheKey}) — skipping custom resource`);
       return preResolved;

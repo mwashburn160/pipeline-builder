@@ -50,7 +50,13 @@ function getCustomKey(prefix: string, key: string): string {
   return `${CDK_METADATA_PREFIX}${prefix}:${key}`.toLowerCase();
 }
 
-function isTrue(value: unknown): boolean {
+/**
+ * THE way to read a boolean metadata value. `MetaDataType` admits strings, and
+ * pipeline.json / API / CLI bodies routinely carry `"false"`, which plain
+ * truthiness reads as enabled. Exported so every boolean key goes through it —
+ * two in pipeline-builder didn't, and `"false"` switched them ON.
+ */
+export function isTrue(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
   return false;

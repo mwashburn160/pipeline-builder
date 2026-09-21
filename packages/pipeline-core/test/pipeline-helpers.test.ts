@@ -29,6 +29,9 @@ jest.unstable_mockModule('aws-cdk-lib/pipelines', () => ({
   CodeBuildStep: mockCodeBuildStep,
   ShellStep: mockShellStep,
   ManualApprovalStep: mockManualApprovalStep,
+  // pipeline-helpers now takes a VALUE from artifact-manager (the canonical
+  // `pluginArtifactAlias`), which loads that module and its `FileSet` import.
+  FileSet: class {},
 }));
 jest.unstable_mockModule('aws-cdk-lib/aws-ec2', () => ({
   SubnetType: {

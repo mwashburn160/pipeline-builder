@@ -136,3 +136,41 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
     expect(sent.every(f => typeof f.name === 'string' && f.name.length > 0)).toBe(true);
   });
 });
+
+/**
+ * One alias, one plugin. Refs were deduplicated on the alias ALONE, so a second
+ * plugin reusing an alias was dropped and its step silently ran the first
+ * plugin's image and commands.
+ */
+describe('resolvePluginsForProps — alias collisions', () => {
+  const twoSteps = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+    ({ stages: [{ steps: [{ plugin: a }, { plugin: b }] }] });
+
+  it('refuses one alias used for two DIFFERENT plugins', async () => {
+    const client = clientReturning({ data: { plugin: PLUGIN } });
+    await expect(resolvePluginsForProps(client, twoSteps(
+      { name: 'nodejs-build', alias: 'build' },
+      { name: 'maven-build', alias: 'build' },
+    ))).rejects.toThrow(/alias "build" is used for two different plugins/);
+  });
+
+  it('still de-duplicates the SAME plugin referenced twice under one alias', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, twoSteps(
+      { name: 'java-corretto', alias: 'build' },
+      { name: 'java-corretto', alias: 'build' },
+    ));
+    expect(sent).toHaveLength(1);
+  });
+
+  it('is not fooled by an explicit filter name that resolves to the same plugin', async () => {
+    // `filter.name` overrides the ref name by design, so both refs TARGET the
+    // same plugin and are not a collision.
+    const client = clientReturning({ data: { plugin: PLUGIN } });
+    await expect(resolvePluginsForProps(client, twoSteps(
+      { name: 'legacy-name', alias: 'build', filter: { name: 'java-corretto' } },
+      { name: 'java-corretto', alias: 'build' },
+    ))).resolves.toBeDefined();
+  });
+});

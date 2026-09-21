@@ -21,10 +21,11 @@ import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import { lambdaArchitecture, lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
-import { ArtifactManager } from '../core/artifact-manager.js';
+import { ArtifactManager, pluginArtifactAlias } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
 import {
   asInt,
+  isTrue,
   metadataForCodePipeline,
   networkConfigFromMetadata,
   parsePipelineVariables,
@@ -349,7 +350,6 @@ export class PipelineBuilder extends Construct {
         : pluginLookup.bootstrap();
       const defaultComputeType = getComputeType(awsConfig.codeBuild.computeType);
       const artifactManager = new ArtifactManager();
-      const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
 
       // Scope exposed to plugin-spec templates as `pipeline.*`. Sourced from the
       // config so the synth step, every stage step, and the source token all
@@ -369,7 +369,10 @@ export class PipelineBuilder extends Construct {
         artifactManager,
         stageName: 'no-stage',
         stageAlias: 'no-stage-alias',
-        pluginAlias: `${synthAlias}-alias`,
+        // The canonical key segment. `${alias ?? name}-alias` suffixed an
+        // EXPLICIT alias too (`my-synth` → `my-synth-alias`), so a stage that
+        // picked the synth output in the UI asked for a key never registered.
+        pluginAlias: pluginArtifactAlias(this.config.plugin),
         orgId: props.orgId,
         pipelineScope,
       });
@@ -498,7 +501,9 @@ export class PipelineBuilder extends Construct {
       }
 
       // ── Execution Event Tracking (forward pipeline state changes to SNS) ──
-      if (meta[MetadataKeys.ENABLE_EXECUTION_EVENTS] && typeof notificationTopicArn === 'string') {
+      // `isTrue`, not truthiness: `"false"` is a truthy string, so the metadata
+      // `"aws:cdk:operations:executionevents": "false"` used to CREATE the rule.
+      if (isTrue(meta[MetadataKeys.ENABLE_EXECUTION_EVENTS]) && typeof notificationTopicArn === 'string') {
         new events.Rule(this, 'ExecutionEventRule', {
           eventPattern: {
             source: ['aws.codepipeline'],
@@ -512,7 +517,8 @@ export class PipelineBuilder extends Construct {
       }
 
       // ── Pipeline Metrics & Alarms ──
-      const enableMetrics = this.config.metadata.merged[MetadataKeys.ENABLE_METRICS];
+      // Same trap: `"aws:cdk:operations:metrics": "false"` created the alarm.
+      const enableMetrics = isTrue(this.config.metadata.merged[MetadataKeys.ENABLE_METRICS]);
       if (enableMetrics) {
         new cloudwatch.Alarm(this, 'PipelineFailureAlarm', {
           metric: new cloudwatch.Metric({

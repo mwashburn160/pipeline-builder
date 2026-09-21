@@ -29,15 +29,32 @@ function cacheKey(ref: PluginRef): string {
  */
 function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
   const refs: PluginRef[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
 
   const push = (raw: unknown): void => {
     if (!raw || typeof raw !== 'object') return;
     const r = raw as PluginRef;
     if (!r.name) return;
     const key = cacheKey(r);
-    if (seen.has(key)) return;
-    seen.add(key);
+    // The name the lookup will TARGET — an explicit `filter.name` wins (see
+    // below), so two refs that resolve to the same plugin are not a collision.
+    const target = (r.filter?.name as string | undefined) ?? r.name;
+    const holder = seen.get(key);
+    if (holder !== undefined) {
+      // One alias can only ever mean one plugin. Deduplicating on the alias
+      // alone kept the FIRST plugin and silently dropped the second, so a step
+      // declaring `{ name: 'maven-build', alias: 'build' }` after another
+      // declaring `{ name: 'nodejs-build', alias: 'build' }` ran nodejs-build's
+      // image and commands — no error, just the wrong build.
+      if (holder !== target) {
+        throw new Error(
+          `Plugin alias "${key}" is used for two different plugins ("${holder}" and "${target}"). `
+          + 'Give each plugin its own alias.',
+        );
+      }
+      return;
+    }
+    seen.set(key, target);
     refs.push(r);
   };
 

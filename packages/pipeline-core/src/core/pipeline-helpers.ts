@@ -8,7 +8,7 @@ import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType,
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
-import type { ArtifactKey } from './artifact-manager.js';
+import { pluginArtifactAlias, type ArtifactKey } from './artifact-manager.js';
 import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder.js';
 import { extractMetadataEnv, merge } from './metadata-helpers.js';
 import { resolveNetwork } from './network.js';
@@ -45,18 +45,30 @@ function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<str
  *
  * Only applied to build commands, not install commands (install failures should always stop the build).
  */
-function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
+/** @internal Exported so a test can run the rendered commands through a real shell. */
+export function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
   if (!behavior || behavior === 'fail') return commands;
 
+  // Group each command and close the group on its OWN line. Appending the
+  // handler as text after the command broke on two ordinary inputs:
+  //  - a trailing `# comment` commented the handler out, so
+  //    `npm audit # informational || true` exited 1 and failed a step marked
+  //    `ignore` (or `warn`);
+  //  - a heredoc whose last line is its terminator became `EOF || true`, which
+  //    is not a terminator, so the heredoc never closed.
+  // The newline ends any comment and leaves a terminator alone on its line;
+  // `$?` inside the handler is still the command's own exit status.
+  const grouped = (cmd: string): string => `{ ${cmd}\n}`;
+
   if (behavior === 'ignore') {
-    return commands.map(cmd => `${cmd} || true`);
+    return commands.map(cmd => `${grouped(cmd)} || true`);
   }
 
   // 'warn': run all commands, capture failures, but don't stop
   return [
     'set +e',
     '_STEP_EXIT=0',
-    ...commands.map(cmd => `${cmd} || { echo "WARNING: Command failed with exit code $?"; _STEP_EXIT=1; }`),
+    ...commands.map(cmd => `${grouped(cmd)} || { echo "WARNING: Command failed with exit code $?"; _STEP_EXIT=1; }`),
     'set -e',
     'if [ "$_STEP_EXIT" -ne 0 ]; then echo "WARNING: One or more commands in this step failed"; fi',
   ];
@@ -614,7 +626,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       stageName,
       stageAlias: stageAlias ?? `${stageName}-alias`,
       pluginName: plugin.name,
-      pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
+      pluginAlias: pluginAlias ?? pluginArtifactAlias(plugin),
       outputDirectory: plugin.primaryOutputDirectory,
     };
     artifactManager.add(artifactKey, step);

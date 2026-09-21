@@ -311,6 +311,23 @@ describe('PluginLookup', () => {
       expect(mockCustomResource).not.toHaveBeenCalled();
     });
 
+    it('refuses a pre-resolved entry that holds a DIFFERENT plugin under this alias', () => {
+      // The map is keyed by alias. Two steps sharing an alias across different
+      // plugins used to get the first plugin's record back, so the second step
+      // silently ran the wrong image and commands.
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        resolvedPlugins: { build: { name: 'nodejs-build', version: '1.0.0', commands: [] } as never },
+      });
+
+      expect(() => lookup.plugin({ name: 'maven-build', alias: 'build' }))
+        .toThrow(/resolves to "nodejs-build", not "maven-build"/);
+    });
+
     it('should fall through to custom resource when pre-resolved cache misses', () => {
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',

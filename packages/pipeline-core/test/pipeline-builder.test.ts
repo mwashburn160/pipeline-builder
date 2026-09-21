@@ -305,6 +305,18 @@ describe('PipelineBuilder', () => {
       const { template } = build(baseProps());
       template.resourceCountIs('AWS::CloudWatch::Alarm', 0);
     });
+
+    it.each(['false', 'FALSE'])('creates no alarm for the STRING %s', (value) => {
+      // Metadata arrives as strings from pipeline.json and the API/CLI, and
+      // "false" is truthy. Plain truthiness used to create the alarm anyway.
+      const { template } = build(baseProps({ global: { [MetadataKeys.ENABLE_METRICS]: value } }));
+      template.resourceCountIs('AWS::CloudWatch::Alarm', 0);
+    });
+
+    it('still creates it for the STRING "true"', () => {
+      const { template } = build(baseProps({ global: { [MetadataKeys.ENABLE_METRICS]: 'true' } }));
+      template.resourceCountIs('AWS::CloudWatch::Alarm', 1);
+    });
   });
 
   describe('KMS artifact bucket', () => {

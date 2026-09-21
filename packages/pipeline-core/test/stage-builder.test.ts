@@ -135,7 +135,12 @@ describe('StageBuilder.addStage', () => {
     expect(passed.metadata).toEqual({ A: 'global', B: 'plugin-ref', C: 'step' });
   });
 
-  it('defaults pluginAlias to name, or uses the provided alias', () => {
+  it('registers artifacts under the CANONICAL alias segment every key consumer builds', () => {
+    // `alias || ${name}-alias` — what the UI picker, the CLI pre-resolver and
+    // PluginLookup.normalize all use. This test used to lock in the bare name
+    // (`bare`), which is exactly the key the picker never asked for: any step
+    // whose input artifact came from an unaliased step failed synth with
+    // "No artifact registered".
     const { builder, pipeline } = makeBuilder();
     builder.addStage(pipeline as any, {
       stageName: 'S',
@@ -146,7 +151,22 @@ describe('StageBuilder.addStage', () => {
     });
 
     const aliases = createCodeBuildStepMock.mock.calls.map(c => (c[0] as any).pluginAlias);
-    expect(aliases).toEqual(['bare', 'cypress']);
+    expect(aliases).toEqual(['bare-alias', 'cypress']);
+  });
+
+  it('keeps the step CONSTRUCT id on the old alias rule, so no CodeBuild project is replaced', () => {
+    // The construct id feeds the CloudFormation logical id. Moving it to the
+    // artifact rule would rename every unaliased step's project and make CFN
+    // replace it on the next deploy, for no gain — the ids stay put.
+    const { builder, pipeline } = makeBuilder();
+    builder.addStage(pipeline as any, {
+      stageName: 'S',
+      steps: [{ plugin: { name: 'bare' } }],
+    });
+
+    const id = (createCodeBuildStepMock.mock.calls[0][0] as any).id as string;
+    expect(id).toContain('bare');
+    expect(id).not.toContain('bare-alias');
   });
 
   it('falls back to the plugin timeout and failureBehavior when the step omits them', () => {

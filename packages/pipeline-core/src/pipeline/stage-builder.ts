@@ -6,7 +6,7 @@ import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PluginLookup } from './plugin-lookup.js';
 import type { StageOptions } from './step-types.js';
-import type { ArtifactManager } from '../core/artifact-manager.js';
+import { pluginArtifactAlias, type ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
 import { merge, resolveFailureBehavior } from '../core/metadata-helpers.js';
 import { createCodeBuildStep } from '../core/pipeline-helpers.js';
@@ -119,16 +119,26 @@ export class StageBuilder {
     // silently ignored and the build falls back to plugin defaults.
     // Order (last wins): global < plugin-ref metadata < step-level metadata.
     const stepMetadata = merge(this.globalMetadata, stepConfig.plugin.metadata ?? {}, stepConfig.metadata ?? {});
-    const pluginAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
+    // TWO different identities, deliberately kept apart:
+    //  - `stepIdAlias` names the CDK construct. It stays as it always was
+    //    (`alias ?? name`), because changing it renames the CodeBuild project's
+    //    logical id and CloudFormation would REPLACE every unaliased step's
+    //    project on the next deploy — for no benefit.
+    //  - `pluginAlias` is the ARTIFACT-KEY segment and must follow the one rule
+    //    every key consumer uses (`pluginArtifactAlias`). It used to reuse the
+    //    construct value, so an unaliased step registered `…:nodejs-build:dist`
+    //    while the UI asked for `…:nodejs-build-alias:dist` and synth failed.
+    const stepIdAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
+    const pluginAlias = pluginArtifactAlias(stepConfig.plugin);
 
     if (stepConfig.inputArtifact && !this.artifactManager) {
       throw new Error(
-        `Step "${pluginAlias}" requires inputArtifact but no artifactManager is configured.`,
+        `Step "${stepIdAlias}" requires inputArtifact but no artifactManager is configured.`,
       );
     }
     if (stepConfig.additionalInputArtifacts?.length && !this.artifactManager) {
       throw new Error(
-        `Step "${pluginAlias}" requires additionalInputArtifacts but no artifactManager is configured.`,
+        `Step "${stepIdAlias}" requires additionalInputArtifacts but no artifactManager is configured.`,
       );
     }
 
@@ -146,7 +156,7 @@ export class StageBuilder {
       : undefined;
 
     return createCodeBuildStep({
-      id: this.uniqueId.generate(`stage:${stageAlias}:${pluginAlias}`),
+      id: this.uniqueId.generate(`stage:${stageAlias}:${stepIdAlias}`),
       uniqueId: this.uniqueId,
       plugin,
       metadata: stepMetadata,
