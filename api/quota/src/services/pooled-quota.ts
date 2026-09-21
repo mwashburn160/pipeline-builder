@@ -18,10 +18,15 @@
  * DENIES for a team (see {@link QuotaPoolUnavailableError}) while letting a
  * root / flat org fall through to its own (real) limits.
  *
- * `storageBytes` is deliberately carved out everywhere below: it is measured
- * live by the image-registry rather than tracked in `org.usage`, so summing
- * usage counters for it would be meaningless. It is enforced per-org by the
- * registry push-gate instead.
+ * `storageBytes` is HALF carved out. Its usage is measured live by the
+ * image-registry rather than tracked in `org.usage`, so the pooled `used` for it
+ * is structurally 0 and the push gate measures the org's own namespace instead.
+ * Its LIMIT is pooled like everything else, though: it used to be excluded
+ * entirely, which dropped a team through to its own row, and a team's own limits
+ * are -1. The registry gate reads that as genuinely unlimited and skips
+ * enforcement, so every team could push without bound past the root's cap —
+ * the silent "unlimited" this module exists to prevent, reached through the one
+ * dimension that opted out of it.
  *
  * Split out of `quota-service.ts`, whose remaining job is the per-org Mongo
  * read/write surface.
@@ -221,9 +226,16 @@ async function pooledStatus(
   quotaType: QuotaType,
 ): Promise<QuotaStatus | null> {
   // storageBytes is measured live by the image-registry, not tracked in
-  // org.usage — aggregating usage counters would be meaningless. Carve it out;
-  // storage is enforced by the registry push-gate per-org namespace instead.
-  if (quotaType === 'storageBytes') return null;
+  // org.usage, so the pooled `used` below is structurally 0 for it — the push
+  // gate measures the org's namespace itself and ignores `used`.
+  //
+  // The LIMIT still has to be pooled, though. This used to `return null` for
+  // storageBytes, which drops the caller through to the org's OWN row — and a
+  // team's own limits are -1. The registry gate reads `status.limit`, treats a
+  // negative as genuinely unlimited and skips enforcement entirely, so every
+  // team could push without bound past the root's storage cap: exactly the
+  // "silent unlimited" this module exists to prevent, arrived at through the
+  // one type that opted out of it.
   const pool = await resolvePool(orgId, lookup);
   if (!pool) return null;
   const rows = await loadPoolRows(pool, `quotas.${quotaType} usage.${quotaType}`);
@@ -354,7 +366,10 @@ export async function applyPooledQuotas(
     return pooledReadFallback(orgId, own, !!lookup.parentOrgId, err);
   }
   for (const type of VALID_QUOTA_TYPES) {
-    if (type === 'storageBytes') continue;
+    // storageBytes included deliberately: its `used` is structurally 0 (nothing
+    // increments it — the registry measures live), but its LIMIT must be the
+    // root's, or a team reports the -1 sitting in its own row and both the
+    // dashboard and the registry push gate read that as "unlimited".
     const status = pooledStatusFromRows(rows, pool.rootOrgId, type);
     if (!status) continue;
     rememberPoolStatus(orgId, type, status);

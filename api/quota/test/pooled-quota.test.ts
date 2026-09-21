@@ -167,9 +167,12 @@ describe('root org with teams', () => {
     expect(result.exceeded).toBe(false);
   });
 
-  it('storageBytes stays per-org (never pooled)', async () => {
+  it('storageBytes reports the ROOT limit (usage is registry-measured, so it is not the point)', async () => {
+    // The LIMIT is pooled like every other dimension — that is what the registry
+    // push gate reads. The pooled `used` is summed for consistency but carries
+    // no weight in production: nothing ever increments usage.storageBytes.
     const quota = await quotaService.findByOrgId('root');
-    expect(quota.quotas.storageBytes).toMatchObject({ limit: 1000, used: 5 }); // root's own, not 5 + 7
+    expect(quota.quotas.storageBytes).toMatchObject({ limit: 1000 });
     findOneAndUpdate.mockResolvedValue({ quotas: { storageBytes: 1000 }, usage: { storageBytes: { used: 6, resetAt: future } } });
     const result = await quotaService.incrementUsage('root', 'storageBytes' as never, 1);
     expect(findOrgWithHierarchy).toHaveBeenCalledTimes(1); // only the read above
@@ -284,10 +287,15 @@ describe('pooled-cap resolution FAILS', () => {
     expect(quota.pool).toBeUndefined();
   });
 
-  it('storageBytes is never pooled, so a walk failure cannot deny it', async () => {
+  it('storageBytes denies for a TEAM too — its own row is the -1 that caused the bug', async () => {
+    // storageBytes used to be exempt here, reporting the team's own -1. The
+    // registry push gate reads `limit` and treats a negative as genuinely
+    // unlimited, so every team could push without bound past the root's storage
+    // cap. Only the USAGE half of storage is unpooled (nothing increments it);
+    // the LIMIT follows the same fail-closed rule as every other dimension.
     asTeam();
     expandOrgScope.mockRejectedValue(new Error('walk failed'));
-    const status = await quotaService.getQuotaStatus('teamA', 'storageBytes');
-    expect(status.limit).toBe(-1); // the team's own row — storage is registry-enforced
+    await expect(quotaService.getQuotaStatus('teamA', 'storageBytes'))
+      .rejects.toBeInstanceOf(QuotaPoolUnavailableError);
   });
 });

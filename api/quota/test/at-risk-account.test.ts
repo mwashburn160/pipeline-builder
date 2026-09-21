@@ -60,6 +60,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
+
 }));
 
 // NOTE: authorize-org.js is intentionally NOT mocked — we test the real guard.

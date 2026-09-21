@@ -22,18 +22,7 @@ import {
   isValidQuotaType,
 } from '../helpers/quota-helpers.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
-import { type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
-
-interface AtRiskEntry {
-  orgId: string;
-  name: string;
-  slug: string;
-  tier?: string;
-  type: QuotaType;
-  used: number;
-  limit: number;
-  percent: number;
-}
+import { type AtRiskEntry, type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 
 interface AtRiskCacheEntry {
   expires: number;
@@ -131,40 +120,15 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const cacheKey = `${threshold}`;
       let cached = atRiskCache.get(cacheKey);
       if (!cached || cached.expires <= now) {
-        // Loop-paginate the whole org collection to exhaustion. A single
-        // findAll() page (the old behaviour) hid every at-risk org past page 1
-        // from the cron. Each page is bounded by ORG_SCAN_PAGE_SIZE so memory
-        // stays flat; we stop once a short page signals the collection is
-        // exhausted.
-        const computed: AtRiskEntry[] = [];
-        for (let offset = 0; ; offset += ORG_SCAN_PAGE_SIZE) {
-          const organizations = await svc.findAll({ limit: ORG_SCAN_PAGE_SIZE, offset });
-          for (const org of organizations) {
-            for (const type of VALID_QUOTA_TYPES) {
-              const summary = org.quotas[type];
-              if (!summary || summary.unlimited) continue;
-              // limit === 0 means the org is permanently at risk (any use
-              // pushes 100%+); report as 100%.
-              const percent = summary.limit === 0
-                ? 100
-                : Math.min(100, Math.round((summary.used / summary.limit) * 100));
-              if (percent >= threshold) {
-                computed.push({
-                  orgId: org.orgId,
-                  name: org.name,
-                  slug: org.slug,
-                  tier: org.tier,
-                  type,
-                  used: summary.used,
-                  limit: summary.limit,
-                  percent,
-                });
-              }
-            }
-          }
-          if (organizations.length < ORG_SCAN_PAGE_SIZE) break; // collection exhausted
-        }
-        computed.sort((a, b) => b.percent - a.percent);
+        // Evaluated BY POOL in the service, through the same
+        // `pooledStatusFromRows` enforcement uses. Reading each org's OWN
+        // summarized numbers (the old behaviour) was wrong twice over for a
+        // pooled account: a team's own limits are -1, so it read as "unlimited"
+        // and was never reported, and a root showed only its own usage instead
+        // of the subtree's — an account at 95% of its pooled cap looked idle and
+        // alerting never fired. The per-org `/quotas/:orgId/at-risk` route
+        // already pooled; this is the cross-org scan catching up.
+        const computed = await svc.findAtRisk(threshold, ORG_SCAN_PAGE_SIZE);
         cached = { expires: now + config.quota.atRiskCacheTtlMs, entries: computed };
         atRiskCache.set(cacheKey, cached);
       }

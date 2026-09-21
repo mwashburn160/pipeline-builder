@@ -38,7 +38,9 @@ export interface QuotaUsageTracking {
    * live by the image-registry (`computeStorageUsage` in its storage-usage.ts,
    * cached ~60s) and compared at token-issuance time against the org's
    * `quotas.storageBytes` LIMIT, which it reads via `GET /quotas/:orgId/storageBytes`.
-   * `pooledLimitAndUsage` likewise carves storageBytes out of pooling.
+   * Pooling therefore carves out only the USAGE half for storageBytes — the
+   * limit is pooled like every other dimension, because a team's own limit is
+   * -1 and the push gate reads that as unlimited.
    */
   storageBytes: QuotaUsage;
   /** Per-feature-table counters — incremented on create, decremented on

@@ -10,10 +10,16 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// The SCAN itself (paging, pooling, percent maths) lives in
+// `QuotaService.findAtRisk` and is covered by `at-risk-scan.test.ts`. What is
+// left here is the route's own job: the sysadmin gate, threshold clamping, the
+// per-threshold memo, and the response envelope.
+const findAtRisk = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+// Still needed by the `/quotas/all` pagination cases at the bottom of this file.
 const findAll = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/services/quota-service.js', () => ({
-  quotaService: { findAll, findByOrgId: jest.fn(), getQuotaStatus: jest.fn() },
+  quotaService: { findAtRisk, findAll, findByOrgId: jest.fn(), getQuotaStatus: jest.fn() },
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
@@ -45,6 +51,7 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
+
 }));
 
 const { getRouteGates } = await import('@pipeline-builder/api-core');
@@ -81,14 +88,10 @@ function makeRes() {
   return res;
 }
 
-const org = (orgId: string, name: string, quotas: Record<string, { used: number; limit: number; unlimited?: boolean }>) => ({
-  orgId,
-  name,
-  slug: name.toLowerCase(),
-  tier: 'developer',
-  quotas: Object.fromEntries(
-    Object.entries(quotas).map(([k, v]) => [k, { ...v, remaining: v.limit - v.used, unlimited: v.unlimited ?? false, resetAt: '2026-12-31T00:00:00Z' }]),
-  ),
+/** One at-risk row as the service hands it to the route. */
+const entry = (orgId: string, percent: number, type = 'plugins') => ({
+  orgId, name: orgId, slug: orgId, tier: 'developer',
+  type, used: percent, limit: 100, percent,
 });
 
 describe('GET /quotas/at-risk', () => {
@@ -109,7 +112,7 @@ describe('GET /quotas/at-risk', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(findAll).not.toHaveBeenCalled();
+    expect(findAtRisk).not.toHaveBeenCalled();
   });
 
   it('admits a superadmin at the requireSystemAdmin gate', () => {
@@ -122,117 +125,59 @@ describe('GET /quotas/at-risk', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('returns orgs above 80% by default, sorted by percent desc', async () => {
-    findAll.mockResolvedValue([
-      org('org-low', 'Low', { plugins: { used: 5, limit: 100 } }), // 5%
-      org('org-high', 'High', { plugins: { used: 95, limit: 100 } }), // 95%
-      org('org-mid', 'Mid', { plugins: { used: 81, limit: 100 } }), // 81%
-    ]);
+  it('passes the scan straight through, complete and already ranked', async () => {
+    findAtRisk.mockResolvedValue([entry('org-high', 95), entry('org-mid', 81)]);
     const res = makeRes();
     await handler({ query: {} } as any, res);
-    const payload = res.json.mock.calls[0][0];
-    expect(payload.data.count).toBe(2);
-    expect(payload.data.threshold).toBe(80);
-    expect(payload.data.atRisk[0].orgId).toBe('org-high');
-    expect(payload.data.atRisk[1].orgId).toBe('org-mid');
+
+    const payload = res.json.mock.calls[0][0].data;
+    expect(payload.count).toBe(2);
+    expect(payload.total).toBe(2);
+    expect(payload.threshold).toBe(80);
+    // `complete` promises the caller there is no cursor to follow — the alerting
+    // cron must never have to page to see an at-risk account.
+    expect(payload.complete).toBe(true);
+    expect(payload.atRisk.map((r: { orgId: string }) => r.orgId)).toEqual(['org-high', 'org-mid']);
   });
 
-  it('honors a custom threshold query param', async () => {
-    findAll.mockResolvedValue([
-      org('org-50', 'Half', { plugins: { used: 50, limit: 100 } }),
-      org('org-95', 'Almost', { plugins: { used: 95, limit: 100 } }),
-    ]);
-    const res = makeRes();
-    await handler({ query: { threshold: '50' } } as any, res);
-    const payload = res.json.mock.calls[0][0];
-    expect(payload.data.count).toBe(2);
-    expect(payload.data.threshold).toBe(50);
+  it('defaults the threshold to 80 and honors an explicit one', async () => {
+    findAtRisk.mockResolvedValue([]);
+    await handler({ query: {} } as any, makeRes());
+    expect(findAtRisk).toHaveBeenCalledWith(80, expect.any(Number));
+
+    await handler({ query: { threshold: '50' } } as any, makeRes());
+    expect(findAtRisk).toHaveBeenCalledWith(50, expect.any(Number));
   });
 
   it('clamps threshold to [1, 100]', async () => {
-    findAll.mockResolvedValue([]);
+    findAtRisk.mockResolvedValue([]);
     const res = makeRes();
     await handler({ query: { threshold: '999' } } as any, res);
     expect(res.json.mock.calls[0][0].data.threshold).toBe(100);
+    expect(findAtRisk).toHaveBeenCalledWith(100, expect.any(Number));
 
     const res2 = makeRes();
     await handler({ query: { threshold: '-5' } } as any, res2);
     expect(res2.json.mock.calls[0][0].data.threshold).toBe(1);
+    expect(findAtRisk).toHaveBeenCalledWith(1, expect.any(Number));
   });
 
-  it('skips unlimited quotas even when used > limit', async () => {
-    findAll.mockResolvedValue([
-      org('org-unlim', 'Unlim', { plugins: { used: 999, limit: -1, unlimited: true } }),
-    ]);
-    const res = makeRes();
-    await handler({ query: {} } as any, res);
-    expect(res.json.mock.calls[0][0].data.atRisk).toEqual([]);
-  });
-
-  it('emits one row per (org, quotaType) when an org is at-risk on multiple types', async () => {
-    findAll.mockResolvedValue([
-      org('org-multi', 'Multi', {
-        plugins: { used: 90, limit: 100 }, // 90%
-        pipelines: { used: 100, limit: 100 }, // 100%
-        apiCalls: { used: 5, limit: 100 }, // 5% — below threshold
-      }),
-    ]);
-    const res = makeRes();
-    await handler({ query: {} } as any, res);
-    const payload = res.json.mock.calls[0][0];
-    expect(payload.data.atRisk.map((r: { type: string }) => r.type).sort()).toEqual(['pipelines', 'plugins']);
-  });
-
-  it('returns empty list when nothing is at-risk', async () => {
-    findAll.mockResolvedValue([
-      org('org-fine', 'Fine', { plugins: { used: 10, limit: 100 } }),
-    ]);
+  it('returns an empty set unremarkably', async () => {
+    findAtRisk.mockResolvedValue([]);
     const res = makeRes();
     await handler({ query: {} } as any, res);
     expect(res.json.mock.calls[0][0].data).toMatchObject({ atRisk: [], count: 0, threshold: 80 });
   });
 
-  it('loop-paginates the whole org collection to exhaustion so the at-risk set is complete', async () => {
-    // A first page that fills the page size forces a second fetch; the short
-    // second page ends the loop. Every at-risk org across BOTH pages must
-    // appear — proving nothing past page 1 is dropped from the alerting set.
-    let pageSize = 0;
-    findAll.mockImplementation(async (opts: any) => {
-      const { limit, offset } = opts;
-      pageSize = limit;
-      if (offset === 0) {
-        return Array.from({ length: limit }, (_, i) =>
-          org(`p1-${i}`, `A${String(i).padStart(4, '0')}`, { plugins: { used: 95, limit: 100 } }));
-      }
-      if (offset === limit) {
-        return [org('p2-0', 'B', { plugins: { used: 95, limit: 100 } })];
-      }
-      return [];
-    });
-
-    const res = makeRes();
-    await handler({ query: {} } as any, res);
-
-    const payload = res.json.mock.calls[0][0].data;
-    expect(payload.count).toBe(pageSize + 1); // full page 1 + 1 on page 2 — nothing dropped
-    expect(payload.total).toBe(pageSize + 1);
-    expect(payload.complete).toBe(true);
-    expect(findAll).toHaveBeenCalledWith({ limit: pageSize, offset: 0 });
-    expect(findAll).toHaveBeenCalledWith({ limit: pageSize, offset: pageSize });
-  });
-
   it('memoizes the complete set per threshold (repeat call served from memo; new threshold rescans)', async () => {
-    findAll.mockResolvedValue([org('o', 'O', { plugins: { used: 95, limit: 100 } })]);
+    findAtRisk.mockResolvedValue([entry('o', 95)]);
 
-    const res1 = makeRes();
-    await handler({ query: {} } as any, res1);
-    const res2 = makeRes();
-    await handler({ query: {} } as any, res2);
-    expect(findAll).toHaveBeenCalledTimes(1); // second call hit the 60s memo
+    await handler({ query: {} } as any, makeRes());
+    await handler({ query: {} } as any, makeRes());
+    expect(findAtRisk).toHaveBeenCalledTimes(1); // second call hit the 60s memo
 
-    const res3 = makeRes();
-    await handler({ query: { threshold: '50' } } as any, res3);
-    expect(findAll).toHaveBeenCalledTimes(2); // distinct threshold → fresh scan
+    await handler({ query: { threshold: '50' } } as any, makeRes());
+    expect(findAtRisk).toHaveBeenCalledTimes(2); // distinct threshold → fresh scan
   });
 });
 

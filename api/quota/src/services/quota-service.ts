@@ -3,7 +3,7 @@
 
 import { createLogger, isValidTier, ValidationError } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
-import { applyPooledQuotas, checkSharedRootCap, pooledStatusOrFallback } from './pooled-quota.js';
+import { applyPooledQuotas, checkSharedRootCap, pooledStatusFromRows, pooledStatusOrFallback } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
 import { config } from '../config.js';
 import { findOrgWithHierarchy } from '../helpers/org-hierarchy.js';
@@ -126,6 +126,18 @@ function resetIfExpiredStage(usagePath: string, amount: number, resetDays: numbe
  * - incrementUsage()  atomic increment with limit enforcement
  * - decrementUsage()  roll back a previously reserved increment
  */
+/** One breached dimension for one ACCOUNT (pool root), as the at-risk scan reports it. */
+export interface AtRiskEntry {
+  orgId: string;
+  name: string;
+  slug: string;
+  tier?: string;
+  type: QuotaType;
+  used: number;
+  limit: number;
+  percent: number;
+}
+
 export class QuotaService {
   // Read operations
 
@@ -133,6 +145,90 @@ export class QuotaService {
    * List all organizations with their quota information.
    * Used by the system-admin "GET /quotas/all" endpoint.
    */
+  /**
+   * Every account at or above `threshold` percent on any counted dimension,
+   * evaluated BY POOL.
+   *
+   * This cannot be done from `findAll`, which returns each org's OWN summarized
+   * numbers — the wrong ones twice over for a pooled account. A team's own
+   * limits are -1, so it reads as "unlimited" and was skipped entirely; and a
+   * root shows only its own usage rather than the subtree's, so an account
+   * sitting at 95% of its pooled cap looked idle and alerting never fired. The
+   * per-org `/quotas/:orgId/at-risk` route already resolves the pool; this is
+   * the cross-org scan catching up, through the SAME `pooledStatusFromRows`
+   * enforcement uses, so the gate and the alert cannot disagree.
+   *
+   * Reports the ROOT, once per breached dimension — the root is the account.
+   * Paged against Mongo so memory per round-trip stays flat, but grouped before
+   * being judged, because a team and its root can land on different pages.
+   */
+  async findAtRisk(threshold: number, pageSize: number): Promise<AtRiskEntry[]> {
+    type ScanRow = PoolRow & { _id: string; slug?: string; parentOrgId?: string | null };
+
+    const rows: ScanRow[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await Organization.find()
+        .select('name slug tier quotas usage parentOrgId')
+        .sort({ name: 1 })
+        .skip(offset)
+        .limit(Math.min(pageSize, FIND_ALL_MAX_LIMIT))
+        .lean() as unknown as ScanRow[];
+      for (const r of page) rows.push({ ...r, _id: String(r._id) });
+      if (page.length < pageSize) break; // collection exhausted
+    }
+
+    const byId = new Map(rows.map((r) => [r._id, r]));
+    /** Walk to the pool root. Cycle-guarded: a corrupted parent chain must not
+     *  hang the scan, so a repeat visit stops at the last good node. */
+    const rootOf = (row: ScanRow): string => {
+      const seen = new Set<string>([row._id]);
+      let cur = row;
+      while (cur.parentOrgId) {
+        const parent = byId.get(cur.parentOrgId);
+        if (!parent || seen.has(parent._id)) break;
+        seen.add(parent._id);
+        cur = parent;
+      }
+      return cur._id;
+    };
+
+    const pools = new Map<string, ScanRow[]>();
+    for (const row of rows) {
+      const root = rootOf(row);
+      const group = pools.get(root);
+      if (group) group.push(row); else pools.set(root, [row]);
+    }
+
+    const computed: AtRiskEntry[] = [];
+    for (const [rootOrgId, group] of pools) {
+      const root = byId.get(rootOrgId);
+      if (!root) continue;
+      for (const type of VALID_QUOTA_TYPES) {
+        const status = pooledStatusFromRows(group, rootOrgId, type);
+        if (!status || status.unlimited) continue;
+        // limit === 0 means the account is permanently at risk (any use pushes
+        // 100%+); report as 100%.
+        const percent = status.limit === 0
+          ? 100
+          : Math.min(100, Math.round((status.used / status.limit) * 100));
+        if (percent >= threshold) {
+          computed.push({
+            orgId: rootOrgId,
+            name: root.name ?? '',
+            slug: root.slug ?? '',
+            tier: root.tier,
+            type,
+            used: status.used,
+            limit: status.limit,
+            percent,
+          });
+        }
+      }
+    }
+    computed.sort((a, b) => b.percent - a.percent);
+    return computed;
+  }
+
   async findAll(options: ListOrgsOptions = {}): Promise<OrgQuotaResponse[]> {
     const query = Organization.find()
       .select('name slug tier quotas usage')
