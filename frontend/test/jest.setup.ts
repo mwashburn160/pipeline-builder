@@ -9,7 +9,20 @@
  */
 
 import '@testing-library/jest-dom';
+import { configure } from '@testing-library/react';
 import { clearQueryCache } from '../src/lib/query-cache';
+
+// Testing Library's `findBy*`/`waitFor` default to a 1 s ceiling, which is a
+// budget for a MACHINE, not for a component: the same `findByRole` that resolves
+// in 250 ms on an idle box misses it when ~236 suites are competing for cores.
+// That produced failures that looked like assertion bugs ("Unable to find
+// role=option…") in a rotating cast of render-heavy suites — EditPluginModal,
+// build-queue-paging, totp-qr-code — every one of which passed when run alone.
+//
+// Raising the ceiling costs passing tests nothing: these helpers resolve as soon
+// as the element appears and only the failing path waits it out. It does not mask
+// a real hang either, since jest's own per-test timeout still applies.
+configure({ asyncUtilTimeout: 5_000 });
 
 // The shared read cache is module state, so it outlives a test the way it
 // outlives a navigation. Reset it between cases or one test's fetch satisfies
