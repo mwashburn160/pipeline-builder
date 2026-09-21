@@ -8,6 +8,7 @@
  * unknown (still-loading) provider are blocked (no accidental create/charge).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { newSubscriptionAction } from '../src/components/billing/subscribe-action';
 
 describe('newSubscriptionAction', () => {

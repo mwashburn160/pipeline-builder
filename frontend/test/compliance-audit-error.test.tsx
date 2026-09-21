@@ -8,12 +8,14 @@
  * fetch broke".
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ComplianceDashboard from '../src/components/compliance/ComplianceDashboard';
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() }),
 }));
 
 // The overview issues two kinds of audit-log queries: the list fetch (no
@@ -21,11 +23,11 @@ jest.mock('next/router', () => ({
 // fetch drives the error banner, so route counts to a stable resolve and let the
 // test control the list fetch.
 let listFetch: () => Promise<unknown>;
-const getComplianceAuditLog = jest.fn((params?: { result?: string }) => {
+const getComplianceAuditLog = jest.fn<AnyFn>((params?: { result?: string }) => {
   if (params && params.result) return Promise.resolve({ success: true, data: { pagination: { total: 0 } } });
   return listFetch();
 });
-const getComplianceRules = jest.fn();
+const getComplianceRules = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

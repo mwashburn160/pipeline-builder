@@ -16,6 +16,8 @@
  * onopen resets the counter (backoff returns to the base delay).
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook } from '@testing-library/react';
 import { useSSE } from '../src/hooks/useSSE';
 
@@ -80,9 +82,9 @@ describe('useSSE error handling', () => {
    * was dead code: both consumers passed `maxRetries: 0`.)
    */
   it('hands control to onRetriesExhausted on the FIRST error — no in-band retry', () => {
-    const onRetriesExhausted = jest.fn();
+    const onRetriesExhausted = jest.fn<AnyFn>();
     renderHook(() =>
-      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn(), onRetriesExhausted }),
+      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn<AnyFn>(), onRetriesExhausted }),
     );
 
     expect(MockEventSource.instances.length).toBe(1);
@@ -95,7 +97,7 @@ describe('useSSE error handling', () => {
 
   it('closes the stream on error and reports disconnected', () => {
     const { result } = renderHook(() =>
-      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn() }),
+      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn<AnyFn>() }),
     );
 
     act(() => latest().emitOpen());
@@ -107,13 +109,13 @@ describe('useSSE error handling', () => {
   });
 
   it('tolerates a consumer that provides no onRetriesExhausted', () => {
-    renderHook(() => useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn() }));
+    renderHook(() => useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn<AnyFn>() }));
     expect(() => act(() => latest().emitError())).not.toThrow();
   });
 
   it('reconnects only when the url changes (a fresh ticket)', () => {
     const { rerender } = renderHook(
-      ({ url }: { url: string }) => useSSE({ url, onMessage: jest.fn() }),
+      ({ url }: { url: string }) => useSSE({ url, onMessage: jest.fn<AnyFn>() }),
       { initialProps: { url: 'https://sse.test/stream?ticket=one' } },
     );
     expect(MockEventSource.instances.length).toBe(1);
@@ -131,9 +133,7 @@ describe('useSSE everConnected (paused-indicator gate)', () => {
     const { result } = renderHook(() =>
       useSSE({
         url: 'https://sse.test/stream',
-        maxRetries: 3,
-        baseRetryDelayMs: 1000,
-        onMessage: jest.fn(),
+        onMessage: jest.fn<AnyFn>(),
       }),
     );
 

@@ -10,10 +10,12 @@
  * override key", not "send false").
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { FeatureOverridesEditor } from '../src/components/admin/FeatureOverridesEditor';
 
-const updateUserFeatures = jest.fn();
+const updateUserFeatures = jest.fn<AnyFn>();
 jest.mock('../src/lib/api', () => ({
   __esModule: true,
   default: { updateUserFeatures: (...args: unknown[]) => updateUserFeatures(...args) },
@@ -43,7 +45,7 @@ async function saveWithStepUp() {
 
 describe('FeatureOverridesEditor', () => {
   it('renders one row per feature flag', () => {
-    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn()} />);
+    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn<AnyFn>()} />);
     // ALL_FEATURE_FLAGS has 5 entries — one row each.
     expect(screen.getByLabelText(/Override Priority Support/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Override AI Generation/i)).toBeInTheDocument();
@@ -53,7 +55,7 @@ describe('FeatureOverridesEditor', () => {
   });
 
   it('disables Save when state is identical to initial', () => {
-    render(<FeatureOverridesEditor userId="u1" initial={{ ai_generation: true }} onSaved={jest.fn()} />);
+    render(<FeatureOverridesEditor userId="u1" initial={{ ai_generation: true }} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('button', { name: /save overrides/i })).toBeDisabled();
   });
 
@@ -62,7 +64,7 @@ describe('FeatureOverridesEditor', () => {
       <FeatureOverridesEditor
         userId="u1"
         initial={{ ai_generation: true, custom_integrations: false }}
-        onSaved={jest.fn()}
+        onSaved={jest.fn<AnyFn>()}
       />,
     );
     expect((screen.getByLabelText(/Override AI Generation/i) as HTMLSelectElement).value).toBe('on');
@@ -71,14 +73,14 @@ describe('FeatureOverridesEditor', () => {
   });
 
   it('enables Save once a row is changed', () => {
-    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn()} />);
+    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'on' } });
     expect(screen.getByRole('button', { name: /save overrides/i })).toBeEnabled();
   });
 
   it('sends only the explicit overrides (inherit rows are dropped from the payload)', async () => {
     updateUserFeatures.mockResolvedValue({ success: true });
-    const onSaved = jest.fn();
+    const onSaved = jest.fn<AnyFn>();
     render(<FeatureOverridesEditor userId="user-42" initial={{}} onSaved={onSaved} />);
 
     fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'on' } });
@@ -103,7 +105,7 @@ describe('FeatureOverridesEditor', () => {
 
   it('removes an override by switching it back to inherit', async () => {
     updateUserFeatures.mockResolvedValue({ success: true });
-    render(<FeatureOverridesEditor userId="u1" initial={{ ai_generation: true }} onSaved={jest.fn()} />);
+    render(<FeatureOverridesEditor userId="u1" initial={{ ai_generation: true }} onSaved={jest.fn<AnyFn>()} />);
 
     fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'inherit' } });
     await saveWithStepUp();
@@ -114,7 +116,7 @@ describe('FeatureOverridesEditor', () => {
 
   it('shows the backend error message on a failed save', async () => {
     updateUserFeatures.mockResolvedValue({ success: false, message: 'Invalid override' });
-    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn()} />);
+    render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn<AnyFn>()} />);
 
     fireEvent.change(screen.getByLabelText(/Override Bulk Operations/i), { target: { value: 'on' } });
     await saveWithStepUp();

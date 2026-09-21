@@ -10,13 +10,15 @@
  * has to keep up with the session: a role change or an org switch while the page
  * is open flips it to the refusal, rather than leaving stale panels to fail.
  */
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, renderHook, screen } from '@testing-library/react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 
 let pathname = '/dashboard/pipelines';
-const push = jest.fn();
-const replace = jest.fn();
+const push = jest.fn<AnyFn>();
+const replace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
   useRouter: () => ({ pathname, push, replace, query: {}, isReady: true }),
@@ -32,8 +34,8 @@ jest.mock('@/hooks/useAuth', () => ({
     isInitialized: true,
     isLoading: false,
     isReadOnly: false,
-    logout: jest.fn(),
-    refreshUser: jest.fn(),
+    logout: jest.fn<AnyFn>(),
+    refreshUser: jest.fn<AnyFn>(),
   }),
 }));
 

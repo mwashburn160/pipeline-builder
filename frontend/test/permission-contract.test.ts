@@ -21,6 +21,7 @@
  * things that can be quietly relaxed.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 

@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act } from '@testing-library/react';
 import { useCombobox } from '@/hooks/useCombobox';
 
@@ -10,7 +12,7 @@ const key = (k: string): KD => ({ key: k, preventDefault: () => {} } as unknown 
 describe('useCombobox — keyboard navigation + ARIA', () => {
   it('ArrowDown opens and advances; Enter selects the active option', () => {
     const { result } = renderHook(() => useCombobox(() => {}));
-    const onSelect = jest.fn();
+    const onSelect = jest.fn<AnyFn>();
 
     act(() => result.current.handleKeyDown(key('ArrowDown'), 3, onSelect));
     expect(result.current.open).toBe(true);

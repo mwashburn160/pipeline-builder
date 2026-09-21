@@ -10,6 +10,7 @@
  * unknown → typed-provider transition in a single render.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
 import { renderHook, waitFor } from '@testing-library/react';
 
 const configResponse: { data?: { enabled?: boolean; provider?: string } } = {

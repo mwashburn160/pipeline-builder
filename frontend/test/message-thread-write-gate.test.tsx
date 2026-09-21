@@ -14,14 +14,16 @@
  * because the viewer is already reading the conversation.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ThreadView } from '../src/components/message/ThreadView';
 import type { Message } from '../src/types';
 
-const getThread = jest.fn();
-const replyToMessage = jest.fn();
-const editMessage = jest.fn();
-const uploadAttachment = jest.fn();
+const getThread = jest.fn<AnyFn>();
+const replyToMessage = jest.fn<AnyFn>();
+const editMessage = jest.fn<AnyFn>();
+const uploadAttachment = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -54,8 +56,8 @@ function renderThread(canWrite: boolean) {
       rootMessage={ROOT}
       currentOrgId="org-1"
       currentUserId="u1"
-      onBack={jest.fn()}
-      onThreadRead={jest.fn()}
+      onBack={jest.fn<AnyFn>()}
+      onThreadRead={jest.fn<AnyFn>()}
       canWrite={canWrite}
     />,
   );

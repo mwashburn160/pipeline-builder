@@ -12,6 +12,8 @@
  *    `idpConfigs` rendered as their raw keys.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import QuotasPage from '../pages/dashboard/quotas';
@@ -42,11 +44,11 @@ const QUOTA = {
   },
 };
 
-const getAtRiskQuotas = jest.fn();
-const getOrgAtRisk = jest.fn();
-const getOrgQuotas = jest.fn();
-const getOwnQuotas = jest.fn();
-const getAllOrgQuotas = jest.fn();
+const getAtRiskQuotas = jest.fn<AnyFn>();
+const getOrgAtRisk = jest.fn<AnyFn>();
+const getOrgQuotas = jest.fn<AnyFn>();
+const getOwnQuotas = jest.fn<AnyFn>();
+const getAllOrgQuotas = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const api = {
     getAtRiskQuotas: (...a: unknown[]) => getAtRiskQuotas(...a),

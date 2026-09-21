@@ -8,17 +8,19 @@
  * a bare "Log export failed".
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import type { ApiCore } from '../src/lib/api/core';
 import { observabilityApi } from '../src/lib/api/domains/observability';
 import { MfaRequiredError } from '../src/lib/api/errors';
 
 const core = {
-  ensureFreshToken: jest.fn(async () => undefined),
-  authHeaders: jest.fn(() => ({ Authorization: 'Bearer t' })),
+  ensureFreshToken: jest.fn<AnyFn>(async () => undefined),
+  authHeaders: jest.fn<AnyFn>(() => ({ Authorization: 'Bearer t' })),
 } as unknown as ApiCore;
 
 function respond(status: number, body: unknown) {
-  global.fetch = jest.fn(async () => ({
+  global.fetch = jest.fn<AnyFn>(async () => ({
     ok: status < 400,
     status,
     json: async () => body,

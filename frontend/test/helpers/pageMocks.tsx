@@ -17,23 +17,14 @@
  *   const authGuard = mockAuthGuard({ isReadOnly: false });
  */
 
+import { jest } from '@jest/globals';
+import type { AnyFn } from './mock-fn';
 import type { ReactNode } from 'react';
 
-// This helper isn't a *.test file, so the app's type check (`next build`, which
-// skips only *.test/*.spec files) sees it without jest's value globals. Jest
-// still provides `jest` to every module at runtime.
-declare const jest: { fn: () => MockFn };
-
-/** The slice of jest's mock-function API page tests use on these spies. */
-export interface MockFn {
-  (...args: unknown[]): unknown;
-  mock: { calls: unknown[][] };
-  mockClear(): MockFn;
-  mockReset(): MockFn;
-  mockImplementation(impl: (...args: unknown[]) => unknown): MockFn;
-  mockResolvedValue(value: unknown): MockFn;
-  mockRejectedValue(value: unknown): MockFn;
-}
+// `jest` comes from `@jest/globals` — a real, self-typed module — so this helper
+// type-checks anywhere, including under `next build` (which checks non-test
+// files without jest's globals). It used to hand-declare a minimal `jest` and a
+// `MockFn` interface for exactly that reason; the real types are richer.
 
 /** DashboardLayout reduced to a passthrough that still renders the page's header actions. */
 export function dashboardLayoutModule() {
@@ -46,7 +37,7 @@ export function dashboardLayoutModule() {
 }
 
 /** One toast spy object per test file; `clearMocks` resets the calls between tests. */
-export const pageToast = { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() };
+export const pageToast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), info: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>() };
 
 export function toastModule() {
   return { __esModule: true, useToast: () => pageToast };
@@ -78,8 +69,8 @@ const defaults = (): PageAuthGuard => ({
   isReadOnly: false,
   user: { id: 'u1', organizationId: 'org-1' },
   can: () => false,
-  logout: jest.fn(),
-  refreshUser: jest.fn(),
+  logout: jest.fn<AnyFn>(),
+  refreshUser: jest.fn<AnyFn>(),
 });
 
 let current: PageAuthGuard = defaults();

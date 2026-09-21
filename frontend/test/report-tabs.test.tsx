@@ -8,6 +8,8 @@
  * shared banner) is covered by reports-clamp / reports-error-banner.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PipelinesTab } from '../src/components/reports/tabs/PipelinesTab';
 import { PluginsTab } from '../src/components/reports/tabs/PluginsTab';
@@ -16,26 +18,26 @@ import type { SharedFilters } from '../src/components/reports/useReportData';
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() }),
 }));
 
-const getExecutionCount = jest.fn();
-const getSuccessRate = jest.fn();
-const getPipelineDuration = jest.fn();
-const getStageBottlenecks = jest.fn();
-const getPluginSummary = jest.fn();
-const getPluginDistribution = jest.fn();
-const getDora = jest.fn();
-const getDoraTrend = jest.fn();
+const getExecutionCount = jest.fn<AnyFn>();
+const getSuccessRate = jest.fn<AnyFn>();
+const getPipelineDuration = jest.fn<AnyFn>();
+const getStageBottlenecks = jest.fn<AnyFn>();
+const getPluginSummary = jest.fn<AnyFn>();
+const getPluginDistribution = jest.fn<AnyFn>();
+const getDora = jest.fn<AnyFn>();
+const getDoraTrend = jest.fn<AnyFn>();
 // Every rollup-aware report the tabs call — asserted to share ONE scope.
 const scoped = {
-  getStageFailures: jest.fn(),
-  getActionFailures: jest.fn(),
-  getExecutionErrors: jest.fn(),
-  getBuildSuccessRate: jest.fn(),
-  getBuildDuration: jest.fn(),
-  getBuildFailures: jest.fn(),
-  getReportEnvironments: jest.fn(),
+  getStageFailures: jest.fn<AnyFn>(),
+  getActionFailures: jest.fn<AnyFn>(),
+  getExecutionErrors: jest.fn<AnyFn>(),
+  getBuildSuccessRate: jest.fn<AnyFn>(),
+  getBuildDuration: jest.fn<AnyFn>(),
+  getBuildFailures: jest.fn<AnyFn>(),
+  getReportEnvironments: jest.fn<AnyFn>(),
 };
 
 jest.mock('@/lib/api', () => ({
@@ -53,10 +55,10 @@ jest.mock('@/lib/api', () => ({
     getBuildSuccessRate: (...a: unknown[]) => scoped.getBuildSuccessRate(...a),
     getBuildDuration: (...a: unknown[]) => scoped.getBuildDuration(...a),
     getBuildFailures: (...a: unknown[]) => scoped.getBuildFailures(...a),
-    getPluginVersions: jest.fn().mockResolvedValue({ data: { plugins: [] } }),
+    getPluginVersions: jest.fn<AnyFn>().mockResolvedValue({ data: { plugins: [] } }),
     getDora: (...a: unknown[]) => getDora(...a),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
-    listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
+    listPipelines: jest.fn<AnyFn>().mockResolvedValue({ data: { pipelines: [] } }),
     getReportEnvironments: (...a: unknown[]) => scoped.getReportEnvironments(...a),
   },
 }));
@@ -82,13 +84,13 @@ beforeEach(() => {
 });
 
 /** The first-argument params bag of every call to a report mock. */
-const paramsOf = (fn: jest.Mock) => fn.mock.calls.map((c) => c[0] as Record<string, unknown>);
+const paramsOf = (fn: jest.Mock<AnyFn>) => fn.mock.calls.map((c) => c[0] as Record<string, unknown>);
 
 describe('one scope for every panel (includeDescendants)', () => {
   const rollup: SharedFilters = { ...filters, includeDescendants: true, systemAdmin: true };
 
   it('threads the team rollup into EVERY pipelines report, failures included', async () => {
-    render(<PipelinesTab filters={rollup} onStatus={jest.fn()} />);
+    render(<PipelinesTab filters={rollup} onStatus={jest.fn<AnyFn>()} />);
     await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
     await waitFor(() => expect(getStageBottlenecks).toHaveBeenCalled());
@@ -104,7 +106,7 @@ describe('one scope for every panel (includeDescendants)', () => {
   });
 
   it('threads the team rollup into every plugin BUILD report and notes the inventory is per-org', async () => {
-    render(<PluginsTab filters={rollup} onStatus={jest.fn()} />);
+    render(<PluginsTab filters={rollup} onStatus={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/plugin inventory is per-organization/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Builds' }));
     await waitFor(() => expect(scoped.getBuildFailures).toHaveBeenCalled());
@@ -114,7 +116,7 @@ describe('one scope for every panel (includeDescendants)', () => {
   });
 
   it('sends no rollup flag when the switch is off', async () => {
-    render(<PipelinesTab filters={{ ...filters, systemAdmin: true }} onStatus={jest.fn()} />);
+    render(<PipelinesTab filters={{ ...filters, systemAdmin: true }} onStatus={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
     await waitFor(() => expect(scoped.getStageFailures).toHaveBeenCalled());
     expect(paramsOf(scoped.getStageFailures)[0]).not.toHaveProperty('includeDescendants');
@@ -123,7 +125,7 @@ describe('one scope for every panel (includeDescendants)', () => {
 
 describe('sysadmin-only reports', () => {
   it('never requests the error / build-failure reports for a non-sysadmin (they would 403)', async () => {
-    render(<PipelinesTab filters={filters} onStatus={jest.fn()} />);
+    render(<PipelinesTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
     await waitFor(() => expect(scoped.getStageFailures).toHaveBeenCalled());
     expect(scoped.getExecutionErrors).not.toHaveBeenCalled();
@@ -133,7 +135,7 @@ describe('sysadmin-only reports', () => {
 
 describe('PipelinesTab', () => {
   it('renders the sub-tab bar, fetches overview data, and reports status up', async () => {
-    const onStatus = jest.fn();
+    const onStatus = jest.fn<AnyFn>();
     render(<PipelinesTab filters={filters} onStatus={onStatus} />);
 
     expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument();
@@ -149,7 +151,7 @@ describe('PipelinesTab', () => {
   });
 
   it('switches to Performance and fetches its slices', async () => {
-    render(<PipelinesTab filters={filters} onStatus={jest.fn()} />);
+    render(<PipelinesTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
     await waitFor(() => expect(getPipelineDuration).toHaveBeenCalled());
     expect(getStageBottlenecks).toHaveBeenCalled();
@@ -158,7 +160,7 @@ describe('PipelinesTab', () => {
 
 describe('PluginsTab', () => {
   it('renders the sub-tab bar and fetches plugin overview data', async () => {
-    render(<PluginsTab filters={filters} onStatus={jest.fn()} />);
+    render(<PluginsTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Builds' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Versions' })).toBeInTheDocument();
@@ -169,14 +171,14 @@ describe('PluginsTab', () => {
 
 describe('DoraTab', () => {
   it('renders the upsell and fires NO fetch when not entitled', async () => {
-    render(<DoraTab filters={filters} enabled={false} canMark={false} onStatus={jest.fn()} />);
+    render(<DoraTab filters={filters} enabled={false} canMark={false} onStatus={jest.fn<AnyFn>()} />);
     expect(await screen.findByRole('link', { name: /unlock advanced reporting/i })).toBeInTheDocument();
     expect(getDora).not.toHaveBeenCalled();
     expect(getDoraTrend).not.toHaveBeenCalled();
   });
 
   it('mounts + fetches DORA when entitled and reports status up', async () => {
-    const onStatus = jest.fn();
+    const onStatus = jest.fn<AnyFn>();
     getDora.mockResolvedValue(null);
     render(<DoraTab filters={filters} enabled canMark onStatus={onStatus} />);
     await waitFor(() => expect(getDora).toHaveBeenCalled());

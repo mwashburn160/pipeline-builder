@@ -6,20 +6,22 @@
  * VERIFIED domains (the server refuses any other), instead of free text.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgIdpConfigModal } from '../src/components/admin/OrgIdpConfigModal';
 
-const getOrgIdpConfig = jest.fn();
-const listOrgDomains = jest.fn();
-const patchOrgIdpConfig = jest.fn();
+const getOrgIdpConfig = jest.fn<AnyFn>();
+const listOrgDomains = jest.fn<AnyFn>();
+const patchOrgIdpConfig = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getOrgIdpConfig: (...a: unknown[]) => getOrgIdpConfig(...a),
     listOrgDomains: (...a: unknown[]) => listOrgDomains(...a),
     patchOrgIdpConfig: (...a: unknown[]) => patchOrgIdpConfig(...a),
-    putOrgIdpConfig: jest.fn(),
-    deleteOrgIdpConfig: jest.fn(),
+    putOrgIdpConfig: jest.fn<AnyFn>(),
+    deleteOrgIdpConfig: jest.fn<AnyFn>(),
   },
   ApiError: class ApiError extends Error { statusCode = 0; },
 }));
@@ -52,7 +54,7 @@ beforeEach(() => {
 
 describe('OrgIdpConfigModal — verified-domain picker', () => {
   it('offers only verified domains, pre-checks the saved ones, and saves the selection', async () => {
-    render(<OrgIdpConfigModal org={org} onClose={jest.fn()} />);
+    render(<OrgIdpConfigModal org={org} onClose={jest.fn<AnyFn>()} />);
 
     const acme = await screen.findByRole('checkbox', { name: /acme\.io/ });
     const dev = screen.getByRole('checkbox', { name: /acme\.dev/ });

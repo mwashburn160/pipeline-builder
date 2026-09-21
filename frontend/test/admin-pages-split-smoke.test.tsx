@@ -8,6 +8,8 @@
  * API, and fires the page's refresh/toast callbacks.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RegistryPage from '../pages/dashboard/registry';
 import DiscountsPage from '../pages/dashboard/discounts';
@@ -21,7 +23,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ query: {}, pathname: '/dashboard/x', replace: jest.fn(), push: jest.fn() }),
+  useRouter: () => ({ query: {}, pathname: '/dashboard/x', replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('next/link', () => ({
@@ -54,46 +56,46 @@ const listPage = {
   error: null,
   isLoading: false,
   pagination: { total: 0, offset: 0, limit: 25 },
-  refresh: jest.fn(),
-  setError: jest.fn(),
-  updateFilter: jest.fn(),
-  handlePageChange: jest.fn(),
-  handlePageSizeChange: jest.fn(),
+  refresh: jest.fn<AnyFn>(),
+  setError: jest.fn<AnyFn>(),
+  updateFilter: jest.fn<AnyFn>(),
+  handlePageChange: jest.fn<AnyFn>(),
+  handlePageSizeChange: jest.fn<AnyFn>(),
 };
 jest.mock('@/hooks/useListPage', () => ({ __esModule: true, useListPage: () => listPage }));
 
 // Registry data hooks — the panes are not under test here.
 jest.mock('@/hooks/useRepositoryList', () => ({
   __esModule: true,
-  useRepositoryList: () => ({ groups: [], repos: [], hasMore: false, loading: false, error: null, loadMore: jest.fn(), refresh: registryRefresh }),
+  useRepositoryList: () => ({ groups: [], repos: [], hasMore: false, loading: false, error: null, loadMore: jest.fn<AnyFn>(), refresh: registryRefresh }),
 }));
 jest.mock('@/hooks/useImageTags', () => ({
   __esModule: true,
-  useImageTags: () => ({ tags: null, loading: false, error: null, refresh: jest.fn() }),
-  invalidateImageTags: jest.fn(),
+  useImageTags: () => ({ tags: null, loading: false, error: null, refresh: jest.fn<AnyFn>() }),
+  invalidateImageTags: jest.fn<AnyFn>(),
 }));
 jest.mock('@/hooks/useImageDetail', () => ({ __esModule: true, useImageDetail: () => ({ kind: null, loading: false, error: null }) }));
 jest.mock('@/hooks/useTagsWithMetadata', () => ({ __esModule: true, useTagsWithMetadata: () => ({ metadata: {}, loading: false }) }));
 jest.mock('@/components/registry/RepositoryList', () => ({ __esModule: true, RepositoryList: () => null }));
 jest.mock('@/components/registry/RecentActionsPanel', () => ({ __esModule: true, RecentActionsPanel: () => null }));
 
-const registryRefresh = jest.fn();
+const registryRefresh = jest.fn<AnyFn>();
 const apiMock = {
-  listImages: jest.fn(),
-  runRegistryGc: jest.fn(),
-  getRegistryStorageUsage: jest.fn(),
-  updateDiscount: jest.fn(),
-  createDiscount: jest.fn(),
-  applyDiscountToOrg: jest.fn(),
-  listOrganizations: jest.fn(),
-  createOrganization: jest.fn(),
-  updateOrganizationTier: jest.fn(),
+  listImages: jest.fn<AnyFn>(),
+  runRegistryGc: jest.fn<AnyFn>(),
+  getRegistryStorageUsage: jest.fn<AnyFn>(),
+  updateDiscount: jest.fn<AnyFn>(),
+  createDiscount: jest.fn<AnyFn>(),
+  applyDiscountToOrg: jest.fn<AnyFn>(),
+  listOrganizations: jest.fn<AnyFn>(),
+  createOrganization: jest.fn<AnyFn>(),
+  updateOrganizationTier: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   get default() { return apiMock; },
   get api() { return apiMock; },
-  ApiError: jest.requireActual('@/lib/api/errors').ApiError,
+  ApiError: jest.requireActual<typeof import('@/lib/api/errors')>('@/lib/api/errors').ApiError,
 }));
 
 beforeEach(() => {

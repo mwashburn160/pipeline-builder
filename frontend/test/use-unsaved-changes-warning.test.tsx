@@ -12,19 +12,21 @@
  * dirty flips back to false.
  */
 
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook } from '@testing-library/react';
 
 // A controllable stand-in for Next.js's router.events mitt emitter.
 const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 const events = {
-  on: jest.fn((event: string, cb: (...args: unknown[]) => void) => {
+  on: jest.fn<AnyFn>((event: string, cb: (...args: unknown[]) => void) => {
     if (!listeners.has(event)) listeners.set(event, new Set());
     listeners.get(event)!.add(cb);
   }),
-  off: jest.fn((event: string, cb: (...args: unknown[]) => void) => {
+  off: jest.fn<AnyFn>((event: string, cb: (...args: unknown[]) => void) => {
     listeners.get(event)?.delete(cb);
   }),
-  emit: jest.fn(),
+  emit: jest.fn<AnyFn>(),
 };
 
 function emitRouteChangeStart(url: string) {

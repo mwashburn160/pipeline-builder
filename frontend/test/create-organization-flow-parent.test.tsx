@@ -7,11 +7,13 @@
  * rather than a capped client list.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreateOrganizationFlow } from '../src/components/organizations/CreateOrganizationFlow';
 
-const listOrganizations = jest.fn();
-const createOrganization = jest.fn();
+const listOrganizations = jest.fn<AnyFn>();
+const createOrganization = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -19,10 +21,10 @@ jest.mock('@/lib/api', () => ({
     createOrganization: (...a: unknown[]) => createOrganization(...a),
   },
 }));
-jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn() } }));
+jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn<AnyFn>() } }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/components/onboarding/OrgSetupStep', () => ({ __esModule: true, OrgSetupStep: () => null }));
 // Search immediately — the debounce is not what's under test.
@@ -47,7 +49,7 @@ beforeEach(() => {
 });
 
 function openAsTeam() {
-  render(<CreateOrganizationFlow open onClose={jest.fn()} onCreated={jest.fn()} />);
+  render(<CreateOrganizationFlow open onClose={jest.fn<AnyFn>()} onCreated={jest.fn<AnyFn>()} />);
   fireEvent.click(screen.getByRole('checkbox'));
 }
 

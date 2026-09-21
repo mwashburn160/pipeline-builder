@@ -7,6 +7,8 @@
  * `GET /api/reports/execution/dora` and the shared duration formatting (incl. null → "—").
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import type { ApiCore } from '../src/lib/api/core';
 import { reportingApi, type DoraMetrics, type DoraTrendPoint } from '../src/lib/api/domains/reporting';
 import { formatDurationSeconds } from '../src/lib/format';
@@ -14,7 +16,7 @@ import { formatDurationSeconds } from '../src/lib/format';
 function makeApi(payload?: { dora?: DoraMetrics | null; trend?: DoraTrendPoint[] }) {
   const calls: string[] = [];
   const core = {
-    request: jest.fn((path: string) => {
+    request: jest.fn<AnyFn>((path: string) => {
       calls.push(path);
       return Promise.resolve({ success: true, data: payload });
     }),
@@ -63,7 +65,7 @@ describe('markDeploymentOutcome', () => {
     const calls: string[] = [];
     let captured: { method?: string; body?: string } | undefined;
     const core = {
-      request: jest.fn((path: string, opts?: { method?: string; body?: string }) => {
+      request: jest.fn<AnyFn>((path: string, opts?: { method?: string; body?: string }) => {
         calls.push(path);
         captured = opts;
         return Promise.resolve({ success: true, data: { message: 'ok' } });

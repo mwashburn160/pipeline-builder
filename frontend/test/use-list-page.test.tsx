@@ -9,6 +9,8 @@
  * the `error: string` contract, and the `enabled:false` skip.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useListPage, type FilterField } from '../src/hooks/useListPage';
 
@@ -17,8 +19,8 @@ import { useListPage, type FilterField } from '../src/hooks/useListPage';
 // stub the router so the unconditional `useRouter()` call doesn't throw
 // "NextRouter was not mounted" outside a <RouterContext>.
 // `mockRouter` is reassignable so the urlSync test can flip `isReady` on.
-let mockRouter: { query: Record<string, string>; isReady: boolean; pathname: string; replace: jest.Mock } =
-  { query: {}, isReady: false, pathname: '/', replace: jest.fn() };
+let mockRouter: { query: Record<string, string>; isReady: boolean; pathname: string; replace: jest.Mock<AnyFn> } =
+  { query: {}, isReady: false, pathname: '/', replace: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({
   useRouter: () => mockRouter,
 }));
@@ -35,7 +37,7 @@ const fields: FilterField[] = [
 /** Fetcher that echoes back the offset/limit it was called with, so the hook's
  *  "reconcile server offset" step keeps the offset the caller requested. */
 function echoFetcher(total: number) {
-  return jest.fn(async (params: Record<string, string>) => ({
+  return jest.fn<AnyFn>(async (params: Record<string, string>) => ({
     items: [{ id: params.offset }] as Row[],
     pagination: { total, offset: Number(params.offset) },
   }));
@@ -43,7 +45,7 @@ function echoFetcher(total: number) {
 
 describe('useListPage', () => {
   it('fetches on mount and populates data + pagination.total', async () => {
-    const fetcher = jest.fn().mockResolvedValue({
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue({
       items: [{ id: '1' }, { id: '2' }],
       pagination: { total: 42, offset: 0 },
     });
@@ -102,7 +104,7 @@ describe('useListPage', () => {
   });
 
   it('sets error (as a string) when the fetcher rejects', async () => {
-    const fetcher = jest.fn().mockRejectedValue(new Error('boom'));
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue(new Error('boom'));
 
     const { result } = renderHook(() => useListPage<Row>({ fields, fetcher }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -113,7 +115,7 @@ describe('useListPage', () => {
   });
 
   it('does not fetch when enabled is false', async () => {
-    const fetcher = jest.fn().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
 
     const { result } = renderHook(() => useListPage<Row>({ fields, fetcher, enabled: false }));
 
@@ -125,10 +127,10 @@ describe('useListPage', () => {
   });
 
   it('urlSync write-back keeps a fixed-size dep array when the select fields change', async () => {
-    mockRouter = { query: {}, isReady: true, pathname: '/list', replace: jest.fn().mockResolvedValue(true) };
+    mockRouter = { query: {}, isReady: true, pathname: '/list', replace: jest.fn<AnyFn>().mockResolvedValue(true) };
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const fetcher = jest.fn().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
+      const fetcher = jest.fn<AnyFn>().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
       const twoSelects: FilterField[] = [...fields];
       const threeSelects: FilterField[] = [...fields, { key: 'kind', type: 'select', defaultValue: 'any' }];
 
@@ -155,7 +157,7 @@ describe('useListPage', () => {
       expect(sizeWarnings).toEqual([]);
     } finally {
       errorSpy.mockRestore();
-      mockRouter = { query: {}, isReady: false, pathname: '/', replace: jest.fn() };
+      mockRouter = { query: {}, isReady: false, pathname: '/', replace: jest.fn<AnyFn>() };
     }
   });
 });

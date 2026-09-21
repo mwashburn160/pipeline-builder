@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BreakglassModal, BREAKGLASS_JUSTIFICATION_MIN } from '../src/components/users/BreakglassModal';
 
 describe('BreakglassModal', () => {
   const setup = () => {
-    const onContinue = jest.fn();
-    render(<BreakglassModal targetLabel="user@acme.com" onContinue={onContinue} onClose={jest.fn()} />);
+    const onContinue = jest.fn<AnyFn>();
+    render(<BreakglassModal targetLabel="user@acme.com" onContinue={onContinue} onClose={jest.fn<AnyFn>()} />);
     return { onContinue, box: screen.getByRole('textbox'), next: () => screen.getByRole('button', { name: 'Continue' }) };
   };
 

@@ -10,12 +10,14 @@
  * refetch, error path, and unmount cancellation.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useEntityFetch } from '../src/hooks/useEntityFetch';
 
 describe('useEntityFetch', () => {
   it('fetches and returns entity for a non-null id', async () => {
-    const fetcher = jest.fn().mockResolvedValue({ id: '1', name: 'A' });
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue({ id: '1', name: 'A' });
 
     const { result } = renderHook(() => useEntityFetch('1', fetcher));
 
@@ -29,7 +31,7 @@ describe('useEntityFetch', () => {
   });
 
   it('returns fallback and skips fetch when id is null', async () => {
-    const fetcher = jest.fn();
+    const fetcher = jest.fn<AnyFn>();
     const fallback = { id: 'fallback', name: 'F' };
 
     const { result } = renderHook(() => useEntityFetch(null, fetcher, fallback));
@@ -40,7 +42,7 @@ describe('useEntityFetch', () => {
   });
 
   it('returns null entity when id is null and no fallback', () => {
-    const fetcher = jest.fn();
+    const fetcher = jest.fn<AnyFn>();
     const { result } = renderHook(() => useEntityFetch<{ id: string }>(null, fetcher));
 
     expect(result.current.entity).toBeNull();
@@ -48,7 +50,7 @@ describe('useEntityFetch', () => {
   });
 
   it('returns fallback when id transitions to undefined', async () => {
-    const fetcher = jest.fn().mockResolvedValue({ id: '1' });
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue({ id: '1' });
     const fallback = { id: 'fallback' };
 
     const { result, rerender } = renderHook(
@@ -65,7 +67,7 @@ describe('useEntityFetch', () => {
 
   it('re-fetches when id changes', async () => {
     const fetcher = jest
-      .fn()
+      .fn<AnyFn>()
       .mockResolvedValueOnce({ id: '1', name: 'A' })
       .mockResolvedValueOnce({ id: '2', name: 'B' });
 
@@ -84,7 +86,7 @@ describe('useEntityFetch', () => {
   });
 
   it('sets error on fetch failure', async () => {
-    const fetcher = jest.fn().mockRejectedValue(new Error('not found'));
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue(new Error('not found'));
 
     const { result } = renderHook(() => useEntityFetch('1', fetcher));
 
@@ -95,7 +97,7 @@ describe('useEntityFetch', () => {
   });
 
   it('wraps non-Error rejection values', async () => {
-    const fetcher = jest.fn().mockRejectedValue('string-error');
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue('string-error');
 
     const { result } = renderHook(() => useEntityFetch('1', fetcher));
 

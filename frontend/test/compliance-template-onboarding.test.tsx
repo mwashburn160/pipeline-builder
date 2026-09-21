@@ -8,11 +8,13 @@
  * templates selected.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import TemplateOnboarding, { APPLY_BLOCKED_REASON } from '../src/components/compliance/TemplateOnboarding';
 
-const getRuleTemplates = jest.fn();
-const applyRuleTemplates = jest.fn();
+const getRuleTemplates = jest.fn<AnyFn>();
+const applyRuleTemplates = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

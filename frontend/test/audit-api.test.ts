@@ -8,6 +8,8 @@
  * future refactor can't silently drop the `orgId` param.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import type { ApiCore } from '../src/lib/api/core';
 import { adminApi } from '../src/lib/api/domains/admin';
 
@@ -16,7 +18,7 @@ import { adminApi } from '../src/lib/api/domains/admin';
 function makeApi() {
   const calls: string[] = [];
   const core = {
-    request: jest.fn((path: string) => {
+    request: jest.fn<AnyFn>((path: string) => {
       calls.push(path);
       return Promise.resolve({ success: true, data: {} });
     }),

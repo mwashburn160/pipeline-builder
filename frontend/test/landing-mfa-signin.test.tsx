@@ -15,25 +15,27 @@
  * account" always does.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const login = jest.fn();
-const completeMfaLogin = jest.fn();
-const loginWithPasskey = jest.fn();
+const login = jest.fn<AnyFn>();
+const completeMfaLogin = jest.fn<AnyFn>();
+const loginWithPasskey = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ login, completeMfaLogin, loginWithPasskey, isLoading: false }),
 }));
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ query: {}, push: jest.fn() }),
+  useRouter: () => ({ query: {}, push: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
-    listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: ['google'] } }),
+    listOAuthProviders: jest.fn<AnyFn>().mockResolvedValue({ data: { providers: ['google'] } }),
     // Domain SSO discovery runs off the identifier field; nothing here is federated.
-    discoverSso: jest.fn().mockResolvedValue({ data: { sso: false } }),
+    discoverSso: jest.fn<AnyFn>().mockResolvedValue({ data: { sso: false } }),
   },
 }));
 jest.mock('framer-motion', () => ({
@@ -44,7 +46,7 @@ jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => false,
   browserSupportsWebAuthnAutofill: async () => false,
-  cancelPasskeyCeremony: jest.fn(),
+  cancelPasskeyCeremony: jest.fn<AnyFn>(),
 }));
 
 import LandingPage from '../src/components/landing/LandingPage';

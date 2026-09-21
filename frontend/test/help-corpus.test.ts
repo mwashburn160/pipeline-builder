@@ -7,6 +7,7 @@
  * the docs/*.md it came from (so the help↔docs link is explicit, not a silent
  * hand-copy). Regenerate with `npm run generate:help`.
  */
+import { describe, it, expect, beforeAll } from '@jest/globals';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';

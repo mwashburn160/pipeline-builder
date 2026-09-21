@@ -10,13 +10,15 @@
  * metadata save silently hid the plugin from the org.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import CreatePluginModal from '../src/components/plugin/CreatePluginModal';
 import WizardPluginTab from '../src/components/plugin/WizardPluginTab';
 
-const listPlugins = jest.fn();
-const getPluginById = jest.fn();
-const updatePlugin = jest.fn();
+const listPlugins = jest.fn<AnyFn>();
+const getPluginById = jest.fn<AnyFn>();
+const updatePlugin = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -39,22 +41,22 @@ function rungs(displayed: string): string[] {
 }
 
 describe('create-flow visibility ladder', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('upload tab preselects org and offers all three rungs to a publisher', () => {
-    render(<CreatePluginModal canPublish initialTab="upload" onClose={jest.fn()} onCreated={jest.fn()} />);
+    render(<CreatePluginModal canPublish initialTab="upload" onClose={jest.fn<AnyFn>()} onCreated={jest.fn<AnyFn>()} />);
     expect(rungs(ORG_LABEL)).toEqual(['private', 'org', 'public']);
     expect(screen.getByDisplayValue(ORG_LABEL)).not.toBeDisabled();
   });
 
   it('a non-publisher still picks between private and org (only public is gated)', () => {
-    render(<CreatePluginModal canPublish={false} initialTab="upload" onClose={jest.fn()} onCreated={jest.fn()} />);
+    render(<CreatePluginModal canPublish={false} initialTab="upload" onClose={jest.fn<AnyFn>()} onCreated={jest.fn<AnyFn>()} />);
     expect(rungs(ORG_LABEL)).toEqual(['private', 'org']);
     expect(screen.getByDisplayValue(ORG_LABEL)).not.toBeDisabled();
   });
 
   it('wizard create mode preselects org', () => {
-    render(<WizardPluginTab canPublish={false} onCreated={jest.fn()} onClose={jest.fn()} />);
+    render(<WizardPluginTab canPublish={false} onCreated={jest.fn<AnyFn>()} onClose={jest.fn<AnyFn>()} />);
     expect(screen.getByDisplayValue(ORG_LABEL)).toBeInTheDocument();
   });
 
@@ -68,7 +70,7 @@ describe('create-flow visibility ladder', () => {
     getPluginById.mockResolvedValue({ success: true, data: { plugin } });
     updatePlugin.mockResolvedValue({ success: true });
 
-    render(<WizardPluginTab canPublish={false} onCreated={jest.fn()} onClose={jest.fn()} />);
+    render(<WizardPluginTab canPublish={false} onCreated={jest.fn<AnyFn>()} onClose={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByText('Edit existing'));
     await waitFor(() => expect(screen.getByRole('option', { name: /lint v1\.0\.0/ })).toBeInTheDocument());
     fireEvent.change(screen.getByDisplayValue('Select a plugin…'), { target: { value: 'p1' } });

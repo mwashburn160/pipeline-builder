@@ -8,6 +8,7 @@
  * rather than "ignore the answer when it arrives".
  */
 
+import { describe, it, expect } from '@jest/globals';
 import {
   clearQueryCache,
   invalidateQueries,

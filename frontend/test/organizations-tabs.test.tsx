@@ -7,6 +7,8 @@
  * switching tabs writes the tab back so a refresh or a shared link keeps it.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import OrganizationsPage from '../pages/dashboard/organizations';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -20,11 +22,11 @@ jest.mock('@/components/RecentlyDeletedPanel', () => ({
   RecentlyDeletedPanel: ({ resource }: { resource: string }) => <div>trash:{resource}</div>,
 }));
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/organizations', replace, push: jest.fn() }),
+  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/organizations', replace, push: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('@/hooks/useListPage', () => ({
@@ -32,8 +34,8 @@ jest.mock('@/hooks/useListPage', () => ({
   useListPage: () => ({
     data: [], filters: {}, error: null, isLoading: false,
     pagination: { total: 0, offset: 0, limit: 25 },
-    refresh: jest.fn(), setError: jest.fn(), updateFilter: jest.fn(),
-    handlePageChange: jest.fn(), handlePageSizeChange: jest.fn(),
+    refresh: jest.fn<AnyFn>(), setError: jest.fn<AnyFn>(), updateFilter: jest.fn<AnyFn>(),
+    handlePageChange: jest.fn<AnyFn>(), handlePageSizeChange: jest.fn<AnyFn>(),
   }),
 }));
 jest.mock('@/lib/api', () => ({ __esModule: true, default: {} }));

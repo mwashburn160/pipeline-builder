@@ -15,14 +15,16 @@
  *   - revoking is confirmed first, and says that nobody is deactivated by it.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ScimProvisioning } from '../src/components/settings/ScimProvisioning';
 
-const listServiceAccounts = jest.fn();
-const createServiceAccount = jest.fn();
-const createServiceAccountKey = jest.fn();
-const revokeServiceAccountKey = jest.fn();
-const toastError = jest.fn();
+const listServiceAccounts = jest.fn<AnyFn>();
+const createServiceAccount = jest.fn<AnyFn>();
+const createServiceAccountKey = jest.fn<AnyFn>();
+const revokeServiceAccountKey = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -36,7 +38,7 @@ jest.mock('@/lib/api', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: toastError, warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,

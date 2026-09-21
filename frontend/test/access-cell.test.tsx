@@ -7,6 +7,7 @@
  * whole organization can see was theirs alone.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render } from '@testing-library/react';
 import { AccessCell } from '../src/components/ui/AccessCell';
 import { VISIBILITY_RUNGS } from '../src/components/ui/visibility-rungs';

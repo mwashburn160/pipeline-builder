@@ -8,6 +8,7 @@
 // base64UrlDecode uses atob which isn't available in Node — provide a polyfill
 (globalThis as any).atob = (str: string) => Buffer.from(str, 'base64').toString('binary');
 
+import { describe, it, expect } from '@jest/globals';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '../src/lib/jwt';
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@
     "module": "CommonJS",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "types": ["jest", "node"],
+    "types": ["node"],
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"]
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"]
 }

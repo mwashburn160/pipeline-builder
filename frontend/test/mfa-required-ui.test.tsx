@@ -13,11 +13,13 @@
  * different next steps (enrol, or sign in again with the factor they have).
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, waitFor } from '@testing-library/react';
 
-const getProfile = jest.fn();
-const logout = jest.fn();
-const push = jest.fn();
+const getProfile = jest.fn<AnyFn>();
+const logout = jest.fn<AnyFn>();
+const push = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -93,7 +95,7 @@ describe('MfaRequiredBanner', () => {
 
 describe('MfaRequiredDialog', () => {
   it('offers ENROLMENT first when the account has no factor', async () => {
-    render(<MfaRequiredDialog code="MFA_REQUIRED" message="Two-factor authentication is required" onClose={jest.fn()} />);
+    render(<MfaRequiredDialog code="MFA_REQUIRED" message="Two-factor authentication is required" onClose={jest.fn<AnyFn>()} />);
     await waitFor(() => expect(getProfile).toHaveBeenCalled());
     const setUp = await screen.findByRole('button', { name: /set up two-factor/i });
     await act(async () => { setUp.click(); });
@@ -104,19 +106,19 @@ describe('MfaRequiredDialog', () => {
 
   it('points a person who HAS a factor at signing in again, not at enrolment', async () => {
     getProfile.mockResolvedValue({ data: { user: { authFactors: { hasPassword: true, passkeyCount: 1, hasTotp: false, providers: [] } } } });
-    render(<MfaRequiredDialog code="MFA_REQUIRED" message="Two-factor authentication is required" onClose={jest.fn()} />);
+    render(<MfaRequiredDialog code="MFA_REQUIRED" message="Two-factor authentication is required" onClose={jest.fn<AnyFn>()} />);
     expect(await screen.findByRole('button', { name: /manage factors/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /set up two-factor/i })).toBeNull();
   });
 
   it('treats REAUTH_REQUIRED as "sign in again", with no enrolment prompt at all', async () => {
-    render(<MfaRequiredDialog code="REAUTH_REQUIRED" message="This action requires a recent sign-in" onClose={jest.fn()} />);
+    render(<MfaRequiredDialog code="REAUTH_REQUIRED" message="This action requires a recent sign-in" onClose={jest.fn<AnyFn>()} />);
     expect(await screen.findByText(/needs a recent sign-in/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /set up two-factor|manage factors/i })).toBeNull();
   });
 
   it('never signs the person out on its own — the session is fine for everything else', async () => {
-    const onClose = jest.fn();
+    const onClose = jest.fn<AnyFn>();
     render(<MfaRequiredDialog code="MFA_REQUIRED" message="msg" onClose={onClose} />);
     const notNow = await screen.findByRole('button', { name: /not now/i });
     await act(async () => { notNow.click(); });
@@ -125,7 +127,7 @@ describe('MfaRequiredDialog', () => {
   });
 
   it('signs out only when the person asks to sign in again', async () => {
-    render(<MfaRequiredDialog code="MFA_REQUIRED" message="msg" onClose={jest.fn()} />);
+    render(<MfaRequiredDialog code="MFA_REQUIRED" message="msg" onClose={jest.fn<AnyFn>()} />);
     const again = await screen.findByRole('button', { name: /sign in again/i });
     await act(async () => { again.click(); });
     expect(logout).toHaveBeenCalled();
@@ -133,7 +135,7 @@ describe('MfaRequiredDialog', () => {
 
   it('offers both routes when the profile read fails rather than guessing', async () => {
     getProfile.mockRejectedValue(new Error('offline'));
-    render(<MfaRequiredDialog code="MFA_REQUIRED" message="msg" onClose={jest.fn()} />);
+    render(<MfaRequiredDialog code="MFA_REQUIRED" message="msg" onClose={jest.fn<AnyFn>()} />);
     expect(await screen.findByRole('button', { name: /manage factors/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /sign in again/i })).toBeTruthy();
   });

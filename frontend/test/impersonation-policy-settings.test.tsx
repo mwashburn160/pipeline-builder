@@ -11,10 +11,12 @@
  *   - The org's OWN setting is what's edited, not the effective one.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ImpersonationPolicySettings } from '../src/components/settings/ImpersonationPolicySettings';
 
-const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
+const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 
 // StepUpModal stand-in: confirming yields a token, so the save path is testable.
@@ -28,8 +30,8 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const getImpersonationPolicy = jest.fn();
-const updateImpersonationPolicy = jest.fn();
+const getImpersonationPolicy = jest.fn<AnyFn>();
+const updateImpersonationPolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -8,13 +8,15 @@
  * swapped out for a full-component spinner.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RuleList from '../src/components/compliance/RuleList';
 import type { ComplianceRule } from '../src/types/compliance';
 
 let panelMounts = 0;
 jest.mock('@/components/RecentlyDeletedPanel', () => {
-  const { useEffect } = jest.requireActual('react');
+  const { useEffect } = jest.requireActual<typeof import('react')>('react');
   return {
     __esModule: true,
     RecentlyDeletedPanel: () => {
@@ -24,14 +26,14 @@ jest.mock('@/components/RecentlyDeletedPanel', () => {
   };
 });
 
-const getComplianceRules = jest.fn();
+const getComplianceRules = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getComplianceRules: (...a: unknown[]) => getComplianceRules(...a),
-    createComplianceRule: jest.fn(),
-    updateComplianceRule: jest.fn(),
-    deleteComplianceRule: jest.fn(),
+    createComplianceRule: jest.fn<AnyFn>(),
+    updateComplianceRule: jest.fn<AnyFn>(),
+    deleteComplianceRule: jest.fn<AnyFn>(),
   },
 }));
 
@@ -50,7 +52,7 @@ beforeEach(() => {
 
 it('keeps the filter bar and recently-deleted panel mounted while a filter change reloads', async () => {
   getComplianceRules.mockResolvedValueOnce(listOk);
-  render(<RuleList onEdit={jest.fn()} />);
+  render(<RuleList onEdit={jest.fn<AnyFn>()} />);
   expect(await screen.findByText('No latest tags')).toBeInTheDocument();
   expect(panelMounts).toBe(1);
 

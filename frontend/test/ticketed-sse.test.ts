@@ -13,12 +13,14 @@
  *     failed on the first mint error); a build that can't reconnect fails.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook } from '@testing-library/react';
 import { useTicketedSSE, type TicketedSSEOptions } from '../src/hooks/useTicketedSSE';
 import { useBuildStatus } from '../src/hooks/useBuildStatus';
 import { BUILD_SSE_MAX_RETRIES } from '../src/lib/constants';
 
-const getBuildLogTicket = jest.fn();
+const getBuildLogTicket = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -26,7 +28,7 @@ jest.mock('@/lib/api', () => ({
     getBuildLogTicket: (...a: unknown[]) => getBuildLogTicket(...a),
   },
 }));
-const clearPluginCache = jest.fn();
+const clearPluginCache = jest.fn<AnyFn>();
 jest.mock('@/hooks/usePlugins', () => ({ __esModule: true, clearPluginCache: () => clearPluginCache() }));
 
 class MockEventSource {
@@ -69,9 +71,9 @@ afterEach(() => {
 function renderTicketed(overrides: Partial<TicketedSSEOptions> = {}) {
   const opts: TicketedSSEOptions = {
     subscriptionKey: 'k1',
-    getTicket: jest.fn().mockImplementation(async () => `t${++minted}`),
+    getTicket: jest.fn<AnyFn>().mockImplementation(async () => `t${++minted}`),
     buildUrl: (ticket, key) => `/stream/${key}?ticket=${ticket}`,
-    onMessage: jest.fn(),
+    onMessage: jest.fn<AnyFn>(),
     ...overrides,
   };
   const hook = renderHook((p: TicketedSSEOptions) => useTicketedSSE(p), { initialProps: opts });
@@ -87,8 +89,8 @@ describe('useTicketedSSE', () => {
   });
 
   it('by default never gives up on failed ticket mints', async () => {
-    const getTicket = jest.fn().mockRejectedValue(new Error('503'));
-    const onGiveUp = jest.fn();
+    const getTicket = jest.fn<AnyFn>().mockRejectedValue(new Error('503'));
+    const onGiveUp = jest.fn<AnyFn>();
     renderTicketed({ getTicket, onGiveUp });
     await flush();
     for (let i = 0; i < 8; i++) await runBackoff();
@@ -97,8 +99,8 @@ describe('useTicketedSSE', () => {
   });
 
   it('gives up after maxRetries failed mints and calls onGiveUp once', async () => {
-    const getTicket = jest.fn().mockRejectedValue(new Error('503'));
-    const onGiveUp = jest.fn();
+    const getTicket = jest.fn<AnyFn>().mockRejectedValue(new Error('503'));
+    const onGiveUp = jest.fn<AnyFn>();
     renderTicketed({ getTicket, onGiveUp, maxRetries: 2 });
     await flush();
     for (let i = 0; i < 5; i++) await runBackoff();
@@ -107,7 +109,7 @@ describe('useTicketedSSE', () => {
   });
 
   it('counts stream errors against maxRetries too', async () => {
-    const onGiveUp = jest.fn();
+    const onGiveUp = jest.fn<AnyFn>();
     renderTicketed({ onGiveUp, maxRetries: 1 });
     await flush();
     act(() => latest().onerror?.({}));
@@ -120,8 +122,8 @@ describe('useTicketedSSE', () => {
   });
 
   it('a new subscription key restarts a stream that gave up', async () => {
-    const getTicket = jest.fn().mockRejectedValue(new Error('503'));
-    const onGiveUp = jest.fn();
+    const getTicket = jest.fn<AnyFn>().mockRejectedValue(new Error('503'));
+    const onGiveUp = jest.fn<AnyFn>();
     const { rerender, opts } = renderTicketed({ getTicket, onGiveUp, maxRetries: 0 });
     await flush();
     expect(onGiveUp).toHaveBeenCalledTimes(1);
@@ -133,7 +135,7 @@ describe('useTicketedSSE', () => {
   });
 
   it('closes the stream for good when onMessage returns true', async () => {
-    const getTicket = jest.fn().mockResolvedValue('t');
+    const getTicket = jest.fn<AnyFn>().mockResolvedValue('t');
     renderTicketed({ getTicket, onMessage: (d) => (d as { done?: boolean }).done === true });
     await flush();
     const es = latest();

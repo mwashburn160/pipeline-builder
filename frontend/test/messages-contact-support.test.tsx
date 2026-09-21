@@ -17,14 +17,16 @@
  *    `api.sendSupportMessage` and sends NO recipient with it.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, renderHook, act } from '@testing-library/react';
 import { ComposeModal } from '../src/components/message/ComposeModal';
 import { useMessages } from '../src/hooks/useMessages';
 import type { ApiCore } from '../src/lib/api/core';
 import { messagesApi } from '../src/lib/api/domains/messages';
 
-const sendMessage = jest.fn();
-const sendSupportMessage = jest.fn();
+const sendMessage = jest.fn<AnyFn>();
+const sendSupportMessage = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -44,11 +46,11 @@ const SUPPORT_ALIAS = 'support@x.io';
 /** The system support org the server resolves the alias to. */
 const SYSTEM_ORG = '000000000000000000000001';
 
-function renderCompose(canWrite: boolean, onSend: jest.Mock) {
+function renderCompose(canWrite: boolean, onSend: jest.Mock<AnyFn>) {
   return render(
     <ComposeModal
       isOpen
-      onClose={jest.fn()}
+      onClose={jest.fn<AnyFn>()}
       onSend={onSend}
       canWrite={canWrite}
       isSuperAdmin={false}
@@ -72,7 +74,7 @@ beforeEach(() => {
 
 describe('ComposeModal — support-only contact form (no messages:write)', () => {
   it('marks the send as a support send', async () => {
-    const onSend = jest.fn().mockResolvedValue(true);
+    const onSend = jest.fn<AnyFn>().mockResolvedValue(true);
     renderCompose(false, onSend);
 
     compose('the build page is blank');
@@ -89,7 +91,7 @@ describe('ComposeModal — support-only contact form (no messages:write)', () =>
   });
 
   it('offers no way to address anything but support — the recipient is not editable', () => {
-    renderCompose(false, jest.fn().mockResolvedValue(true));
+    renderCompose(false, jest.fn<AnyFn>().mockResolvedValue(true));
 
     // Shown as the alias's LOCAL-PART, like every other support surface — the
     // fixed To field used to print the raw `support@x.io` routing address.
@@ -103,7 +105,7 @@ describe('ComposeModal — support-only contact form (no messages:write)', () =>
 
 describe('ComposeModal — full compose (messages:write)', () => {
   it('marks a send left addressed to the support alias as a support send', async () => {
-    const onSend = jest.fn().mockResolvedValue(true);
+    const onSend = jest.fn<AnyFn>().mockResolvedValue(true);
     renderCompose(true, onSend);
 
     compose('a question for the desk');
@@ -113,7 +115,7 @@ describe('ComposeModal — full compose (messages:write)', () => {
   });
 
   it('does NOT mark an ordinary org-to-org send', async () => {
-    const onSend = jest.fn().mockResolvedValue(true);
+    const onSend = jest.fn<AnyFn>().mockResolvedValue(true);
     renderCompose(true, onSend);
 
     // An <input list=…> is a combobox to the a11y tree, hence the role here.
@@ -131,14 +133,14 @@ describe('ComposeModal — attachments on a support send', () => {
    *  `messages:write`), and the ids ride along on the support send, which the
    *  support route links exactly like POST /messages does. */
   it('carries uploaded attachment ids on the support send', async () => {
-    const onSend = jest.fn().mockResolvedValue(true);
-    const onUploadAttachment = jest.fn()
+    const onSend = jest.fn<AnyFn>().mockResolvedValue(true);
+    const onUploadAttachment = jest.fn<AnyFn>()
       .mockResolvedValueOnce({ id: 'att-1', filename: 'log.txt', contentType: 'text/plain', sizeBytes: 12 })
       .mockResolvedValueOnce({ id: 'att-2', filename: 'shot.png', contentType: 'image/png', sizeBytes: 34 });
     render(
       <ComposeModal
         isOpen
-        onClose={jest.fn()}
+        onClose={jest.fn<AnyFn>()}
         onSend={onSend}
         canWrite
         isSuperAdmin={false}
@@ -221,7 +223,7 @@ describe('messagesApi send contracts', () => {
   function makeApi() {
     const calls: { path: string; init: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const core = {
-      request: jest.fn((path: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
+      request: jest.fn<AnyFn>((path: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
         calls.push({ path, init });
         return Promise.resolve({ success: true, data: {} });
       }),

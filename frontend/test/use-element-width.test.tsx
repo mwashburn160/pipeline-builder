@@ -7,6 +7,7 @@
  * ran again, and every dashboard stayed at the 960px default.
  */
 
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { act, render } from '@testing-library/react';
 import { useElementWidth } from '../src/hooks/useElementWidth';
 

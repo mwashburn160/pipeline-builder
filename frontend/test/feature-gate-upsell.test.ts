@@ -23,6 +23,7 @@
  * api-core (Express/JWT server code) and doesn't depend on pipeline-core at all,
  * which is the same approach `feature-flags-parity.test.ts` takes.
  */
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ALL_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';

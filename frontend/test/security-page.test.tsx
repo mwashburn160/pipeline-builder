@@ -21,6 +21,8 @@
  *   - impersonation is disclosed on every tab.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import {
@@ -45,8 +47,8 @@ jest.mock('@/components/settings/AccessKeysSection', () => ({ AccessKeysSection:
 jest.mock('@/components/settings/ServiceAccountsSection', () => ({ ServiceAccountsSection: () => <div>service-accounts-section</div> }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
 
-const generateNewToken = jest.fn();
-const listTokenHistory = jest.fn();
+const generateNewToken = jest.fn<AnyFn>();
+const listTokenHistory = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -56,11 +58,11 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/security', replace, push: jest.fn() }),
+  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/security', replace, push: jest.fn<AnyFn>() }),
 }));
 
 import SecurityPage from '../pages/dashboard/security';

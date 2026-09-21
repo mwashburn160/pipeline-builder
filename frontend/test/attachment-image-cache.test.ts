@@ -52,7 +52,7 @@ describe('attachment-image-cache', () => {
 
   it('does not cache a failed fetch — a later call retries', async () => {
     const fetchBlob = jest
-      .fn<(id: string) => Promise<Blob>>()
+      .fn<() => Promise<Blob>>()
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce(blob());
 

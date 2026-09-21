@@ -15,6 +15,8 @@
  *   - During read-only impersonation the toggle is disabled.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QuotaBanner } from '../src/components/ui/QuotaBanner';
 import NotificationsPage from '../pages/dashboard/notifications';
@@ -32,9 +34,9 @@ const cachedMute = (userId = 'me', orgId = 'org-1') => readPreferences(userId, o
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const getOwnQuotas = jest.fn();
-const getPreferences = jest.fn();
-const updatePreferences = jest.fn();
+const getOwnQuotas = jest.fn<AnyFn>();
+const getPreferences = jest.fn<AnyFn>();
+const updatePreferences = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

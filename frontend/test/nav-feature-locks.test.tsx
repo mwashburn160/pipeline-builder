@@ -17,6 +17,8 @@
  * Teams is the other half: it had no nav entry at all, so ⌘K couldn't find the
  * word "team" anywhere in the product.
  */
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { User } from '../src/types';
 
@@ -41,7 +43,7 @@ jest.mock('@/lib/query-cache', () => ({
   clearQueryCache: () => {},
 }));
 
-const push = jest.fn();
+const push = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push, query: {}, pathname: '/dashboard' }) }));
 
 import { Sidebar } from '../src/components/ui/Sidebar';
@@ -56,8 +58,8 @@ const sidebarProps = {
   unreadCount: 0,
   currentPath: '/dashboard',
   isDark: false,
-  onToggleDark: jest.fn(),
-  onLogout: jest.fn(),
+  onToggleDark: jest.fn<AnyFn>(),
+  onLogout: jest.fn<AnyFn>(),
 };
 
 beforeEach(() => { features = []; });
@@ -91,7 +93,7 @@ describe('Sidebar — an entitlement locks a row, it never deletes it', () => {
 
 /** Opens ⌘K and returns its listbox. */
 function openPalette() {
-  render(<CommandPalette isSuperAdmin={false} isAdmin={false} isDark={false} onToggleDark={jest.fn()} />);
+  render(<CommandPalette isSuperAdmin={false} isAdmin={false} isDark={false} onToggleDark={jest.fn<AnyFn>()} />);
   fireEvent.keyDown(document, { key: 'k', metaKey: true });
   return screen.getByRole('listbox');
 }

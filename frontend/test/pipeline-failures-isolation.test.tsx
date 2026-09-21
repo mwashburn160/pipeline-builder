@@ -7,6 +7,7 @@
  * and the top-errors grid — now keyed by error_pattern).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PipelineFailures } from '../src/components/reports/PipelineFailures';
 import type { StageFailure, ActionFailure, ErrorEntry } from '../src/components/reports/types';

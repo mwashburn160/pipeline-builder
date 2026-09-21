@@ -15,14 +15,16 @@
  * The matrix below is the whole showing rule, one row per reason to stay quiet.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 import type { User } from '@/types';
 
-const snoozeMfaPrompt = jest.fn(async () => ({ success: true, data: { snoozedUntil: 'x', snoozeDays: 7 } }));
-const declineMfaPrompt = jest.fn(async () => ({ success: true, data: { declinedAt: 'x' } }));
-const restoreMfaPrompt = jest.fn(async () => ({ success: true, data: { cleared: true } }));
-const isImpersonating = jest.fn(() => false);
-const getAccessToken = jest.fn(() => null as string | null);
+const snoozeMfaPrompt = jest.fn<AnyFn>(async () => ({ success: true, data: { snoozedUntil: 'x', snoozeDays: 7 } }));
+const declineMfaPrompt = jest.fn<AnyFn>(async () => ({ success: true, data: { declinedAt: 'x' } }));
+const restoreMfaPrompt = jest.fn<AnyFn>(async () => ({ success: true, data: { cleared: true } }));
+const isImpersonating = jest.fn<AnyFn>(() => false);
+const getAccessToken = jest.fn<AnyFn>(() => null as string | null);
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -39,18 +41,18 @@ jest.mock('@/lib/api', () => ({
   base64UrlDecode: (value: string) => Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
 }));
 
-const refreshUser = jest.fn(async () => undefined);
+const refreshUser = jest.fn<AnyFn>(async () => undefined);
 let mockUser: Partial<User> | null = null;
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ user: mockUser, refreshUser }),
 }));
 
-const toastSuccess = jest.fn();
-const toastError = jest.fn();
+const toastSuccess = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 import { MfaEnrolmentNudge } from '@/components/ui/MfaEnrolmentNudge';
@@ -205,7 +207,7 @@ describe('MfaEnrolmentNudge — the bootstrap administrator', () => {
 });
 
 describe('MfaPromptPreference — the way back', () => {
-  const onChanged = jest.fn(async () => undefined);
+  const onChanged = jest.fn<AnyFn>(async () => undefined);
 
   it('shows nothing when nothing is suppressed', () => {
     render(<MfaPromptPreference readOnly={false} onChanged={onChanged} />);

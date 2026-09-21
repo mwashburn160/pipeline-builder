@@ -11,6 +11,8 @@
  * smooth-scrolling needs the helper tested here.
  */
 
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import { LoadingSpinner } from '../src/components/ui/Loading';
 import { prefersReducedMotion, scrollBehavior } from '../src/lib/motion';
@@ -23,8 +25,8 @@ function mockReducedMotion(reduce: boolean) {
     value: (query: string) => ({
       matches: reduce && query.includes('prefers-reduced-motion'),
       media: query,
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
+      addEventListener: jest.fn<AnyFn>(),
+      removeEventListener: jest.fn<AnyFn>(),
     }),
   });
 }

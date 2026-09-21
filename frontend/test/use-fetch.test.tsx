@@ -9,12 +9,14 @@
  * (the hook must NOT set state after the consumer unmounts).
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useFetch } from '../src/hooks/useFetch';
 
 describe('useFetch', () => {
   it('returns data and clears loading on success', async () => {
-    const fetcher = jest.fn().mockResolvedValue({ items: [1, 2, 3] });
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue({ items: [1, 2, 3] });
 
     const { result } = renderHook(() => useFetch(fetcher, []));
 
@@ -31,7 +33,7 @@ describe('useFetch', () => {
   });
 
   it('sets error and does not throw on failure', async () => {
-    const fetcher = jest.fn().mockRejectedValue(new Error('boom'));
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue(new Error('boom'));
 
     const { result } = renderHook(() => useFetch(fetcher, []));
 
@@ -43,7 +45,7 @@ describe('useFetch', () => {
   });
 
   it('wraps non-Error rejection values', async () => {
-    const fetcher = jest.fn().mockRejectedValue('string-error');
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue('string-error');
 
     const { result } = renderHook(() => useFetch(fetcher, []));
 
@@ -55,7 +57,7 @@ describe('useFetch', () => {
 
   it('refetch triggers a new call', async () => {
     const fetcher = jest
-      .fn()
+      .fn<AnyFn>()
       .mockResolvedValueOnce({ v: 1 })
       .mockResolvedValueOnce({ v: 2 });
 
@@ -71,7 +73,7 @@ describe('useFetch', () => {
 
   it('re-fetches when deps change', async () => {
     const fetcher = jest
-      .fn()
+      .fn<AnyFn>()
       .mockResolvedValueOnce('a')
       .mockResolvedValueOnce('b');
 
@@ -97,7 +99,7 @@ describe('useFetch', () => {
     // updates on unmounted React components in dev mode).
     let resolveFetch: (val: unknown) => void = () => {};
     const pending = new Promise<unknown>(r => { resolveFetch = r; });
-    const fetcher = jest.fn().mockReturnValue(pending);
+    const fetcher = jest.fn<AnyFn>().mockReturnValue(pending);
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 

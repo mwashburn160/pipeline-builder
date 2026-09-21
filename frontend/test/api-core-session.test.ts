@@ -16,6 +16,8 @@
  *    because the refresh token they used to hand each other is now unreadable.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { ApiCore, SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/core';
 import { ApiError } from '../src/lib/api/errors';
 import { REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS } from '../src/lib/constants';
@@ -74,11 +76,11 @@ function signedInCore(): ApiCore {
 }
 
 describe('ApiCore token refresh', () => {
-  let fetchMock: jest.Mock;
+  let fetchMock: jest.Mock<AnyFn>;
 
   beforeEach(() => {
     jest.useFakeTimers();
-    fetchMock = jest.fn();
+    fetchMock = jest.fn<AnyFn>();
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
@@ -121,7 +123,7 @@ describe('ApiCore token refresh', () => {
 
   it.each([401, 400])('clears the session when /auth/refresh answers %i', async (status) => {
     const core = signedInCore();
-    const expired = jest.fn();
+    const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockResolvedValue(res(status, { message: 'invalid refresh token' }));
 
@@ -139,7 +141,7 @@ describe('ApiCore token refresh', () => {
     ['a 503', () => Promise.resolve(res(503))],
   ])('keeps the session through %s, retrying with bounded backoff', async (_label, impl) => {
     const core = signedInCore();
-    const expired = jest.fn();
+    const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockImplementation(impl);
 
@@ -207,7 +209,7 @@ describe('ApiCore token refresh', () => {
 
   it('request(): a 401 whose refresh fails transiently throws a retryable error and keeps the session', async () => {
     const core = signedInCore();
-    const expired = jest.fn();
+    const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockImplementation((url: string) =>
       Promise.resolve(url.endsWith('/api/auth/refresh') ? res(503) : res(401, { message: 'jwt expired' })));
@@ -224,7 +226,7 @@ describe('ApiCore token refresh', () => {
 
   it('request(): a 401 whose refresh is rejected surfaces the 401 and ends the session', async () => {
     const core = signedInCore();
-    const expired = jest.fn();
+    const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockImplementation((url: string) =>
       Promise.resolve(url.endsWith('/api/auth/refresh') ? res(401) : res(401, { message: 'jwt expired' })));
@@ -248,10 +250,10 @@ describe('ApiCore token refresh', () => {
 });
 
 describe('ApiCore.restoreSession', () => {
-  let fetchMock: jest.Mock;
+  let fetchMock: jest.Mock<AnyFn>;
 
   beforeEach(() => {
-    fetchMock = jest.fn();
+    fetchMock = jest.fn<AnyFn>();
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
@@ -290,10 +292,10 @@ describe('ApiCore.restoreSession', () => {
 });
 
 describe('ApiCore cross-tab coordination', () => {
-  let fetchMock: jest.Mock;
+  let fetchMock: jest.Mock<AnyFn>;
 
   beforeEach(() => {
-    fetchMock = jest.fn();
+    fetchMock = jest.fn<AnyFn>();
     global.fetch = fetchMock as unknown as typeof fetch;
     (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel = TestBroadcastChannel;
   });
@@ -326,7 +328,7 @@ describe('ApiCore cross-tab coordination', () => {
     const tabA = new ApiCore();
     const tabB = new ApiCore();
     tabA.setTokens(FIRST);
-    const expiredInB = jest.fn();
+    const expiredInB = jest.fn<AnyFn>();
     tabB.onSessionExpired(expiredInB);
 
     tabA.clearTokens();

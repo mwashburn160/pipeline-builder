@@ -13,13 +13,15 @@
  *   - Another tab's change shows up via the `storage` event.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { toggleFavorite, useFavorites } from '../src/lib/favorites';
 import { useNotificationPrefs } from '../src/lib/notification-prefs';
 import { __resetPreferencesStoreForTests, preferencesStorageKey, readPreferences } from '../src/lib/preferences-store';
 
-const getPreferences = jest.fn();
-const updatePreferences = jest.fn();
+const getPreferences = jest.fn<AnyFn>();
+const updatePreferences = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

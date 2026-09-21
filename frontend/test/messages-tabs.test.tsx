@@ -12,12 +12,14 @@
  * pagination.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useMessages, MESSAGE_PAGE_SIZE } from '../src/hooks/useMessages';
 
-const getMessages = jest.fn();
-const getAnnouncements = jest.fn();
-const getConversations = jest.fn();
+const getMessages = jest.fn<AnyFn>();
+const getAnnouncements = jest.fn<AnyFn>();
+const getConversations = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -25,7 +27,7 @@ jest.mock('@/lib/api', () => ({
     getMessages: (...a: unknown[]) => getMessages(...a),
     getAnnouncements: (...a: unknown[]) => getAnnouncements(...a),
     getConversations: (...a: unknown[]) => getConversations(...a),
-    getUnreadCount: jest.fn().mockResolvedValue({ data: { count: 0 } }),
+    getUnreadCount: jest.fn<AnyFn>().mockResolvedValue({ data: { count: 0 } }),
   },
 }));
 
@@ -67,7 +69,7 @@ describe('useMessages view routing', () => {
 
     const { result, rerender } = renderHook(
       ({ view }: { view: 'all' | 'announcements' | 'conversations' }) => useMessages('org-1', '', view),
-      { initialProps: { view: 'all' as const } },
+      { initialProps: { view: 'all' as 'all' | 'announcements' | 'conversations' } },
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(getMessages).toHaveBeenCalledTimes(1);
@@ -96,7 +98,7 @@ describe('useMessages view routing', () => {
 
     const { result, rerender } = renderHook(
       ({ view }: { view: 'all' | 'announcements' | 'conversations' }) => useMessages('org-1', '', view),
-      { initialProps: { view: 'all' as const } },
+      { initialProps: { view: 'all' as 'all' | 'announcements' | 'conversations' } },
     );
     await waitFor(() => expect(result.current.messages).toHaveLength(MESSAGE_PAGE_SIZE));
     expect(result.current.messages.some((m) => m.id === 'a-late')).toBe(false);

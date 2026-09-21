@@ -7,6 +7,7 @@
  * on the param shape staying stable — these assertions are the contract.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { buildAuditLogLink } from '../src/lib/registry-audit-link';
 
 const paramsOf = (href: string) => new URLSearchParams(href.split('?')[1]);

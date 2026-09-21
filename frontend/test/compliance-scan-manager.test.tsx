@@ -6,22 +6,24 @@
  * running scan asks first (it can't be resumed) instead of firing on one click.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ScanManager from '../src/components/compliance/ScanManager';
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
-const getScans = jest.fn();
-const cancelScan = jest.fn();
+const getScans = jest.fn<AnyFn>();
+const cancelScan = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getScans: (...a: unknown[]) => getScans(...a),
     cancelScan: (...a: unknown[]) => cancelScan(...a),
-    triggerScan: jest.fn(),
+    triggerScan: jest.fn<AnyFn>(),
   },
 }));
 

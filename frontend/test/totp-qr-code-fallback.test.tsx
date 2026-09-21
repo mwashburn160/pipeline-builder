@@ -10,6 +10,7 @@
  * suite deliberately runs the real one.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen, act } from '@testing-library/react';
 
 jest.mock('uqr', () => ({

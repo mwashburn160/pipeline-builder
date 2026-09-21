@@ -10,28 +10,30 @@
  * new user back on the login screen. The error path must NOT authenticate.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const mockPush = jest.fn();
+const mockPush = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({ useRouter: () => ({ push: mockPush }) }));
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn() }));
+jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn<AnyFn>() }));
 
 const mockApi = {
-  isAuthenticated: jest.fn(() => true),
+  isAuthenticated: jest.fn<AnyFn>(() => true),
   // A page load has no access token in memory; the provider trades the
   // HttpOnly refresh cookie for one before deciding "signed out".
-  restoreSession: jest.fn(async () => true),
-  isImpersonating: jest.fn(() => false),
-  getProfile: jest.fn(async () => ({
+  restoreSession: jest.fn<AnyFn>(async () => true),
+  isImpersonating: jest.fn<AnyFn>(() => false),
+  getProfile: jest.fn<AnyFn>(async () => ({
     success: true,
     data: { user: { id: 'u1', username: 'neo', email: 'neo@example.com', role: 'owner', organizationId: 'o1' } },
   })),
-  getUserOrganizations: jest.fn(async () => ({ data: { organizations: [] } })),
-  setOrganizationId: jest.fn(),
-  onSessionExpired: jest.fn(() => () => { /* unsubscribe */ }),
-  register: jest.fn(async () => ({ success: true, data: { user: { id: 'u1' } } })),
-  login: jest.fn(async () => ({ success: true })),
+  getUserOrganizations: jest.fn<AnyFn>(async () => ({ data: { organizations: [] } })),
+  setOrganizationId: jest.fn<AnyFn>(),
+  onSessionExpired: jest.fn<AnyFn>(() => () => { /* unsubscribe */ }),
+  register: jest.fn<AnyFn>(async () => ({ success: true, data: { user: { id: 'u1' } } })),
+  login: jest.fn<AnyFn>(async () => ({ success: true })),
 };
 class ApiError extends Error {
   statusCode: number;

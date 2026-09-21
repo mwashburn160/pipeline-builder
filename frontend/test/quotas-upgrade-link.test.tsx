@@ -8,6 +8,7 @@
  * and a team defers to the parent org.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { QuotasReadOnly } from '../src/components/quotas/QuotasReadOnly';
 

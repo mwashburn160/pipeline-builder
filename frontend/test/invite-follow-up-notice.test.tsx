@@ -10,10 +10,12 @@
  * admin may not hold.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { InviteFollowUpNotice } from '../src/components/invitations/InviteFollowUpNotice';
 
-const getMfaPolicy = jest.fn();
+const getMfaPolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getMfaPolicy: (...a: unknown[]) => getMfaPolicy(...a) },

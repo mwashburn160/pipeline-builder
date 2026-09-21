@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Button } from '../src/components/ui/Button';
 import { READ_ONLY_REASON } from '../src/components/ui/ReadOnlyNotice';
 
 describe('Button readOnly', () => {
   it('disables the button and explains why, replacing its own title', () => {
-    const onClick = jest.fn();
+    const onClick = jest.fn<AnyFn>();
     render(<Button readOnly title="Create a token" onClick={onClick}>Create</Button>);
     const btn = screen.getByRole('button', { name: 'Create' });
     expect(btn).toBeDisabled();

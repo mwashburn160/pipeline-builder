@@ -11,18 +11,20 @@
  * and a superseded/unmounted read is aborted rather than merely ignored.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useQuery } from '../src/hooks/useQuery';
 import { useListPage } from '../src/hooks/useListPage';
 import { clearQueryCache, invalidateQueries, type Query } from '../src/lib/query-cache';
 
 jest.mock('next/router', () => ({
-  useRouter: () => ({ query: {}, isReady: true, pathname: '/x', replace: jest.fn() }),
+  useRouter: () => ({ query: {}, isReady: true, pathname: '/x', replace: jest.fn<AnyFn>() }),
 }));
 
 /** A descriptor whose run() is a spy, rebuilt each render like a real call site. */
 function counting(key: string, value = 'v') {
-  const run = jest.fn((_signal: AbortSignal) => Promise.resolve(value));
+  const run = jest.fn<AnyFn>((_signal: AbortSignal) => Promise.resolve(value));
   return { query: (): Query<string> => ({ key, run, staleMs: 10_000 }), run };
 }
 
@@ -145,7 +147,7 @@ describe('useQuery — changing the key', () => {
 describe('useListPage — cancellation', () => {
   it('aborts the superseded fetch when the filters change', async () => {
     const signals: AbortSignal[] = [];
-    const fetcher = jest.fn(async (_params: Record<string, string>, signal: AbortSignal) => {
+    const fetcher = jest.fn<AnyFn>(async (_params: Record<string, string>, signal: AbortSignal) => {
       signals.push(signal);
       return { items: [] as string[] };
     });

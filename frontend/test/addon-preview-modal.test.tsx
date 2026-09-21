@@ -7,6 +7,8 @@
  * discount (drives the Team Growth / Analytics Suite "you'll lose −$20/mo" note).
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import { AddonPreviewModal } from '../src/components/billing/AddonPreviewModal';
 import type { AddonResult } from '../src/types';
@@ -17,10 +19,10 @@ const baseProps = {
   paymentRequired: false,
   actionLoading: false,
   portalLoading: false,
-  onClose: jest.fn(),
-  onCancel: jest.fn(),
-  onConfirmAddonChange: jest.fn(),
-  onOpenBillingPortal: jest.fn(),
+  onClose: jest.fn<AnyFn>(),
+  onCancel: jest.fn<AnyFn>(),
+  onConfirmAddonChange: jest.fn<AnyFn>(),
+  onOpenBillingPortal: jest.fn<AnyFn>(),
 };
 
 const preview = (over: Partial<AddonResult> = {}): AddonResult => ({

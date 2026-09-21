@@ -11,13 +11,15 @@
  *    and a turn with no usable draft becomes an `error` quoting the agent.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useAIProviders } from '../src/hooks/useAIProviders';
 import { streamAgentDraft } from '../src/lib/ask-agent-draft';
 
-const askAgentStream = jest.fn();
-const getAskProviders = jest.fn();
-const getOrgAIConfig = jest.fn();
+const askAgentStream = jest.fn<AnyFn>();
+const getAskProviders = jest.fn<AnyFn>();
+const getOrgAIConfig = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -79,7 +81,7 @@ describe('useAIProviders({ askAgent: true })', () => {
 });
 
 describe('streamAgentDraft', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('turns a pipeline proposal into done, passing the real provider/model', async () => {
     askAgentStream.mockReturnValue(gen([

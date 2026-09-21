@@ -11,6 +11,8 @@
  * stack, so an admin only learns one shape.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { TeamSettingsDrawer } from '../src/components/teams/TeamSettingsDrawer';
@@ -42,13 +44,13 @@ jest.mock('@/components/ui/FeatureLock', () => ({
   FeatureLock: ({ flag }: { flag: string }) => <div data-testid={`feature-lock-${flag}`} />,
 }));
 
-const invalidateOrganizations = jest.fn();
+const invalidateOrganizations = jest.fn<AnyFn>();
 jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: () => invalidateOrganizations() } }));
 
-const getOwnOrgIdpConfig = jest.fn();
-const getOwnOrgIdpSpInfo = jest.fn();
-const listOrgDomains = jest.fn();
-const updateOrganizationIdentity = jest.fn();
+const getOwnOrgIdpConfig = jest.fn<AnyFn>();
+const getOwnOrgIdpSpInfo = jest.fn<AnyFn>();
+const listOrgDomains = jest.fn<AnyFn>();
+const updateOrganizationIdentity = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -88,7 +90,7 @@ beforeEach(() => {
 describe('TeamSettingsDrawer', () => {
   it('hands the TEAM\'s org id to every settings section', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(screen.getByTestId('mfa')).toHaveTextContent('team-7');
     expect(screen.getByTestId('impersonation')).toHaveTextContent('team-7');
@@ -98,7 +100,7 @@ describe('TeamSettingsDrawer', () => {
 
   it('gives a team the SAME six-step wizard as the org SSO page, not the old stacked editors', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     // The wizard makes you CHOOSE a protocol — the drawer used to stack both
     // editors at once — and carries the steps the old shape had no room for.
@@ -111,7 +113,7 @@ describe('TeamSettingsDrawer', () => {
 
   it('reads the SP values for the TEAM, never the active org', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /2\s*Service-provider values/ }));
     await waitFor(() => expect(getOwnOrgIdpSpInfo).toHaveBeenCalledWith('team-7', expect.anything()));
@@ -120,7 +122,7 @@ describe('TeamSettingsDrawer', () => {
   it('shows the status summary — with test connection and "SSO required" — for a configured team', async () => {
     getOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: TEAM_CONFIG } });
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(await screen.findByTestId('sso-summary')).toBeInTheDocument();
     // Both were missing from the drawer's old shape.
@@ -130,7 +132,7 @@ describe('TeamSettingsDrawer', () => {
 
   it('keeps each section behind its own permission', () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:impersonation' });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(screen.getByTestId('impersonation')).toBeInTheDocument();
     expect(screen.queryByTestId('mfa')).not.toBeInTheDocument();
@@ -142,15 +144,15 @@ describe('TeamSettingsDrawer', () => {
   it('shows the sso lock instead of the editors when the account isn\'t entitled', () => {
     ssoEntitled = false;
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:idp' });
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={jest.fn()} />);
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
     expect(screen.getByTestId('feature-lock-sso')).toBeInTheDocument();
     expect(screen.queryByText('Set up single sign-on')).not.toBeInTheDocument();
   });
 
   it('renames the team through its own identity route, then tells the parent', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:settings' });
-    const onRenamed = jest.fn();
-    render(<TeamSettingsDrawer team={team} onClose={jest.fn()} onRenamed={onRenamed} />);
+    const onRenamed = jest.fn<AnyFn>();
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={onRenamed} />);
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Platform Eng' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rename team' }));

@@ -12,6 +12,8 @@
  * tab→panel id pair.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TabBar, tabPanelProps, type TabBarItem } from '../src/components/ui/TabBar';
@@ -90,7 +92,7 @@ describe('TabBar — state tabs', () => {
   });
 
   it('ignores other keys', () => {
-    const onSelect = jest.fn();
+    const onSelect = jest.fn<AnyFn>();
     render(<TabBar items={ITEMS} activeId="a" onSelect={onSelect} />);
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Alpha' }), { key: 'ArrowDown' });
     expect(onSelect).not.toHaveBeenCalled();

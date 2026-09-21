@@ -10,21 +10,23 @@
  * the panel states them, loudly when people would be locked out.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MfaPolicySettings } from '../src/components/settings/MfaPolicySettings';
 import type { OrgMfaPolicy } from '../src/types';
 
-const getMfaPolicy = jest.fn();
+const getMfaPolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getMfaPolicy: (...a: unknown[]) => getMfaPolicy(...a),
-    updateMfaPolicy: jest.fn(),
+    updateMfaPolicy: jest.fn<AnyFn>(),
   },
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 let stepUpDetails: React.ReactNode = null;

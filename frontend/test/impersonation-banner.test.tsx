@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ImpersonationBanner, formatCountdown } from '../src/components/ui/ImpersonationBanner';
 
-const endImpersonation = jest.fn();
-const stopImpersonation = jest.fn();
+const endImpersonation = jest.fn<AnyFn>();
+const stopImpersonation = jest.fn<AnyFn>();
 let accessToken: string | null = null;
 let requestId: string | null = 'req-123';
 
@@ -40,7 +42,7 @@ describe('ImpersonationBanner', () => {
     jest.useFakeTimers();
     jest.setSystemTime(NOW);
   });
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => { jest.useRealTimers(); });
 
   it('names the target person, their email and org, not a raw id', () => {
     render(<ImpersonationBanner />);

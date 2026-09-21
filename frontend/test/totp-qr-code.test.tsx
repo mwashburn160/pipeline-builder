@@ -14,6 +14,7 @@
  * has to stub the encoder to make it fail at all.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen, act, waitFor } from '@testing-library/react';
 
 import { TotpQrCode } from '../src/components/settings/TotpQrCode';

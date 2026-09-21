@@ -8,6 +8,7 @@
  * properties that make a result actionable: section-level hits, a snippet, and
  * a ranking that puts a title match above a body match.
  */
+import { describe, it, expect, beforeAll } from '@jest/globals';
 import { Boxes } from 'lucide-react';
 import { searchHelp, snippetAround, sectionText, blockText } from '../src/lib/help/search';
 import { loadHelpTopics } from '../src/lib/help';

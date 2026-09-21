@@ -12,6 +12,7 @@
  * there is nothing to point them at.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

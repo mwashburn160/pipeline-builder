@@ -10,6 +10,8 @@
  * Clipboard API rejects.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { CopyableId } from '../src/components/ui/CopyableId';
 
@@ -36,7 +38,7 @@ describe('CopyableId', () => {
   });
 
   it('copies the full value (not the display string) on click', async () => {
-    const writeText = jest.fn().mockResolvedValue(undefined);
+    const writeText = jest.fn<AnyFn>().mockResolvedValue(undefined);
     mockClipboard({ writeText });
 
     render(<CopyableId value="full-secret-id" display="full…" />);
@@ -48,7 +50,7 @@ describe('CopyableId', () => {
   });
 
   it('shows a "Copied!" tooltip after a successful copy', async () => {
-    mockClipboard({ writeText: jest.fn().mockResolvedValue(undefined) });
+    mockClipboard({ writeText: jest.fn<AnyFn>().mockResolvedValue(undefined) });
 
     render(<CopyableId value="x" />);
     await act(async () => {
@@ -61,7 +63,7 @@ describe('CopyableId', () => {
   });
 
   it('shows a "Copy failed" tooltip when the Clipboard API rejects', async () => {
-    mockClipboard({ writeText: jest.fn().mockRejectedValue(new Error('blocked')) });
+    mockClipboard({ writeText: jest.fn<AnyFn>().mockRejectedValue(new Error('blocked')) });
 
     render(<CopyableId value="x" />);
     await act(async () => {

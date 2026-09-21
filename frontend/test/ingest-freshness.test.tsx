@@ -11,6 +11,7 @@
  * staleness is measured against the SERVER's clock.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import {
   IngestFreshness,

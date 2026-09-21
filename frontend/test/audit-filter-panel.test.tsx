@@ -7,6 +7,8 @@
  * `useListPage`, so each field is a single `onChange(key, value)`.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AuditFilterPanel } from '../src/components/audit/AuditFilterPanel';
 
@@ -14,14 +16,14 @@ const noFilters: Record<string, string> = {};
 
 describe('AuditFilterPanel', () => {
   it('reports a text edit as one keyed change', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<AuditFilterPanel filters={noFilters} onChange={onChange} isSuperAdmin={false} />);
     fireEvent.change(screen.getByLabelText(/filter by actor user id/i), { target: { value: 'u-1' } });
     expect(onChange).toHaveBeenCalledWith('actorId', 'u-1');
   });
 
   it('reports a select change the same way', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<AuditFilterPanel filters={noFilters} onChange={onChange} isSuperAdmin={false} />);
     fireEvent.change(screen.getByLabelText(/filter by outcome/i), { target: { value: 'failure' } });
     expect(onChange).toHaveBeenCalledWith('outcome', 'failure');

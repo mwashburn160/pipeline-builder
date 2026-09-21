@@ -24,30 +24,32 @@
  * a username, and asked once per domain.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const login = jest.fn();
-const completeMfaLogin = jest.fn();
-const loginWithPasskey = jest.fn();
+const login = jest.fn<AnyFn>();
+const completeMfaLogin = jest.fn<AnyFn>();
+const loginWithPasskey = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ login, completeMfaLogin, loginWithPasskey, isLoading: false }),
 }));
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ query: {}, push: jest.fn() }),
+  useRouter: () => ({ query: {}, push: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/lib/api', () => {
   const api = {
-    listOAuthProviders: jest.fn(),
-    discoverSso: jest.fn(),
-    startSsoByEmail: jest.fn(),
-    getSsoUrl: jest.fn(),
+    listOAuthProviders: jest.fn<AnyFn>(),
+    discoverSso: jest.fn<AnyFn>(),
+    startSsoByEmail: jest.fn<AnyFn>(),
+    getSsoUrl: jest.fn<AnyFn>(),
   };
   return { __esModule: true, default: api, api };
 });
-const mockApi = jest.requireMock('@/lib/api').api as Record<
-  'listOAuthProviders' | 'discoverSso' | 'startSsoByEmail' | 'getSsoUrl', jest.Mock
+const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<
+  'listOAuthProviders' | 'discoverSso' | 'startSsoByEmail' | 'getSsoUrl', jest.Mock<AnyFn>
 >;
 jest.mock('framer-motion', () => ({
   __esModule: true,
@@ -57,7 +59,7 @@ jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => true,
   browserSupportsWebAuthnAutofill: async () => false,
-  cancelPasskeyCeremony: jest.fn(),
+  cancelPasskeyCeremony: jest.fn<AnyFn>(),
 }));
 
 import LandingPage from '../src/components/landing/LandingPage';

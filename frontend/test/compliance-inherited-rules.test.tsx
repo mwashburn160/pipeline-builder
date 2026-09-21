@@ -9,6 +9,8 @@
  * a 403, and a row whose actions simply vanish looks like a bug.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import EnforcedRulesView from '../src/components/compliance/EnforcedRulesView';
 import RuleList from '../src/components/compliance/RuleList';
@@ -19,16 +21,16 @@ jest.mock('@/components/RecentlyDeletedPanel', () => ({
   RecentlyDeletedPanel: () => null,
 }));
 
-const getEnforcedRules = jest.fn();
-const getComplianceRules = jest.fn();
+const getEnforcedRules = jest.fn<AnyFn>();
+const getComplianceRules = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getEnforcedRules: (...a: unknown[]) => getEnforcedRules(...a),
     getComplianceRules: (...a: unknown[]) => getComplianceRules(...a),
-    createComplianceRule: jest.fn(),
-    updateComplianceRule: jest.fn(),
-    deleteComplianceRule: jest.fn(),
+    createComplianceRule: jest.fn<AnyFn>(),
+    updateComplianceRule: jest.fn<AnyFn>(),
+    deleteComplianceRule: jest.fn<AnyFn>(),
   },
 }));
 
@@ -42,7 +44,7 @@ const inherited = {
   inherited: true, sourceOrgId: 'root-1', sourceOrgName: 'Acme',
 } as unknown as ComplianceRule;
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('EnforcedRulesView', () => {
   it('badges an inherited rule with its source org name, and only that rule', async () => {
@@ -71,7 +73,7 @@ describe('RuleList', () => {
       success: true,
       data: { rules: [own, inherited], pagination: { total: 2, limit: 20, offset: 0 } },
     });
-    render(<RuleList onEdit={jest.fn()} />);
+    render(<RuleList onEdit={jest.fn<AnyFn>()} />);
 
     expect(await screen.findByText('Parent rule')).toBeInTheDocument();
     expect(screen.getByText('Inherited from Acme')).toBeInTheDocument();
@@ -92,7 +94,7 @@ describe('RuleList', () => {
       success: true,
       data: { rules: [inherited], pagination: { total: 1, limit: 20, offset: 0 } },
     });
-    render(<RuleList onEdit={jest.fn()} />);
+    render(<RuleList onEdit={jest.fn<AnyFn>()} />);
 
     // Not a `title` tooltip: real text in the row, referenced by the controls.
     const reason = await screen.findByText('Set by Acme and applied to every team — change it there.');

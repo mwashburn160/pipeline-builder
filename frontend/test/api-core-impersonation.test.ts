@@ -16,6 +16,8 @@
  *   - getting out never depends on the revoke — it neither throws nor hangs.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { ApiCore } from '../src/lib/api/core';
 
 const b64url = (o: unknown) =>
@@ -43,7 +45,7 @@ const tokenOf = (core: ApiCore) => (core as unknown as { accessToken: string | n
 
 beforeEach(() => {
   // Stopping picks the operator's session back up from the refresh cookie.
-  global.fetch = jest.fn(async () => refreshResponse()) as unknown as typeof fetch;
+  global.fetch = jest.fn<AnyFn>(async () => refreshResponse()) as unknown as typeof fetch;
 });
 
 afterEach(() => {

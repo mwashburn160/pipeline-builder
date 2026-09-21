@@ -18,6 +18,8 @@
  *     silently doing nothing.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ApiCore } from '../src/lib/api/core';
@@ -33,7 +35,7 @@ describe('step-up refusal carries a retry', () => {
   /** A 401 STEP_UP_REQUIRED first, then a success — what a stale tab sees. */
   function mockFetchSequence() {
     const calls: Array<{ url: string; init: RequestInit }> = [];
-    const fetchMock = jest.fn((url: string, init: RequestInit) => {
+    const fetchMock = jest.fn<AnyFn>((url: string, init: RequestInit) => {
       calls.push({ url, init });
       const refused = calls.length === 1;
       return Promise.resolve({
@@ -98,7 +100,7 @@ describe('step-up refusal carries a retry', () => {
 // The shell: confirming finishes the action
 // ---------------------------------------------------------------------------
 
-const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
+const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 
 // Capture what the global fallback renders, and drive its confirmation.
@@ -118,15 +120,15 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { getUnreadCount: jest.fn().mockResolvedValue({ data: { count: 0 } }) },
+  default: { getUnreadCount: jest.fn<AnyFn>().mockResolvedValue({ data: { count: 0 } }) },
 }));
-const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn(), events: { on: jest.fn(), off: jest.fn() } };
+const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
 jest.mock('next/head', () => ({ __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> }));
 jest.mock('@/hooks/useAuthGuard', () => ({
-  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn() }),
+  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() }),
 }));
-jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn() }) }));
+jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 jest.mock('@/hooks/useFeatures', () => ({ useFeatures: () => ({ isLoaded: true, isEnabled: () => false }) }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));
 for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
@@ -151,7 +153,7 @@ describe('the dashboard shell resumes the refused action', () => {
   });
 
   it('runs the retry with the fresh token and says it completed', async () => {
-    const retry = jest.fn().mockResolvedValue({ success: true });
+    const retry = jest.fn<AnyFn>().mockResolvedValue({ success: true });
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     refuse({ code: 'STEP_UP_REQUIRED', message: 'Confirm it is you', retry });
 
@@ -165,7 +167,7 @@ describe('the dashboard shell resumes the refused action', () => {
   });
 
   it('surfaces a failed replay instead of pretending it worked', async () => {
-    const retry = jest.fn().mockRejectedValue(new Error('Organization not found'));
+    const retry = jest.fn<AnyFn>().mockRejectedValue(new Error('Organization not found'));
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     refuse({ code: 'STEP_UP_REQUIRED', message: 'Confirm it is you', retry });
 
@@ -189,7 +191,7 @@ describe('the dashboard shell resumes the refused action', () => {
 
   it('asks for a strong factor when the route only accepts one', async () => {
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
-    refuse({ code: 'STEP_UP_METHOD_REQUIRED', message: 'Passkey or code required', retry: jest.fn() });
+    refuse({ code: 'STEP_UP_METHOD_REQUIRED', message: 'Passkey or code required', retry: jest.fn<AnyFn>() });
 
     await screen.findByTestId('global-stepup');
     expect((stepUpProps as unknown as { requireStrongFactor: boolean }).requireStrongFactor).toBe(true);

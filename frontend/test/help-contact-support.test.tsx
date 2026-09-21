@@ -10,6 +10,8 @@
  * verbatim into the To field.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ContactSupportCard } from '../src/components/help/ContactSupportCard';
 
@@ -23,7 +25,7 @@ jest.mock('@/hooks/useFeatures', () => ({
   }),
 }));
 
-const sendSupportMessage = jest.fn();
+const sendSupportMessage = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { sendSupportMessage: (...a: unknown[]) => sendSupportMessage(...a) },

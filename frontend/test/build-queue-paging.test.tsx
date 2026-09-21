@@ -7,6 +7,8 @@
  * pulling every failed job into the browser and slicing it there.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import BuildQueuePage from '../pages/dashboard/build-queue';
@@ -16,8 +18,8 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/hooks/usePolling', () => ({ __esModule: true, usePolling: () => {} }));
 
-const getQueueStatus = jest.fn();
-const getQueueFailed = jest.fn();
+const getQueueStatus = jest.fn<AnyFn>();
+const getQueueFailed = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -19,6 +19,7 @@
  *      that reads `accessDenied` but never renders it would sit on a spinner
  *      forever, which is worse than the bug this replaced.
  */
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, join, relative } from 'node:path';
 import { resolvePageGate, isOpenGate, declaredPagePaths } from '../src/lib/page-access';

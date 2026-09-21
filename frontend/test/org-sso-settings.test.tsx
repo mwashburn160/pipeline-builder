@@ -19,17 +19,19 @@
  *     experience, and only then calls DELETE.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgSsoSettings } from '../src/components/settings/OrgSsoSettings';
 import { SsoDisconnect } from '../src/components/settings/SsoDisconnect';
 import { DOMAIN_SETTINGS_HREF } from '../src/components/sso/VerifiedDomainPicker';
 import type { OrgIdpConfigDto } from '../src/types';
 
-const putOwnOrgIdpConfig = jest.fn();
-const patchOwnOrgIdpConfig = jest.fn();
-const deleteOwnOrgIdpConfig = jest.fn();
-const getOwnOrgIdpSpInfo = jest.fn();
-const listOrgDomains = jest.fn();
+const putOwnOrgIdpConfig = jest.fn<AnyFn>();
+const patchOwnOrgIdpConfig = jest.fn<AnyFn>();
+const deleteOwnOrgIdpConfig = jest.fn<AnyFn>();
+const getOwnOrgIdpSpInfo = jest.fn<AnyFn>();
+const listOrgDomains = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -54,10 +56,10 @@ jest.mock('@/components/admin/StepUpModal', () => ({
     </div>
   ),
 }));
-const toastSuccess = jest.fn();
+const toastSuccess = jest.fn<AnyFn>();
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: toastSuccess, error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 const stored: OrgIdpConfigDto = {
@@ -88,7 +90,7 @@ beforeEach(() => {
 
 describe('OrgSsoSettings', () => {
   it('creates a new connection with PUT, secret included', async () => {
-    const onSaved = jest.fn();
+    const onSaved = jest.fn<AnyFn>();
     render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
     fireEvent.change(screen.getByLabelText(/Client Secret/), { target: { value: 's3cret' } });
@@ -110,12 +112,12 @@ describe('OrgSsoSettings', () => {
   });
 
   it('refuses to create without a secret', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('button', { name: /Create SSO config/i })).toBeDisabled();
   });
 
   it('edits an existing connection with PATCH, sending only the changed field (no secret)', async () => {
-    const onSaved = jest.fn();
+    const onSaved = jest.fn<AnyFn>();
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={onSaved} />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
 
@@ -129,7 +131,7 @@ describe('OrgSsoSettings', () => {
   });
 
   it('sends a typed secret as a rotation', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByLabelText(/Client Secret/), { target: { value: 'rotated' } });
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
@@ -138,7 +140,7 @@ describe('OrgSsoSettings', () => {
   });
 
   it('sends nothing when nothing changed', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
 
     expect(await screen.findByText(/No changes to save/i)).toBeInTheDocument();
@@ -149,7 +151,7 @@ describe('OrgSsoSettings', () => {
   });
 
   it('shows the SERVER\'s redirect URI with a copy button', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(await screen.findByText('https://pb.public/auth/sso/org-1/callback')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeInTheDocument();
   });
@@ -162,7 +164,7 @@ describe('OrgSsoSettings', () => {
         { id: 'd2', domain: 'pending.com', verified: false, autoJoin: 'off' },
       ] },
     });
-    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
     expect(screen.queryByRole('checkbox', { name: 'pending.com' })).not.toBeInTheDocument();
     // No free-text domain field any more.
@@ -174,7 +176,7 @@ describe('OrgSsoSettings', () => {
   });
 
   it('links to domain verification when the org has no verified domain', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     // …at the "Email domains" CARD, not just the tab it is the sixth of.
     expect(await screen.findByRole('link', { name: /verify a domain/i }))
       .toHaveAttribute('href', DOMAIN_SETTINGS_HREF);
@@ -182,7 +184,7 @@ describe('OrgSsoSettings', () => {
   });
 
   it('in the wizard: selects OIDC, creates the connection DISABLED, and leaves domains/enabling to later steps', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn()} wizard={{ presetProvider: 'cognito', submitLabel: 'Save and continue' }} />);
+    render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} wizard={{ presetProvider: 'cognito', submitLabel: 'Save and continue' }} />);
     expect(screen.getByLabelText('Provider')).toHaveValue('cognito');
     expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
@@ -198,10 +200,10 @@ describe('OrgSsoSettings', () => {
   });
 
   it('resets to the empty create form when the connection goes away', () => {
-    const { rerender } = render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn()} />);
+    const { rerender } = render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByLabelText('Client ID')).toHaveValue('cid');
 
-    rerender(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn()} />);
+    rerender(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByLabelText('Client ID')).toHaveValue('');
     expect(screen.getByRole('button', { name: /Create SSO config/i })).toBeInTheDocument();
   });
@@ -209,7 +211,7 @@ describe('OrgSsoSettings', () => {
 
 describe('SsoDisconnect', () => {
   it('confirms with the consequences before deleting', async () => {
-    const onDisconnected = jest.fn();
+    const onDisconnected = jest.fn<AnyFn>();
     render(<SsoDisconnect orgId="org-1" config={stored} readOnly={false} onDisconnected={onDisconnected} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Disconnect SSO/i }));
@@ -224,7 +226,7 @@ describe('SsoDisconnect', () => {
   });
 
   it('cancelling deletes nothing', () => {
-    render(<SsoDisconnect orgId="org-1" config={stored} readOnly={false} onDisconnected={jest.fn()} />);
+    render(<SsoDisconnect orgId="org-1" config={stored} readOnly={false} onDisconnected={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: /Disconnect SSO/i }));
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
     expect(deleteOwnOrgIdpConfig).not.toHaveBeenCalled();
@@ -232,7 +234,7 @@ describe('SsoDisconnect', () => {
 
   it('keeps the connection and says why when the delete fails', async () => {
     deleteOwnOrgIdpConfig.mockRejectedValue(new Error('step-up refused'));
-    const onDisconnected = jest.fn();
+    const onDisconnected = jest.fn<AnyFn>();
     render(<SsoDisconnect orgId="org-1" config={stored} readOnly={false} onDisconnected={onDisconnected} />);
     fireEvent.click(screen.getByRole('button', { name: /Disconnect SSO/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
@@ -242,7 +244,7 @@ describe('SsoDisconnect', () => {
   });
 
   it('is disabled for a read-only session', () => {
-    render(<SsoDisconnect orgId="org-1" config={stored} readOnly onDisconnected={jest.fn()} />);
+    render(<SsoDisconnect orgId="org-1" config={stored} readOnly onDisconnected={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('button', { name: /Disconnect SSO/i })).toBeDisabled();
   });
 });

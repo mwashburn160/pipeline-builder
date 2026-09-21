@@ -6,6 +6,8 @@
  * the live teams, and the step-up gated move to an eligible root / to top-level.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgHierarchyCard } from '../src/components/admin/org-detail/OrgHierarchyCard';
 import { OrgIdentityCard } from '../src/components/admin/org-detail/OrgIdentityCard';
@@ -13,12 +15,12 @@ import { OrgSeatsCard } from '../src/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '../src/components/admin/org-detail/OrgOperationsCard';
 import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
 
-const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
+const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
-jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn() } }));
+jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn<AnyFn>() } }));
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push: jest.fn(), asPath: '/dashboard' }) }));
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: jest.fn() }));
+jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard' }) }));
+jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: jest.fn<AnyFn>() }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (
@@ -29,8 +31,8 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const listOrganizations = jest.fn();
-const moveOrganization = jest.fn();
+const listOrganizations = jest.fn<AnyFn>();
+const moveOrganization = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -59,18 +61,18 @@ beforeEach(() => {
 
 describe('OrgHierarchyCard', () => {
   it('links a team\'s parent', () => {
-    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })} onChanged={jest.fn()} />);
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })} onChanged={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('link', { name: 'Acme' })).toHaveAttribute('href', '/dashboard/admin/orgs/root-1');
   });
 
   it('marks a root top-level and links its live teams', () => {
-    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn()} />);
+    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn<AnyFn>()} />);
     expect(screen.getByText('Top-level organization')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Data' })).toHaveAttribute('href', '/dashboard/admin/orgs/t1');
   });
 
   it('moves a team under an eligible root after step-up', async () => {
-    const onChanged = jest.fn();
+    const onChanged = jest.fn<AnyFn>();
     render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })} onChanged={onChanged} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
 
@@ -87,7 +89,7 @@ describe('OrgHierarchyCard', () => {
   });
 
   it('makes a team top-level with a null parent', async () => {
-    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn()} />);
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
     fireEvent.click(screen.getByRole('radio', { name: /make top-level/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
@@ -97,7 +99,7 @@ describe('OrgHierarchyCard', () => {
 
   it('surfaces the backend\'s 400 message', async () => {
     moveOrganization.mockRejectedValue(new Error('Target organization is not on a Team or Enterprise plan'));
-    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn()} />);
+    render(<OrgHierarchyCard org={base({ parentOrgId: 'root-1' })} onChanged={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
     fireEvent.click(screen.getByRole('radio', { name: /make top-level/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
@@ -106,7 +108,7 @@ describe('OrgHierarchyCard', () => {
   });
 
   it('refuses to nest a root that still has teams, and offers no top-level move for a root', () => {
-    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn()} />);
+    render(<OrgHierarchyCard org={base({ teams: [{ orgId: 't1', orgName: 'Data' }] })} onChanged={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move organization' }));
     expect(screen.getByText(/has teams, so it can.t be nested/i)).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /make top-level/i })).not.toBeInTheDocument();
@@ -116,12 +118,12 @@ describe('OrgHierarchyCard', () => {
 
 describe('OrgIdentityCard — team tier', () => {
   it('offers a root a tier change', () => {
-    render(<OrgIdentityCard org={base({ tier: 'team' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    render(<OrgIdentityCard org={base({ tier: 'team' })} onChanged={jest.fn<AnyFn>()} onShowMembers={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('combobox', { name: 'Change pricing tier' })).toBeInTheDocument();
   });
 
   it('never offers a team one — its tier is its root\'s', () => {
-    render(<OrgIdentityCard org={base({ tier: 'team', parentOrgId: 'root-1' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    render(<OrgIdentityCard org={base({ tier: 'team', parentOrgId: 'root-1' })} onChanged={jest.fn<AnyFn>()} onShowMembers={jest.fn<AnyFn>()} />);
     expect(screen.queryByRole('combobox', { name: 'Change pricing tier' })).not.toBeInTheDocument();
     expect(screen.getByText('Tier inherited from parent')).toBeInTheDocument();
   });
@@ -130,25 +132,25 @@ describe('OrgIdentityCard — team tier', () => {
     // `unlimited` is never purchasable, so it isn't in the offered list — but
     // it IS what every org is on when billing is disabled, and a <select> with
     // no matching option silently displays (and would submit) the first one.
-    render(<OrgIdentityCard org={base({ tier: 'unlimited' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    render(<OrgIdentityCard org={base({ tier: 'unlimited' })} onChanged={jest.fn<AnyFn>()} onShowMembers={jest.fn<AnyFn>()} />);
     const select = screen.getByRole('combobox', { name: 'Change pricing tier' });
     expect(select).toHaveValue('unlimited');
     expect(screen.getByRole('option', { name: 'Unlimited' })).toBeInTheDocument();
   });
 
   it('does not offer `unlimited` to an org that is not on it', () => {
-    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn<AnyFn>()} onShowMembers={jest.fn<AnyFn>()} />);
     expect(screen.queryByRole('option', { name: 'Unlimited' })).not.toBeInTheDocument();
   });
 });
 
 describe('OrgIdentityCard — cache invalidation', () => {
   it('drops the cached org lists after a tier change, so the switcher and lists agree', async () => {
-    const { invalidate } = jest.requireMock('@/lib/api-cache') as { invalidate: { organizations: jest.Mock } };
-    const updateOrganizationTier = jest.fn().mockResolvedValue({ success: true, data: {} });
-    (jest.requireMock('@/lib/api').default as Record<string, unknown>).updateOrganizationTier = updateOrganizationTier;
+    const { invalidate } = jest.requireMock<Record<string, unknown>>('@/lib/api-cache') as { invalidate: { organizations: jest.Mock<AnyFn> } };
+    const updateOrganizationTier = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: {} });
+    (jest.requireMock<Record<string, unknown>>('@/lib/api').default as Record<string, unknown>).updateOrganizationTier = updateOrganizationTier;
 
-    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn()} onShowMembers={jest.fn()} />);
+    render(<OrgIdentityCard org={base({ tier: 'pro' })} onChanged={jest.fn<AnyFn>()} onShowMembers={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByRole('combobox', { name: 'Change pricing tier' }), { target: { value: 'team' } });
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
 
@@ -159,7 +161,7 @@ describe('OrgIdentityCard — cache invalidation', () => {
 
 describe('OrgSeatsCard — pooled at the root', () => {
   it('shows the pooled usage and the limit editor on an account root', () => {
-    render(<OrgSeatsCard org={base()} seatUsage={{ limit: 25, used: 7 }} onChanged={jest.fn()} />);
+    render(<OrgSeatsCard org={base()} seatUsage={{ limit: 25, used: 7 }} onChanged={jest.fn<AnyFn>()} />);
     expect(screen.getByText('7 / 25')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Set limit' })).toBeInTheDocument();
   });
@@ -169,7 +171,7 @@ describe('OrgSeatsCard — pooled at the root', () => {
       <OrgSeatsCard
         org={base({ parentOrgId: 'root-1', parentOrgName: 'Acme' })}
         seatUsage={{ limit: 25, used: 7 }}
-        onChanged={jest.fn()}
+        onChanged={jest.fn<AnyFn>()}
       />,
     );
     expect(screen.queryByRole('button', { name: 'Set limit' })).not.toBeInTheDocument();
@@ -177,7 +179,7 @@ describe('OrgSeatsCard — pooled at the root', () => {
   });
 
   it('blames the seat read, not the hierarchy, when the read fails on a root', () => {
-    render(<OrgSeatsCard org={base()} seatUsage={null} onChanged={jest.fn()} />);
+    render(<OrgSeatsCard org={base()} seatUsage={null} onChanged={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/seat service didn.t respond/i)).toBeInTheDocument();
     expect(screen.queryByText(/may not be an account root/i)).not.toBeInTheDocument();
   });

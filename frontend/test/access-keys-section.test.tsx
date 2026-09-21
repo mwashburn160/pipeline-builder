@@ -11,15 +11,17 @@
  * flags. Creation goes through step-up; revocation is confirmed first.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { AccessKeysSection } from '../src/components/settings/AccessKeysSection';
 
-const listAccessKeys = jest.fn();
-const createAccessKey = jest.fn();
-const revokeAccessKey = jest.fn();
-const listServiceAccounts = jest.fn();
-const revokeServiceAccountKey = jest.fn();
-const toastError = jest.fn();
+const listAccessKeys = jest.fn<AnyFn>();
+const createAccessKey = jest.fn<AnyFn>();
+const revokeAccessKey = jest.fn<AnyFn>();
+const listServiceAccounts = jest.fn<AnyFn>();
+const revokeServiceAccountKey = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 // Whether the signed-in person may manage service accounts — the panel only
 // lists the org's machine keys for someone who can act on them.
 let canManageServiceAccounts = false;
@@ -44,7 +46,7 @@ jest.mock('@/hooks/useAuthGuard', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: toastError, warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 // The step-up modal is exercised in its own suite; here it only needs to hand a
 // token back so the create call can be asserted.

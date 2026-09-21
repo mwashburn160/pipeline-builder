@@ -8,15 +8,17 @@
  * pages reload. Also covers the per-session cache clearing on logout/expiry.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { useEffect, useState } from 'react';
 import { render, screen, act, waitFor, fireEvent, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const mockRouter = { push: jest.fn(), replace: jest.fn() };
+const mockRouter = { push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-const mockClearPluginCache = jest.fn();
+const mockClearPluginCache = jest.fn<AnyFn>();
 jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: () => mockClearPluginCache() }));
-const mockClearAttachmentImageCache = jest.fn();
+const mockClearAttachmentImageCache = jest.fn<AnyFn>();
 jest.mock('@/lib/attachment-image-cache', () => ({ clearAttachmentImageCache: () => mockClearAttachmentImageCache() }));
 
 const profile = () => ({
@@ -25,16 +27,16 @@ const profile = () => ({
 });
 let sessionExpired: (() => void) | null = null;
 const mockApi = {
-  isAuthenticated: jest.fn(() => true),
+  isAuthenticated: jest.fn<AnyFn>(() => true),
   // A page load has no access token in memory; the provider trades the
   // HttpOnly refresh cookie for one before deciding "signed out".
-  restoreSession: jest.fn(async () => true),
-  isImpersonating: jest.fn(() => false),
-  getProfile: jest.fn(async () => profile()),
-  getUserOrganizations: jest.fn(async () => ({ data: { organizations: [{ organizationId: 'o1', organizationName: 'Org', role: 'owner' }] } })),
-  setOrganizationId: jest.fn(),
-  onSessionExpired: jest.fn((cb: () => void) => { sessionExpired = cb; return () => { sessionExpired = null; }; }),
-  logout: jest.fn(async () => undefined),
+  restoreSession: jest.fn<AnyFn>(async () => true),
+  isImpersonating: jest.fn<AnyFn>(() => false),
+  getProfile: jest.fn<AnyFn>(async () => profile()),
+  getUserOrganizations: jest.fn<AnyFn>(async () => ({ data: { organizations: [{ organizationId: 'o1', organizationName: 'Org', role: 'owner' }] } })),
+  setOrganizationId: jest.fn<AnyFn>(),
+  onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { sessionExpired = cb; return () => { sessionExpired = null; }; }),
+  logout: jest.fn<AnyFn>(async () => undefined),
 };
 class ApiError extends Error {
   statusCode: number;
@@ -87,7 +89,7 @@ describe('useAuth refocus with an unchanged profile', () => {
   });
 
   it('does not reset a form the user is typing in', async () => {
-    const onUser = jest.fn();
+    const onUser = jest.fn<AnyFn>();
     render(<AuthProvider><ProfileForm onUser={onUser} /></AuthProvider>);
     const input = screen.getByLabelText('username') as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe('neo'));

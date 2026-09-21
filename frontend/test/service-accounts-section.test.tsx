@@ -18,18 +18,20 @@
  *   - Details reads the one account fresh (GET …/service-accounts/:accountId).
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { ServiceAccountsSection } from '../src/components/settings/ServiceAccountsSection';
 
-const listServiceAccounts = jest.fn();
-const getOrganizationRoles = jest.fn();
-const createServiceAccount = jest.fn();
-const updateServiceAccount = jest.fn();
-const deleteServiceAccount = jest.fn();
-const createServiceAccountKey = jest.fn();
-const revokeServiceAccountKey = jest.fn();
-const getServiceAccount = jest.fn();
-const toastError = jest.fn();
+const listServiceAccounts = jest.fn<AnyFn>();
+const getOrganizationRoles = jest.fn<AnyFn>();
+const createServiceAccount = jest.fn<AnyFn>();
+const updateServiceAccount = jest.fn<AnyFn>();
+const deleteServiceAccount = jest.fn<AnyFn>();
+const createServiceAccountKey = jest.fn<AnyFn>();
+const revokeServiceAccountKey = jest.fn<AnyFn>();
+const getServiceAccount = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -47,7 +49,7 @@ jest.mock('@/lib/api', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: toastError, warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 let lastStepUpTitle = '';
 jest.mock('@/components/admin/StepUpModal', () => ({

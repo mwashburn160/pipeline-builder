@@ -17,14 +17,16 @@
  */
 
 // Mock React so the module can be imported in a node environment
-const mockUseState = jest.fn();
-const mockUseEffect = jest.fn();
+const mockUseState = jest.fn<AnyFn>();
+const mockUseEffect = jest.fn<AnyFn>();
 
 jest.mock('react', () => ({
   useState: mockUseState,
   useEffect: mockUseEffect,
 }));
 
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { getInitialDark } from '../src/hooks/useDarkMode';
 import { THEME_STORAGE_KEY } from '../src/lib/constants';
 
@@ -35,26 +37,26 @@ import { THEME_STORAGE_KEY } from '../src/lib/constants';
 /** Create a minimal localStorage mock */
 function mockLocalStorage(store: Record<string, string> = {}) {
   return {
-    getItem: jest.fn((key: string) => store[key] ?? null),
-    setItem: jest.fn(),
-    removeItem: jest.fn(),
-    clear: jest.fn(),
-    key: jest.fn(),
+    getItem: jest.fn<AnyFn>((key: string) => store[key] ?? null),
+    setItem: jest.fn<AnyFn>(),
+    removeItem: jest.fn<AnyFn>(),
+    clear: jest.fn<AnyFn>(),
+    key: jest.fn<AnyFn>(),
     length: 0,
   };
 }
 
 /** Create a minimal matchMedia mock */
 function mockMatchMedia(matches: boolean) {
-  return jest.fn().mockReturnValue({
+  return jest.fn<AnyFn>().mockReturnValue({
     matches,
     media: '',
     onchange: null,
-    addListener: jest.fn(),
-    removeListener: jest.fn(),
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
+    addListener: jest.fn<AnyFn>(),
+    removeListener: jest.fn<AnyFn>(),
+    addEventListener: jest.fn<AnyFn>(),
+    removeEventListener: jest.fn<AnyFn>(),
+    dispatchEvent: jest.fn<AnyFn>(),
   });
 }
 

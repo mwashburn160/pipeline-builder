@@ -10,19 +10,21 @@
  * instead of showing a form that could never work.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SsoGroupMappings } from '../src/components/settings/SsoGroupMappings';
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
-const listIdpGroupMappings = jest.fn();
-const createIdpGroupMapping = jest.fn();
-const updateIdpGroupMapping = jest.fn();
-const deleteIdpGroupMapping = jest.fn();
-const getOrganizationRoles = jest.fn();
+const listIdpGroupMappings = jest.fn<AnyFn>();
+const createIdpGroupMapping = jest.fn<AnyFn>();
+const updateIdpGroupMapping = jest.fn<AnyFn>();
+const deleteIdpGroupMapping = jest.fn<AnyFn>();
+const getOrganizationRoles = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,

@@ -29,6 +29,7 @@
  *      `setPendingX`,
  * where `pendingX` is what guards a `<StepUpModal>` in the same file.
  */
+import { describe, it, expect } from '@jest/globals';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 

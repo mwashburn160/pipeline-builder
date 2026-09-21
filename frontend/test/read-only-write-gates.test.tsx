@@ -8,15 +8,17 @@
  * section; incident reporting and DORA mark-outcome have their own suites.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgSsoSettings } from '../src/components/settings/OrgSsoSettings';
 import { AccessKeysSection } from '../src/components/settings/AccessKeysSection';
 import { ScimProvisioning } from '../src/components/settings/ScimProvisioning';
 
-const putOwnOrgIdpConfig = jest.fn();
-const listAccessKeys = jest.fn();
-const listServiceAccounts = jest.fn();
-const createServiceAccountKey = jest.fn();
+const putOwnOrgIdpConfig = jest.fn<AnyFn>();
+const listAccessKeys = jest.fn<AnyFn>();
+const listServiceAccounts = jest.fn<AnyFn>();
+const createServiceAccountKey = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   ApiError: class ApiError extends Error { statusCode = 0; },
@@ -29,7 +31,7 @@ jest.mock('@/lib/api', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
@@ -52,10 +54,11 @@ describe('read-only write gates', () => {
   const ssoConfig = {
     orgId: 'org-1', protocol: 'oidc' as const, provider: 'google' as const, clientId: 'cid', samlCertificates: [],
     allowedEmailDomains: [], enabled: true, hasClientSecret: true, updatedAt: '2026-09-01T00:00:00Z',
+    samlSignAuthnRequests: false, samlEncryptAssertions: false, ssoRequired: false,
   };
 
   it('SSO: the whole form is disabled and explained, and submit sends nothing', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly onSaved={jest.fn<AnyFn>()} />);
     const save = await screen.findByRole('button', { name: /save sso settings/i });
     expect(save).toBeDisabled();
     expect(screen.getByText('Read-only session')).toBeInTheDocument();
@@ -65,7 +68,7 @@ describe('read-only write gates', () => {
   });
 
   it('SSO: stays editable outside impersonation', async () => {
-    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly={false} onSaved={jest.fn()} />);
+    render(<OrgSsoSettings orgId="org-1" config={ssoConfig} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(await screen.findByRole('button', { name: /save sso settings/i })).not.toBeDisabled();
   });
 

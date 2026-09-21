@@ -10,6 +10,7 @@
  * `isNavItemVisible`, wiring `hasPermission: (p) => hasPermission(user, p)` — so
  * this drives the same helper the consumers do (superadmin bypass included).
  */
+import { describe, it, expect } from '@jest/globals';
 import { hasPermission } from '../src/lib/auth-helpers';
 import { NAV_SECTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '../src/lib/nav';
 import { resolvePageGate } from '../src/lib/page-access';

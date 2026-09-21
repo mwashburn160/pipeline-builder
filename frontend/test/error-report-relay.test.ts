@@ -11,9 +11,11 @@
  * non-reports, and caps throughput (the endpoint is unauthenticated).
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { createRelayLimiter, relayClientError, sanitizeReport } from '../src/lib/error-report-relay';
 
-const okFetch = () => jest.fn(async () => new Response(null, { status: 202 })) as unknown as jest.Mock & typeof fetch;
+const okFetch = () => jest.fn<AnyFn>(async () => new Response(null, { status: 202 })) as unknown as jest.Mock<AnyFn> & typeof fetch;
 
 describe('error-report relay', () => {
   it('is a no-op when no collector is configured', async () => {
@@ -29,7 +31,7 @@ describe('error-report relay', () => {
       { endpoint: 'https://collector.test/r', allow: () => true, fetchImpl },
     );
     expect(outcome).toBe('forwarded');
-    const [url, init] = (fetchImpl as jest.Mock).mock.calls[0] as [string, RequestInit];
+    const [url, init] = (fetchImpl as jest.Mock<AnyFn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://collector.test/r');
     const body = JSON.parse(String(init.body));
     expect(Object.keys(body).sort()).toEqual(['message', 'name']);
@@ -44,7 +46,7 @@ describe('error-report relay', () => {
   });
 
   it('never throws when the collector is down', async () => {
-    const fetchImpl = jest.fn(async () => { throw new Error('ECONNREFUSED'); }) as unknown as typeof fetch;
+    const fetchImpl = jest.fn<AnyFn>(async () => { throw new Error('ECONNREFUSED'); }) as unknown as typeof fetch;
     await expect(relayClientError({ message: 'boom' }, { endpoint: 'https://c.test', allow: () => true, fetchImpl })).resolves.toBe('failed');
   });
 

@@ -11,6 +11,8 @@
  * Retry action so a dead-end error can be recovered without a page reload.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Users } from 'lucide-react';
 import { DataTable, type Column } from '../src/components/ui/DataTable';
@@ -40,13 +42,13 @@ describe('DataTable — failed load vs empty list', () => {
   });
 
   it('never claims "nothing here" when the load failed', () => {
-    renderTable({ loadFailed: true, onRetry: jest.fn() });
+    renderTable({ loadFailed: true, onRetry: jest.fn<AnyFn>() });
     expect(screen.queryByText('No users yet')).not.toBeInTheDocument();
     expect(screen.getByText(/couldn't load this list/i)).toBeInTheDocument();
   });
 
   it('offers a retry that re-runs the fetch', () => {
-    const onRetry = jest.fn();
+    const onRetry = jest.fn<AnyFn>();
     renderTable({ loadFailed: true, onRetry });
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -59,21 +61,21 @@ describe('DataTable — failed load vs empty list', () => {
   });
 
   it('keeps rows already loaded when a REFRESH fails (no blank table)', () => {
-    renderTable({ data: [{ id: '1', name: 'ada' }], loadFailed: true, onRetry: jest.fn() });
+    renderTable({ data: [{ id: '1', name: 'ada' }], loadFailed: true, onRetry: jest.fn<AnyFn>() });
     expect(screen.getByText('ada')).toBeInTheDocument();
     expect(screen.queryByText(/couldn't load this list/i)).not.toBeInTheDocument();
   });
 
   it('shows the loading skeleton rather than an error while in flight', () => {
-    renderTable({ isLoading: true, loadFailed: true, onRetry: jest.fn() });
+    renderTable({ isLoading: true, loadFailed: true, onRetry: jest.fn<AnyFn>() });
     expect(screen.queryByText(/couldn't load this list/i)).not.toBeInTheDocument();
   });
 });
 
 describe('alert banners', () => {
   it('ErrorAlert offers Retry alongside Dismiss', () => {
-    const onRetry = jest.fn();
-    const onDismiss = jest.fn();
+    const onRetry = jest.fn<AnyFn>();
+    const onDismiss = jest.fn<AnyFn>();
     render(<ErrorAlert message="Failed to load data" onRetry={onRetry} onDismiss={onDismiss} />);
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
@@ -82,7 +84,7 @@ describe('alert banners', () => {
   });
 
   it('ErrorAlert stays dismiss-only when no retry is given', () => {
-    render(<ErrorAlert message="boom" onDismiss={jest.fn()} />);
+    render(<ErrorAlert message="boom" onDismiss={jest.fn<AnyFn>()} />);
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
   });
 

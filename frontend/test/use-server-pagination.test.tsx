@@ -10,6 +10,8 @@
  * refetch, error path, manual refetch tick.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useServerPagination } from '../src/hooks/useServerPagination';
 
@@ -22,7 +24,7 @@ function buildResult(items: Row[], total: number, offset = 0, limit = 20) {
 
 describe('useServerPagination', () => {
   it('fetches and exposes items + pagination on mount', async () => {
-    const fetcher = jest.fn().mockResolvedValue(
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue(
       buildResult([{ id: '1' }, { id: '2' }], 42),
     );
 
@@ -40,7 +42,7 @@ describe('useServerPagination', () => {
   });
 
   it('resets offset to 0 when filters change', async () => {
-    const fetcher = jest.fn().mockResolvedValue(buildResult([], 0));
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue(buildResult([], 0));
 
     const { result, rerender } = renderHook(
       ({ filters }: { filters: Filters }) =>
@@ -67,7 +69,7 @@ describe('useServerPagination', () => {
 
   it('setOffset triggers a re-fetch with the new offset', async () => {
     const fetcher = jest
-      .fn()
+      .fn<AnyFn>()
       .mockResolvedValueOnce(buildResult([{ id: 'page1' }], 100))
       .mockResolvedValueOnce(buildResult([{ id: 'page2' }], 100));
 
@@ -85,7 +87,7 @@ describe('useServerPagination', () => {
   });
 
   it('sets error on fetcher rejection', async () => {
-    const fetcher = jest.fn().mockRejectedValue(new Error('server fail'));
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue(new Error('server fail'));
 
     const { result } = renderHook(() =>
       useServerPagination<Row, Filters>(fetcher, {}, 20),
@@ -98,7 +100,7 @@ describe('useServerPagination', () => {
   });
 
   it('wraps non-Error rejection values', async () => {
-    const fetcher = jest.fn().mockRejectedValue('string-err');
+    const fetcher = jest.fn<AnyFn>().mockRejectedValue('string-err');
 
     const { result } = renderHook(() =>
       useServerPagination<Row, Filters>(fetcher, {}, 20),
@@ -111,7 +113,7 @@ describe('useServerPagination', () => {
 
   it('refetch tick triggers a fresh call', async () => {
     const fetcher = jest
-      .fn()
+      .fn<AnyFn>()
       .mockResolvedValueOnce(buildResult([{ id: '1' }], 1))
       .mockResolvedValueOnce(buildResult([{ id: '1-updated' }], 1));
 

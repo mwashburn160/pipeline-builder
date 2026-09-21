@@ -10,6 +10,8 @@
  * at event retention (30d default), DORA at dora retention (180d default).
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ReportsPage from '../pages/dashboard/reports';
 
@@ -27,26 +29,26 @@ jest.mock('@/hooks/useFeatures', () => ({
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
-const getExecutionCount = jest.fn();
-const getSuccessRate = jest.fn();
-const getDora = jest.fn();
-const getReportRetention = jest.fn();
+const getExecutionCount = jest.fn<AnyFn>();
+const getSuccessRate = jest.fn<AnyFn>();
+const getDora = jest.fn<AnyFn>();
+const getReportRetention = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
     getSuccessRate: (...a: unknown[]) => getSuccessRate(...a),
     getDora: (...a: unknown[]) => getDora(...a),
-    getDoraTrend: jest.fn().mockResolvedValue([]),
+    getDoraTrend: jest.fn<AnyFn>().mockResolvedValue([]),
     getReportRetention: (...a: unknown[]) => getReportRetention(...a),
-    listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
-    getReportEnvironments: jest.fn().mockResolvedValue({ data: { environments: [] } }),
+    listPipelines: jest.fn<AnyFn>().mockResolvedValue({ data: { pipelines: [] } }),
+    getReportEnvironments: jest.fn<AnyFn>().mockResolvedValue({ data: { environments: [] } }),
   },
 }));
 

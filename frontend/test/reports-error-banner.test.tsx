@@ -13,6 +13,8 @@
  * this page can take well over the default 1s under full-gate CPU load.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ReportsPage from '../pages/dashboard/reports';
 
@@ -31,24 +33,24 @@ jest.mock('@/hooks/useFeatures', () => ({
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
-const getExecutionCount = jest.fn();
-const getSuccessRate = jest.fn();
-const getDoraTrend = jest.fn();
+const getExecutionCount = jest.fn<AnyFn>();
+const getSuccessRate = jest.fn<AnyFn>();
+const getDoraTrend = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
     getSuccessRate: (...a: unknown[]) => getSuccessRate(...a),
-    getDora: jest.fn().mockResolvedValue(null),
+    getDora: jest.fn<AnyFn>().mockResolvedValue(null),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
-    listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
-    getReportEnvironments: jest.fn().mockResolvedValue({ data: { environments: [] } }),
+    listPipelines: jest.fn<AnyFn>().mockResolvedValue({ data: { pipelines: [] } }),
+    getReportEnvironments: jest.fn<AnyFn>().mockResolvedValue({ data: { environments: [] } }),
   },
 }));
 

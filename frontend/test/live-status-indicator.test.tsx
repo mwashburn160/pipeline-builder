@@ -7,6 +7,7 @@
  * never flashes during the benign initial connect (paused=false).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { LiveStatusIndicator } from '../src/components/message/LiveStatusIndicator';
 

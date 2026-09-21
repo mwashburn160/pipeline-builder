@@ -13,6 +13,7 @@
     "telemetry": "pnpm dlx projen telemetry",
     "test": "pnpm dlx projen test",
     "test:watch": "pnpm dlx projen test:watch",
+    "typecheck:tests": "pnpm dlx projen typecheck:tests",
     "projen": "pnpm dlx projen",
     "generate:help": "node scripts/generate-help.mjs",
     "start": "next start",
@@ -23,6 +24,7 @@
     "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
   },
   "devDependencies": {
+    "@jest/globals": "30.4.1",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",

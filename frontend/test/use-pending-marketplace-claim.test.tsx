@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, waitFor } from '@testing-library/react';
 import {
   usePendingMarketplaceClaim,
@@ -9,14 +11,14 @@ import {
   clearMarketplaceRef,
 } from '../src/hooks/usePendingMarketplaceClaim';
 
-const claim = jest.fn();
+const claim = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { claimMarketplaceRegistration: (...a: unknown[]) => claim(...a) },
 }));
 
-const success = jest.fn();
-const error = jest.fn();
+const success = jest.fn<AnyFn>();
+const error = jest.fn<AnyFn>();
 jest.mock('@/components/ui/Toast', () => ({ useToast: () => ({ success, error }) }));
 
 let authState = { isAuthenticated: true, isInitialized: true };

@@ -11,6 +11,8 @@
  * a card that exists, and the fragment alone opens the tab that renders it.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach, beforeAll } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { DOMAIN_SETTINGS_ANCHOR, DOMAIN_SETTINGS_HREF } from '../src/components/sso/VerifiedDomainPicker';
@@ -39,16 +41,16 @@ jest.mock('@/lib/api', () => ({
 }));
 
 let query: Record<string, string> = {};
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/settings', replace, push: jest.fn() }),
+  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/settings', replace, push: jest.fn<AnyFn>() }),
 }));
 
 import SettingsPage from '../pages/dashboard/settings';
 
 // jsdom implements neither; `useUrlTab` calls both on the fragment's target.
-const scrollIntoView = jest.fn();
+const scrollIntoView = jest.fn<AnyFn>();
 beforeAll(() => { (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = scrollIntoView; });
 
 beforeEach(() => {

@@ -15,6 +15,8 @@
  * add-on grid with no SSO card on it.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DomainJoinSettings } from '../src/components/settings/DomainJoinSettings';
 import { DOMAIN_SETTINGS_ANCHOR, DOMAIN_SETTINGS_HREF } from '../src/components/sso/VerifiedDomainPicker';
@@ -32,15 +34,15 @@ jest.mock('@/hooks/useFeatureGate', () => ({
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
-const listOrgDomains = jest.fn();
-const listOrgJoinRequests = jest.fn();
-const addOrgDomain = jest.fn();
-const verifyOrgDomain = jest.fn();
-const deleteOrgDomain = jest.fn();
-const decideOrgJoinRequest = jest.fn();
+const listOrgDomains = jest.fn<AnyFn>();
+const listOrgJoinRequests = jest.fn<AnyFn>();
+const addOrgDomain = jest.fn<AnyFn>();
+const verifyOrgDomain = jest.fn<AnyFn>();
+const deleteOrgDomain = jest.fn<AnyFn>();
+const decideOrgJoinRequest = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

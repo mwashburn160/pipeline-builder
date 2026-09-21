@@ -10,6 +10,8 @@
  *   - clear / `/` shortcut / empty state actually work
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { ReactNode } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import HelpPage from '../pages/dashboard/help';
 
@@ -21,7 +23,7 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 // reduce it to plain divs so assertions see the rendered body.
 jest.mock('framer-motion', () => ({
   __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children, ...p }: never) => <div {...(p as object)}>{(children as never) ?? null}</div> }),
+  motion: new Proxy({}, { get: () => ({ children, ...p }: { children?: ReactNode } & Record<string, unknown>) => <div {...p}>{children ?? null}</div> }),
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 

@@ -40,6 +40,7 @@
  * Publishing is not a separate route — `resolveVisibility` checks the permission
  * inside the write handler — so there is no route requirement to compare against.
  */
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createElement, type ComponentType, type ReactElement } from 'react';
@@ -113,7 +114,7 @@ jest.mock('@/components/ui/AuthErrorBanner', () => ({ __esModule: true, AuthErro
 
 // The shell polls for the unread badge; a live interval keeps `act` busy forever.
 jest.mock('@/lib/unread-count-store', () => ({
-  ...(jest.requireActual('@/lib/unread-count-store') as object),
+  ...(jest.requireActual<typeof import('@/lib/unread-count-store')>('@/lib/unread-count-store') as object),
   __esModule: true,
   useUnreadCount: () => ({ unreadCount: 0, hasLiveSource: false }),
   pollUnreadCount: () => () => {},
@@ -243,7 +244,7 @@ const comp = (mod: string, name: string, props: Record<string, unknown> = {}) =>
   (): ReactElement => createElement(require(mod)[name] as ComponentType, props);
 /** Mount the UNMOCKED module — for the shell components this file itself mocks. */
 const real = (mod: string, name: string, props: Record<string, unknown> = {}) =>
-  (): ReactElement => createElement(jest.requireActual(mod)[name] as ComponentType, props);
+  (): ReactElement => createElement(jest.requireActual<Record<string, unknown>>(mod)[name] as ComponentType, props);
 
 /** Find a control by role + accessible name; `null` when it is not rendered. */
 const byRole = (role: string, name: RegExp) => (): HTMLElement | null =>

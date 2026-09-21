@@ -9,6 +9,8 @@
  * "warning" filter.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook } from '@testing-library/react';
 import { useCrudResource } from '../src/hooks/useCrudResource';
 
@@ -24,10 +26,10 @@ describe('useCrudResource.fetch', () => {
   it('ignores a slower, OLDER response that lands after a newer one', async () => {
     const older = deferred<unknown>();
     const newer = deferred<unknown>();
-    const list = jest.fn()
+    const list = jest.fn<AnyFn>()
       .mockReturnValueOnce(older.promise)
       .mockReturnValueOnce(newer.promise);
-    const api = { list, create: jest.fn(), update: jest.fn(), remove: jest.fn() } as never;
+    const api = { list, create: jest.fn<AnyFn>(), update: jest.fn<AnyFn>(), remove: jest.fn<AnyFn>() } as never;
 
     const { result } = renderHook(() => useCrudResource<Item, never, never, never>(api, 'rule'));
 

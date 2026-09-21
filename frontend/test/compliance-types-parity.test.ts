@@ -13,6 +13,7 @@
  * runtime body only needs to exist for jest to run the file.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import type { ComplianceCheckResult, ComplianceViolation } from '../src/types/compliance';
 import type {
   ComplianceCheckResult as CoreCheckResult,

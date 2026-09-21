@@ -10,6 +10,8 @@
  *  - the list fieldsets never ask for the heavy columns.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import type { ApiCore } from '../src/lib/api/core';
 import { pipelinesApi, PIPELINE_LIST_FIELDS } from '../src/lib/api/domains/pipelines';
 import { messagesApi } from '../src/lib/api/domains/messages';
@@ -19,7 +21,7 @@ import { parseBulkPipelineSpecs } from '../src/components/pipeline/BulkImportPip
 function fakeCore(responses: unknown[] = []) {
   const calls: string[] = [];
   const core = {
-    request: jest.fn((path: string) => {
+    request: jest.fn<AnyFn>((path: string) => {
       calls.push(path);
       return Promise.resolve(responses.shift() ?? { success: true, data: {} });
     }),

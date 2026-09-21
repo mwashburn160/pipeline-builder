@@ -10,6 +10,8 @@
  *    `billing.promotion.revoke`), not a PUT isActive flip.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import DiscountsPage from '../pages/dashboard/discounts';
@@ -25,8 +27,8 @@ const mockRouter = {
   query: {} as Record<string, string>,
   pathname: '/dashboard/discounts',
   isReady: true,
-  replace: jest.fn((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
-  push: jest.fn(),
+  replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
+  push: jest.fn<AnyFn>(),
 };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
@@ -36,28 +38,28 @@ const listPage = {
   error: null,
   isLoading: false,
   pagination: { total: 1, offset: 0, limit: 25 },
-  refresh: jest.fn(),
-  setError: jest.fn(),
-  updateFilter: jest.fn(),
-  handlePageChange: jest.fn(),
-  handlePageSizeChange: jest.fn(),
+  refresh: jest.fn<AnyFn>(),
+  setError: jest.fn<AnyFn>(),
+  updateFilter: jest.fn<AnyFn>(),
+  handlePageChange: jest.fn<AnyFn>(),
+  handlePageSizeChange: jest.fn<AnyFn>(),
 };
 jest.mock('@/hooks/useListPage', () => ({ __esModule: true, useListPage: () => listPage }));
-jest.mock('@/hooks/useOrgOptions', () => ({ __esModule: true, useOrgOptions: () => ({ orgOptions: [], loadOrgOptions: jest.fn() }) }));
+jest.mock('@/hooks/useOrgOptions', () => ({ __esModule: true, useOrgOptions: () => ({ orgOptions: [], loadOrgOptions: jest.fn<AnyFn>() }) }));
 
 const apiMock = {
-  getDiscount: jest.fn(),
-  getPromotion: jest.fn(),
-  revokePromotion: jest.fn(),
-  updatePromotion: jest.fn(),
-  getPlans: jest.fn(),
-  getAdminBillingSummary: jest.fn(),
+  getDiscount: jest.fn<AnyFn>(),
+  getPromotion: jest.fn<AnyFn>(),
+  revokePromotion: jest.fn<AnyFn>(),
+  updatePromotion: jest.fn<AnyFn>(),
+  getPlans: jest.fn<AnyFn>(),
+  getAdminBillingSummary: jest.fn<AnyFn>(),
 };
 jest.mock('@/components/admin/StepUpModal', () => ({ __esModule: true, StepUpModal: () => null }));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   get default() { return apiMock; },
-  ApiError: jest.requireActual('@/lib/api/errors').ApiError,
+  ApiError: jest.requireActual<typeof import('@/lib/api/errors')>('@/lib/api/errors').ApiError,
 }));
 
 const discount = { id: 'd1', value: 2500, unit: 'dollar', kind: 'recurring', campaign: 'spring', timesRedeemed: 3, maxRedemptions: 10, isActive: true };

@@ -7,6 +7,8 @@
  * list reads differently from a first-run empty one.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 
@@ -17,12 +19,12 @@ jest.mock('@/hooks/useFeatureGate', () => ({
   __esModule: true,
   useFeatureGate: () => ({ entitled: false, isLoaded: true, label: 'x', description: '', unlocks: '', upsellHref: '/', reason: 'not on plan' }),
 }));
-jest.mock('@/lib/favorites', () => ({ useFavorites: () => ({ favorites: new Set<string>(), toggle: jest.fn() }) }));
+jest.mock('@/lib/favorites', () => ({ useFavorites: () => ({ favorites: new Set<string>(), toggle: jest.fn<AnyFn>() }) }));
 
-const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/plugins', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/plugins', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const listPlugins = jest.fn();
+const listPlugins = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

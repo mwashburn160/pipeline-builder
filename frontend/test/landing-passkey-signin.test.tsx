@@ -16,24 +16,26 @@
  * passkeys best.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const login = jest.fn();
-const loginWithPasskey = jest.fn();
+const login = jest.fn<AnyFn>();
+const loginWithPasskey = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ login, loginWithPasskey, isLoading: false }),
 }));
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ query: {}, push: jest.fn() }),
+  useRouter: () => ({ query: {}, push: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
-    listOAuthProviders: jest.fn().mockResolvedValue({ data: { providers: [] } }),
+    listOAuthProviders: jest.fn<AnyFn>().mockResolvedValue({ data: { providers: [] } }),
     // Domain SSO discovery runs off the identifier field; nothing here is federated.
-    discoverSso: jest.fn().mockResolvedValue({ data: { sso: false } }),
+    discoverSso: jest.fn<AnyFn>().mockResolvedValue({ data: { sso: false } }),
   },
 }));
 // The marketing sections below the fold animate on scroll, which jsdom has no
@@ -45,7 +47,7 @@ jest.mock('framer-motion', () => ({
 
 let supportsWebAuthn = true;
 let supportsAutofill = true;
-const cancelPasskeyCeremony = jest.fn();
+const cancelPasskeyCeremony = jest.fn<AnyFn>();
 jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => supportsWebAuthn,

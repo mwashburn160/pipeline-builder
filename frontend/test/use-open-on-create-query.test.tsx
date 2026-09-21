@@ -9,10 +9,12 @@
  * URL never opened the create modal.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook } from '@testing-library/react';
 import { useOpenOnCreateQuery } from '../src/hooks/useOpenOnCreateQuery';
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 const router = { isReady: true, pathname: '/dashboard/pipelines', query: { create: '1' } as Record<string, string>, replace };
 jest.mock('next/router', () => ({ useRouter: () => router }));
 
@@ -20,14 +22,14 @@ beforeEach(() => { replace.mockClear(); router.query = { create: '1' }; });
 
 describe('useOpenOnCreateQuery', () => {
   it('neither opens nor strips the param while not ready', () => {
-    const open = jest.fn();
+    const open = jest.fn<AnyFn>();
     renderHook(() => useOpenOnCreateQuery(open, false));
     expect(open).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 
   it('opens once it becomes ready, then strips the param', () => {
-    const open = jest.fn();
+    const open = jest.fn<AnyFn>();
     const { rerender } = renderHook(({ ready }) => useOpenOnCreateQuery(open, ready), { initialProps: { ready: false } });
     rerender({ ready: true });
     expect(open).toHaveBeenCalledTimes(1);

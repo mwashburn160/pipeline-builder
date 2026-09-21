@@ -15,6 +15,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 // Must be a top-level import: @testing-library/react registers its own
 // beforeAll/afterEach, and jest rejects hooks defined inside a test body.
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -43,7 +44,7 @@ describe('error-reporter egress', () => {
     relayStateReads = 0;
     // The reporter posts to the same-origin relay; capture each request and
     // answer with the relay's on/off header.
-    global.fetch = jest.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    global.fetch = jest.fn<AnyFn>(async (url: string | URL | Request, init?: RequestInit) => {
       sent.push({ url: String(url), init: init ?? {} });
       // jsdom has no `Response`; the reporter only reads this one header.
       return {

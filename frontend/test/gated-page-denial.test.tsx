@@ -8,13 +8,15 @@
  * `page-access.test.ts` proves every gated page contains the render; this proves
  * the render actually produces the refusal and suppresses the page body.
  */
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import CompliancePage from '../pages/dashboard/compliance';
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ pathname: '/dashboard/compliance', query: {}, isReady: true, push: jest.fn(), replace: jest.fn() }),
+  useRouter: () => ({ pathname: '/dashboard/compliance', query: {}, isReady: true, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());

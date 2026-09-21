@@ -10,11 +10,13 @@
  * recovery code is accepted at the same endpoint.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const getProfile = jest.fn();
-const stepUpVerify = jest.fn();
-const stepUpWithTotp = jest.fn();
+const getProfile = jest.fn<AnyFn>();
+const stepUpVerify = jest.fn<AnyFn>();
+const stepUpWithTotp = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   ApiError: class ApiError extends Error { statusCode = 0; },
@@ -24,8 +26,8 @@ jest.mock('@/lib/api', () => ({
     stepUpWithTotp: (...a: unknown[]) => stepUpWithTotp(...a),
   },
 }));
-jest.mock('@/lib/passkeys', () => ({ __esModule: true, stepUpWithPasskey: jest.fn() }));
-jest.mock('@/lib/step-up-reauth', () => ({ __esModule: true, runProviderReauth: jest.fn() }));
+jest.mock('@/lib/passkeys', () => ({ __esModule: true, stepUpWithPasskey: jest.fn<AnyFn>() }));
+jest.mock('@/lib/step-up-reauth', () => ({ __esModule: true, runProviderReauth: jest.fn<AnyFn>() }));
 
 import { StepUpModal } from '../src/components/admin/StepUpModal';
 
@@ -33,10 +35,10 @@ const factors = (over: Record<string, unknown> = {}) => ({
   hasPassword: false, passkeyCount: 0, hasTotp: false, providers: [], ...over,
 });
 
-const renderModal = async (authFactors: Record<string, unknown>, onConfirmed = jest.fn()) => {
+const renderModal = async (authFactors: Record<string, unknown>, onConfirmed = jest.fn<AnyFn>()) => {
   getProfile.mockResolvedValue({ data: { user: { authFactors } } });
   await act(async () => {
-    render(<StepUpModal action="Delete the org" onConfirmed={onConfirmed} onClose={jest.fn()} />);
+    render(<StepUpModal action="Delete the org" onConfirmed={onConfirmed} onClose={jest.fn<AnyFn>()} />);
   });
   return onConfirmed;
 };

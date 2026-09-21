@@ -11,6 +11,8 @@
  *  - a root whose NAME the API could not resolve is never named by its UUID.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QuotasReadOnly } from '../src/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '../src/components/quotas/QuotasAdmin';
@@ -20,7 +22,7 @@ import type { OrgQuotaResponse } from '@/types';
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }),
 }));
 
 const summary = (limit: number, used: number) => ({ limit, used, remaining: Math.max(0, limit - used), unlimited: false, resetAt: '' });
@@ -60,7 +62,7 @@ describe('QuotasReadOnly — pooled labelling', () => {
 });
 
 describe('QuotasAdmin — sysadmin view of a pooled team', () => {
-  function renderAdmin(orgData: OrgQuotaResponse, handleSelectOrg = jest.fn()) {
+  function renderAdmin(orgData: OrgQuotaResponse, handleSelectOrg = jest.fn<AnyFn>()) {
     render(
       <QuotasAdmin
         isSuperAdmin
@@ -79,15 +81,15 @@ describe('QuotasAdmin — sysadmin view of a pooled team', () => {
         orgHealthColors={{}}
         atRisk={[]}
         user={null}
-        setSearchFilter={jest.fn()}
+        setSearchFilter={jest.fn<AnyFn>()}
         handleSelectOrg={handleSelectOrg}
-        handleReset={jest.fn()}
-        handleSave={jest.fn()}
-        handleEditChange={jest.fn()}
-        handleTierChange={jest.fn()}
-        onRetryOrg={jest.fn()}
-        fetchAtRisk={jest.fn()}
-        onResetUsage={jest.fn(async () => {})}
+        handleReset={jest.fn<AnyFn>()}
+        handleSave={jest.fn<AnyFn>()}
+        handleEditChange={jest.fn<AnyFn>()}
+        handleTierChange={jest.fn<AnyFn>()}
+        onRetryOrg={jest.fn<AnyFn>()}
+        fetchAtRisk={jest.fn<AnyFn>()}
+        onResetUsage={jest.fn<AnyFn>(async () => {})}
       />,
     );
     return handleSelectOrg;

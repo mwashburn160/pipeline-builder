@@ -30,6 +30,7 @@
  * failures on every one of those shapes.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 

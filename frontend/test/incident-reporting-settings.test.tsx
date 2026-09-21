@@ -8,6 +8,8 @@
  * generate flow hands off to a (mocked) StepUpModal.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { IncidentReportingSettings } from '../src/components/settings/IncidentReportingSettings';
 
@@ -17,7 +19,7 @@ import { IncidentReportingSettings } from '../src/components/settings/IncidentRe
 // stays wherever we click.
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ query: {}, replace: jest.fn() }),
+  useRouter: () => ({ query: {}, replace: jest.fn<AnyFn>() }),
 }));
 
 /** Click a tab by its label so its section renders, then run the assertions. */
@@ -25,7 +27,7 @@ const goTab = (name: RegExp) => fireEvent.click(screen.getByRole('tab', { name }
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 // StepUpModal → a simple marker so we can assert the token flow opened it.
@@ -34,11 +36,11 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   StepUpModal: () => <div data-testid="stepup-modal" />,
 }));
 
-const getIncidentSettings = jest.fn();
-const listIncidents = jest.fn();
-const createAccessKey = jest.fn();
-const sendTestIncident = jest.fn();
-const putReportingSettings = jest.fn();
+const getIncidentSettings = jest.fn<AnyFn>();
+const listIncidents = jest.fn<AnyFn>();
+const createAccessKey = jest.fn<AnyFn>();
+const sendTestIncident = jest.fn<AnyFn>();
+const putReportingSettings = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

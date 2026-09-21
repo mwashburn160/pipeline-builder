@@ -8,6 +8,7 @@
  * when one was typed, since the stored config never carries it.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { changedIdpFields } from '../src/components/settings/idp-diff';
 import type { OrgIdpConfigDto } from '../src/types';
 
@@ -22,6 +23,11 @@ const stored: OrgIdpConfigDto = {
   samlAttributes: { email: 'mail' },
   allowedEmailDomains: ['acme.io'],
   enabled: true,
+  // Added to the DTO by the SAML hardening (SLO, assertion encryption) and the
+  // SSO-required policy; off here, as on a freshly configured OIDC connection.
+  samlSignAuthnRequests: false,
+  samlEncryptAssertions: false,
+  ssoRequired: false,
   updatedAt: '2026-09-01T00:00:00Z',
 };
 

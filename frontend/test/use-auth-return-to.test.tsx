@@ -7,30 +7,32 @@
  * lands there instead of the dashboard. A deliberate sign-out returns nowhere.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const mockPush = jest.fn(async () => true);
+const mockPush = jest.fn<AnyFn>(async () => true);
 const mockRouter = { push: mockPush, asPath: '/dashboard/executions?status=failed' };
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn() }));
-jest.mock('@/lib/passkeys', () => ({ signInWithPasskey: jest.fn(async () => undefined) }));
+jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn<AnyFn>() }));
+jest.mock('@/lib/passkeys', () => ({ signInWithPasskey: jest.fn<AnyFn>(async () => undefined) }));
 
 let expire: (() => void) | null = null;
 const mockApi = {
-  isAuthenticated: jest.fn(() => true),
-  restoreSession: jest.fn(async () => true),
-  isImpersonating: jest.fn(() => false),
-  getProfile: jest.fn(async () => ({
+  isAuthenticated: jest.fn<AnyFn>(() => true),
+  restoreSession: jest.fn<AnyFn>(async () => true),
+  isImpersonating: jest.fn<AnyFn>(() => false),
+  getProfile: jest.fn<AnyFn>(async () => ({
     success: true,
     data: { user: { id: 'u1', username: 'ada', email: 'ada@example.com', role: 'owner', organizationId: 'o1' } },
   })),
-  getUserOrganizations: jest.fn(async () => ({ data: { organizations: [] } })),
-  setOrganizationId: jest.fn(),
-  onSessionExpired: jest.fn((cb: () => void) => { expire = cb; return () => { expire = null; }; }),
-  login: jest.fn(async () => ({ success: true, data: {} })),
-  verifyMfaLogin: jest.fn(async () => ({ success: true })),
-  logout: jest.fn(async () => undefined),
+  getUserOrganizations: jest.fn<AnyFn>(async () => ({ data: { organizations: [] } })),
+  setOrganizationId: jest.fn<AnyFn>(),
+  onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { expire = cb; return () => { expire = null; }; }),
+  login: jest.fn<AnyFn>(async () => ({ success: true, data: {} })),
+  verifyMfaLogin: jest.fn<AnyFn>(async () => ({ success: true })),
+  logout: jest.fn<AnyFn>(async () => undefined),
 };
 class ApiError extends Error {
   statusCode: number;

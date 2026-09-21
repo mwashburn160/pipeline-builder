@@ -13,12 +13,14 @@
  *   - On failure, shows the message and stays open; Cancel aborts.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { StepUpModal } from '../src/components/admin/StepUpModal';
 import type { AuthFactors } from '../src/types';
 
-const stepUpVerify = jest.fn();
-const getProfile = jest.fn();
+const stepUpVerify = jest.fn<AnyFn>();
+const getProfile = jest.fn<AnyFn>();
 jest.mock('../src/lib/api', () => ({
   __esModule: true,
   default: {
@@ -27,7 +29,7 @@ jest.mock('../src/lib/api', () => ({
   },
 }));
 
-const runProviderReauth = jest.fn();
+const runProviderReauth = jest.fn<AnyFn>();
 jest.mock('../src/lib/step-up-reauth', () => ({
   __esModule: true,
   runProviderReauth: (...args: unknown[]) => runProviderReauth(...args),
@@ -39,8 +41,8 @@ const factors = (over: Partial<AuthFactors> = {}): AuthFactors => ({
 
 /** Render and let the factor fetch settle. */
 async function renderModal(props: Partial<Parameters<typeof StepUpModal>[0]> = {}) {
-  const onConfirmed = props.onConfirmed ?? jest.fn();
-  const onClose = props.onClose ?? jest.fn();
+  const onConfirmed = props.onConfirmed ?? jest.fn<AnyFn>();
+  const onClose = props.onClose ?? jest.fn<AnyFn>();
   await act(async () => {
     render(<StepUpModal action={props.action ?? 'X'} onConfirmed={onConfirmed} onClose={onClose} />);
   });
@@ -70,7 +72,7 @@ describe('StepUpModal', () => {
       success: true,
       data: { ok: true, stepUpToken: 'jwt.token.value', expiresAt: 1700000000 },
     });
-    const { onConfirmed, onClose } = await renderModal({ onConfirmed: jest.fn().mockResolvedValue(undefined) });
+    const { onConfirmed, onClose } = await renderModal({ onConfirmed: jest.fn<AnyFn>().mockResolvedValue(undefined) });
 
     fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'hunter2' } });
     await act(async () => {
@@ -174,7 +176,7 @@ describe('StepUpModal — factor choices', () => {
       data: { user: { authFactors: factors({ hasPassword: false, providers: [{ type: 'oauth', provider: 'google' }] }) } },
     });
     runProviderReauth.mockResolvedValue('reauth.stepup.token');
-    const { onConfirmed, onClose } = await renderModal({ onConfirmed: jest.fn().mockResolvedValue(undefined) });
+    const { onConfirmed, onClose } = await renderModal({ onConfirmed: jest.fn<AnyFn>().mockResolvedValue(undefined) });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /sign in again with google/i }));

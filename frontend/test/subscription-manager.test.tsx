@@ -12,6 +12,8 @@
  * offers it. The sub-view lives in `?subs=` (deep-linkable).
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SubscriptionManager from '../src/components/compliance/SubscriptionManager';
 import type { PublishedRuleCatalogEntry } from '../src/types/compliance';
@@ -29,11 +31,11 @@ jest.mock('@/hooks/useFeatures', () => ({
   }),
 }));
 
-const toastSuccess = jest.fn();
-const toastError = jest.fn();
+const toastSuccess = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 // useUrlTab reads/writes the query string; a replace() updates it in place.
@@ -41,7 +43,7 @@ const mockRouter = {
   query: {} as Record<string, string>,
   pathname: '/dashboard/compliance',
   isReady: true,
-  replace: jest.fn((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
+  replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
 };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
@@ -53,10 +55,10 @@ jest.mock('next/link', () => ({
   ),
 }));
 
-const getComplianceSubscriptions = jest.fn();
-const getPublishedRules = jest.fn();
-const subscribeToRule = jest.fn();
-const unsubscribeFromRule = jest.fn();
+const getComplianceSubscriptions = jest.fn<AnyFn>();
+const getPublishedRules = jest.fn<AnyFn>();
+const subscribeToRule = jest.fn<AnyFn>();
+const unsubscribeFromRule = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

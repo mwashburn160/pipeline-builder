@@ -11,11 +11,13 @@
  * instead of "check what you typed".
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DeviceApprovalPage from '../pages/auth/device';
 import { ApiError } from '../src/lib/api/errors';
 
-const push = jest.fn();
+const push = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
@@ -36,9 +38,9 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const getDeviceAuthorization = jest.fn();
-const approveDeviceAuthorization = jest.fn();
-const denyDeviceAuthorization = jest.fn();
+const getDeviceAuthorization = jest.fn<AnyFn>();
+const approveDeviceAuthorization = jest.fn<AnyFn>();
+const denyDeviceAuthorization = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

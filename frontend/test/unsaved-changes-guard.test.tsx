@@ -13,12 +13,14 @@
  * These also cover ConfirmDialog, the replacement for `window.confirm`.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Modal } from '../src/components/ui/Modal';
 import { ConfirmDialog } from '../src/components/ui/ConfirmDialog';
 
 const renderModal = (props: Partial<React.ComponentProps<typeof Modal>> = {}) => {
-  const onClose = jest.fn();
+  const onClose = jest.fn<AnyFn>();
   render(
     <Modal title="Edit plugin" onClose={onClose} {...props}>
       <input aria-label="Name" defaultValue="x" />
@@ -84,7 +86,7 @@ describe('Modal — unsaved changes guard', () => {
 describe('ConfirmDialog', () => {
   it('focuses Cancel, so a stray Enter never confirms', () => {
     render(
-      <ConfirmDialog title="Reduce seats?" onConfirm={jest.fn()} onCancel={jest.fn()}>
+      <ConfirmDialog title="Reduce seats?" onConfirm={jest.fn<AnyFn>()} onCancel={jest.fn<AnyFn>()}>
         <p>body</p>
       </ConfirmDialog>,
     );
@@ -93,7 +95,7 @@ describe('ConfirmDialog', () => {
 
   it('disables both actions while the confirmed action is in flight', () => {
     render(
-      <ConfirmDialog title="Revoke token?" loading onConfirm={jest.fn()} onCancel={jest.fn()}>
+      <ConfirmDialog title="Revoke token?" loading onConfirm={jest.fn<AnyFn>()} onCancel={jest.fn<AnyFn>()}>
         <p>body</p>
       </ConfirmDialog>,
     );

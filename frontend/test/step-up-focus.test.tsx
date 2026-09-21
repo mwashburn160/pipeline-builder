@@ -18,23 +18,25 @@
  *   - the focus trap and restore-on-close still work.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import { StepUpModal } from '../src/components/admin/StepUpModal';
 import { Modal } from '../src/components/ui/Modal';
 import type { AuthFactors } from '../src/types';
 import { useEffect, useRef, useState } from 'react';
 
-const getProfile = jest.fn();
+const getProfile = jest.fn<AnyFn>();
 jest.mock('../src/lib/api', () => ({
   __esModule: true,
   default: {
     getProfile: (...a: unknown[]) => getProfile(...a),
-    stepUpVerify: jest.fn(),
-    stepUpWithTotp: jest.fn(),
+    stepUpVerify: jest.fn<AnyFn>(),
+    stepUpWithTotp: jest.fn<AnyFn>(),
   },
 }));
-jest.mock('../src/lib/step-up-reauth', () => ({ __esModule: true, runProviderReauth: jest.fn() }));
-jest.mock('../src/lib/passkeys', () => ({ __esModule: true, stepUpWithPasskey: jest.fn() }));
+jest.mock('../src/lib/step-up-reauth', () => ({ __esModule: true, runProviderReauth: jest.fn<AnyFn>() }));
+jest.mock('../src/lib/passkeys', () => ({ __esModule: true, stepUpWithPasskey: jest.fn<AnyFn>() }));
 
 const factors = (over: Partial<AuthFactors> = {}): AuthFactors => ({
   hasPassword: true, passkeyCount: 0, hasTotp: false, providers: [], ...over,
@@ -45,7 +47,7 @@ async function openStepUp(f: AuthFactors) {
   let resolve!: (v: unknown) => void;
   getProfile.mockReturnValue(new Promise((r) => { resolve = r; }));
   await act(async () => {
-    render(<StepUpModal action="Do the thing" onConfirmed={jest.fn()} onClose={jest.fn()} />);
+    render(<StepUpModal action="Do the thing" onConfirmed={jest.fn<AnyFn>()} onClose={jest.fn<AnyFn>()} />);
   });
   // While it loads there is nothing to focus but the chrome — the bug's setup.
   expect(screen.getByText(/checking how you can confirm/i)).toBeInTheDocument();
@@ -96,7 +98,7 @@ function LateTarget({ steal = false }: { steal?: boolean }) {
     return () => clearTimeout(t);
   }, []);
   return (
-    <Modal title="Loading dialog" onClose={jest.fn()} initialFocusRef={ref}>
+    <Modal title="Loading dialog" onClose={jest.fn<AnyFn>()} initialFocusRef={ref}>
       <button data-testid="other">elsewhere</button>
       {ready && <input ref={ref} aria-label="late field" />}
       {steal && <span />}

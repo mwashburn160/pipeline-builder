@@ -8,6 +8,8 @@
  * must not be closed out from under the operator.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import UsersPage from '../pages/dashboard/users';
@@ -16,7 +18,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const mockRouter = { query: {}, pathname: '/dashboard/users', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {}, pathname: '/dashboard/users', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -46,7 +48,7 @@ const users = [
   { id: 'a', username: 'alice', email: 'alice@acme.com', role: 'member', organizationId: '' },
   { id: 'b', username: 'bob', email: 'bob@acme.com', role: 'member', organizationId: '' },
 ];
-const mockUpdateUserById = jest.fn();
+const mockUpdateUserById = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const overrides: Record<string, unknown> = {
     listUsers: () => Promise.resolve({ success: true, data: { users, pagination: { total: 2, limit: 25, offset: 0, hasMore: false } } }),

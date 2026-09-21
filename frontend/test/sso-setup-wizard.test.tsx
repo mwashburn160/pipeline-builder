@@ -17,6 +17,8 @@
  *   - the SAML landing page hands a `?test=` state back instead of signing in.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { SsoConnectionFlow } from '../src/components/sso/SsoConnectionFlow';
@@ -27,17 +29,17 @@ import type { OrgIdpConfigDto } from '../src/types';
 
 jest.mock('@/lib/api', () => {
   const api = {
-    getOwnOrgIdpSpInfo: jest.fn(),
-    listOrgDomains: jest.fn(),
-    putOwnOrgIdpConfig: jest.fn(),
-    patchOwnOrgIdpConfig: jest.fn(),
-    startSsoTest: jest.fn(),
-    completeSsoTest: jest.fn(),
-    importIdpMetadata: jest.fn(),
+    getOwnOrgIdpSpInfo: jest.fn<AnyFn>(),
+    listOrgDomains: jest.fn<AnyFn>(),
+    putOwnOrgIdpConfig: jest.fn<AnyFn>(),
+    patchOwnOrgIdpConfig: jest.fn<AnyFn>(),
+    startSsoTest: jest.fn<AnyFn>(),
+    completeSsoTest: jest.fn<AnyFn>(),
+    importIdpMetadata: jest.fn<AnyFn>(),
   };
   return { __esModule: true, default: api, api };
 });
-const api = jest.requireMock('@/lib/api').api as Record<string, jest.Mock>;
+const api = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<string, jest.Mock<AnyFn>>;
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: ({ onConfirmed, onClose }: { onConfirmed: (t: string) => void; onClose: () => void }) => (
@@ -177,10 +179,10 @@ describe('the wizard — keyboard and screen-reader', () => {
 });
 
 describe('test connection', () => {
-  const popup = { location: { href: '' }, close: jest.fn() };
+  const popup = { location: { href: '' }, close: jest.fn<AnyFn>() };
   beforeEach(() => {
     popup.location.href = '';
-    window.open = jest.fn(() => popup as unknown as Window);
+    window.open = jest.fn<AnyFn>(() => popup as unknown as Window);
     api.startSsoTest.mockResolvedValue({ success: true, data: { url: 'https://idp.test/sso?SAMLRequest=x', state: 'ssotest.n.sig' } });
     api.completeSsoTest.mockResolvedValue({
       success: true,
@@ -247,7 +249,7 @@ describe('test connection', () => {
   });
 
   it('says so when pop-ups are blocked, starting nothing', async () => {
-    window.open = jest.fn(() => null);
+    window.open = jest.fn<AnyFn>(() => null);
     render(<Harness initial={SAML} />);
     fireEvent.click(screen.getByRole('button', { name: /5\s*Test connection/ }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Test connection$/ })); });
@@ -267,7 +269,7 @@ describe('"SSO required"', () => {
   });
 
   it('switches through the strong step-up and states the owner break-glass', async () => {
-    const onSaved = jest.fn();
+    const onSaved = jest.fn<AnyFn>();
     render(<SsoRequiredToggle orgId="org-1" config={{ ...SAML, enabled: true, lastTest: { at: 'x', ok: true, protocol: 'saml' } }} readOnly={false} onSaved={onSaved} />);
     expect(screen.getByText(/Organization owners are always exempt/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('switch', { name: /Require single sign-on/ }));
@@ -277,15 +279,15 @@ describe('"SSO required"', () => {
   });
 
   it('can always be switched off', () => {
-    render(<SsoRequiredToggle orgId="org-1" config={{ ...SAML, ssoRequired: true }} readOnly={false} onSaved={jest.fn()} />);
+    render(<SsoRequiredToggle orgId="org-1" config={{ ...SAML, ssoRequired: true }} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('switch', { name: /Require single sign-on/ })).not.toBeDisabled();
   });
 });
 
 describe('the configured-org summary', () => {
   it('shows the state and routes Edit / Change / Resume to the right wizard step', () => {
-    const onEdit = jest.fn();
-    render(<SsoStatusSummary orgId="org-1" config={SAML} readOnly={false} onSaved={jest.fn()} onEdit={onEdit} />);
+    const onEdit = jest.fn<AnyFn>();
+    render(<SsoStatusSummary orgId="org-1" config={SAML} readOnly={false} onSaved={jest.fn<AnyFn>()} onEdit={onEdit} />);
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.getByText('SSO optional')).toBeInTheDocument();
     expect(screen.getByText(/Not tested since the last change/)).toBeInTheDocument();

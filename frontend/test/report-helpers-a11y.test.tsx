@@ -8,6 +8,7 @@
  *  - the Plugin Versions default-status dot is not colour-only.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { DateRangePicker } from '../src/components/reports/ReportHelpers';
 import { PluginVersions } from '../src/components/reports/PluginVersions';

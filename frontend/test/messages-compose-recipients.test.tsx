@@ -8,6 +8,8 @@
  * while composing, and the caller's own org is not offered as a recipient.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import MessagesPage from '../pages/dashboard/messages';
@@ -39,10 +41,10 @@ jest.mock('next/dynamic', () => ({
   },
 }));
 
-const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const getRecipientOrgs = jest.fn();
+const getRecipientOrgs = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

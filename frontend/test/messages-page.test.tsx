@@ -9,6 +9,8 @@
  * filters must reach the server instead of narrowing the loaded page.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import MessagesPage from '../pages/dashboard/messages';
@@ -30,12 +32,12 @@ jest.mock('@/components/message/ThreadView', () => ({
   ThreadView: ({ rootMessage }: { rootMessage: { subject: string } }) => <div data-testid="thread">{rootMessage.subject}</div>,
 }));
 
-const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const getMessages = jest.fn();
-const getMessage = jest.fn();
-const markMessageAsRead = jest.fn();
+const getMessages = jest.fn<AnyFn>();
+const getMessage = jest.fn<AnyFn>();
+const markMessageAsRead = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -4,6 +4,7 @@
 /**
  * Tests for resource-helpers.ts: mapCommonParams and canModify.
  */
+import { describe, it, expect } from '@jest/globals';
 import { mapCommonParams, canModify, canWritePipeline } from '../src/lib/resource-helpers';
 
 // ---------------------------------------------------------------------------
@@ -11,46 +12,39 @@ import { mapCommonParams, canModify, canWritePipeline } from '../src/lib/resourc
 // ---------------------------------------------------------------------------
 describe('mapCommonParams', () => {
   it('should map the visibility filter to the visibility param', () => {
-    expect(mapCommonParams({ visibility: 'public' }, true)).toEqual({ visibility: 'public' });
-    expect(mapCommonParams({ visibility: 'private' }, true)).toEqual({ visibility: 'private' });
+    expect(mapCommonParams({ visibility: 'public' })).toEqual({ visibility: 'public' });
+    expect(mapCommonParams({ visibility: 'private' })).toEqual({ visibility: 'private' });
   });
 
-  // Regression: previously this helper forced `visibility=private` for
-  // non-admins, which made the API exclude all system-public catalog rows from
-  // the dashboard. The backend's AccessControlQueryBuilder already returns the
-  // correct scope (caller's own org + system-org public catalog), so this
-  // helper now passes nothing through unless the user explicitly picked an
-  // Access filter.
-  it('should NOT force visibility when canViewPublic is false and no visibility filter', () => {
-    expect(mapCommonParams({}, false)).toEqual({});
-  });
-
-  it('should not add visibility when canViewPublic is true and no visibility filter', () => {
-    expect(mapCommonParams({}, true)).toEqual({});
-  });
-
-  it('honors an explicit visibility filter regardless of canViewPublic', () => {
-    expect(mapCommonParams({ visibility: 'public' }, false)).toEqual({ visibility: 'public' });
-    expect(mapCommonParams({ visibility: 'private' }, false)).toEqual({ visibility: 'private' });
+  // Regression: this helper once forced `visibility=private` for non-admins,
+  // which made the API exclude every system-public catalog row from the
+  // dashboard. The backend's access-control builder already returns the right
+  // scope (the caller's org + the system-org public catalog), so nothing is
+  // added unless the user explicitly picked an Access filter. The helper used to
+  // take the caller's `canViewPublic` for that decision; the parameter is gone
+  // (602b2bedc), and these tests kept passing it — silently, until the suite was
+  // type-checked.
+  it('should NOT force a visibility when no visibility filter was picked', () => {
+    expect(mapCommonParams({})).toEqual({});
   });
 
   it('should map status filter to isActive param', () => {
-    expect(mapCommonParams({ status: 'active' }, true)).toEqual({ isActive: 'true' });
-    expect(mapCommonParams({ status: 'inactive' }, true)).toEqual({ isActive: 'false' });
+    expect(mapCommonParams({ status: 'active' })).toEqual({ isActive: 'true' });
+    expect(mapCommonParams({ status: 'inactive' })).toEqual({ isActive: 'false' });
   });
 
   it('should map default filter to isDefault param', () => {
-    expect(mapCommonParams({ default: 'default' }, true)).toEqual({ isDefault: 'true' });
-    expect(mapCommonParams({ default: 'non-default' }, true)).toEqual({ isDefault: 'false' });
+    expect(mapCommonParams({ default: 'default' })).toEqual({ isDefault: 'true' });
+    expect(mapCommonParams({ default: 'non-default' })).toEqual({ isDefault: 'false' });
   });
 
   it('should map multiple filters at once', () => {
-    const result = mapCommonParams({ visibility: 'private', status: 'active', default: 'default' }, true);
+    const result = mapCommonParams({ visibility: 'private', status: 'active', default: 'default' });
     expect(result).toEqual({ visibility: 'private', isActive: 'true', isDefault: 'true' });
   });
 
   it('should ignore unknown filter keys', () => {
-    expect(mapCommonParams({ name: 'test', foo: 'bar' }, true)).toEqual({});
+    expect(mapCommonParams({ name: 'test', foo: 'bar' })).toEqual({});
   });
 });
 

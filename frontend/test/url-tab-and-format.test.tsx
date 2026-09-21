@@ -10,11 +10,13 @@
  *    the same kind of column.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useUrlTab } from '../src/hooks/useUrlTab';
 import { formatDate, formatDateLong, formatDateMedium, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
 
 jest.mock('next/router', () => ({
@@ -99,8 +101,8 @@ describe('useUrlTab', () => {
 
     it('scrolls to the section once the tab has rendered it', async () => {
       window.location.hash = '#late-section';
-      const scrollIntoView = jest.fn();
-      const focus = jest.fn();
+      const scrollIntoView = jest.fn<AnyFn>();
+      const focus = jest.fn<AnyFn>();
       renderHook(() => useUrlTab('view', TABS, 'overview'));
 
       // The element only appears after the tab mounts — which is AFTER the

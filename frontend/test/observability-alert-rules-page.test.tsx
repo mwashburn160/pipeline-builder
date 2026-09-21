@@ -6,6 +6,8 @@
  * admins get a read-only preview of the materialized Prometheus rule_files YAML.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AlertRulesPage from '../pages/dashboard/observability/alert-rules';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -15,8 +17,8 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/components/RecentlyDeletedPanel', () => ({ __esModule: true, RecentlyDeletedPanel: () => null }));
 
-const listAlertRules = jest.fn();
-const getMaterializedAlertRules = jest.fn();
+const listAlertRules = jest.fn<AnyFn>();
+const getMaterializedAlertRules = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   api: {

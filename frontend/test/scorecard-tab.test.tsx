@@ -6,11 +6,13 @@
  * advanced_reporting gate, the ranked leaderboard rows, and the aggregate summary.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { ScorecardTab } from '../src/components/reports/tabs/ScorecardTab';
 import type { ScorecardRollup } from '../src/types';
 
-const getOrgScorecardRollup = jest.fn();
+const getOrgScorecardRollup = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -49,7 +51,7 @@ beforeEach(() => {
 
 describe('ScorecardTab', () => {
   it('renders the ranked leaderboard + aggregate summary when entitled', async () => {
-    render(<ScorecardTab enabled onStatus={jest.fn()} />);
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
     await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
     expect(screen.getByText('Bravo')).toBeInTheDocument();
     // Aggregate average score is shown.
@@ -62,7 +64,7 @@ describe('ScorecardTab', () => {
   });
 
   it('does NOT fetch and shows an upsell when advanced_reporting is disabled', async () => {
-    render(<ScorecardTab enabled={false} onStatus={jest.fn()} />);
+    render(<ScorecardTab enabled={false} onStatus={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/requires the/i)).toBeInTheDocument();
     expect(getOrgScorecardRollup).not.toHaveBeenCalled();
   });

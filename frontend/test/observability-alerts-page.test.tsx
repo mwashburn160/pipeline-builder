@@ -6,6 +6,8 @@
  * through a confirm dialog — Cancel leaves the silence alone, Confirm expires it.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AlertsPage from '../pages/dashboard/observability/alerts';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -14,12 +16,12 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const observabilityDeleteSilence = jest.fn();
+const observabilityDeleteSilence = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   api: {
-    observabilityAlerts: jest.fn().mockResolvedValue({ data: { alerts: [] } }),
-    observabilitySilences: jest.fn().mockResolvedValue({
+    observabilityAlerts: jest.fn<AnyFn>().mockResolvedValue({ data: { alerts: [] } }),
+    observabilitySilences: jest.fn<AnyFn>().mockResolvedValue({
       data: {
         silences: [{
           id: 'sil-1',

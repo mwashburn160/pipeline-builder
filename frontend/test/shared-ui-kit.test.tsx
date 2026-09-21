@@ -10,6 +10,8 @@
  *  - `Modal` runs the shared overlay hook (Tab trap, guarded Escape, restore).
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { useState } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { Inbox } from 'lucide-react';
@@ -32,8 +34,8 @@ const baseSidebar = {
   user: { id: 'u1', username: 'dana', permissions: ['messages:read'] } as unknown as User,
   currentPath: '/dashboard',
   isDark: false,
-  onToggleDark: jest.fn(),
-  onLogout: jest.fn(),
+  onToggleDark: jest.fn<AnyFn>(),
+  onLogout: jest.fn<AnyFn>(),
 };
 
 describe('Sidebar — colour is never the only signal', () => {
@@ -107,14 +109,14 @@ describe('EmptyState', () => {
   });
 
   it('renders a button CTA from actionLabel + onAction', () => {
-    const onAction = jest.fn();
+    const onAction = jest.fn<AnyFn>();
     render(<EmptyState title="No keys" actionLabel="Create key" onAction={onAction} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     expect(onAction).toHaveBeenCalled();
   });
 
   it('prefers an explicit action over the shorthand', () => {
-    render(<EmptyState title="x" action={<a href="/y">Go</a>} actionLabel="Ignored" onAction={jest.fn()} />);
+    render(<EmptyState title="x" action={<a href="/y">Go</a>} actionLabel="Ignored" onAction={jest.fn<AnyFn>()} />);
     expect(screen.queryByRole('button', { name: 'Ignored' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Go' })).toBeInTheDocument();
   });
@@ -133,7 +135,7 @@ describe('EmptyState', () => {
 
 describe('RetryError', () => {
   it('is announced, and retries on click', () => {
-    const onRetry = jest.fn();
+    const onRetry = jest.fn<AnyFn>();
     render(<RetryError message="Couldn't load." onRetry={onRetry} />);
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load.");
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -141,14 +143,14 @@ describe('RetryError', () => {
   });
 
   it('takes a title, a custom label and rich content', () => {
-    render(<RetryError title="Members" message={<strong>Timed out</strong>} retryLabel="Try again" onRetry={jest.fn()} />);
+    render(<RetryError title="Members" message={<strong>Timed out</strong>} retryLabel="Try again" onRetry={jest.fn<AnyFn>()} />);
     expect(screen.getByText('Members')).toBeInTheDocument();
     expect(screen.getByText('Timed out').tagName).toBe('STRONG');
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
   it('disables the button while a retry is in flight', () => {
-    const onRetry = jest.fn();
+    const onRetry = jest.fn<AnyFn>();
     render(<RetryError onRetry={onRetry} retrying />);
     const btn = screen.getByRole('button', { name: 'Retrying…' });
     expect(btn).toBeDisabled();

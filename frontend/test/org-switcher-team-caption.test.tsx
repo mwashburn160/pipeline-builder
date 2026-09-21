@@ -6,18 +6,20 @@
  * level — so it must say whose team it is, or it passes for an account.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { UserOrgMembership } from '@/types';
 import { OrgSwitcher } from '../src/components/ui/OrgSwitcher';
 
-let mockAuth: { user: { organizationId: string } | null; organizations: UserOrgMembership[]; switchOrganization: jest.Mock };
+let mockAuth: { user: { organizationId: string } | null; organizations: UserOrgMembership[]; switchOrganization: jest.Mock<AnyFn> };
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => mockAuth }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ asPath: '/dashboard', replace: jest.fn() }) }));
-jest.mock('@/hooks/usePlugins', () => ({ __esModule: true, clearPluginCache: jest.fn() }));
+jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ asPath: '/dashboard', replace: jest.fn<AnyFn>() }) }));
+jest.mock('@/hooks/usePlugins', () => ({ __esModule: true, clearPluginCache: jest.fn<AnyFn>() }));
 
 const org = (over: Partial<UserOrgMembership>): UserOrgMembership => ({
   id: 'own', name: 'Own Org', role: 'owner', childOrgCount: 0, ...over,
@@ -28,7 +30,7 @@ describe('OrgSwitcher — orphan team caption', () => {
     mockAuth = {
       user: { organizationId: 'own' },
       organizations: [org({}), org({ id: 'team-x', name: 'Platform', role: 'member', parentOrgId: 'acme', parentOrgName: 'Acme Corp' })],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     fireEvent.click(screen.getByRole('button', { name: 'Switch organization' }));
@@ -45,7 +47,7 @@ describe('OrgSwitcher — orphan team caption', () => {
         org({ id: 'acme', name: 'Acme Corp', childOrgCount: 1 }),
         org({ id: 'team-x', name: 'Platform', parentOrgId: 'acme', parentOrgName: 'Acme Corp' }),
       ],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     fireEvent.click(screen.getByRole('button', { name: 'Switch organization' }));
@@ -57,7 +59,7 @@ describe('OrgSwitcher — orphan team caption', () => {
     mockAuth = {
       user: { organizationId: 'team-x' },
       organizations: [org({ id: 'team-x', name: 'Platform', parentOrgId: 'acme', parentOrgName: 'Acme Corp' })],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     expect(screen.getByText('Team of Acme Corp')).toBeInTheDocument();
@@ -67,7 +69,7 @@ describe('OrgSwitcher — orphan team caption', () => {
     mockAuth = {
       user: { organizationId: 'team-x' },
       organizations: [org({ id: 'team-x', name: 'Platform', parentOrgId: 'acme' })],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     expect(screen.getByText('Team')).toBeInTheDocument();
@@ -82,7 +84,7 @@ describe('OrgSwitcher — inherited (via-parent) teams', () => {
         org({ id: 'acme', name: 'Acme', childOrgCount: 1 }),
         org({ id: 'team-y', name: 'Payments', role: 'admin', parentOrgId: 'acme', parentOrgName: 'Acme', viaAncestor: true }),
       ],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     fireEvent.click(screen.getByRole('button', { name: 'Switch organization' }));
@@ -97,7 +99,7 @@ describe('OrgSwitcher — inherited (via-parent) teams', () => {
         org({ id: 'acme', name: 'Acme', childOrgCount: 1 }),
         org({ id: 'team-y', name: 'Payments', role: 'admin', parentOrgId: 'acme', parentOrgName: 'Acme', viaAncestor: true }),
       ],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     expect(screen.getByText('· via parent')).toBeInTheDocument();
@@ -108,7 +110,7 @@ describe('OrgSwitcher — inherited (via-parent) teams', () => {
     mockAuth = {
       user: { organizationId: 'team-y' },
       organizations: [org({ id: 'team-y', name: 'Payments', parentOrgId: 'acme', parentOrgName: 'Acme' })],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher />);
     expect(screen.queryByText('· via parent')).not.toBeInTheDocument();
@@ -122,7 +124,7 @@ describe('OrgSwitcher — header pill on narrow screens', () => {
     mockAuth = {
       user: { organizationId: 'own' },
       organizations: [org({ name: LONG }), org({ id: 'other', name: 'Other' })],
-      switchOrganization: jest.fn(),
+      switchOrganization: jest.fn<AnyFn>(),
     };
     render(<OrgSwitcher variant="header" className="min-w-0 shrink" />);
     const pill = screen.getByRole('button', { name: `Switch organization (current: ${LONG})` });
@@ -133,7 +135,7 @@ describe('OrgSwitcher — header pill on narrow screens', () => {
   });
 
   it('names the org for a single-org user, whose pill is not a menu', () => {
-    mockAuth = { user: { organizationId: 'own' }, organizations: [org({ name: LONG })], switchOrganization: jest.fn() };
+    mockAuth = { user: { organizationId: 'own' }, organizations: [org({ name: LONG })], switchOrganization: jest.fn<AnyFn>() };
     render(<OrgSwitcher variant="header" />);
     expect(screen.getByRole('button', { name: `Organization: ${LONG}` })).toHaveAttribute('title', LONG);
   });

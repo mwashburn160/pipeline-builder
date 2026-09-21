@@ -5,6 +5,7 @@
  * Tests for utility functions in lib/constants.ts:
  * formatError, formatJSON, safeJSONParse.
  */
+import { describe, it, expect } from '@jest/globals';
 import { formatError, formatJSON, safeJSONParse } from '../src/lib/constants';
 
 // ---------------------------------------------------------------------------

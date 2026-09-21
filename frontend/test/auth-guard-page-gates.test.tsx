@@ -12,6 +12,8 @@
  * requirement gets in, and an open route never refuses anyone.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook } from '@testing-library/react';
 import type { User } from '../src/types';
 import { declaredPagePaths, resolvePageGate, isOpenGate } from '../src/lib/page-access';
@@ -19,7 +21,7 @@ import { declaredPagePaths, resolvePageGate, isOpenGate } from '../src/lib/page-
 let pathname = '/dashboard';
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ pathname, replace: jest.fn(), push: jest.fn() }),
+  useRouter: () => ({ pathname, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() }),
 }));
 
 let user: Partial<User> | null = null;
@@ -31,8 +33,8 @@ jest.mock('../src/hooks/useAuth', () => ({
     isInitialized: true,
     isLoading: false,
     isReadOnly: false,
-    logout: jest.fn(),
-    refreshUser: jest.fn(),
+    logout: jest.fn<AnyFn>(),
+    refreshUser: jest.fn<AnyFn>(),
   }),
 }));
 

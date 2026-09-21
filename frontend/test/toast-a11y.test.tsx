@@ -8,6 +8,7 @@
  * they don't cut off whatever the user is currently reading.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ToastProvider, useToast } from '../src/components/ui/Toast';
 

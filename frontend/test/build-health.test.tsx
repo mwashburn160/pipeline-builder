@@ -7,6 +7,7 @@
  * "pick a pipeline" hint when none is scoped, and the empty state.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import type { BuildHealth } from '../src/lib/api/domains/reporting';
 import { BuildHealthPanel } from '../src/components/reports/BuildHealth';

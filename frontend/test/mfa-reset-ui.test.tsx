@@ -12,15 +12,17 @@
  *   - a single-factor refusal is left to the shell's MFA dialog, not repeated.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 
-const requestMfaReset = jest.fn();
-const listMfaResets = jest.fn();
-const approveMfaReset = jest.fn();
-const denyMfaReset = jest.fn();
-const resetUserMfa = jest.fn();
-const toastSuccess = jest.fn();
-const toastError = jest.fn();
+const requestMfaReset = jest.fn<AnyFn>();
+const listMfaResets = jest.fn<AnyFn>();
+const approveMfaReset = jest.fn<AnyFn>();
+const denyMfaReset = jest.fn<AnyFn>();
+const resetUserMfa = jest.fn<AnyFn>();
+const toastSuccess = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -32,7 +34,7 @@ jest.mock('@/lib/api', () => ({
     resetUserMfa: (...a: unknown[]) => resetUserMfa(...a),
   },
 }));
-const toast = { success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() };
+const toast = { success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 
 let lastStrong: boolean | undefined;
@@ -66,8 +68,8 @@ beforeEach(() => {
 describe('RequestMfaResetModal', () => {
   it('needs a real reason, then files the request behind step-up', async () => {
     requestMfaReset.mockResolvedValue({ success: true, message: 'Reset requested', data: { request: request() } });
-    const onRequested = jest.fn();
-    const onClose = jest.fn();
+    const onRequested = jest.fn<AnyFn>();
+    const onClose = jest.fn<AnyFn>();
     render(<RequestMfaResetModal orgId="org-1" member={member} onClose={onClose} onRequested={onRequested} />);
 
     const submit = screen.getByRole('button', { name: /request reset/i });
@@ -82,14 +84,14 @@ describe('RequestMfaResetModal', () => {
   });
 
   it('says plainly that a second admin must approve', () => {
-    render(<RequestMfaResetModal orgId="org-1" member={member} onClose={jest.fn()} onRequested={jest.fn()} />);
+    render(<RequestMfaResetModal orgId="org-1" member={member} onClose={jest.fn<AnyFn>()} onRequested={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/nothing happens until/i)).toHaveTextContent(/another/i);
   });
 
   it('leaves a single-factor refusal to the shell\'s MFA dialog', async () => {
     requestMfaReset.mockRejectedValue(new MfaRequiredError('needs two factors', 'MFA_REQUIRED'));
-    const onClose = jest.fn();
-    render(<RequestMfaResetModal orgId="org-1" member={member} onClose={onClose} onRequested={jest.fn()} />);
+    const onClose = jest.fn<AnyFn>();
+    render(<RequestMfaResetModal orgId="org-1" member={member} onClose={onClose} onRequested={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByLabelText(/reason for the reset/i), { target: { value: 'Phone stolen; confirmed on a call' } });
     fireEvent.click(screen.getByRole('button', { name: /request reset/i }));
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
@@ -179,8 +181,8 @@ describe('MfaResetPanel', () => {
 describe('DirectMfaResetModal (sysadmin)', () => {
   it('needs a reason and a strong-factor step-up', async () => {
     resetUserMfa.mockResolvedValue({ success: true, message: 'Reset', data: {} });
-    const onDone = jest.fn();
-    render(<DirectMfaResetModal target={{ id: 'u9', email: 'solo@example.com' }} onClose={jest.fn()} onDone={onDone} />);
+    const onDone = jest.fn<AnyFn>();
+    render(<DirectMfaResetModal target={{ id: 'u9', email: 'solo@example.com' }} onClose={jest.fn<AnyFn>()} onDone={onDone} />);
 
     const submit = screen.getByRole('button', { name: /reset two-factor/i });
     expect(submit).toBeDisabled();
@@ -194,7 +196,7 @@ describe('DirectMfaResetModal (sysadmin)', () => {
   });
 
   it('steers toward the two-person reset', () => {
-    render(<DirectMfaResetModal target={{ id: 'u9', email: 'solo@example.com' }} onClose={jest.fn()} onDone={jest.fn()} />);
+    render(<DirectMfaResetModal target={{ id: 'u9', email: 'solo@example.com' }} onClose={jest.fn<AnyFn>()} onDone={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/prefer the two-person reset/i)).toBeInTheDocument();
   });
 });

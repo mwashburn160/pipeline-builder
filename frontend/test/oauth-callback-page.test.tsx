@@ -8,18 +8,20 @@
  * single-use, and invite-accept restarts a normal login with a fresh intent.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import OAuthCallbackPage from '../pages/auth/callback/[provider]';
 import { OAUTH_INTENT_KEY } from '../src/lib/oauth-intent';
 
 let mockQuery: Record<string, string> = {};
-const mockReplace = jest.fn();
+const mockReplace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
   useRouter: () => ({ isReady: true, query: mockQuery, replace: mockReplace }),
 }));
 
-const mockRefreshUser = jest.fn().mockResolvedValue(undefined);
+const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ refreshUser: mockRefreshUser }),
@@ -32,13 +34,13 @@ jest.mock('framer-motion', () => ({
 
 // Mocked by resolved path, so oauth-intent's relative `./api` import sees it too.
 jest.mock('@/lib/api', () => {
-  const api = { completeOAuthCallback: jest.fn(), acceptInvitationOAuth: jest.fn(), getOAuthUrl: jest.fn() };
+  const api = { completeOAuthCallback: jest.fn<AnyFn>(), acceptInvitationOAuth: jest.fn<AnyFn>(), getOAuthUrl: jest.fn<AnyFn>() };
   return { __esModule: true, default: api, api };
 });
-const mockApi = jest.requireMock('@/lib/api').api as Record<'completeOAuthCallback' | 'acceptInvitationOAuth' | 'getOAuthUrl', jest.Mock>;
+const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<'completeOAuthCallback' | 'acceptInvitationOAuth' | 'getOAuthUrl', jest.Mock<AnyFn>>;
 
 // Step-up re-auth: keep the real state-prefix predicate, spy on the hand-off.
-const publishReauthResult = jest.fn();
+const publishReauthResult = jest.fn<AnyFn>();
 jest.mock('@/lib/step-up-reauth', () => ({
   __esModule: true,
   isReauthState: (state?: string) => typeof state === 'string' && state.startsWith('reauth.'),

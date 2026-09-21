@@ -1,17 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, waitFor } from '@testing-library/react';
 import { usePlans } from '../src/hooks/usePlans';
 
-const getPlans = jest.fn();
+const getPlans = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getPlans: (...a: unknown[]) => getPlans(...a) },
 }));
 
 describe('usePlans', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('short-circuits when disabled — no fetch, not loading', () => {
     const { result } = renderHook(() => usePlans(false));

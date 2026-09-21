@@ -8,6 +8,8 @@
  * only forwards the fresh token to `updateOrgAIConfig` once the user re-confirms.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 // StepUpModal → a stub that immediately confirms with a known token, so we can
@@ -19,8 +21,8 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const getOrgAIConfig = jest.fn();
-const updateOrgAIConfig = jest.fn();
+const getOrgAIConfig = jest.fn<AnyFn>();
+const updateOrgAIConfig = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -12,13 +12,15 @@
  * per-org state, and that a first-run user's flow is unchanged.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import OnboardingPage from '../pages/dashboard/onboarding';
 
 let user: Record<string, unknown> | null = { id: 'u1', organizationName: 'Personal', needsOnboarding: false };
-const refreshUser = jest.fn();
-const replace = jest.fn();
-const push = jest.fn();
+const refreshUser = jest.fn<AnyFn>();
+const replace = jest.fn<AnyFn>();
+const push = jest.fn<AnyFn>();
 
 jest.mock('next/router', () => ({
   __esModule: true,
@@ -32,7 +34,7 @@ jest.mock('@/hooks/useAuthGuard', () => ({
 
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
-  useAuth: () => ({ markOnboardingComplete: jest.fn() }),
+  useAuth: () => ({ markOnboardingComplete: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('@/hooks/useFeatures', () => ({
@@ -45,9 +47,9 @@ jest.mock('@/hooks/usePlans', () => ({
   usePlans: () => ({ plans: [], loading: false }),
 }));
 
-const getDomainOrgs = jest.fn();
-const joinDomainOrg = jest.fn();
-const completeOnboarding = jest.fn();
+const getDomainOrgs = jest.fn<AnyFn>();
+const joinDomainOrg = jest.fn<AnyFn>();
+const completeOnboarding = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

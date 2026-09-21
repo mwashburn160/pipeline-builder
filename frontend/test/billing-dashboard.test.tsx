@@ -1,15 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { BillingDashboard } from '../src/components/billing/BillingDashboard';
 import { mockOrgHierarchy } from './helpers/pageMocks';
 
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
-const getBillingSummary = jest.fn();
-const listBillingInvoices = jest.fn();
-const getBillingAllocation = jest.fn();
+const getBillingSummary = jest.fn<AnyFn>();
+const listBillingInvoices = jest.fn<AnyFn>();
+const getBillingAllocation = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

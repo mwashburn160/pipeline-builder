@@ -6,6 +6,8 @@
  * users and invitations pages, identical apart from the noun and the verb.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BulkSelectionBanner, BulkResultSummary } from '../src/components/dashboard/BulkSelectionBanner';
 
@@ -30,8 +32,8 @@ describe('BulkSelectionBanner', () => {
   });
 
   it('wires clear and the destructive action separately', () => {
-    const onClear = jest.fn();
-    const onAction = jest.fn();
+    const onClear = jest.fn<AnyFn>();
+    const onAction = jest.fn<AnyFn>();
     render(<BulkSelectionBanner count={2} noun="user" actionLabel="Delete" onClear={onClear} onAction={onAction} />);
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete 2' }));
@@ -58,7 +60,7 @@ describe('BulkResultSummary', () => {
   });
 
   it('offers Dismiss only when the caller can clear it', () => {
-    const onDismiss = jest.fn();
+    const onDismiss = jest.fn<AnyFn>();
     const { rerender } = render(<BulkResultSummary failed={0} errors={[]}>done</BulkResultSummary>);
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
 

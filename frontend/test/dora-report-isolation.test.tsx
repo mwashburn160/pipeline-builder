@@ -7,6 +7,8 @@
  * The page-level fetch/tab wiring is covered by dora-section.test.tsx.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DoraReport } from '../src/components/reports/DoraReport';
 import type { ExecutionCountRow } from '../src/types';
@@ -19,8 +21,8 @@ const execRow: ExecutionCountRow = {
 
 const doraScope = {
   pipelineId: '', environment: '',
-  onPipelineChange: jest.fn(), onEnvironmentChange: jest.fn(),
-  onEnvironmentCommit: jest.fn(),
+  onPipelineChange: jest.fn<AnyFn>(), onEnvironmentChange: jest.fn<AnyFn>(),
+  onEnvironmentCommit: jest.fn<AnyFn>(),
 };
 
 const baseProps = {
@@ -34,7 +36,7 @@ const baseProps = {
   deployPipelineSelected: false,
   markEnvironment: 'production',
   canMark: true,
-  onMarkOutcome: jest.fn().mockResolvedValue(undefined),
+  onMarkOutcome: jest.fn<AnyFn>().mockResolvedValue(undefined),
   doraScope,
 };
 
@@ -134,7 +136,7 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
   });
 
   it('lists deployments and fires onMarkOutcome from the row actions', async () => {
-    const onMarkOutcome = jest.fn().mockResolvedValue(undefined);
+    const onMarkOutcome = jest.fn<AnyFn>().mockResolvedValue(undefined);
     render(
       <DoraReport
         {...baseProps}
@@ -173,7 +175,7 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
   });
 
   it('disables the mark actions with the reason under read-only impersonation', () => {
-    const onMarkOutcome = jest.fn().mockResolvedValue(undefined);
+    const onMarkOutcome = jest.fn<AnyFn>().mockResolvedValue(undefined);
     render(
       <DoraReport
         {...baseProps}

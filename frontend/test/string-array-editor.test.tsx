@@ -10,6 +10,8 @@
  * serialized value handed to onChange is unchanged — no id ever leaks into it.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StringArrayEditor from '../src/components/pipeline/editors/StringArrayEditor';
@@ -54,7 +56,7 @@ describe('StringArrayEditor', () => {
   });
 
   it('hands onChange a plain string[] with no injected id fields', () => {
-    const onChangeSpy = jest.fn();
+    const onChangeSpy = jest.fn<AnyFn>();
     render(<Harness initial={['x', 'y']} onChangeSpy={onChangeSpy} />);
 
     fireEvent.click(screen.getByRole('button', { name: /\+ add/i }));

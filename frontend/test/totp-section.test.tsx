@@ -12,15 +12,17 @@
  * "two-factor is off", and an impersonated (read-only) session offers no writes.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const getTotpStatus = jest.fn();
-const enrolTotp = jest.fn();
-const activateTotp = jest.fn();
-const disableTotp = jest.fn();
-const regenerateRecoveryCodes = jest.fn();
-const toastError = jest.fn();
-const toastSuccess = jest.fn();
+const getTotpStatus = jest.fn<AnyFn>();
+const enrolTotp = jest.fn<AnyFn>();
+const activateTotp = jest.fn<AnyFn>();
+const disableTotp = jest.fn<AnyFn>();
+const regenerateRecoveryCodes = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
+const toastSuccess = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -36,7 +38,7 @@ jest.mock('@/lib/api', () => ({
 
 // One STABLE object: `useLoadable`'s `reload` depends on the toast, and a fresh
 // object per render would re-run the load effect forever.
-const toast = { success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() };
+const toast = { success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 
 // Step-up has its own suite; here it only needs to hand a token back so the
@@ -68,7 +70,7 @@ jest.mock('@/components/settings/TotpQrCode', () => ({
 
 // Turning the factor on or off changes `user.authFactors`, which the posture
 // strip above this panel reads off the profile — so the panel refreshes it.
-const refreshUser = jest.fn(async () => undefined);
+const refreshUser = jest.fn<AnyFn>(async () => undefined);
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser }) }));
 
 import { TotpSection } from '../src/components/settings/TotpSection';
@@ -106,8 +108,8 @@ beforeEach(() => {
   disableTotp.mockResolvedValue({ success: true, data: { disabled: true } });
   regenerateRecoveryCodes.mockResolvedValue({ success: true, data: { recoveryCodes: codes } });
   // jsdom has no object-URL support for the recovery-code download.
-  global.URL.createObjectURL = jest.fn(() => 'blob:codes');
-  global.URL.revokeObjectURL = jest.fn();
+  global.URL.createObjectURL = jest.fn<AnyFn>(() => 'blob:codes');
+  global.URL.revokeObjectURL = jest.fn<AnyFn>();
 });
 
 describe('TotpSection — turning it on', () => {

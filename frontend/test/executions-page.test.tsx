@@ -6,6 +6,8 @@
  * each state a distinct fact (and each select one value of the status filter).
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import type { ExecutionCountRow } from '@/types';
@@ -18,12 +20,12 @@ jest.mock('@/components/reports/useReportData', () => ({ useIngestHealth: () => 
 jest.mock('@/hooks/useExecutionStatusStream', () => ({ useExecutionStatusStream: () => ({ connected: false }) }));
 jest.mock('@/components/reports/ReportHelpers', () => ({ DateRangePicker: () => null }));
 
-const push = jest.fn();
+const push = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push, query: {}, pathname: '/dashboard/executions' }) }));
 
 let rows: ExecutionCountRow[] = [];
 jest.mock('@/hooks/useQuery', () => ({
-  useQuery: () => ({ data: { success: true, data: { pipelines: rows } }, loading: false, error: null, refetch: jest.fn() }),
+  useQuery: () => ({ data: { success: true, data: { pipelines: rows } }, loading: false, error: null, refetch: jest.fn<AnyFn>() }),
 }));
 
 import ExecutionsPage from '../pages/dashboard/executions';

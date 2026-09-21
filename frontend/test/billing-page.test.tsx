@@ -10,6 +10,8 @@
  *  - `?highlight=<feature>` with no tab lands on the Add-ons tab.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import BillingPage from '../pages/dashboard/billing';
@@ -22,8 +24,8 @@ const mockRouter = {
   query: {} as Record<string, string>,
   pathname: '/dashboard/billing',
   isReady: true,
-  replace: jest.fn((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
-  push: jest.fn(),
+  replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
+  push: jest.fn<AnyFn>(),
 };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }] }) }));
@@ -67,12 +69,12 @@ for (const [path, name] of [
   jest.doMock(path, () => ({ __esModule: true, [name]: () => null }));
 }
 
-const getPlans = jest.fn();
-const getSubscription = jest.fn();
-const changeSubscription = jest.fn();
-const cancelSubscription = jest.fn();
-const getBillingUsage = jest.fn();
-const getBundles = jest.fn();
+const getPlans = jest.fn<AnyFn>();
+const getSubscription = jest.fn<AnyFn>();
+const changeSubscription = jest.fn<AnyFn>();
+const cancelSubscription = jest.fn<AnyFn>();
+const getBillingUsage = jest.fn<AnyFn>();
+const getBundles = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const overrides: Record<string, unknown> = {
     getPlans: (...a: unknown[]) => getPlans(...a),

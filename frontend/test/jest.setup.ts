@@ -8,7 +8,10 @@
  * a per-file import.
  */
 
-import '@testing-library/jest-dom';
+// The `jest-globals` entry: tests import `expect` from `@jest/globals` (there is
+// no `@types/jest` global namespace in this repo), so the matchers must extend
+// THAT expect — and its types — rather than the global one.
+import '@testing-library/jest-dom/jest-globals';
 import { configure } from '@testing-library/react';
 import { clearQueryCache } from '../src/lib/query-cache';
 

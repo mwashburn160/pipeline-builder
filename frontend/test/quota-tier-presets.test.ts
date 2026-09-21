@@ -9,6 +9,7 @@
  * `TIER_PRESETS` export is the fallback source.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { buildTierPresets, pillClassFor, TIER_KEYS, TIER_PRESETS } from '../src/components/quotas/constants';
 import {
   ALL_TIER_KEYS, TIER_KEYS as SELECTABLE_TIER_KEYS, TIER_META, getTierMeta, tierAllowsTeams,

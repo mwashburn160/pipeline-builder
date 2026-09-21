@@ -7,6 +7,8 @@
  * to read as "Orphaned" and the banner urged deregistering a valid record.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import DeploymentsPage from '../pages/dashboard/deployments';
@@ -15,8 +17,8 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const listAllPipelines = jest.fn();
-const listPipelineDeployments = jest.fn();
+const listAllPipelines = jest.fn<AnyFn>();
+const listPipelineDeployments = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

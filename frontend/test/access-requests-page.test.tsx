@@ -15,6 +15,8 @@
  *   - The operator-written reason renders as TEXT, never markup.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import AccessRequestsPage from '../pages/dashboard/access-requests';
@@ -52,11 +54,11 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const listImpersonationRequests = jest.fn();
-const decideImpersonationRequest = jest.fn();
-const revokeImpersonationSession = jest.fn();
-const redeemImpersonationRequest = jest.fn();
-const startImpersonation = jest.fn();
+const listImpersonationRequests = jest.fn<AnyFn>();
+const decideImpersonationRequest = jest.fn<AnyFn>();
+const revokeImpersonationSession = jest.fn<AnyFn>();
+const redeemImpersonationRequest = jest.fn<AnyFn>();
+const startImpersonation = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

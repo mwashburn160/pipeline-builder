@@ -7,6 +7,8 @@
  * step-up), and restore a recently deleted one — plus the Create Team gate.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { UserOrgMembership } from '@/types';
@@ -16,11 +18,11 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const refreshUser = jest.fn().mockResolvedValue(undefined);
-const switchOrganization = jest.fn();
+const refreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
+const switchOrganization = jest.fn<AnyFn>();
 let mockOrganizations: UserOrgMembership[] = [];
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
@@ -46,11 +48,11 @@ jest.mock('@/components/teams/TeamSettingsDrawer', () => ({
   __esModule: true,
   TeamSettingsDrawer: ({ team }: { team: { orgId: string } }) => <div data-testid="team-drawer">{team.orgId}</div>,
 }));
-const triggerBlobDownload = jest.fn();
+const triggerBlobDownload = jest.fn<AnyFn>();
 jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
 
 /** Every api method resolves to an empty success unless a test overrides it. */
-const mockApi: Record<string, jest.Mock> = {};
+const mockApi: Record<string, jest.Mock<AnyFn>> = {};
 jest.mock('@/lib/api', () => {
   const api = new Proxy({}, {
     get: (_t, key: string) => mockApi[key] ?? (() => Promise.resolve({ success: true, data: {} })),
@@ -77,10 +79,10 @@ beforeEach(() => {
   for (const k of Object.keys(mockApi)) delete mockApi[k];
   mockOrganizations = [root()];
   asAdmin();
-  mockApi.getOrganizationTeams = jest.fn().mockResolvedValue({
+  mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({
     success: true, data: { teams: [{ orgId: 't1', orgName: 'Platform' }, { orgId: 't2', orgName: 'Data' }] },
   });
-  mockApi.listDeletedTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [] } });
+  mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
 });
 
 describe('Create Team gate', () => {
@@ -130,7 +132,7 @@ describe('Create Team gate', () => {
 
   it('stays visible for a root org with no teams at all — that org needs it most', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
-    mockApi.getOrganizationTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [] } });
+    mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
     render(<MembersPage />);
     expect(await screen.findByRole('button', { name: /create team/i })).toBeEnabled();
   });
@@ -141,8 +143,8 @@ describe('TeamsCard empty state', () => {
     // Reached when every live team is deleted but still restorable: the card
     // renders, and its "create a new one" sentence used to point at nothing.
     mockOrganizations = [root({ childOrgCount: 0 })];
-    mockApi.getOrganizationTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [] } });
-    mockApi.listDeletedTeams = jest.fn().mockResolvedValue({
+    mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
+    mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({
       success: true, data: { teams: [{ orgId: 't9', orgName: 'Gone', deletedAt: '2026-09-01T00:00:00Z', purgeAfter: '2026-10-01T00:00:00Z' }] },
     });
     render(<MembersPage />);
@@ -174,7 +176,7 @@ describe('Teams row actions', () => {
   });
 
   it('Export downloads the team\'s JSON', async () => {
-    mockApi.exportOrganization = jest.fn().mockResolvedValue('{"org":1}');
+    mockApi.exportOrganization = jest.fn<AnyFn>().mockResolvedValue('{"org":1}');
     render(<MembersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /export data/i }));
@@ -183,7 +185,7 @@ describe('Teams row actions', () => {
   });
 
   it('Delete opens ONE dialog that states the retention window and takes the factor', async () => {
-    mockApi.deleteTeam = jest.fn().mockResolvedValue({ success: true });
+    mockApi.deleteTeam = jest.fn<AnyFn>().mockResolvedValue({ success: true });
     render(<MembersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /delete team/i }));
@@ -218,8 +220,8 @@ describe('Recently deleted teams', () => {
 
   it('shows even when no live team remains, with the purge date, and restores after step-up', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
-    mockApi.listDeletedTeams = jest.fn().mockResolvedValue({ success: true, data: { teams: [deleted] } });
-    mockApi.restoreOrganization = jest.fn().mockResolvedValue({ success: true });
+    mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [deleted] } });
+    mockApi.restoreOrganization = jest.fn<AnyFn>().mockResolvedValue({ success: true });
     render(<MembersPage />);
 
     expect(await screen.findByText('Recently deleted teams')).toBeInTheDocument();

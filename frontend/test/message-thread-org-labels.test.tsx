@@ -14,18 +14,20 @@
  * chain and its honest last resort.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { ThreadView } from '../src/components/message/ThreadView';
 import type { Message } from '../src/types';
 
-const getThread = jest.fn();
+const getThread = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getThread: (...a: unknown[]) => getThread(...a),
-    replyToMessage: jest.fn(),
-    editMessage: jest.fn(),
-    uploadAttachment: jest.fn(),
+    replyToMessage: jest.fn<AnyFn>(),
+    editMessage: jest.fn<AnyFn>(),
+    uploadAttachment: jest.fn<AnyFn>(),
   },
 }));
 jest.mock('@/hooks/useAuth', () => ({
@@ -54,14 +56,14 @@ function renderThread(root: Message, thread: Message[], resolveOrgName?: (id?: s
       currentOrgId="org-1"
       currentUserId="u1"
       {...(resolveOrgName ? { resolveOrgName } : {})}
-      onBack={jest.fn()}
-      onThreadRead={jest.fn()}
+      onBack={jest.fn<AnyFn>()}
+      onThreadRead={jest.fn<AnyFn>()}
       canWrite
     />,
   );
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('ThreadView org labels', () => {
   it('prefers the server-resolved name on each bubble', async () => {

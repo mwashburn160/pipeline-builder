@@ -12,6 +12,8 @@
  *     it never redeems anything or signs anyone in.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import SamlLandingPage from '../pages/auth/sso/[orgId]/saml';
 import { authApi } from '../src/lib/api/domains/auth';
@@ -20,30 +22,30 @@ import type { ApiCore } from '../src/lib/api/core';
 let mockQuery: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: mockQuery, replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: mockQuery, replace: jest.fn<AnyFn>() }),
 }));
-const mockRefreshUser = jest.fn();
+const mockRefreshUser = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser: mockRefreshUser }) }));
 jest.mock('framer-motion', () => ({
   __esModule: true,
   motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
 }));
 jest.mock('@/lib/api', () => {
-  const api = { completeSamlLogin: jest.fn() };
+  const api = { completeSamlLogin: jest.fn<AnyFn>() };
   return { __esModule: true, default: api, api };
 });
-const mockApi = jest.requireMock('@/lib/api').api as Record<'completeSamlLogin', jest.Mock>;
+const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<'completeSamlLogin', jest.Mock<AnyFn>>;
 
 function fakeCore(responses: Record<string, unknown>) {
   const calls: string[] = [];
   const core = {
-    request: jest.fn(async (path: string) => {
+    request: jest.fn<AnyFn>(async (path: string) => {
       calls.push(path);
       const r = responses[path];
       if (r instanceof Error) throw r;
       return r ?? { success: true };
     }),
-    clearTokens: jest.fn(),
+    clearTokens: jest.fn<AnyFn>(),
   } as unknown as ApiCore;
   return { core, calls };
 }
@@ -55,7 +57,7 @@ describe('sign-out with Single Logout', () => {
     const { core, calls } = fakeCore({ '/api/auth/sso/logout': { success: true, data: { redirectUrl: '#idp-slo' } } });
     await authApi(core).logout();
     expect(calls).toEqual(['/api/auth/sso/logout', '/api/auth/logout']);
-    expect((core as unknown as { clearTokens: jest.Mock }).clearTokens).toHaveBeenCalled();
+    expect((core as unknown as { clearTokens: jest.Mock<AnyFn> }).clearTokens).toHaveBeenCalled();
     expect(window.location.hash).toBe('#idp-slo');
   });
 
@@ -69,7 +71,7 @@ describe('sign-out with Single Logout', () => {
     const { core, calls } = fakeCore({ '/api/auth/sso/logout': new Error('boom') });
     await authApi(core).logout();
     expect(calls).toContain('/api/auth/logout');
-    expect((core as unknown as { clearTokens: jest.Mock }).clearTokens).toHaveBeenCalled();
+    expect((core as unknown as { clearTokens: jest.Mock<AnyFn> }).clearTokens).toHaveBeenCalled();
     expect(window.location.hash).toBe('');
   });
 });
@@ -78,7 +80,7 @@ describe('SAML landing page — a test connection', () => {
   it('hands the test state back to the opener and closes, redeeming nothing', async () => {
     const posted: unknown[] = [];
     Object.defineProperty(window, 'opener', { value: { postMessage: (m: unknown) => posted.push(m) }, configurable: true });
-    window.close = jest.fn();
+    window.close = jest.fn<AnyFn>();
     mockQuery = { orgId: 'org-1', test: 'ssotest.abc.sig' };
     render(<SamlLandingPage />);
 

@@ -12,6 +12,7 @@
  *      into that module fails here, not at `next build`);
  *   2. the ids the UI gates on are really in the catalog.
  */
+import { describe, it, expect } from '@jest/globals';
 import {
   ALL_PERMISSIONS,
   ORG_ASSIGNABLE_CATEGORIES,

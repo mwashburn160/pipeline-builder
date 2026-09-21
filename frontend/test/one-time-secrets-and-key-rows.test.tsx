@@ -16,6 +16,8 @@
  *    now renders both.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { SecretReveal } from '../src/components/ui/SecretReveal';
 import { RecoveryCodes } from '../src/components/settings/RecoveryCodes';
@@ -50,7 +52,7 @@ function key(overrides: Partial<KeyRow> = {}): KeyRow {
 
 describe('one-time secrets offer the same three actions everywhere', () => {
   it('a revealed key can be copied, downloaded and acknowledged', () => {
-    const onDone = jest.fn();
+    const onDone = jest.fn<AnyFn>();
     render(<SecretReveal value="pb_pat_SECRET" label="Access key" onDone={onDone} filename="key.txt" />);
 
     expect(screen.getByText('pb_pat_SECRET')).toBeInTheDocument();
@@ -63,7 +65,7 @@ describe('one-time secrets offer the same three actions everywhere', () => {
   });
 
   it('recovery codes use the same row, so the two cannot drift apart', () => {
-    const onDone = jest.fn();
+    const onDone = jest.fn<AnyFn>();
     render(<RecoveryCodes codes={['AAAAA-BBBBB', 'CCCCC-DDDDD']} onDone={onDone} />);
 
     expect(screen.getByRole('link', { name: /download/i }))
@@ -81,7 +83,7 @@ describe('one-time secrets offer the same three actions everywhere', () => {
 
 describe('every access key is reviewed the same way', () => {
   it('shows the hygiene flags an audit asks about', () => {
-    render(<AccessKeyTable keys={[key({ neverUsed: true, lastUsedAt: null, expiringSoon: true })]} readOnly={false} onRevoke={jest.fn()} />);
+    render(<AccessKeyTable keys={[key({ neverUsed: true, lastUsedAt: null, expiringSoon: true })]} readOnly={false} onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/never used/)).toBeInTheDocument();
     expect(screen.getByText(/expiring soon/)).toBeInTheDocument();
   });
@@ -90,7 +92,7 @@ describe('every access key is reviewed the same way', () => {
     render(<AccessKeyTable
       keys={[key({ prefix: 'pb_sa', display: 'pb_sa_…c3d4', kind: 'service_account', scope: 'scim', ipAllowlist: ['203.0.113.7'] })]}
       readOnly={false}
-      onRevoke={jest.fn()}
+      onRevoke={jest.fn<AnyFn>()}
     />);
     expect(screen.getByText('scim')).toBeInTheDocument();
     expect(screen.getByText(/203\.0\.113\.7/)).toBeInTheDocument();
@@ -98,33 +100,33 @@ describe('every access key is reviewed the same way', () => {
 
   it('labels the owning account only where the row needs the context', () => {
     const saKey = key({ kind: 'service_account', serviceAccountName: 'ci-deploy' });
-    const { rerender } = render(<AccessKeyTable keys={[saKey]} readOnly={false} onRevoke={jest.fn()} />);
+    const { rerender } = render(<AccessKeyTable keys={[saKey]} readOnly={false} onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/service account: ci-deploy/)).toBeInTheDocument();
 
     // Inside the account's own card the owner is the heading above it.
-    rerender(<AccessKeyTable keys={[saKey]} readOnly={false} showOwner={false} onRevoke={jest.fn()} />);
+    rerender(<AccessKeyTable keys={[saKey]} readOnly={false} showOwner={false} onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.queryByText(/service account: ci-deploy/)).not.toBeInTheDocument();
   });
 
   it('asks the caller to revoke — the confirmation is theirs', () => {
-    const onRevoke = jest.fn();
+    const onRevoke = jest.fn<AnyFn>();
     render(<AccessKeyTable keys={[key()]} readOnly={false} onRevoke={onRevoke} />);
     fireEvent.click(screen.getByRole('button', { name: /revoke/i }));
     expect(onRevoke).toHaveBeenCalledWith(expect.objectContaining({ id: 'k1' }));
   });
 
   it('offers no revoke for a key that is already dead', () => {
-    render(<AccessKeyTable keys={[key({ status: 'revoked', revoked: true })]} readOnly={false} onRevoke={jest.fn()} />);
+    render(<AccessKeyTable keys={[key({ status: 'revoked', revoked: true })]} readOnly={false} onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.queryByRole('button', { name: /revoke/i })).not.toBeInTheDocument();
   });
 
   it('disables revoking under read-only impersonation', () => {
-    render(<AccessKeyTable keys={[key()]} readOnly onRevoke={jest.fn()} />);
+    render(<AccessKeyTable keys={[key()]} readOnly onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('button', { name: /revoke/i })).toBeDisabled();
   });
 
   it('shows an empty state rather than a bare sentence', () => {
-    render(<AccessKeyTable keys={[]} readOnly={false} onRevoke={jest.fn()} emptyTitle="No keys yet" emptyDescription="Issue one above." />);
+    render(<AccessKeyTable keys={[]} readOnly={false} onRevoke={jest.fn<AnyFn>()} emptyTitle="No keys yet" emptyDescription="Issue one above." />);
     const empty = screen.getByText('No keys yet').closest('div')!;
     expect(within(empty).getByText('No keys yet')).toBeInTheDocument();
   });

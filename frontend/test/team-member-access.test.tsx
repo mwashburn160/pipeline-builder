@@ -9,6 +9,8 @@
  * the parent itself, the parent admin's own org — and refuse it.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TeamMemberAccess } from '../src/components/members/TeamMemberAccess';
 
@@ -22,9 +24,9 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const getOrganizationMembers = jest.fn();
-const impersonateUser = jest.fn();
-const startImpersonation = jest.fn();
+const getOrganizationMembers = jest.fn<AnyFn>();
+const impersonateUser = jest.fn<AnyFn>();
+const startImpersonation = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

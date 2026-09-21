@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TeamUsageCard } from '../src/components/billing/TeamUsageCard';
 import { mockOrgHierarchy } from './helpers/pageMocks';
@@ -15,7 +17,7 @@ jest.mock('@/hooks/useFeatures', () => ({
   useFeatures: () => ({ isEnabled: (f: string) => (f === 'team_usage_analytics' ? mockEnabled : true), isLoaded: true, isSuperAdmin: false, canReachBilling: true }),
 }));
 
-const getTeamUsage = jest.fn();
+const getTeamUsage = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getTeamUsage: (...a: unknown[]) => getTeamUsage(...a) },

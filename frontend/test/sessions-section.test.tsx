@@ -10,12 +10,14 @@
  * a second, contradictory sessions view on the API Tokens page.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { SessionsSection } from '../src/components/settings/SessionsSection';
 
 // One STABLE toast object: `useLoadable` treats it as a `reload` dependency, so a
 // fresh object per render would refetch in a loop.
-const toast = { success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() };
+const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
   useToast: () => toast,
@@ -39,9 +41,9 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   },
 }));
 
-const listSessions = jest.fn();
-const revokeSession = jest.fn();
-const revokeAllTokens = jest.fn();
+const listSessions = jest.fn<AnyFn>();
+const revokeSession = jest.fn<AnyFn>();
+const revokeAllTokens = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -11,6 +11,8 @@
  * then `StepUpModal`, asking the same person the same question twice.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { OrganizationMember } from '@/types';
@@ -20,13 +22,13 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const refreshUser = jest.fn().mockResolvedValue(undefined);
+const refreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
-  useAuth: () => ({ user: { organizationId: 'org-1' }, organizations: [], refreshUser, switchOrganization: jest.fn() }),
+  useAuth: () => ({ user: { organizationId: 'org-1' }, organizations: [], refreshUser, switchOrganization: jest.fn<AnyFn>() }),
 }));
 
 // Renders `title` + `details`: with no confirm dialog in front of it, this is
@@ -44,7 +46,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-const mockApi: Record<string, jest.Mock> = {};
+const mockApi: Record<string, jest.Mock<AnyFn>> = {};
 jest.mock('@/lib/api', () => {
   const api = new Proxy({}, {
     get: (_t, key: string) => mockApi[key] ?? (() => Promise.resolve({ success: true, data: {} })),
@@ -66,7 +68,7 @@ beforeEach(() => {
     user: { id: 'me', organizationId: 'org-1', role: 'owner', permissions: ['members:manage'] },
     can: (p: string) => p === 'members:manage',
   });
-  mockApi.getOrganizationMembers = jest.fn().mockResolvedValue({
+  mockApi.getOrganizationMembers = jest.fn<AnyFn>().mockResolvedValue({
     success: true, data: { members: [BEE], pagination: { total: 1, limit: 25, offset: 0, hasMore: false } },
   });
 });
@@ -91,7 +93,7 @@ describe('transfer ownership is one dialog', () => {
   });
 
   it('the same dialog takes the factor and forwards its token to the PATCH', async () => {
-    mockApi.transferOrgOwnership = jest.fn().mockResolvedValue({ success: true });
+    mockApi.transferOrgOwnership = jest.fn<AnyFn>().mockResolvedValue({ success: true });
     await openTransfer();
 
     const dialog = await screen.findByRole('dialog', { name: /transfer ownership\?/i });
@@ -104,7 +106,7 @@ describe('transfer ownership is one dialog', () => {
   });
 
   it('a refusal surfaces on the page and closes the dialog', async () => {
-    mockApi.transferOrgOwnership = jest.fn().mockResolvedValue({ success: false, message: 'Not the owner' });
+    mockApi.transferOrgOwnership = jest.fn<AnyFn>().mockResolvedValue({ success: false, message: 'Not the owner' });
     await openTransfer();
 
     const dialog = await screen.findByRole('dialog', { name: /transfer ownership\?/i });

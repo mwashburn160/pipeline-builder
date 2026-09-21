@@ -7,6 +7,7 @@
  * durations tables and the stage-bottleneck list).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PipelinePerformance } from '../src/components/reports/PipelinePerformance';
 import type { ExecutionCountRow } from '../src/types';

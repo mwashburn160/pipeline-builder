@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, jest, beforeEach, afterEach, beforeAll } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act } from '@testing-library/react';
 import { usePolling } from '../src/hooks/usePolling';
 
@@ -26,7 +28,7 @@ describe('usePolling', () => {
   });
 
   it('runs immediately, then every interval', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     renderHook(() => usePolling(fn, 1000));
     expect(fn).toHaveBeenCalledTimes(1);
     act(() => { jest.advanceTimersByTime(3000); });
@@ -34,7 +36,7 @@ describe('usePolling', () => {
   });
 
   it('skips the immediate call when immediate is false', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     renderHook(() => usePolling(fn, 1000, { immediate: false }));
     expect(fn).not.toHaveBeenCalled();
     act(() => { jest.advanceTimersByTime(1000); });
@@ -42,7 +44,7 @@ describe('usePolling', () => {
   });
 
   it('pauses while hidden and catches up when the tab is visible again', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     renderHook(() => usePolling(fn, 1000));
     fn.mockClear();
 
@@ -55,7 +57,7 @@ describe('usePolling', () => {
   });
 
   it('keeps polling while hidden when pauseWhenHidden is false', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     renderHook(() => usePolling(fn, 1000, { pauseWhenHidden: false, immediate: false }));
     act(() => { setVisibility('hidden'); });
     act(() => { jest.advanceTimersByTime(2000); });
@@ -63,7 +65,7 @@ describe('usePolling', () => {
   });
 
   it('does nothing while disabled or with a non-positive interval, and stops on unmount', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     const { rerender, unmount } = renderHook(
       ({ enabled, ms }: { enabled: boolean; ms: number }) => usePolling(fn, ms, { enabled }),
       { initialProps: { enabled: false, ms: 1000 } },
@@ -83,8 +85,8 @@ describe('usePolling', () => {
   });
 
   it('calls the latest callback without restarting the timer', () => {
-    const first = jest.fn();
-    const second = jest.fn();
+    const first = jest.fn<AnyFn>();
+    const second = jest.fn<AnyFn>();
     const { rerender } = renderHook(({ fn }) => usePolling(fn, 1000), { initialProps: { fn: first } });
     act(() => { jest.advanceTimersByTime(500); });
     rerender({ fn: second });

@@ -8,6 +8,7 @@
  * render "Unlimited" for a -1 limit, and omit the row entirely when seats are null.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { UsageCard } from '../src/components/billing/UsageCard';
 import type { UsageRollup } from '../src/types';

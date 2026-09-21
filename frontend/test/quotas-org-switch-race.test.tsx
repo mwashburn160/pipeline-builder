@@ -8,6 +8,8 @@
  * ref in QuotasPage.fetchOrg.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import QuotasPage from '../pages/dashboard/quotas';
 import api from '@/lib/api';
@@ -26,7 +28,7 @@ jest.mock('@/hooks/useAuth', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
@@ -58,14 +60,14 @@ const mkQuota = (orgId: string, name: string, slug: string) => ({
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
-    listOrganizations: jest.fn().mockResolvedValue({
+    listOrganizations: jest.fn<AnyFn>().mockResolvedValue({
       data: { organizations: [{ id: 'org-a', name: 'Alpha' }, { id: 'org-b', name: 'Beta' }] },
     }),
-    getAtRiskQuotas: jest.fn().mockResolvedValue({ success: true, data: { atRisk: [] } }),
-    getOrgAtRisk: jest.fn().mockResolvedValue({ success: true, data: { atRisk: [] } }),
+    getAtRiskQuotas: jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { atRisk: [] } }),
+    getOrgAtRisk: jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { atRisk: [] } }),
     getOrgQuotas: (orgId: string) => getDeferred(orgId).promise,
-    getOwnQuotas: jest.fn(),
-    getAllOrgQuotas: jest.fn(),
+    getOwnQuotas: jest.fn<AnyFn>(),
+    getAllOrgQuotas: jest.fn<AnyFn>(),
   },
 }));
 
@@ -106,7 +108,7 @@ describe('QuotasPage — org search race', () => {
       }
       return searches[term];
     };
-    (api.listOrganizations as jest.Mock).mockImplementation((opts: { search?: string }) =>
+    (api.listOrganizations as jest.Mock<AnyFn>).mockImplementation((opts: { search?: string }) =>
       (opts.search ? searchDeferred(opts.search).promise : Promise.resolve({
         data: { organizations: [{ id: 'org-a', name: 'Alpha' }, { id: 'org-b', name: 'Beta' }] },
       })));

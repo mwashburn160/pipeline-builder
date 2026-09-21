@@ -7,6 +7,7 @@
  * this both documents the contract and locks the case-insensitive match.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import type { Message } from '../src/types';
 
 // Mirrors the helper in src/components/message/MessageList.tsx — kept in
@@ -22,6 +23,11 @@ function makeMessage(readBy: Record<string, string> = {}): Message {
     orgId: 'org-1',
     threadId: null,
     recipientOrgId: 'org-2',
+    // Fields the Message type gained since this fixture was written (per-user
+    // targeting, channels, the visibility ladder).
+    recipientUserId: null,
+    channel: null,
+    visibility: 'org',
     messageType: 'conversation',
     subject: 's',
     content: 'c',

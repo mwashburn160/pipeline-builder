@@ -18,6 +18,7 @@
  * viewer lands on an add-on grid that never mentions what they clicked. Those
  * open the Plans tab and name the plan instead.
  */
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { FeatureLock, FeatureLockedAction } from '@/components/ui/FeatureLock';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';

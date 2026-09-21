@@ -10,10 +10,12 @@
  *   - a slow response for a superseded filter never overwrites the current rows
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useComplianceAudit } from '../src/components/compliance/useComplianceAudit';
 
-const getComplianceAuditLog = jest.fn();
+const getComplianceAuditLog = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getComplianceAuditLog: (...a: unknown[]) => getComplianceAuditLog(...a) },

@@ -7,6 +7,7 @@
  * (inventory summary cards + type/compute distribution bars).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PluginOverview } from '../src/components/reports/PluginOverview';
 import type { PluginSummary, PluginDistribution } from '../src/components/reports/types';

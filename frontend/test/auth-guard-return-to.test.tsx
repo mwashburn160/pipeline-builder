@@ -6,12 +6,14 @@
  * page remembered, so signing in lands them back on it.
  */
 
+import { it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook } from '@testing-library/react';
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ pathname: '/dashboard/pipelines', asPath: '/dashboard/pipelines?q=deploy', replace, push: jest.fn() }),
+  useRouter: () => ({ pathname: '/dashboard/pipelines', asPath: '/dashboard/pipelines?q=deploy', replace, push: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('../src/hooks/useAuth', () => ({
@@ -22,8 +24,8 @@ jest.mock('../src/hooks/useAuth', () => ({
     isInitialized: true,
     isLoading: false,
     isReadOnly: false,
-    logout: jest.fn(),
-    refreshUser: jest.fn(),
+    logout: jest.fn<AnyFn>(),
+    refreshUser: jest.fn<AnyFn>(),
   }),
 }));
 

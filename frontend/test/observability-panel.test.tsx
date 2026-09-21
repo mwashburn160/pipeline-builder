@@ -7,6 +7,7 @@
  * so this is the contract test for that state machine.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { Panel } from '../src/components/observability/Panel';
 

@@ -15,6 +15,8 @@
  * label with nothing behind it, which is what that warning exists to catch.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CatalogOwnerFields } from '../src/components/ui/CatalogOwnerFields';
 
@@ -24,7 +26,7 @@ jest.mock('@/hooks/useOrgHierarchy', () => ({
   useOrgHierarchy: () => hierarchy,
 }));
 
-const getOrganizationTeams = jest.fn();
+const getOrganizationTeams = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getOrganizationTeams: (...a: unknown[]) => getOrganizationTeams(...a) },
@@ -53,7 +55,7 @@ describe('CatalogOwnerFields', () => {
   });
 
   it('offers the org teams and reports a team pick as a catalog owner', async () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<CatalogOwnerFields {...PIPELINE} value={{}} onChange={onChange} visibility="public" canAssign personOwnerId="u1" />);
     await screen.findByRole('option', { name: /Team: Payments/ });
 
@@ -63,7 +65,7 @@ describe('CatalogOwnerFields', () => {
   });
 
   it('hands a team-owned entity back to a named person, never to nothing', async () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(
       <CatalogOwnerFields
         {...PIPELINE}
@@ -85,7 +87,7 @@ describe('CatalogOwnerFields', () => {
     ['pipelines', PIPELINE],
     ['plugins', PLUGIN],
   ])('warns in %s wording when the owning team cannot see it, and offers the fix', async (noun, props) => {
-    const onShare = jest.fn();
+    const onShare = jest.fn<AnyFn>();
     render(
       <CatalogOwnerFields
         {...props}

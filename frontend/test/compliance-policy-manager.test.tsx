@@ -8,6 +8,8 @@
  * action works. A failed load offers Retry.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import PolicyManager from '../src/components/compliance/PolicyManager';
 import type { CompliancePolicy } from '../src/types/compliance';
@@ -17,10 +19,10 @@ jest.mock('@/components/RecentlyDeletedPanel', () => ({
   RecentlyDeletedPanel: () => <div data-testid="recently-deleted" />,
 }));
 
-const getCompliancePolicies = jest.fn();
-const createCompliancePolicy = jest.fn();
-const updateCompliancePolicy = jest.fn();
-const deleteCompliancePolicy = jest.fn();
+const getCompliancePolicies = jest.fn<AnyFn>();
+const createCompliancePolicy = jest.fn<AnyFn>();
+const updateCompliancePolicy = jest.fn<AnyFn>();
+const deleteCompliancePolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

@@ -8,15 +8,17 @@
  * learns must reach the badge immediately.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, render, screen, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const getUnreadCount = jest.fn();
+const getUnreadCount = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getUnreadCount: (...a: unknown[]) => getUnreadCount(...a),
-    getMessages: jest.fn().mockResolvedValue({ data: { messages: [], pagination: { hasMore: false } } }),
+    getMessages: jest.fn<AnyFn>().mockResolvedValue({ data: { messages: [], pagination: { hasMore: false } } }),
   },
 }));
 // The stream hook is transport only — it carries no count (see useMessages).
@@ -24,13 +26,13 @@ const mockSse = { connected: true, everConnected: true, onNotification: () => ()
 jest.mock('../src/hooks/useMessageNotifications', () => ({ useMessageNotifications: () => mockSse }));
 
 // DashboardLayout with its heavy chrome stubbed; the badge count is what matters.
-const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn(), events: { on: jest.fn(), off: jest.fn() } };
+const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
 jest.mock('next/head', () => ({ __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> }));
 jest.mock('@/hooks/useAuthGuard', () => ({
-  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn() }),
+  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() }),
 }));
-jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn() }) }));
+jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 jest.mock('@/hooks/useFeatures', () => ({ useFeatures: () => ({ isLoaded: true, isEnabled: () => false }) }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: ({ unreadCount }: { unreadCount: number }) => <span data-testid="badge">{unreadCount}</span> }));
 for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
@@ -42,7 +44,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }))
 // consumes the toast context this bare render has no provider for.
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
 import {

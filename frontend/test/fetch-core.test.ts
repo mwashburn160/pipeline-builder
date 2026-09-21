@@ -8,6 +8,7 @@
  * post-resolution write suppressed once cancelled.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { waitFor } from '@testing-library/react';
 import { toError, runCancellableFetch } from '../src/hooks/internal/fetchCore';
 

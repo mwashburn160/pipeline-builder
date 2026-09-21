@@ -7,6 +7,8 @@
  * band rendering incl. the `n/a` fallback for an unrated (null) level.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import { ScorecardCard } from '../src/components/pipeline/ScorecardCard';
 import { GRADE_STYLES } from '../src/components/reports/DoraParts';
@@ -26,7 +28,7 @@ jest.mock('@/hooks/useFeatures', () => ({
   }),
 }));
 
-const getPipelineScorecard = jest.fn();
+const getPipelineScorecard = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

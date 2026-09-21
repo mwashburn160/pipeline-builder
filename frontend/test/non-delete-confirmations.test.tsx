@@ -8,6 +8,8 @@
  * delete…" with a Delete button).
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import BuildQueuePage from '../pages/dashboard/build-queue';
@@ -17,15 +19,15 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const mockRouter = { query: {}, pathname: '/dashboard/x', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {}, pathname: '/dashboard/x', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }], refreshUser: jest.fn(), switchOrganization: jest.fn() }),
+  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }], refreshUser: jest.fn<AnyFn>(), switchOrganization: jest.fn<AnyFn>() }),
 }));
 
 /** Every api method resolves to an empty success unless a test overrides it. */
-const mockApiOverrides: Record<string, jest.Mock> = {};
+const mockApiOverrides: Record<string, jest.Mock<AnyFn>> = {};
 jest.mock('@/lib/api', () => {
   const api = new Proxy({}, {
     get: (_t, key: string) => mockApiOverrides[key] ?? (() => Promise.resolve({ success: true, data: {} })),
@@ -41,13 +43,13 @@ function expectNoDeleteWording(dialog: HTMLElement) {
 describe('build queue', () => {
   beforeEach(() => {
     mockAuthGuard({ isSuperAdmin: true, isAdmin: true, user: { id: 'op', organizationId: 'system' } });
-    mockApiOverrides.getQueueStatus = jest.fn().mockResolvedValue({
+    mockApiOverrides.getQueueStatus = jest.fn<AnyFn>().mockResolvedValue({
       data: { waiting: 0, active: 0, completed: 0, failed: 1, delayed: 0, dlq: { waiting: 1, active: 0, failed: 0, delayed: 0 } },
     });
-    mockApiOverrides.getQueueFailed = jest.fn().mockResolvedValue({ data: { jobs: [{ id: 'failed-job-123456', pluginName: 'lint' }] } });
-    mockApiOverrides.getQueueDlq = jest.fn().mockResolvedValue({ data: { jobs: [{ id: 'dlq-job-9876543', pluginName: 'scan' }] } });
-    mockApiOverrides.retryFailedJob = jest.fn().mockResolvedValue({ data: { newJobId: 'n1' } });
-    mockApiOverrides.replayDlqJob = jest.fn().mockResolvedValue({ data: { newJobId: 'n2' } });
+    mockApiOverrides.getQueueFailed = jest.fn<AnyFn>().mockResolvedValue({ data: { jobs: [{ id: 'failed-job-123456', pluginName: 'lint' }] } });
+    mockApiOverrides.getQueueDlq = jest.fn<AnyFn>().mockResolvedValue({ data: { jobs: [{ id: 'dlq-job-9876543', pluginName: 'scan' }] } });
+    mockApiOverrides.retryFailedJob = jest.fn<AnyFn>().mockResolvedValue({ data: { newJobId: 'n1' } });
+    mockApiOverrides.replayDlqJob = jest.fn<AnyFn>().mockResolvedValue({ data: { newJobId: 'n2' } });
   });
 
   it('confirms a failed-build retry as a retry', async () => {
@@ -86,14 +88,14 @@ describe('members', () => {
       user: { id: 'me', organizationId: 'org-1', permissions: ['members:manage'] },
       can: (p: string) => p === 'members:manage',
     });
-    mockApiOverrides.getOrganizationMembers = jest.fn().mockResolvedValue({
+    mockApiOverrides.getOrganizationMembers = jest.fn<AnyFn>().mockResolvedValue({
       success: true,
       data: {
         members: [{ id: 'm1', username: 'trinity', email: 't@acme.com', role: 'member', isActive: true, joinedAt: '2026-01-01' }],
         pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
       },
     });
-    mockApiOverrides.deactivateMember = jest.fn().mockResolvedValue({ success: true });
+    mockApiOverrides.deactivateMember = jest.fn<AnyFn>().mockResolvedValue({ success: true });
   });
 
   it('confirms deactivation as a deactivation', async () => {

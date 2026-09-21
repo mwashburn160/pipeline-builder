@@ -7,6 +7,8 @@
  * it renders.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import PipelinesPage from '../pages/dashboard/pipelines';
@@ -24,18 +26,18 @@ jest.mock('@/components/pipeline/DeployedPipelinesPanel', () => ({ __esModule: t
 jest.mock('@/components/pipeline/ScorecardCard', () => ({ __esModule: true, ScorecardCard: () => null }));
 jest.mock('@/components/pipeline/PipelineContextCard', () => ({ __esModule: true, PipelineContextCard: () => null }));
 
-const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/pipelines', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/pipelines', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
-const invalidatePipelines = jest.fn();
+const invalidatePipelines = jest.fn<AnyFn>();
 jest.mock('@/lib/api-cache', () => {
-  const actual = jest.requireActual('@/lib/api-cache');
+  const actual = jest.requireActual<typeof import('@/lib/api-cache')>('@/lib/api-cache');
   return { __esModule: true, ...actual, invalidate: { ...actual.invalidate, pipelines: () => invalidatePipelines() } };
 });
 
-const listPipelines = jest.fn();
-const deletePipeline = jest.fn();
-const getPipelineById = jest.fn();
+const listPipelines = jest.fn<AnyFn>();
+const deletePipeline = jest.fn<AnyFn>();
+const getPipelineById = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

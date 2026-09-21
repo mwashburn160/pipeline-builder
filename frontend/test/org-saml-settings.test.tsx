@@ -22,14 +22,16 @@
  *   - refusing to submit a SAML config that could not sign anyone in.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgSamlSettings } from '../src/components/settings/OrgSamlSettings';
 import type { OrgIdpConfigDto } from '../src/types';
 
-const putOwnOrgIdpConfig = jest.fn();
-const patchOwnOrgIdpConfig = jest.fn();
-const getOwnOrgIdpSpInfo = jest.fn();
-const importIdpMetadata = jest.fn();
+const putOwnOrgIdpConfig = jest.fn<AnyFn>();
+const patchOwnOrgIdpConfig = jest.fn<AnyFn>();
+const getOwnOrgIdpSpInfo = jest.fn<AnyFn>();
+const importIdpMetadata = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -171,7 +173,7 @@ describe('OrgSamlSettings', () => {
   });
 
   it('creates a new connection with PUT: the protocol and the SAML fields, never the OIDC ones', async () => {
-    const onSaved = jest.fn();
+    const onSaved = jest.fn<AnyFn>();
     render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText(/Protocol/i), { target: { value: 'saml' } });
     fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: 'https://idp.example.com/saml/metadata' } });

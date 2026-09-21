@@ -10,10 +10,12 @@
  * token. Cancelling aborts the wait.
  */
 
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { isReauthState, publishReauthResult, runProviderReauth } from '../src/lib/step-up-reauth';
 
-const startStepUpReauth = jest.fn();
-const completeStepUpReauth = jest.fn();
+const startStepUpReauth = jest.fn<AnyFn>();
+const completeStepUpReauth = jest.fn<AnyFn>();
 jest.mock('../src/lib/api', () => {
   const api = {
     startStepUpReauth: (...a: unknown[]) => startStepUpReauth(...a),
@@ -26,7 +28,7 @@ const ORIGIN = window.location.origin;
 
 /** A popup stub that plays the callback page's part when it is navigated. */
 function fakePopup(reply: (url: string) => unknown | null) {
-  const close = jest.fn();
+  const close = jest.fn<AnyFn>();
   const popup = {
     close,
     location: {
@@ -41,7 +43,7 @@ function fakePopup(reply: (url: string) => unknown | null) {
   return { popup, close };
 }
 
-let openSpy: jest.SpyInstance;
+let openSpy: jest.Spied<typeof window.open>;
 afterEach(() => {
   openSpy?.mockRestore();
   jest.clearAllMocks();
@@ -59,7 +61,7 @@ describe('isReauthState', () => {
 
 describe('publishReauthResult', () => {
   it('posts the result to the opener at this origin only', () => {
-    const postMessage = jest.fn();
+    const postMessage = jest.fn<AnyFn>();
     Object.defineProperty(window, 'opener', { value: { postMessage }, configurable: true });
     publishReauthResult({ type: 'pb-step-up-reauth', state: 'reauth.1', code: 'c1' });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ state: 'reauth.1', code: 'c1' }), ORIGIN);

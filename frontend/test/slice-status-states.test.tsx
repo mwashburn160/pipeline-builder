@@ -8,6 +8,8 @@
  *  - the build triage's empty state is an EmptyState, not an emoji alert.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
 import { OrgListItem } from '../src/components/quotas/OrgListItem';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -17,24 +19,24 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/hooks/usePolling', () => ({ __esModule: true, usePolling: () => {} }));
 
-const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/registry', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/registry', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
 // Registry data hooks — the list read is what 403s.
 const repoListState: { error: unknown } = { error: null };
 jest.mock('@/hooks/useRepositoryList', () => ({
   __esModule: true,
-  useRepositoryList: () => ({ groups: [], repos: [], hasMore: false, loading: false, error: repoListState.error, loadMore: jest.fn(), refresh: jest.fn() }),
+  useRepositoryList: () => ({ groups: [], repos: [], hasMore: false, loading: false, error: repoListState.error, loadMore: jest.fn<AnyFn>(), refresh: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/hooks/useImageTags', () => ({
   __esModule: true,
-  useImageTags: () => ({ tags: null, loading: false, error: null, refresh: jest.fn() }),
-  invalidateImageTags: jest.fn(),
+  useImageTags: () => ({ tags: null, loading: false, error: null, refresh: jest.fn<AnyFn>() }),
+  invalidateImageTags: jest.fn<AnyFn>(),
 }));
 jest.mock('@/hooks/useImageDetail', () => ({ __esModule: true, useImageDetail: () => ({ kind: null, loading: false, error: null }) }));
 jest.mock('@/hooks/useTagsWithMetadata', () => ({ __esModule: true, useTagsWithMetadata: () => ({ metadata: {}, loading: false }) }));
 
-const getQueueTriage = jest.fn();
+const getQueueTriage = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   class ApiError extends Error {
     statusCode: number;
@@ -61,7 +63,7 @@ describe('OrgListItem health dot', () => {
 
 describe('registry mid-session 403', () => {
   it('renders the AccessDenied state instead of redirecting', async () => {
-    const { ApiError } = jest.requireMock('@/lib/api') as { ApiError: new (m: string, s: number) => Error };
+    const { ApiError } = jest.requireMock<Record<string, unknown>>('@/lib/api') as { ApiError: new (m: string, s: number) => Error };
     repoListState.error = new ApiError('forbidden', 403);
     mockAuthGuard({ isSuperAdmin: true, user: { id: 'op', organizationId: 'system' } });
     const { default: RegistryPage } = await import('../pages/dashboard/registry');

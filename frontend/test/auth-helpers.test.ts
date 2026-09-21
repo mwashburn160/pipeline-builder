@@ -11,6 +11,7 @@
  * everywhere. The backend rejects every non-GET under an impersonation token,
  * so a misclassification here would surface an enabled button that only 403s.
  */
+import { describe, it, expect } from '@jest/globals';
 import {
   isMutationPermission,
   hasPermission,

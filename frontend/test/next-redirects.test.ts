@@ -17,6 +17,7 @@
  * is checked as Next would read it.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ACCESS_KEYS_HREF, SESSIONS_HREF } from '../src/lib/security-links';

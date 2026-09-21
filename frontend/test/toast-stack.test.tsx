@@ -6,18 +6,19 @@
  * messages, the visible cap, and lifting above the BulkActionBar.
  */
 
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { ToastProvider, useToast } from '../src/components/ui/Toast';
 import { BulkActionBar } from '../src/components/dashboard/BulkActionBar';
 import { TOAST_OFFSET_CSS_VAR } from '../src/lib/constants';
 
 jest.mock('framer-motion', () => {
-  const React = jest.requireActual('react');
+  const React = jest.requireActual<typeof import('react')>('react');
   return {
     AnimatePresence: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
     motion: new Proxy({}, {
       get: (_t, tag: string) => ({ children, initial: _i, animate: _a, exit: _e, transition: _tr, ...rest }: Record<string, unknown>) =>
-        React.createElement(tag, rest, children),
+        React.createElement(tag, rest, children as React.ReactNode),
     }),
   };
 });
@@ -33,8 +34,8 @@ function renderStack() {
 }
 
 describe('Toast stack', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
 
   it('keeps errors for 8s but success for 4s', () => {
     renderStack();

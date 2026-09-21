@@ -4,6 +4,7 @@
 /**
  * Tests for wizard-validation.ts: WIZARD_STEPS, validateStep, getStepStatuses.
  */
+import { describe, it, expect } from '@jest/globals';
 import { WIZARD_STEPS, validateStep, getStepStatuses } from '../src/lib/wizard-validation';
 import { createInitialFormState } from '../src/types/form-types';
 

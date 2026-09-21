@@ -10,24 +10,26 @@
  * `readOnly` too and hides the action rather than offering a guaranteed 403.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ScanDetail from '../src/components/compliance/ScanDetail';
 
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 
-const getScan = jest.fn();
-const cancelScan = jest.fn();
-const getComplianceAuditLog = jest.fn();
+const getScan = jest.fn<AnyFn>();
+const cancelScan = jest.fn<AnyFn>();
+const getComplianceAuditLog = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getScan: (...a: unknown[]) => getScan(...a),
     cancelScan: (...a: unknown[]) => cancelScan(...a),
     getComplianceAuditLog: (...a: unknown[]) => getComplianceAuditLog(...a),
-    createExemption: jest.fn(),
+    createExemption: jest.fn<AnyFn>(),
   },
 }));
 
@@ -45,7 +47,7 @@ beforeEach(() => {
 });
 
 it('offers Cancel scan on a running scan for a compliance:write viewer', async () => {
-  render(<ScanDetail scanId="scan-1" onBack={jest.fn()} />);
+  render(<ScanDetail scanId="scan-1" onBack={jest.fn<AnyFn>()} />);
   fireEvent.click(await screen.findByRole('button', { name: /cancel scan/i }));
 
   // Confirms first — the scan cannot be resumed.
@@ -56,7 +58,7 @@ it('offers Cancel scan on a running scan for a compliance:write viewer', async (
 });
 
 it('hides Cancel scan for a read-only viewer', async () => {
-  render(<ScanDetail scanId="scan-1" onBack={jest.fn()} readOnly />);
+  render(<ScanDetail scanId="scan-1" onBack={jest.fn<AnyFn>()} readOnly />);
 
   // The detail itself still renders — reading a scan is `compliance:read`.
   await screen.findByText('Scan details');

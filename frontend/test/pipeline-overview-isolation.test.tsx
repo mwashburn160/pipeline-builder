@@ -8,6 +8,7 @@
  * state, data).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PipelineOverview } from '../src/components/reports/PipelineOverview';
 import type { ExecutionCountRow } from '../src/types';

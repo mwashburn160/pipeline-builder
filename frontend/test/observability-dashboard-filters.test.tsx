@@ -7,6 +7,8 @@
  * filter form writes event / actor / requestId into the URL.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DashboardPage from '../pages/dashboard/observability/[id]';
 
@@ -14,11 +16,11 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const replace = jest.fn();
+const replace = jest.fn<AnyFn>();
 let mockQuery: Record<string, string> = {};
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: mockQuery, pathname: '/dashboard/observability/[id]', replace, push: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: mockQuery, pathname: '/dashboard/observability/[id]', replace, push: jest.fn<AnyFn>() }),
 }));
 
 // The grid driver is lazy + layout-heavy; render panels in order instead.
@@ -29,11 +31,11 @@ jest.mock('next/dynamic', () => ({
   },
 }));
 
-const observabilityAuditQuery = jest.fn();
+const observabilityAuditQuery = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   api: {
-    getDashboard: jest.fn().mockResolvedValue({
+    getDashboard: jest.fn<AnyFn>().mockResolvedValue({
       data: {
         dashboard: {
           id: 'd1', orgId: 'system', createdBy: 'system', createdAt: '', updatedBy: '', updatedAt: '',

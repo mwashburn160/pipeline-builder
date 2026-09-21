@@ -8,6 +8,7 @@
  * plugin_name+last_seen).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PluginBuilds } from '../src/components/reports/PluginBuilds';
 import type { BuildSuccessEntry, BuildDurationStat, BuildFailure } from '../src/components/reports/types';

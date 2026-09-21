@@ -1,6 +1,11 @@
 {
   "dependencies": [
     {
+      "name": "@jest/globals",
+      "version": "30.4.1",
+      "type": "build"
+    },
+    {
       "name": "@tailwindcss/postcss",
       "version": "4.3.3",
       "type": "build"

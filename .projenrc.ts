@@ -757,6 +757,9 @@ const frontend = new FrontEndProject({
     '@testing-library/react@16.3.2',
     '@testing-library/jest-dom@7.0.0',
     '@testing-library/user-event@14.6.1',
+    // Test globals are imported from `@jest/globals` (self-typed), like every
+    // other package — there is no `@types/jest`. Same pin as configureEsmJest.
+    '@jest/globals@30.4.1',
     // Must track jestVersion's 30.4.x line: jest-runtime 30.4.x calls the jsdom
     // env's moduleMocker.clearMocksOnScope (added in jest-mock 30.4.x). An older
     // jsdom env builds its moduleMocker from an older jest-mock without it,
@@ -767,6 +770,17 @@ const frontend = new FrontEndProject({
 });
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
 frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
+// Type-check the test suites before running them. ts-jest only TRANSPILES, so
+// nothing else ever checked them: tsconfig.test.json sat on the removed
+// `moduleResolution: node10` (a fatal config error, so `tsc` never got as far as
+// the code), and underneath it ~8.5k errors had accumulated unseen — tests still
+// passing arguments helpers no longer take, fixtures missing fields their types
+// had gained. Running it first keeps that from happening again.
+const typecheckTests = frontend.addTask('typecheck:tests', {
+  description: 'Type-check the frontend test suites (ts-jest only transpiles)',
+  exec: 'tsc -p tsconfig.test.json --noEmit',
+});
+frontend.testTask.prependSpawn(typecheckTests);
 if (frontend.jest) {
   frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json', diagnostics: { ignoreCodes: [151002] } }] };
   frontend.jest.config.moduleNameMapper = {

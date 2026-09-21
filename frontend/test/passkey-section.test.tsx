@@ -11,17 +11,19 @@
  * with no WebAuthn gets no panel instead of buttons that can only fail.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-const listPasskeys = jest.fn();
-const renamePasskey = jest.fn();
-const deletePasskey = jest.fn();
-const toastError = jest.fn();
-const toastSuccess = jest.fn();
-const registerPasskey = jest.fn();
-const getRecoveryCodeStatus = jest.fn();
-const getTotpStatus = jest.fn();
-const regenerateRecoveryCodes = jest.fn();
+const listPasskeys = jest.fn<AnyFn>();
+const renamePasskey = jest.fn<AnyFn>();
+const deletePasskey = jest.fn<AnyFn>();
+const toastError = jest.fn<AnyFn>();
+const toastSuccess = jest.fn<AnyFn>();
+const registerPasskey = jest.fn<AnyFn>();
+const getRecoveryCodeStatus = jest.fn<AnyFn>();
+const getTotpStatus = jest.fn<AnyFn>();
+const regenerateRecoveryCodes = jest.fn<AnyFn>();
 let webauthnSupported = true;
 
 jest.mock('@/lib/api', () => ({
@@ -43,7 +45,7 @@ jest.mock('@/lib/passkeys', () => ({
 }));
 // One STABLE object: the real `useToast` memoizes, and `useLoadable`'s `reload`
 // depends on it — a fresh object per render would re-run the load effect forever.
-const toast = { success: toastSuccess, error: toastError, warning: jest.fn(), info: jest.fn() };
+const toast = { success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 // Step-up has its own suite; here it only needs to hand a token back so the
 // gated call can be asserted.
@@ -55,7 +57,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 }));
 // Enrolling/removing/renaming a factor changes `user.authFactors`, which the
 // posture strip above this panel reads — so the panel refreshes the profile.
-const refreshUser = jest.fn(async () => undefined);
+const refreshUser = jest.fn<AnyFn>(async () => undefined);
 jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser }) }));
 
 import { PasskeySection } from '../src/components/settings/PasskeySection';

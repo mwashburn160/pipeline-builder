@@ -7,6 +7,7 @@
  * banner shown when a plugin lacks a default version.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { PluginVersions } from '../src/components/reports/PluginVersions';
 import type { PluginVersion } from '../src/components/reports/types';

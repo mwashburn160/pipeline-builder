@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import { describeCredentialAuthority, inCatalogOrder, readOnlyPreset } from '../src/components/settings/token-scopes';
 
 describe('permission-scoped credential helpers', () => {

@@ -10,6 +10,8 @@
  *     past_due / unpaid, reserving the alarm styling for those states.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SubscriptionStatusCard } from '../src/components/billing/SubscriptionStatusCard';
 import type { Subscription } from '../src/types';
@@ -35,14 +37,14 @@ const baseProps = {
   canChangePlan: true,
   actionLoading: false,
   portalLoading: false,
-  onReactivate: jest.fn(),
-  onCancel: jest.fn(),
-  onManageBilling: jest.fn(),
+  onReactivate: jest.fn<AnyFn>(),
+  onCancel: jest.fn<AnyFn>(),
+  onManageBilling: jest.fn<AnyFn>(),
 };
 
 describe('SubscriptionStatusCard — standing billing access', () => {
   it('shows a "Manage billing" button that calls onManageBilling', () => {
-    const onManageBilling = jest.fn();
+    const onManageBilling = jest.fn<AnyFn>();
     render(<SubscriptionStatusCard {...baseProps} subscription={makeSub()} onManageBilling={onManageBilling} />);
     const btn = screen.getByRole('button', { name: /manage billing/i });
     fireEvent.click(btn);
@@ -57,7 +59,7 @@ describe('SubscriptionStatusCard — standing billing access', () => {
 
 describe('SubscriptionStatusCard — dunning / past-due CTA', () => {
   it('renders a payment-failed banner with an "Update payment method" CTA when past_due', () => {
-    const onManageBilling = jest.fn();
+    const onManageBilling = jest.fn<AnyFn>();
     render(<SubscriptionStatusCard {...baseProps} subscription={makeSub({ status: 'past_due' })} onManageBilling={onManageBilling} />);
     expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
     const cta = screen.getByRole('button', { name: /update payment method/i });

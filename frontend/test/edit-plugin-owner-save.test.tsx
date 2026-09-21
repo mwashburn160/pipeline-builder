@@ -11,6 +11,8 @@
  * backdrop click would discard it silently.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import EditPluginModal from '../src/components/plugin/EditPluginModal';
 import type { PluginSummary } from '../src/lib/api/domains/plugins';
@@ -29,12 +31,12 @@ jest.mock('@/hooks/useAuth', () => ({
 
 jest.mock('@/hooks/usePlugins', () => ({
   __esModule: true,
-  clearPluginCache: jest.fn(),
+  clearPluginCache: jest.fn<AnyFn>(),
 }));
 
-const getPluginById = jest.fn();
-const updatePlugin = jest.fn();
-const getOrganizationTeams = jest.fn();
+const getPluginById = jest.fn<AnyFn>();
+const updatePlugin = jest.fn<AnyFn>();
+const getOrganizationTeams = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -64,7 +66,7 @@ beforeEach(() => {
 
 function renderModal(canPublish = true) {
   return render(
-    <EditPluginModal plugin={PLUGIN} canPublish={canPublish} onClose={jest.fn()} onSaved={jest.fn()} />,
+    <EditPluginModal plugin={PLUGIN} canPublish={canPublish} onClose={jest.fn<AnyFn>()} onSaved={jest.fn<AnyFn>()} />,
   );
 }
 

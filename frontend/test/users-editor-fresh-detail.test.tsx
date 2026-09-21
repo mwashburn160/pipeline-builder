@@ -8,6 +8,8 @@
  * row with a notice rather than blocking the editor.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import UsersPage from '../pages/dashboard/users';
@@ -16,7 +18,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const mockRouter = { query: {}, pathname: '/dashboard/users', isReady: true, replace: jest.fn(), push: jest.fn() };
+const mockRouter = { query: {}, pathname: '/dashboard/users', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
 jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
 
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -47,8 +49,8 @@ jest.mock('@/components/users/EditUserModal', () => ({
 }));
 
 const users = [{ id: 'a', username: 'alice', email: 'alice@old.example', role: 'member', organizationId: '' }];
-const mockGetUser = jest.fn();
-const mockUpdateUserById = jest.fn();
+const mockGetUser = jest.fn<AnyFn>();
+const mockUpdateUserById = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const overrides: Record<string, unknown> = {
     listUsers: () => Promise.resolve({ success: true, data: { users, pagination: { total: 1, limit: 25, offset: 0, hasMore: false } } }),

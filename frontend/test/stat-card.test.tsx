@@ -8,6 +8,7 @@
  * `badge` only compile on the detailed variant.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 import { StatCard } from '../src/components/ui/StatCard';
 

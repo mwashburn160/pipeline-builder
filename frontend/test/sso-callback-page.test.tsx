@@ -12,18 +12,20 @@
  * page did before it learned the sign-in branch at all.
  */
 
+import { it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import SsoCallbackPage from '../pages/auth/sso/[orgId]/callback';
 import { forgetReturnPath } from '../src/lib/return-to';
 
 let mockQuery: Record<string, string> = {};
-const mockReplace = jest.fn();
+const mockReplace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
   useRouter: () => ({ isReady: true, query: mockQuery, replace: mockReplace }),
 }));
 
-const mockRefreshUser = jest.fn().mockResolvedValue(undefined);
+const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
   useAuth: () => ({ refreshUser: mockRefreshUser }),
@@ -35,12 +37,12 @@ jest.mock('framer-motion', () => ({
 }));
 
 jest.mock('@/lib/api', () => {
-  const api = { completeSsoCallback: jest.fn() };
+  const api = { completeSsoCallback: jest.fn<AnyFn>() };
   return { __esModule: true, default: api, api };
 });
-const mockApi = jest.requireMock('@/lib/api').api as Record<'completeSsoCallback', jest.Mock>;
+const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<'completeSsoCallback', jest.Mock<AnyFn>>;
 
-const publishReauthResult = jest.fn();
+const publishReauthResult = jest.fn<AnyFn>();
 jest.mock('@/lib/step-up-reauth', () => ({
   __esModule: true,
   isReauthState: (state?: string) => typeof state === 'string' && state.startsWith('reauth.'),
@@ -51,7 +53,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockQuery = { orgId: 'org-1', code: 'c1', state: 's1' };
   mockApi.completeSsoCallback.mockResolvedValue({ success: true });
-  window.close = jest.fn();
+  window.close = jest.fn<AnyFn>();
 });
 
 it('completes the sign-in and lands on the dashboard', async () => {

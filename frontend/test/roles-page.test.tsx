@@ -8,6 +8,8 @@
  * only the write controls are withheld.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RolesPage from '../pages/dashboard/roles';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -16,7 +18,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
-const getOrganizationRoles = jest.fn();
+const getOrganizationRoles = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { getOrganizationRoles: (...a: unknown[]) => getOrganizationRoles(...a) },

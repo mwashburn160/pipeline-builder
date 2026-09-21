@@ -9,6 +9,8 @@
  * the value + copies it; DescriptionList renders label/value pairs.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Switch } from '../src/components/ui/Switch';
 import { Callout } from '../src/components/ui/Callout';
@@ -32,14 +34,14 @@ describe('Switch', () => {
   });
 
   it('fires onChange with the negated value when clicked', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<Switch checked={false} onChange={onChange} aria-label="Mute" />);
     fireEvent.click(screen.getByRole('switch'));
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
   it('does not fire onChange when disabled', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<Switch checked={false} onChange={onChange} disabled aria-label="Mute" />);
     fireEvent.click(screen.getByRole('switch'));
     expect(onChange).not.toHaveBeenCalled();
@@ -48,7 +50,7 @@ describe('Switch', () => {
 
 describe('ToggleRow', () => {
   it('renders label + description and toggles the underlying switch', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<ToggleRow label="Mute quota warnings" description="Pause the toasts" checked={false} onChange={onChange} />);
     expect(screen.getByText('Mute quota warnings')).toBeInTheDocument();
     expect(screen.getByText('Pause the toasts')).toBeInTheDocument();
@@ -76,7 +78,7 @@ describe('Callout', () => {
   });
 
   it('renders a dismiss button when onDismiss is provided', () => {
-    const onDismiss = jest.fn();
+    const onDismiss = jest.fn<AnyFn>();
     render(<Callout onDismiss={onDismiss}>x</Callout>);
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
     expect(onDismiss).toHaveBeenCalled();
@@ -105,7 +107,7 @@ describe('SectionCard', () => {
 
 describe('SecretReveal', () => {
   it('renders the secret value and copies it on click', async () => {
-    const writeText = jest.fn().mockResolvedValue(undefined);
+    const writeText = jest.fn<AnyFn>().mockResolvedValue(undefined);
     mockClipboard({ writeText });
 
     render(<SecretReveal value="pat_abc123" label="Token" />);

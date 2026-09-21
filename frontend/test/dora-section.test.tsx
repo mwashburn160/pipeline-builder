@@ -8,6 +8,8 @@
  * line, the coverage note, and the `advanced_reporting` feature gate.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DoraMetrics } from '../src/lib/api/domains/reporting';
 import { fmtWindow, doraLevelBadge } from '../src/components/reports/DoraParts';
@@ -29,31 +31,31 @@ jest.mock('@/hooks/useFeatures', () => ({
 
 jest.mock('next/router', () => ({
   __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() }),
 }));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 
-const getDora = jest.fn();
-const getDoraTrend = jest.fn();
-const getExecutionCount = jest.fn();
-const listPipelines = jest.fn();
-const getReportEnvironments = jest.fn();
-const listPipelineExecutions = jest.fn();
-const getBuildHealth = jest.fn();
+const getDora = jest.fn<AnyFn>();
+const getDoraTrend = jest.fn<AnyFn>();
+const getExecutionCount = jest.fn<AnyFn>();
+const listPipelines = jest.fn<AnyFn>();
+const getReportEnvironments = jest.fn<AnyFn>();
+const listPipelineExecutions = jest.fn<AnyFn>();
+const getBuildHealth = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
-    getSuccessRate: jest.fn().mockResolvedValue({ data: { timeline: [] } }),
+    getSuccessRate: jest.fn<AnyFn>().mockResolvedValue({ data: { timeline: [] } }),
     getDora: (...a: unknown[]) => getDora(...a),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
     listPipelines: (...a: unknown[]) => listPipelines(...a),
     getReportEnvironments: (...a: unknown[]) => getReportEnvironments(...a),
     listPipelineExecutions: (...a: unknown[]) => listPipelineExecutions(...a),
     getBuildHealth: (...a: unknown[]) => getBuildHealth(...a),
-    markDeploymentOutcome: jest.fn().mockResolvedValue({ success: true }),
+    markDeploymentOutcome: jest.fn<AnyFn>().mockResolvedValue({ success: true }),
   },
 }));
 

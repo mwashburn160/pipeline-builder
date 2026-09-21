@@ -12,8 +12,8 @@
  * "nothing signed in", which on a security surface would read as a fact.
  */
 
-const getTotpStatus = jest.fn();
-const listSessions = jest.fn();
+const getTotpStatus = jest.fn<AnyFn>();
+const listSessions = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -22,6 +22,8 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { invalidate, queries } from '../src/lib/api-cache';
 import { clearQueryCache, runQuery } from '../src/lib/query-cache';
 

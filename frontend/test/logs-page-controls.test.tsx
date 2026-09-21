@@ -11,6 +11,8 @@
  *    Without one every download lands as `pipeline-builder-logs`.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import LogsPage from '../pages/dashboard/logs';
@@ -28,10 +30,10 @@ const ENTRY = {
   labels: { level: 'error', service: 'platform', orgId: 'org-1' },
 };
 
-const logSearch = jest.fn();
-const logVolume = jest.fn();
-const logContext = jest.fn();
-const logExport = jest.fn();
+const logSearch = jest.fn<AnyFn>();
+const logVolume = jest.fn<AnyFn>();
+const logContext = jest.fn<AnyFn>();
+const logExport = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const api = {
     logSearch: (...a: unknown[]) => logSearch(...a),
@@ -41,7 +43,7 @@ jest.mock('@/lib/api', () => {
   };
   return { __esModule: true, default: api, api };
 });
-const triggerBlobDownload = jest.fn();
+const triggerBlobDownload = jest.fn<AnyFn>();
 jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
 
 beforeEach(() => {

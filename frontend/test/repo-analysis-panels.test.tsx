@@ -9,6 +9,8 @@
  * appear as chips.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AnalysisResultPanel, PluginStatusPanel } from '../src/components/pipeline/AnalysisResultPanel';
 import { PrivateRepoFields } from '../src/components/pipeline/PrivateRepoFields';
@@ -70,7 +72,7 @@ describe('PluginStatusPanel', () => {
 
 describe('PrivateRepoFields', () => {
   it('keeps the token field behind a disclosure and reports what is typed', () => {
-    const onChange = jest.fn();
+    const onChange = jest.fn<AnyFn>();
     render(<PrivateRepoFields value="" onChange={onChange} />);
     const toggle = screen.getByRole('button', { name: /private repository/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');

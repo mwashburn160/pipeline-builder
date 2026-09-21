@@ -11,16 +11,18 @@
  * (step-up) before either restore or the irreversible purge.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { RecentlyDeletedPanel } from '../src/components/RecentlyDeletedPanel';
 
-const listDeletedDashboards = jest.fn();
-const restoreDashboard = jest.fn();
-const purgeDashboard = jest.fn();
-const listDeletedAlertRules = jest.fn();
-const restoreAlertRule = jest.fn();
-const purgeAlertRule = jest.fn();
-const listDeletedAlertDestinations = jest.fn();
+const listDeletedDashboards = jest.fn<AnyFn>();
+const restoreDashboard = jest.fn<AnyFn>();
+const purgeDashboard = jest.fn<AnyFn>();
+const listDeletedAlertRules = jest.fn<AnyFn>();
+const restoreAlertRule = jest.fn<AnyFn>();
+const purgeAlertRule = jest.fn<AnyFn>();
+const listDeletedAlertDestinations = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -32,8 +34,8 @@ jest.mock('@/lib/api', () => ({
     restoreAlertRule: (...a: unknown[]) => restoreAlertRule(...a),
     purgeAlertRule: (...a: unknown[]) => purgeAlertRule(...a),
     listDeletedAlertDestinations: (...a: unknown[]) => listDeletedAlertDestinations(...a),
-    restoreAlertDestination: jest.fn(),
-    purgeAlertDestination: jest.fn(),
+    restoreAlertDestination: jest.fn<AnyFn>(),
+    purgeAlertDestination: jest.fn<AnyFn>(),
   },
 }));
 
@@ -49,7 +51,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 // The toast handle must be STABLE across renders: useLoadable's `reload` depends
 // on it, so a fresh object per render would re-arm its effect forever.
 jest.mock('@/components/ui/Toast', () => {
-  const handle = { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() };
+  const handle = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), info: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>() };
   return { __esModule: true, useToast: () => handle };
 });
 
@@ -74,7 +76,7 @@ describe('RecentlyDeletedPanel — observability resources', () => {
   });
 
   it('restores a dashboard only after step-up, forwarding the token', async () => {
-    const onRestored = jest.fn();
+    const onRestored = jest.fn<AnyFn>();
     restoreDashboard.mockResolvedValue({ success: true });
     render(<RecentlyDeletedPanel resource="dashboard" onRestored={onRestored} />);
     await screen.findByText('Deploy overview');

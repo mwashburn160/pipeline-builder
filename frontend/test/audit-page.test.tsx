@@ -10,6 +10,8 @@
  *     the API — from the URL, and from the ids on a row
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AuditPage from '../pages/dashboard/audit';
 import { mockAuthGuard } from './helpers/pageMocks';
@@ -22,7 +24,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 // `useListPage({ urlSync: true })` hydrates from router.query and mirrors the
 // settled state back with a shallow `router.replace`, so the mock needs both.
 let routerQuery: Record<string, string> = {};
-const routerReplace = jest.fn();
+const routerReplace = jest.fn<AnyFn>();
 jest.mock('next/router', () => ({
   __esModule: true,
   useRouter: () => ({ isReady: true, query: routerQuery, pathname: '/dashboard/audit', replace: (...a: unknown[]) => routerReplace(...a) }),
@@ -31,8 +33,8 @@ jest.mock('next/router', () => ({
 // DashboardLayout drags in providers — reduce it to a passthrough wrapper.
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
-const listAuditEvents = jest.fn();
-const verifyAuditChain = jest.fn();
+const listAuditEvents = jest.fn<AnyFn>();
+const verifyAuditChain = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

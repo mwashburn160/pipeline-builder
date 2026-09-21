@@ -7,6 +7,8 @@
  * "pooled" note, only when it IS a team).
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { UserOrgMembership } from '@/types';
 
@@ -21,10 +23,10 @@ jest.mock('@/hooks/useFeatures', () => ({
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
-    getOwnQuotas: jest.fn().mockResolvedValue({ success: false }),
-    listInvitations: jest.fn().mockResolvedValue({ success: false }),
-    getComplianceAuditLog: jest.fn().mockResolvedValue({ success: false }),
-    getMfaPolicy: jest.fn().mockResolvedValue({
+    getOwnQuotas: jest.fn<AnyFn>().mockResolvedValue({ success: false }),
+    listInvitations: jest.fn<AnyFn>().mockResolvedValue({ success: false }),
+    getComplianceAuditLog: jest.fn<AnyFn>().mockResolvedValue({ success: false }),
+    getMfaPolicy: jest.fn<AnyFn>().mockResolvedValue({
       success: true,
       data: { requireMfa: false, enforced: false, own: false, idpEnforcesMfa: false, defaultGraceDays: 14, enrolment: { members: 4, enrolled: 1, declined: 0 } },
     }),
@@ -32,7 +34,7 @@ jest.mock('@/lib/api', () => ({
 }));
 jest.mock('@/lib/query-cache', () => ({
   __esModule: true,
-  runQuery: jest.fn().mockResolvedValue({ success: true, data: { members: [], pagination: { total: 4 } } }),
+  runQuery: jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { members: [], pagination: { total: 4 } } }),
 }));
 
 import { useOrgHierarchy } from '../src/hooks/useOrgHierarchy';

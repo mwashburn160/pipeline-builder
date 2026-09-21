@@ -7,6 +7,8 @@
  * bubble, and the composer re-enables when the stream completes.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { AskPanel } from '../src/components/ask/AskPanel';
@@ -16,18 +18,18 @@ import { AskPanel } from '../src/components/ask/AskPanel';
 // for POST /pipelines, …), so every render needs an auth guard.
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
-const askAgentStream = jest.fn();
-const createPipeline = jest.fn();
-const deployGeneratedPlugin = jest.fn();
-const invalidatePipelines = jest.fn();
+const askAgentStream = jest.fn<AnyFn>();
+const createPipeline = jest.fn<AnyFn>();
+const deployGeneratedPlugin = jest.fn<AnyFn>();
+const invalidatePipelines = jest.fn<AnyFn>();
 jest.mock('@/lib/api-cache', () => ({
   __esModule: true,
   invalidate: { pipelines: () => invalidatePipelines() },
 }));
 // The picker reads the ASK service's own providers (plus the org's saved keys)
 // through the same hook the pipeline / plugin AI tabs use.
-const getAskProviders = jest.fn();
-const getOrgAIConfig = jest.fn();
+const getAskProviders = jest.fn<AnyFn>();
+const getOrgAIConfig = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -69,7 +71,7 @@ describe('AskPanel', () => {
   });
 
   it('shows example prompts in the empty state', async () => {
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/in-cluster Alertmanager/i)).toBeInTheDocument();
     // Settle the provider fetch the picker kicks off on mount.
     await screen.findByLabelText('Provider');
@@ -83,7 +85,7 @@ describe('AskPanel', () => {
       { type: 'done' },
     ]));
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
 
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'how do I wire alertmanager' } });
     fireEvent.click(screen.getByLabelText('Send'));
@@ -109,7 +111,7 @@ describe('AskPanel', () => {
       { type: 'done' },
     ]));
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'where are alerts' } });
     fireEvent.click(screen.getByLabelText('Send'));
 
@@ -119,7 +121,7 @@ describe('AskPanel', () => {
   it('surfaces an error event and drops the empty pending bubble', async () => {
     askAgentStream.mockReturnValue(gen([{ type: 'error', message: 'model unavailable' }]));
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'anything at all' } });
     fireEvent.click(screen.getByLabelText('Send'));
 
@@ -136,7 +138,7 @@ describe('AskPanel', () => {
     ]));
     createPipeline.mockResolvedValue({ success: true, data: { pipeline: { id: 'p1' } } });
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'create a lint+deploy pipeline' } });
     fireEvent.click(screen.getByLabelText('Send'));
 
@@ -164,7 +166,7 @@ describe('AskPanel', () => {
       } },
       { type: 'done' },
     ]));
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'a trivy scan plugin' } });
     fireEvent.click(screen.getByLabelText('Send'));
 
@@ -182,7 +184,7 @@ describe('AskPanel', () => {
       { type: 'proposal', data: { kind: 'pipeline', props: { pipelineName: 'x' } } },
       { type: 'done' },
     ]));
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'make a pipeline' } });
     fireEvent.click(screen.getByLabelText('Send'));
 
@@ -195,7 +197,7 @@ describe('AskPanel', () => {
     askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
     deployGeneratedPlugin.mockResolvedValue({ success: true, data: { plugin: { id: 'pl1' } } });
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     ask('a trivy scan plugin');
 
     await waitFor(() => expect(screen.getByRole('button', { name: /Create plugin/i })).toBeEnabled());
@@ -214,7 +216,7 @@ describe('AskPanel', () => {
     mockAuthGuard({ can: (p: string) => p !== 'plugins:write' });
     askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     ask('a trivy scan plugin');
 
     await waitFor(() => expect(screen.getByText('Proposed plugin')).toBeInTheDocument());
@@ -238,7 +240,7 @@ describe('AskPanel', () => {
       { type: 'done' },
     ]));
 
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     ask('a pipeline please');
 
     await waitFor(() => expect(screen.getByText('Proposed pipeline')).toBeInTheDocument());
@@ -264,7 +266,7 @@ describe('AskPanel model + repository controls', () => {
   });
 
   it('offers the ask service\'s providers and models', async () => {
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     const provider = await screen.findByLabelText('Provider');
     expect(within(provider).getByRole('option', { name: /Anthropic/ })).toBeInTheDocument();
     expect(within(await screen.findByLabelText('Model')).getAllByRole('option').map((o) => o.textContent))
@@ -272,7 +274,7 @@ describe('AskPanel model + repository controls', () => {
   });
 
   it('sends the chosen model with the turn', async () => {
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'claude-y' } });
     ask('which model are you?');
     await waitFor(() => expect(askAgentStream).toHaveBeenCalledWith(
@@ -282,7 +284,7 @@ describe('AskPanel model + repository controls', () => {
   });
 
   it('sends a private-repo token when one is supplied, and omits it when not', async () => {
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     await screen.findByLabelText('Provider');
 
     ask('public repo please');
@@ -298,7 +300,7 @@ describe('AskPanel model + repository controls', () => {
   });
 
   it('a BYO key is forwarded as `apiKey`, not stored in the message', async () => {
-    render(<AskPanel onClose={jest.fn()} />);
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     fireEvent.click(await screen.findByRole('button', { name: /custom API key|Enter API key/i }));
     fireEvent.change(screen.getByPlaceholderText(/Leave empty to use server key|Enter API key for this provider/i), {
       target: { value: 'sk-mine' },

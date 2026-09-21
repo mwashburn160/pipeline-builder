@@ -7,6 +7,8 @@
  * report — no item is shown for something that couldn't be read.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { User } from '@/types';
 
@@ -17,10 +19,10 @@ jest.mock('@/hooks/useFeatures', () => ({
 }));
 
 const api = {
-  getTotpStatus: jest.fn(),
-  listSessions: jest.fn(),
-  getOwnOrgIdpConfig: jest.fn(),
-  getMfaPolicy: jest.fn(),
+  getTotpStatus: jest.fn<AnyFn>(),
+  listSessions: jest.fn<AnyFn>(),
+  getOwnOrgIdpConfig: jest.fn<AnyFn>(),
+  getMfaPolicy: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: api }));
 

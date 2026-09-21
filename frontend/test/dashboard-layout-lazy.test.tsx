@@ -16,10 +16,12 @@
  *    billing instead of silently vanishing.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => ({ success: jest.fn(), error: jest.fn() }) }));
+jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }) }));
 
 let stepUpProps: { onConfirmed: (t: string) => void | Promise<void> } | null = null;
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -36,15 +38,15 @@ jest.mock('@/components/ask/AskPanel', () => ({
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { getUnreadCount: jest.fn().mockResolvedValue({ data: { count: 0 } }) },
+  default: { getUnreadCount: jest.fn<AnyFn>().mockResolvedValue({ data: { count: 0 } }) },
 }));
-const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn(), events: { on: jest.fn(), off: jest.fn() } };
+const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
 jest.mock('next/head', () => ({ __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> }));
 jest.mock('@/hooks/useAuthGuard', () => ({
-  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn() }),
+  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() }),
 }));
-jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn() }) }));
+jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 let aiEntitled = false;
 jest.mock('@/hooks/useFeatures', () => ({
   // `canReachBilling` = this viewer can open /dashboard/billing (`billing:read`,
@@ -69,7 +71,7 @@ describe('step-up loads on demand without dropping the request', () => {
 
   it('holds a refusal fired before the chunk arrives and opens with its retry once it does', async () => {
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
-    const retry = jest.fn().mockResolvedValue({ ok: true });
+    const retry = jest.fn<AnyFn>().mockResolvedValue({ ok: true });
     act(() => {
       window.dispatchEvent(new CustomEvent('step-up-required', { detail: { code: 'STEP_UP_REQUIRED', message: 'Confirm it', retry } }));
     });

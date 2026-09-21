@@ -7,6 +7,7 @@
  * their own copy of. These pin the three branches and the retry.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { EntityDetailDrawer } from '../src/components/ui/EntityDetailDrawer';
 

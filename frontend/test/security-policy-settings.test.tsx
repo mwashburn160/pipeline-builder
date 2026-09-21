@@ -8,15 +8,17 @@
  * the FIDO Metadata Service and lists members whose passkeys it would not accept.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PasswordPolicySettings } from '../src/components/settings/PasswordPolicySettings';
 import { AuthenticatorPolicySettings, normalizeAaguidInput } from '../src/components/settings/AuthenticatorPolicySettings';
 import type { OrgAuthenticatorPolicy, OrgPasswordPolicy } from '../src/types';
 
-const getPasswordPolicy = jest.fn();
-const updatePasswordPolicy = jest.fn();
-const getAuthenticatorPolicy = jest.fn();
-const updateAuthenticatorPolicy = jest.fn();
+const getPasswordPolicy = jest.fn<AnyFn>();
+const updatePasswordPolicy = jest.fn<AnyFn>();
+const getAuthenticatorPolicy = jest.fn<AnyFn>();
+const updateAuthenticatorPolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -28,7 +30,7 @@ jest.mock('@/lib/api', () => ({
 }));
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
 }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
@@ -41,7 +43,7 @@ const YUBIKEY = 'cb69481e-8ff7-4039-93ec-0a2729a154a8';
 const TITAN = '42b4fb4a-2866-43b2-9bf7-6c6669c2e5d3';
 const ICLOUD = 'fbfc3007-154e-4ecc-8c0b-6e020557d7bd';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('PasswordPolicySettings', () => {
   const policy = (over: Partial<OrgPasswordPolicy> = {}): OrgPasswordPolicy => ({

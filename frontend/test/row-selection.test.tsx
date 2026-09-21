@@ -12,6 +12,7 @@
  *     several searches survives
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { act, renderHook } from '@testing-library/react';
 import { useRowSelection, allSelected } from '../src/components/dashboard/BulkActionBar';
 

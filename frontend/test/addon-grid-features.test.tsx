@@ -7,13 +7,15 @@
  * deep-link emphasizes the matching bundle card.
  */
 
+import { describe, it, expect, jest, beforeAll } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AddonGrid } from '../src/components/billing/AddonGrid';
 import type { Bundle } from '../src/types';
 
 // scrollIntoView isn't implemented in jsdom.
 beforeAll(() => {
-  window.HTMLElement.prototype.scrollIntoView = jest.fn();
+  window.HTMLElement.prototype.scrollIntoView = jest.fn<AnyFn>();
 });
 
 const doraBundle = {
@@ -43,7 +45,7 @@ const baseProps = {
   actionLoading: false,
   previewLoading: false,
   addonQty: () => 0,
-  requestAddonChange: jest.fn(),
+  requestAddonChange: jest.fn<AnyFn>(),
 };
 
 describe('AddonGrid — feature discoverability', () => {
@@ -93,7 +95,7 @@ describe('AddonGrid — SeatEntry (typed per-seat entry with volume tiers)', () 
   });
 
   it('commits the typed ABSOLUTE count', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[seat]} addonQty={() => 3} />);
     const input = screen.getByRole('spinbutton', { name: /number of member seats/i });
     fireEvent.change(input, { target: { value: '7' } });
@@ -102,7 +104,7 @@ describe('AddonGrid — SeatEntry (typed per-seat entry with volume tiers)', () 
   });
 
   it('does NOT treat a cleared field as "set to 0" (no destructive removal)', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[seat]} addonQty={() => 10} />);
     const input = screen.getByRole('spinbutton', { name: /number of member seats/i });
     fireEvent.change(input, { target: { value: '' } });
@@ -153,7 +155,7 @@ describe('AddonGrid — unsubscribed preview', () => {
   } as unknown as Bundle;
 
   it('offers a real subscribe CTA instead of dead text', () => {
-    const onSubscribeIntent = jest.fn();
+    const onSubscribeIntent = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} subscribed={false} onSubscribeIntent={onSubscribeIntent} bundles={[anyPlan]} />);
     fireEvent.click(screen.getByRole('button', { name: /subscribe to add/i }));
     expect(onSubscribeIntent).toHaveBeenCalledWith(anyPlan);
@@ -224,7 +226,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   });
 
   it('commits the typed ABSOLUTE count', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 0} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '2' } });
     fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
@@ -232,7 +234,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   });
 
   it('refuses a quantity above the pack cap instead of letting the server 400 it', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[cappedPack]} addonQty={() => 1} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of standard retention packs/i }), { target: { value: '9' } });
     expect(screen.getByText(/capped at 7/i)).toBeInTheDocument();
@@ -243,7 +245,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   });
 
   it('asks in-app before a destructive reduction, and honours a cancel', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 4} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: /update/i }));
@@ -259,7 +261,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   });
 
   it('commits the reduction once confirmed', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 4} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: /update/i }));
@@ -268,7 +270,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   });
 
   it('commits a small change with no dialog at all', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 1} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '2' } });
     fireEvent.click(screen.getByRole('button', { name: /update/i }));
@@ -357,7 +359,7 @@ describe('AddonGrid — unmet prerequisites', () => {
   } as unknown as Bundle;
 
   it('disables the add, says why, and links to the add-on that provides the feature', () => {
-    const requestAddonChange = jest.fn();
+    const requestAddonChange = jest.fn<AnyFn>();
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[doraBundle, historyPack]} />);
     const card = screen.getByTestId('addon-blocked-dora_history_pack');
     expect(card).toHaveTextContent(/requires Advanced Reporting/);

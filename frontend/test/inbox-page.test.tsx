@@ -7,6 +7,8 @@
  * drops its own items.
  */
 
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import InboxPage from '../pages/dashboard/inbox';
@@ -14,10 +16,10 @@ import InboxPage from '../pages/dashboard/inbox';
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
-const listAllPipelines = jest.fn();
-const getExecutionCount = jest.fn();
-const getExemptions = jest.fn();
-const getUnreadCount = jest.fn();
+const listAllPipelines = jest.fn<AnyFn>();
+const getExecutionCount = jest.fn<AnyFn>();
+const getExemptions = jest.fn<AnyFn>();
+const getUnreadCount = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

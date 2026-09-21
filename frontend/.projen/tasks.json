@@ -147,6 +147,9 @@
       "description": "Run tests",
       "steps": [
         {
+          "spawn": "typecheck:tests"
+        },
+        {
           "execArgs": [
             "jest",
             "--passWithNoTests",
@@ -165,6 +168,15 @@
             "jest",
             "--watch"
           ]
+        }
+      ]
+    },
+    "typecheck:tests": {
+      "name": "typecheck:tests",
+      "description": "Type-check the frontend test suites (ts-jest only transpiles)",
+      "steps": [
+        {
+          "exec": "tsc -p tsconfig.test.json --noEmit"
         }
       ]
     }

@@ -19,6 +19,7 @@
  * literal. That id set must equal the frontend `ALL_FEATURE_FLAGS` set. A
  * mismatch fails with the exact offending ids, naming which side to fix.
  */
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ALL_FEATURE_FLAGS, FEATURE_METADATA } from '../src/lib/feature-flags';
@@ -63,12 +64,12 @@ describe('frontend ↔ api-core feature-flag catalog parity', () => {
   });
 
   it('reports the exact flags missing from the frontend mirror', () => {
-    const feSet = new Set(frontendIds);
+    const feSet = new Set<string>(frontendIds);
     expect(apiCoreIds.filter((id) => !feSet.has(id))).toEqual([]);
   });
 
   it('reports the exact flags the frontend mirror has but api-core does not', () => {
-    const beSet = new Set(apiCoreIds);
+    const beSet = new Set<string>(apiCoreIds);
     expect(frontendIds.filter((id) => !beSet.has(id))).toEqual([]);
   });
 

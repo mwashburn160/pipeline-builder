@@ -8,6 +8,7 @@
  * commands don't apply. The CLI-install step + Done button show on every target.
  */
 
+import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 
 // deployTarget flows from useFeatures(); drive it per test.
