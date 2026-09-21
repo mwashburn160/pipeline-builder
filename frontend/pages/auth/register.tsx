@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { UserPlus, CheckCircle, Check, ArrowLeft, Sparkles, Package, Cloud, Shield, BarChart3, LogIn } from 'lucide-react';
@@ -68,7 +67,6 @@ function SolutionPanel({ billingOff }: { billingOff: boolean }) {
 
 export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const OG_IMAGE = `${siteUrl}/og-image.png`;
-  const router = useRouter();
   const { register, isLoading } = useAuth();
   const features = useFeatures();
   const billingEnabled = features.isEnabled('billing');
@@ -135,12 +133,14 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
 
     try {
-      // `register` now establishes the session (authenticates immediately after
-      // create) and `useAuth.login` routes to /dashboard. Show the confirmation
-      // and land the new user in the dashboard — NOT back on the login screen.
+      // `register` establishes the session and NAVIGATES — `login` routes to the
+      // saved return path, or to passkey enrolment for a session that must
+      // enrol first. This page must not navigate on top of it: a second
+      // `router.push('/dashboard')` here won, so a visitor who signed up from a
+      // guarded deep link (e.g. a CLI device approval) lost it — `takeReturnPath`
+      // had already consumed it — and an enrolment redirect was overridden too.
       await register(username, email, password, organizationName || undefined, billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
-      router.push('/dashboard');
     } catch (err) {
       setError(formatError(err, 'Registration failed'));
     }

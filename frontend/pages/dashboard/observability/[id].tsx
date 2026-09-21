@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -31,6 +31,7 @@ import type { DashboardWithPanels, DashboardPanel } from '@/types/observability'
 import { api } from '@/lib/api';
 import { isSystemAdmin } from '@/lib/auth-helpers';
 import { formatError } from '@/lib/constants';
+import { useElementWidth } from '@/hooks/useElementWidth';
 
 // Read-side: lazy-load the grid driver so the ~120 KB bundle only ships
 // when a dashboard is actually viewed. Dashboards without saved coords
@@ -200,10 +201,9 @@ export default function DashboardPage() {
   }, [router, range]);
 
   const ready = isReady && isAuthenticated && !!id;
-  // Measure container width for the grid driver. ResizeObserver follows
-  // viewport + sidebar toggles without polling.
-  const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const [gridWidth, setGridWidth] = useState(960);
+  // Measure container width for the grid driver (ResizeObserver via a callback
+  // ref — see useElementWidth for why a mount-only effect stuck it at 960px).
+  const [gridContainerRef, gridWidth] = useElementWidth(960);
   // Delete confirmation (in-app modal, replacing the native confirm()).
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -216,16 +216,6 @@ export default function DashboardPage() {
   const setRange = useCallback((next: RangeKey) => {
     void router.replace({ pathname: router.pathname, query: {...router.query, range: next } }, undefined, { shallow: true });
   }, [router]);
-
-  useEffect(() => {
-    if (!gridContainerRef.current) return;
-    const el = gridContainerRef.current;
-    const measure = () => setGridWidth(Math.max(320, el.clientWidth));
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   const onClone = async () => {
     if (!dashboard) return;

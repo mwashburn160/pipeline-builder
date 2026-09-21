@@ -133,4 +133,19 @@ describe('DomainJoinSettings', () => {
     fireEvent.click(await screen.findByRole('button', { name: /approve/i }));
     await waitFor(() => expect(decideOrgJoinRequest).toHaveBeenCalledWith('org-1', 'r1', 'approve'));
   });
+  it('readOnly shows everything but offers no write — for read-only impersonation', async () => {
+    // The Settings page used to HIDE this card under read-only impersonation
+    // (it gated on the mutation-aware `can()`), so an investigating sysadmin
+    // could not see the org's domains at all. It is now shown, disabled.
+    listOrgDomains.mockResolvedValue({ success: true, data: { domains: [{ id: 'd1', domain: 'acme.com', verified: true, autoJoin: 'off' }], entitled: true } });
+    listOrgJoinRequests.mockResolvedValue({ success: true, data: { requests: [{ id: 'r1', userId: 'u1', email: 'jane@acme.com', requestedAt: '2026-01-01' }] } });
+    render(<DomainJoinSettings orgId="org-1" readOnly />);
+
+    expect(await screen.findByText('acme.com')).toBeInTheDocument();
+    expect(screen.getByText('jane@acme.com')).toBeInTheDocument();
+    expect(screen.getByLabelText('Delete acme.com')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /deny/i })).toBeDisabled();
+    expect(screen.getByPlaceholderText('acme.com')).toBeDisabled();
+  });
 });

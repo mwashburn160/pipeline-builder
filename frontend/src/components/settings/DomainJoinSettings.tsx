@@ -43,7 +43,12 @@ import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organiza
  * override (`resolveUserFeatures`) on a member of one. Both see an SSO surface
  * they cannot finish wiring up, which is exactly the loop this text breaks.
  */
-export function DomainJoinSettings({ orgId }: { orgId: string }) {
+/**
+ * `readOnly` shows the card with every control disabled — for a read-only
+ * impersonation session, where the settings must be VISIBLE (that is the point
+ * of investigating) but no write may be offered.
+ */
+export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string; readOnly?: boolean }) {
   const toast = useToast();
   // Only to EXPLAIN the dead end below — the domain gate is the account tier,
   // not this entitlement, so it never unlocks the form. (SSO is itself a Team+
@@ -52,6 +57,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
   const sso = useFeatureGate('sso');
   const [newDomain, setNewDomain] = useState('');
   const [busy, setBusy] = useState(false);
+  const locked = busy || readOnly;
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<OrgDomainDto | null>(null);
 
@@ -118,10 +124,10 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
             >
               <div className="flex-1">
                 <FormField label="Add a domain" id="new-domain" hint="e.g. acme.com — you'll verify ownership via DNS.">
-                  <Input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="acme.com" />
+                  <Input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="acme.com" disabled={readOnly} />
                 </FormField>
               </div>
-              <Button type="submit" disabled={busy || !newDomain.trim()}>Add</Button>
+              <Button type="submit" disabled={locked || !newDomain.trim()}>Add</Button>
             </form>
           ) : (
             <Callout variant="neutral" className="mb-4" title="Registering a domain needs the Team or Enterprise tier">
@@ -155,7 +161,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
                       type="button"
                       aria-label={`Delete ${d.domain}`}
                       className="text-fg-muted hover:text-danger"
-                      disabled={busy}
+                      disabled={locked}
                       onClick={() => setPendingDelete(d)}
                     >
                       <Trash2 className="w-4 h-4" />
@@ -167,7 +173,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
                   <div className="mt-2 rounded-md bg-surface-muted p-2.5 text-xs">
                     <p className="text-fg-muted mb-1">Publish this DNS TXT record, then verify:</p>
                     <code className="block break-all">{d.verification.host} TXT &quot;{d.verification.value}&quot;</code>
-                    <Button type="button" variant="secondary" className="mt-2" disabled={busy}
+                    <Button type="button" variant="secondary" className="mt-2" disabled={locked}
                       onClick={() => void run(() => api.verifyOrgDomain(orgId, d.id), 'Domain verified')}>
                       <RefreshCw className="w-3.5 h-3.5 mr-1" /> Verify
                     </Button>
@@ -181,7 +187,7 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
                       id={`mode-${d.id}`}
                       className="text-sm"
                       value={d.autoJoin}
-                      disabled={busy || !entitled}
+                      disabled={locked || !entitled}
                       onChange={(e) => void run(() => api.setOrgDomainMode(orgId, d.id, e.target.value as 'off' | 'request' | 'auto'), 'Join mode updated')}
                     >
                       <option value="off">Off — no discovery</option>
@@ -203,8 +209,8 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
                   <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
                     <span className="text-sm truncate">{r.email}</span>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button type="button" disabled={busy} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'approve'), 'Request approved')}>Approve</Button>
-                      <Button type="button" variant="secondary" disabled={busy} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'deny'), 'Request denied')}>Deny</Button>
+                      <Button type="button" disabled={locked} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'approve'), 'Request approved')}>Approve</Button>
+                      <Button type="button" variant="secondary" disabled={locked} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'deny'), 'Request denied')}>Deny</Button>
                     </div>
                   </div>
                 ))}

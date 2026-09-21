@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { hasPermission } from '@/lib/auth-helpers';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -50,6 +51,11 @@ const SETTINGS_TAB_IDS = SETTINGS_TABS.map((t) => t.id) as readonly string[];
  *  policy, AI provider API keys, and account deletion. */
 export default function SettingsPage() {
   const { user, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
+  // READ visibility for the org cards: the raw permission, which a read-only
+  // impersonation still holds. `can()` stays the gate for WRITES (each card
+  // takes `readOnly`). See the note on the Organization tab below.
+  const canSeeOrgSettings = hasPermission(user, 'org:settings');
+  const canSeeImpersonationPolicy = hasPermission(user, 'org:impersonation');
   const router = useRouter();
 
   // `?tab=security` was where factors and sessions used to live. Forward it —
@@ -222,28 +228,35 @@ export default function SettingsPage() {
 
         {activeTab === 'organization' && (
           <div className="space-y-6">
+            {/* VISIBILITY rides the raw permission; `readOnly` disables the
+                controls. These cards were gated on `can()`, which is false for any
+                mutation permission under read-only impersonation — so a sysadmin
+                investigating "why can't this user sign in" found the identity,
+                domain, impersonation, MFA, password and authenticator policies
+                simply GONE instead of shown disabled, and the `readOnly` props below
+                could never be true. members.tsx already fixed this the same way. */}
             {/* Organization Identity (owner/admin self-serve) */}
-            {can('org:settings') && <OrgIdentitySettings onSaved={refreshUser} />}
+            {canSeeOrgSettings && <OrgIdentitySettings onSaved={refreshUser} readOnly={isReadOnly} />}
 
             {/* Email domains: DNS verification (what single sign-on serves) +
                 domain-based join (owner/admin self-serve). The SSO wizard deep
                 links here — see DOMAIN_SETTINGS_ANCHOR. */}
-            {can('org:settings') && user.organizationId && (
-              <DomainJoinSettings orgId={user.organizationId} />
+            {canSeeOrgSettings && user.organizationId && (
+              <DomainJoinSettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* Administrator access (impersonation policy). Mounted in the same
                 change that ENFORCES it — never shown while it controlled nothing.
                 Its own capability, `org:impersonation`, not org:settings, so a role
                 that manages general settings can't also open the org to impersonation. */}
-            {can('org:impersonation') && user.organizationId && (
+            {canSeeImpersonationPolicy && user.organizationId && (
               <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* Two-factor requirement (#8). Same capability as the other org
                 security settings; the WRITE is step-up gated server-side because
                 turning it OFF removes a control for every member. */}
-            {can('org:settings') && user.organizationId && (
+            {canSeeOrgSettings && user.organizationId && (
               <MfaPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
@@ -251,10 +264,10 @@ export default function SettingsPage() {
                 Same capability as the two-factor requirement; both writes are
                 step-up gated server-side, and LOOSENING either also needs a
                 session opened with a second factor. */}
-            {can('org:settings') && user.organizationId && (
+            {canSeeOrgSettings && user.organizationId && (
               <PasswordPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
-            {can('org:settings') && user.organizationId && (
+            {canSeeOrgSettings && user.organizationId && (
               <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
@@ -292,13 +305,14 @@ export default function SettingsPage() {
 /**
  * Organization identity (name + URL slug) editor for owners/admins.
  *
- * Gated by the caller on `can('org:settings')` (the same capability the backend
- * requires); the backend additionally enforces that the caller administers the
- * target org. Loads the current org via GET /organization, saves via
+ * Shown when the caller holds `org:settings` (the same capability the backend
+ * requires), and rendered with `readOnly` under read-only impersonation so it is
+ * visible but not editable; the backend additionally enforces that the caller
+ * administers the target org. Loads the current org via GET /organization, saves via
  * PATCH /organization/:id/identity, and refreshes the auth profile on success so
  * a renamed org is reflected across the shell.
  */
-function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
+function OrgIdentitySettings({ onSaved, readOnly = false }: { onSaved: () => Promise<void>; readOnly?: boolean }) {
   const form = useFormState();
   const [orgId, setOrgId] = useState('');
   const [name, setName] = useState('');
@@ -379,13 +393,13 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
       onSubmit={handleSubmit}
       submitLabel="Save organization"
       submitLoading={form.loading}
-      submitDisabled={!loaded}
+      submitDisabled={!loaded || readOnly}
     >
       <FormField label="Organization name">
-        <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!loaded || form.loading} />
+        <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!loaded || form.loading || readOnly} />
       </FormField>
       <FormField label="URL slug" hint="Lowercase letters, numbers, and hyphens. Must be unique.">
-        <Input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!loaded || form.loading} placeholder="my-organization" />
+        <Input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!loaded || form.loading || readOnly} placeholder="my-organization" />
       </FormField>
     </FormSection>
   );

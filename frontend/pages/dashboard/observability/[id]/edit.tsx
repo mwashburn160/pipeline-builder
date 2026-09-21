@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -27,6 +27,7 @@ import { api } from '@/lib/api';
 import type { DashboardWithPanels, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput } from '@/components/observability/DashboardLayoutGrid';
 import { formatError } from '@/lib/constants';
+import { useElementWidth } from '@/hooks/useElementWidth';
 
 // Load the grid-layout driver only on this page. `ssr: false` is
 // load-bearing: react-grid-layout reads `window` during measurement.
@@ -75,8 +76,9 @@ export default function DashboardEditPage() {
   // editor defaults to drag-resize for new sessions, but anyone who
   // prefers the linear list still has it one click away.
   const [editorMode, setEditorMode] = useState<'grid' | 'list'>('grid');
-  const [gridWidth, setGridWidth] = useState(960);
-  const gridContainerRef = useRef<HTMLDivElement | null>(null);
+  // Callback-ref measured — see useElementWidth for why a mount-only effect
+  // left every dashboard stuck at 960px.
+  const [gridContainerRef, gridWidth] = useElementWidth(960);
   const [saving, setSaving] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
 
@@ -104,19 +106,6 @@ export default function DashboardEditPage() {
   // unsaved edits. `allowNavigation()` is called on Save to bypass the guard
   // for the intentional post-save redirect.
   const allowNavigation = useUnsavedChangesWarning(dirty);
-
-  // Measure the grid container so the static-width GridLayout matches the
-  // viewport. ResizeObserver gives us width changes on viewport resize +
-  // sidebar toggles without polling.
-  useEffect(() => {
-    if (!gridContainerRef.current) return;
-    const el = gridContainerRef.current;
-    const measure = () => setGridWidth(Math.max(320, el.clientWidth));
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [editorMode]);
 
   const onSave = async () => {
     if (!original) return;

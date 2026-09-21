@@ -232,8 +232,13 @@ export default function InvitationsPage() {
     }
   };
 
+  // The row and bulk actions share the header button's gate. Only "Send
+  // Invitation" was gated; Resend, Revoke, the checkboxes and bulk Revoke
+  // rendered for anyone who could READ the page — most visibly a sysadmin in a
+  // read-only impersonation, where every one of them was a live control the
+  // backend then 403'd (bulk revoke reporting N failures).
   const columns: Column<InvitationListItem>[] = useMemo(() => [
-    {
+    ...(canManageInvitations ? [{
       id: 'select',
       // Header checkbox toggles all visible pending rows. Only pending invites
       // are revocable, so non-pending rows render no checkbox.
@@ -247,7 +252,7 @@ export default function InvitationsPage() {
       ),
       headerClassName: 'w-10',
       cellClassName: 'w-10',
-      render: (inv) => inv.status === 'pending' ? (
+      render: (inv: InvitationListItem) => inv.status === 'pending' ? (
         <Checkbox
           aria-label={`Select invitation for ${inv.email}`}
           checked={selectedIds.has(inv.id)}
@@ -255,7 +260,7 @@ export default function InvitationsPage() {
           className="h-4 w-4 cursor-pointer"
         />
       ) : null,
-    },
+    } as Column<InvitationListItem>] : []),
     // NOTE: no `sortValue` on these columns. The list is server-paginated and
     // the invitations list endpoint has no sort param, so a client sort would
     // only reorder the current page — misleading. Sort affordance intentionally
@@ -298,7 +303,7 @@ export default function InvitationsPage() {
       header: 'Actions',
       headerClassName: 'text-right',
       cellClassName: 'text-right text-sm font-medium',
-      render: (inv) => inv.status === 'pending' ? (
+      render: (inv) => inv.status === 'pending' && canManageInvitations ? (
         <>
           <button onClick={() => handleResend(inv)} disabled={resendLoadingId === inv.id} className="action-link mr-4">
             {resendLoadingId === inv.id ? 'Sending...' : 'Resend'}
@@ -307,7 +312,7 @@ export default function InvitationsPage() {
         </>
       ) : null,
     },
-  ], [resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending]);
+  ], [canManageInvitations, resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -328,13 +333,13 @@ export default function InvitationsPage() {
 
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
-      <BulkSelectionBanner
+      {canManageInvitations && <BulkSelectionBanner
         count={selectedIds.size}
         noun="invitation"
         actionLabel="Revoke"
         onClear={clearSelection}
         onAction={() => setPendingBulkRevoke(true)}
-      />
+      />}
 
       {bulkResult && (
         <BulkResultSummary failed={bulkResult.failed} errors={bulkResult.errors}>

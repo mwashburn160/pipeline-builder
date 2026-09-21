@@ -17,6 +17,7 @@ import api from '@/lib/api';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 import { storeOAuthIntent } from '@/lib/oauth-intent';
 import { formatError } from '@/lib/constants';
+import { rememberReturnPath } from '@/lib/return-to';
 
 interface InvitePreview {
   email: string;
@@ -46,6 +47,8 @@ interface InvitePreview {
 export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const OG_SOLUTION = `${siteUrl}/og-image-solution.png`;
   const router = useRouter();
+  /** Save this page (token and all) as the post-sign-in destination. */
+  const rememberInvite = () => rememberReturnPath(router.asPath);
   const { user, isInitialized, register, refreshUser } = useAuth();
 
   const [token, setToken] = useState('');
@@ -264,7 +267,10 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                   <form onSubmit={handleRegisterAndAccept} className="space-y-3">
                     <p className="text-xs text-fg-muted">
                       Create your account to accept. Already have one?{' '}
-                      <Link href="/" className="text-brand hover:underline">Sign in</Link> first, then reopen this link.
+                      {/* Remember THIS page, so signing in brings the invitee back
+                          here to accept. The link used to go to `/` bare, so they
+                          landed on the dashboard and had to dig the email out again. */}
+                      <Link href="/" onClick={rememberInvite} className="text-brand hover:underline">Sign in</Link> and you&apos;ll come back here.
                     </p>
                     <Input
                       type="email"
@@ -333,9 +339,9 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                   <div className="text-center py-2">
                     <p className="text-sm text-fg-muted">
                       This invitation must be accepted by signing in with an approved
-                      sign-in provider. Sign in first, then reopen this link.
+                      sign-in provider. Sign in and you&apos;ll come back here.
                     </p>
-                    <Link href="/" className="btn btn-secondary btn-full text-sm mt-3">Go to sign in</Link>
+                    <Link href="/" onClick={rememberInvite} className="btn btn-secondary btn-full text-sm mt-3">Go to sign in</Link>
                   </div>
                 )}
               </>

@@ -56,7 +56,10 @@ beforeEach(() => {
   query = {};
   window.location.hash = '';
   mockAuthGuard({
-    user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true },
+    // `permissions` agrees with `can` below: the org cards' VISIBILITY reads the
+    // raw permission (so read-only impersonation still shows them), while `can`
+    // gates their writes.
+    user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org:settings'] },
     can: (p: string) => p === 'org:settings',
   });
 });
@@ -80,6 +83,23 @@ describe('the SSO wizard\'s "verify a domain" link', () => {
     render(<SettingsPage />);
     // Without the fragment the page opens on Profile, which never renders it.
     expect(await screen.findByText('Email domains')).toBeInTheDocument();
+  });
+
+  it('shows the org cards (disabled) under READ-ONLY impersonation instead of hiding them', async () => {
+    // `can()` is false for every mutation permission under read-only
+    // impersonation. Gating the cards on it made the identity, domain and
+    // security-policy cards VANISH for a sysadmin investigating the org, and
+    // their `readOnly` props could never be true.
+    mockAuthGuard({
+      user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org:settings'] },
+      can: () => false,
+      isReadOnly: true,
+    });
+    query = { tab: 'organization' };
+    render(<SettingsPage />);
+
+    expect(await screen.findByText('Email domains')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /save organization/i })).toBeDisabled();
   });
 
   it('still opens on Profile when nothing names a tab or a section', () => {

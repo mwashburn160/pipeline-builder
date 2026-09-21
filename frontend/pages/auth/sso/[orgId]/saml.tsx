@@ -13,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { publishSsoTestResult, SSO_TEST_CHANNEL } from '@/components/sso/test-channel';
+import { takeReturnPath } from '@/lib/return-to';
 
 /**
  * SAML 2.0 sign-in landing page.
@@ -92,7 +93,12 @@ export default function SamlLandingPage() {
     try {
       await api.completeSamlLogin(orgId, handoff);
       await refreshUser();
-      await router.replace('/dashboard');
+      // The saved return path, like the OIDC callback. Hard-coding /dashboard
+      // lost it — a CLI user approving `pipeline-manager auth login` through
+      // SAML landed on the dashboard, the device approval never happened, the
+      // CLI timed out, and the stale path stayed in sessionStorage to hijack
+      // their next sign-in in that tab. `takeReturnPath` consumes it either way.
+      await router.replace(takeReturnPath());
     } catch (err) {
       setError(formatError(err, GENERIC_ERROR));
     }

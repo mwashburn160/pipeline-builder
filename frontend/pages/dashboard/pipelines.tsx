@@ -145,7 +145,7 @@ export default function PipelinesPage() {
 
   // Open the create modal when arrived via the sidebar "Create pipeline"
   // shortcut (`?create=1`).
-  useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
+  useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); }, isReady && !!user);
 
   const openCreate = () => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); };
 

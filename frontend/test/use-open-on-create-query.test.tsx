@@ -1,0 +1,37 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * `?create=1` must wait until the page can decide. It used to be consumed the
+ * moment the router was ready — on a full page load that is before the user
+ * profile (and its permissions) has loaded, so `open` saw no write access, did
+ * nothing, and the param was stripped anyway: the bookmarked / Quick Actions
+ * URL never opened the create modal.
+ */
+
+import { renderHook } from '@testing-library/react';
+import { useOpenOnCreateQuery } from '../src/hooks/useOpenOnCreateQuery';
+
+const replace = jest.fn();
+const router = { isReady: true, pathname: '/dashboard/pipelines', query: { create: '1' } as Record<string, string>, replace };
+jest.mock('next/router', () => ({ useRouter: () => router }));
+
+beforeEach(() => { replace.mockClear(); router.query = { create: '1' }; });
+
+describe('useOpenOnCreateQuery', () => {
+  it('neither opens nor strips the param while not ready', () => {
+    const open = jest.fn();
+    renderHook(() => useOpenOnCreateQuery(open, false));
+    expect(open).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('opens once it becomes ready, then strips the param', () => {
+    const open = jest.fn();
+    const { rerender } = renderHook(({ ready }) => useOpenOnCreateQuery(open, ready), { initialProps: { ready: false } });
+    rerender({ ready: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0][0].query).not.toHaveProperty('create');
+  });
+});
