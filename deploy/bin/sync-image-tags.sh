@@ -73,9 +73,45 @@ for entry in "${SERVICES[@]}"; do
   # any file is touched. Either failing aborts the whole sync (set -e): a
   # half-pinned deploy tree is worse than an unchanged one.
   ref="ghcr.io/${OWNER}/${svc}:${ver}"
-  digest=$(docker buildx imagetools inspect "$ref" --format '{{ .Manifest.Digest }}') \
-    || { echo "ERROR: cannot resolve the digest of $ref — is it published?" >&2; exit 1; }
-  case "$digest" in sha256:*) ;; *) echo "ERROR: unexpected digest for $ref: $digest" >&2; exit 1 ;; esac
+  # Capture stderr so a LOCAL auth failure isn't reported as a missing tag. GHCR
+  # answers a request carrying an expired/revoked token with 403 rather than
+  # falling back to anonymous, so a stale `docker login` makes a perfectly
+  # published public image look absent.
+  # `printf "%s"` is load-bearing: given a BARE field chain like
+  # `{{ .Manifest.Digest }}`, buildx (seen on v0.27.0-desktop.1) ignores the
+  # template and pretty-prints the whole manifest block, exiting 0. Wrapping the
+  # field in any function takes the real template path and yields just the digest.
+  inspect_err=$(mktemp)
+  if ! digest=$(docker buildx imagetools inspect "$ref" --format '{{ printf "%s" .Manifest.Digest }}' 2>"$inspect_err"); then
+    err=$(cat "$inspect_err"); rm -f "$inspect_err"
+    echo "$err" >&2
+    case "$err" in
+      *"failed to authorize"*|*401*|*403*|*unauthorized*|*"denied:"*)
+        echo "ERROR: registry REFUSED the request for $ref (auth), so it could not be" >&2
+        echo "       checked. The images are public — a stale ghcr.io credential is the" >&2
+        echo "       usual cause, because a bad token is rejected rather than ignored." >&2
+        echo "       Fix: docker logout ghcr.io   (or re-login with a valid PAT)" >&2 ;;
+      *"not found"*|*404*|*"manifest unknown"*|*MANIFEST_UNKNOWN*)
+        echo "ERROR: $ref is not published — run this after the release workflow's" >&2
+        echo "       publish job, or check the version in the service's package.json." >&2 ;;
+      *)
+        echo "ERROR: cannot resolve the digest of $ref (see the error above)." >&2 ;;
+    esac
+    exit 1
+  fi
+  rm -f "$inspect_err"
+  # Never pin something that is not a digest. A multi-line block here means buildx
+  # printed its manifest view instead of honoring --format (see above).
+  case "$digest" in
+    sha256:[0-9a-f]*)
+      [ ${#digest} -eq 71 ] || { echo "ERROR: malformed digest for $ref: $digest" >&2; exit 1; } ;;
+    *)
+      echo "ERROR: did not get a digest for $ref. buildx returned:" >&2
+      printf '%s\n' "$digest" | sed 's/^/       /' >&2
+      echo "       This is buildx ignoring --format. Check the template in this script" >&2
+      echo "       still wraps .Manifest.Digest in printf (buildx version: $(docker buildx version 2>/dev/null | awk '{print $2}'))." >&2
+      exit 1 ;;
+  esac
   PB_VERIFY_REFS="ghcr.io/${OWNER}/${svc}@${digest}" bash "$ROOT/deploy/bin/verify-image-signatures.sh" "$OWNER" >/dev/null \
     || { echo "ERROR: ${ref}@${digest} failed signature verification — not pinning it" >&2; exit 1; }
   echo "→ $svc: $ver@$digest (signature verified)"
