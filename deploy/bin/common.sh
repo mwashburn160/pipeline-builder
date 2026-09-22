@@ -90,8 +90,10 @@ PB_K8S_VERSION="${PB_K8S_VERSION:-v1.35.1}"
 # mc_setup_aliases — configure the two MinIO client aliases used by backup/restore:
 #   pbsrc = this deploy's MinIO (MINIO_ENDPOINT + root creds)
 #   pbdst = the backup target    (MINIO_BACKUP_TARGET_URL + its creds)
-#   $1 = mc --config-dir (isolated per-run config). Exits 2 on failure (sourced,
-#   so the exit propagates to the caller, matching the previous inline behavior).
+# Takes no arguments: the aliases are EXPORTED as MC_HOST_<alias> for the mc
+# calls that follow, so there is no config to write. Callers still pass
+# --config-dir to those calls, which isolates mc's own state from ~/.mc.
+# Exits 2 on failure (sourced, so the exit propagates to the caller).
 # ---------------------------------------------------------------------------
 mc_setup_aliases() {
   export MC_HOST_pbsrc MC_HOST_pbdst
@@ -169,6 +171,27 @@ pb_preflight_token_signing_kms() {
     _pb_kms_key_howto; return 1
   fi
   echo "  token signing: KMS key ${_alias} is usable (SIGN_VERIFY / ECC_NIST_P256)"
+}
+
+# ---------------------------------------------------------------------------
+# pb_env_value <KEY> <file>… — the value of KEY from the first file that sets it.
+#
+# For the few settings a target must know BEFORE it sources its env file. eks
+# builds the cluster in Phase 1 but does not load .env until Phase 4, and on a
+# fresh install .env does not exist until then either — so a pre-Phase-1 check
+# reads the .env if it is there and falls back to .env.example, which is what
+# the deploy is about to seed .env from.
+#
+# Empty (not an error) when no file sets it, so the caller's own default applies.
+# ---------------------------------------------------------------------------
+pb_env_value() {
+  local _key="$1" _f _v; shift
+  for _f in "$@"; do
+    [ -f "$_f" ] || continue
+    _v=$(grep -E "^${_key}=" "$_f" 2>/dev/null | tail -1 | cut -d= -f2-) || true
+    if [ -n "$_v" ]; then printf '%s' "$_v"; return 0; fi
+  done
+  return 0
 }
 
 # ---------------------------------------------------------------------------

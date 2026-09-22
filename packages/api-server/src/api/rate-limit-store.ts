@@ -73,19 +73,20 @@ function withRetryingInit(store: Store, namespace: string): Store {
     return inflight;
   };
 
+  // Exactly `RedisStore`'s surface, which is all this ever wraps. It has no
+  // `resetAll`, `shutdown` or `localKeys`, and express-rate-limit reads the
+  // PRESENCE of those as "the store supports it" — so forwarding them
+  // defensively would advertise capabilities that don't exist. Omitting
+  // `localKeys` is also the correct answer for a Redis store: keys are shared
+  // across replicas, which is the whole point.
   return {
     // Captured, not forwarded — the real init runs from `initialized()`.
     init: (options) => { initOptions = options; },
+    get: async (key) => { await initialized(); return store.get?.(key); },
     increment: async (key) => { await initialized(); return store.increment(key); },
     decrement: async (key) => { await initialized(); return store.decrement(key); },
     resetKey: async (key) => { await initialized(); return store.resetKey(key); },
-    // Only expose what the wrapped store actually implements: express-rate-limit
-    // treats the PRESENCE of these as "the store supports it".
-    ...(store.get ? { get: async (key: string) => { await initialized(); return store.get!(key); } } : {}),
-    ...(store.resetAll ? { resetAll: async () => { await initialized(); return store.resetAll!(); } } : {}),
-    ...(store.shutdown ? { shutdown: () => store.shutdown!() } : {}),
-    ...(store.localKeys === undefined ? {} : { localKeys: store.localKeys }),
-    ...(store.prefix === undefined ? {} : { prefix: store.prefix }),
+    prefix: store.prefix,
   };
 }
 

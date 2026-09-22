@@ -109,7 +109,17 @@ ensure_eksctl
 # problem would otherwise surface in Phase 4, after that time is spent. The key
 # is tagged with this cluster, so shutdown.sh can schedule deletion of the one
 # it created without touching a key the account already had.
-pb_ensure_token_signing_kms_key "$CLUSTER_NAME" || exit 1
+#
+# The settings are read from the env FILE rather than the environment: .env is
+# not sourced until Phase 4, and on a fresh install it does not exist yet, so
+# .env.example — the file Phase 4 is about to seed it from — is the authority.
+# AWS_REGION likewise comes from $REGION here, because .env supplies it only
+# from Phase 4 onward and the CLI would otherwise fall back to the operator's
+# default region and create the key somewhere else entirely.
+TOKEN_SIGNING_MODE="$(pb_env_value TOKEN_SIGNING_MODE "$ENV_FILE" "$DEPLOY_DIR/.env.example")" \
+TOKEN_SIGNING_KMS_KEY_ID="$(pb_env_value TOKEN_SIGNING_KMS_KEY_ID "$ENV_FILE" "$DEPLOY_DIR/.env.example")" \
+AWS_REGION="$REGION" \
+  pb_ensure_token_signing_kms_key "$CLUSTER_NAME" || exit 1
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
 log "Phase 1: EKS Auto Mode cluster"

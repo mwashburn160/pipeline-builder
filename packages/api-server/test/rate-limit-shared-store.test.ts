@@ -225,3 +225,50 @@ describe('rate-limit store script loading', () => {
     expect(commands.filter((c) => c[0] === 'EVALSHA')).toHaveLength(3);
   });
 });
+
+/** The wrapper's own surface, exercised directly rather than through a limiter. */
+describe('shared store surface', () => {
+  /** A fake Redis whose SCRIPT LOADs succeed, recording every command. */
+  function fakeRedis(commands: string[][]) {
+    createEnvRedisClient.mockImplementation((label) => (label === 'rate-limit' ? {
+      on: jest.fn(),
+      call: jest.fn(async (...args: string[]) => {
+        commands.push(args);
+        return args[0] === 'SCRIPT' ? 'sha1' : [1, 60_000];
+      }),
+    } : null));
+  }
+
+  it('forwards get/increment/decrement/resetKey through the deferred init', async () => {
+    const commands: string[][] = [];
+    fakeRedis(commands);
+    const { createSharedRateLimitStore } = await import('../src/api/rate-limit-store.js');
+    const store = createSharedRateLimitStore('surface')!;
+    expect(store.prefix).toBe('rl:surface:');
+
+    store.init!({ windowMs: 60_000 } as never);
+    // Scripts load once, on the first call — not at construction.
+    expect(commands).toHaveLength(0);
+
+    await store.increment('k');
+    await store.get!('k');
+    await store.decrement('k');
+    await store.resetKey('k');
+
+    expect(commands.filter((c) => c[0] === 'SCRIPT')).toHaveLength(2);
+    expect(commands.some((c) => c[0] === 'DEL')).toBe(true);
+  });
+
+  it('passes a call through untouched when init was never called', async () => {
+    // express-rate-limit always calls init first; a caller that doesn't must not
+    // get invented options — the underlying store simply answers as it would.
+    const commands: string[][] = [];
+    fakeRedis(commands);
+    const { createSharedRateLimitStore } = await import('../src/api/rate-limit-store.js');
+    const store = createSharedRateLimitStore('no-init')!;
+
+    await store.resetKey('k');
+    expect(commands.some((c) => c[0] === 'SCRIPT')).toBe(false);
+    expect(commands.some((c) => c[0] === 'DEL')).toBe(true);
+  });
+});
