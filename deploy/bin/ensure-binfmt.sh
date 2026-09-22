@@ -8,7 +8,7 @@
 # Idempotent + non-fatal:
 #   - skips when the host arch already matches the target (no emulation needed)
 #   - skips when the QEMU handler is already registered (Linux fast path)
-#   - otherwise installs via `tonistiigi/binfmt` (a no-op on Docker Desktop,
+#   - otherwise installs via `tonistiigi/binfmt` (digest-pinned; a no-op on Docker Desktop,
 #     a real install on a bare Linux host)
 #   - never fails the caller: a missing emulator just means cross-arch builds
 #     won't work until installed (or PUBLISH_PLATFORM is set to the host arch)
@@ -57,12 +57,18 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 0
 fi
 
-echo "  binfmt: registering QEMU for $TARGET_ARCH (host is $HOST_ARCH) via tonistiigi/binfmt…"
-if docker run --privileged --rm tonistiigi/binfmt --install "$TARGET_ARCH" >/dev/null 2>&1; then
+# Pinned BY DIGEST (multi-arch index, so it still resolves per architecture) —
+# this container runs --privileged and registers kernel binfmt handlers, so a
+# floating `:latest` would be an unpinned privileged execution on every provision.
+# Bump: `docker buildx imagetools inspect tonistiigi/binfmt:qemu-<ver>`.
+BINFMT_IMAGE="${BINFMT_IMAGE:-tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0}"  # tonistiigi/binfmt:qemu-v10.2.3
+
+echo "  binfmt: registering QEMU for $TARGET_ARCH (host is $HOST_ARCH) via ${BINFMT_IMAGE%%@*}…"
+if docker run --privileged --rm "$BINFMT_IMAGE" --install "$TARGET_ARCH" >/dev/null 2>&1; then
   echo "  binfmt: QEMU for $TARGET_ARCH ready"
 else
   echo "  WARNING: binfmt install failed — cross-arch ($HOST_ARCH→$TARGET_ARCH) plugin builds may fail with 'exec format error'."
-  echo "  WARNING:   fix: docker run --privileged --rm tonistiigi/binfmt --install all"
+  echo "  WARNING:   fix: docker run --privileged --rm $BINFMT_IMAGE --install all"
   echo "  WARNING:   or:  set PUBLISH_PLATFORM=linux/$HOST_ARCH to build native (local images don't run on AWS)."
 fi
 exit 0

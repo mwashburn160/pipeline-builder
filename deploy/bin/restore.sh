@@ -9,7 +9,10 @@
 #   --connect direct  connect to POSTGRES_HOST / MONGODB_URI / MINIO_ENDPOINT as given
 #
 # DESTRUCTIVE — drops existing tables/collections before restore. REFUSES to run
-# unless --confirm-destructive is passed.
+# unless --confirm-destructive is passed. Every archive it is going to load is
+# downloaded and gzip-integrity-checked FIRST, so a missing/corrupt backup fails
+# while the existing data is still intact. --pg-only and --mongo-only are
+# mutually exclusive (together they would select nothing).
 #
 # Required env vars:
 #   BACKUP_BUCKET            S3 bucket name
@@ -145,6 +148,14 @@ fi
 
 # --- Validate restore args --------------------------------------------------
 
+# --pg-only AND --mongo-only together select NOTHING: both restore blocks below
+# are skipped and the script would print "Restore complete" having restored
+# nothing. A restore that restores nothing must never report success.
+if [ "$PG_ONLY" = "1" ] && [ "$MONGO_ONLY" = "1" ]; then
+  echo "ERROR: --pg-only and --mongo-only are mutually exclusive (together they restore nothing)" >&2
+  exit 1
+fi
+
 if [ -z "$DATE" ] && [ -z "$PG_KEY" ] && [ -z "$MONGO_KEY" ]; then
   echo "ERROR: provide either --date <YYYY/MM/DD> or --pg-key/--mongo-key" >&2
   usage
@@ -172,23 +183,50 @@ if [ -n "$DATE" ]; then
   fi
 fi
 
+# --- Fetch + verify EVERY archive before anything is dropped ----------------
+# The load steps are destructive from their first statement — pg_dump's
+# `--clean --if-exists` DROPs live INSIDE the archive, and `mongorestore --drop`
+# drops each collection as it streams it. So a missing key, a failed download or
+# a truncated archive has to surface HERE, not half-way through a restore that
+# has already dropped postgres and is about to fail on mongo.
+_fetch_dump() {  # _fetch_dump <label> <s3 key> <local path>
+  echo ""
+  echo "[$1] downloading s3://${BACKUP_BUCKET}/$2 → $3"
+  aws s3 cp "s3://${BACKUP_BUCKET}/$2" "$3" --region "${AWS_REGION}" \
+    || { echo "ERROR: $1 download failed" >&2; exit 2; }
+  # `gzip -t` decompresses the whole member and checks its CRC — a truncated or
+  # corrupt object fails now, while the existing data is still intact.
+  gzip -t "$3" \
+    || { echo "ERROR: $1 archive failed its gzip integrity check — refusing to restore from $3" >&2; exit 2; }
+  echo "[$1] archive verified"
+}
+
+PG_LOCAL=""
+MONGO_LOCAL=""
+if [ "$MONGO_ONLY" != "1" ]; then
+  if [ -z "$PG_KEY" ]; then
+    echo "ERROR: no postgres key resolved" >&2; exit 1
+  fi
+  require_env POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+  PG_LOCAL="${WORKDIR}/$(basename "${PG_KEY}")"
+  _fetch_dump postgres "$PG_KEY" "$PG_LOCAL"
+fi
+if [ "$PG_ONLY" != "1" ]; then
+  if [ -z "$MONGO_KEY" ]; then
+    echo "ERROR: no mongo key resolved" >&2; exit 1
+  fi
+  require_env MONGODB_URI
+  MONGO_LOCAL="${WORKDIR}/$(basename "${MONGO_KEY}")"
+  _fetch_dump mongo "$MONGO_KEY" "$MONGO_LOCAL"
+fi
+
 # Forward postgres+mongodb once for the DB restore(s) below.
 [ "$CONNECT" = k8s ] && pb_pf_up_db
 
 # --- Postgres restore -------------------------------------------------------
 
 if [ "$MONGO_ONLY" != "1" ]; then
-  if [ -z "$PG_KEY" ]; then
-    echo "ERROR: no postgres key resolved" >&2; exit 1
-  fi
-  require_env POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
-
-  PG_LOCAL="${WORKDIR}/$(basename "${PG_KEY}")"
   echo ""
-  echo "[postgres] downloading s3://${BACKUP_BUCKET}/${PG_KEY} → ${PG_LOCAL}"
-  aws s3 cp "s3://${BACKUP_BUCKET}/${PG_KEY}" "${PG_LOCAL}" --region "${AWS_REGION}" \
-    || { echo "ERROR: postgres download failed" >&2; exit 2; }
-
   echo "[postgres] restoring into ${POSTGRES_USER}@${POSTGRES_HOST}:${PGPORT:-5432}/${POSTGRES_DB}"
   gunzip -c "${PG_LOCAL}" | \
     PGPASSWORD="${POSTGRES_PASSWORD}" psql \
@@ -203,17 +241,7 @@ fi
 # --- MongoDB restore --------------------------------------------------------
 
 if [ "$PG_ONLY" != "1" ]; then
-  if [ -z "$MONGO_KEY" ]; then
-    echo "ERROR: no mongo key resolved" >&2; exit 1
-  fi
-  require_env MONGODB_URI
-
-  MONGO_LOCAL="${WORKDIR}/$(basename "${MONGO_KEY}")"
   echo ""
-  echo "[mongo] downloading s3://${BACKUP_BUCKET}/${MONGO_KEY} → ${MONGO_LOCAL}"
-  aws s3 cp "s3://${BACKUP_BUCKET}/${MONGO_KEY}" "${MONGO_LOCAL}" --region "${AWS_REGION}" \
-    || { echo "ERROR: mongo download failed" >&2; exit 2; }
-
   echo "[mongo] restoring (--drop)"
   mongorestore --uri="${MONGODB_URI}" --gzip --archive="${MONGO_LOCAL}" --drop \
     || { echo "ERROR: mongorestore failed" >&2; exit 2; }

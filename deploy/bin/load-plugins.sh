@@ -77,11 +77,13 @@ done
 is_eligible_plugin() {
   [ -f "$1/plugin-spec.yaml" ] || return 1
   local _pt
-  _pt=$(get_spec_field pluginType "$1/plugin-spec.yaml")
+  # `|| true`: an ABSENT field makes get_spec_field's grep|head|sed return
+  # non-zero; empty is the documented "not found" value and is handled below.
+  _pt=$(get_spec_field pluginType "$1/plugin-spec.yaml" || true)
   [ "$_pt" = "ManualApprovalStep" ] && return 0
   [ -f "$1/Dockerfile" ] && return 0
   local _bt
-  _bt=$(get_spec_field buildType "$1/config.yaml")
+  _bt=$(get_spec_field buildType "$1/config.yaml" || true)
   [ "$_bt" = "prebuilt" ] && return 0
   return 1
 }
@@ -108,6 +110,16 @@ for category in $CATEGORIES; do
     TOTAL=$((TOTAL + 1))
   done
 done
+
+# Loading nothing is not a successful load. An empty list means the plugins tree
+# is missing or `--category` named something that does not exist; falling through
+# printed a 0/0/0 summary and exited 0, which init-platform.sh and CI read as a
+# clean load.
+if [ "$TOTAL" -eq 0 ]; then
+  echo "ERROR: no eligible plugins found under $PLUGINS_DIR for categories: ${CATEGORY_FILTER:-all}" >&2
+  echo "  Known categories: $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
+  exit 1
+fi
 
 # ---- Auth ----
 
@@ -166,6 +178,19 @@ FAILED=$(wc -l < "$COUNTER_DIR/failed" | tr -d ' ')
 
 DURATION=$(( $(date +%s) - START_TIME ))
 print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
+
+# Every plugin must land in exactly one bucket. A worker that dies before it can
+# write a counter (OOM-killed, killed by the xargs `-P` teardown, aborted by an
+# unguarded `set -e` path) is otherwise INVISIBLE: FAILED stays 0 and the exit
+# gate below reports a clean load for plugins that never uploaded. Reconcile.
+ACCOUNTED=$((SUCCEEDED + SKIPPED + FAILED))
+if [ "$ACCOUNTED" -ne "$TOTAL" ]; then
+  echo "" >&2
+  echo "ERROR: $((TOTAL - ACCOUNTED)) of $TOTAL plugin(s) produced no result at all" >&2
+  echo "  (succeeded=$SUCCEEDED skipped=$SKIPPED failed=$FAILED). A worker died before" >&2
+  echo "  recording its outcome — treating the run as failed rather than green." >&2
+  exit 1
+fi
 
 # ---- Cleanup ----
 

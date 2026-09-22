@@ -36,6 +36,13 @@
 set -uo pipefail
 
 MODE="${1:?usage: post-provision-smoke.sh <k8s|docker> [--aws]}"
+# Validate the mode UP FRONT. Without this a typo ("kubernetes", "compose") ran
+# every check against a mode `_exec`/`_ready` don't know, so each one warned or
+# skipped and the run still reported a clean-looking summary.
+case "$MODE" in
+  k8s|docker) ;;
+  *) echo "ERROR: unknown mode '$MODE' (expected k8s|docker)" >&2; exit 2 ;;
+esac
 AWS_CHECKS=false
 [ "${2:-}" = "--aws" ] && AWS_CHECKS=true
 NS="${NAMESPACE:-pipeline-builder}"
@@ -47,10 +54,13 @@ PROBE_IMAGE="busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5
 # shellcheck disable=SC2206
 KC=(${PB_SMOKE_KUBECTL:-kubectl})
 
-PASS=0; WARN=0
+PASS=0; WARN=0; SKIPPED=0
 pass() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 warn() { echo "  WARN  $1" >&2; WARN=$((WARN + 1)); }
-skip() { echo "  SKIP  $1"; }
+# SKIPs are counted too: every check can legitimately skip itself (Slack off,
+# EMAIL_ENABLED false, SMOKE_SKIP=…), and a run where NOTHING executed used to
+# print the same "0 passed, 0 warning(s)" as a run where everything passed.
+skip() { echo "  SKIP  $1"; SKIPPED=$((SKIPPED + 1)); }
 
 # _exec <workload> <cmd...> — run a command in the service's container.
 _exec() {
@@ -181,6 +191,12 @@ fi
 if [ "$MODE" = k8s ]; then
   case "$SKIP" in *,netpol,*) skip "network policy (SMOKE_SKIP)" ;; *) pb_probe_denied_connection ;; esac
 fi
-echo "  smoke: ${PASS} passed, ${WARN} warning(s)"
+echo "  smoke: ${PASS} passed, ${WARN} warning(s), ${SKIPPED} skipped"
+if [ "$PASS" -eq 0 ] && [ "$WARN" -eq 0 ]; then
+  # Every check opted out. That is NOT a green run — it proves nothing about
+  # alert delivery, email or NetworkPolicy enforcement, so say so rather than
+  # let "0 passed, 0 warning(s)" read like a clean bill of health.
+  echo "  NOTE: no smoke check actually ran (all ${SKIPPED} skipped) — nothing was verified." >&2
+fi
 [ "$WARN" -eq 0 ] || echo "  (warnings are non-fatal — the deploy completed; fix them before relying on alerts/email)" >&2
 exit 0

@@ -23,9 +23,22 @@ pb_ensure_mongo_keyfile() {
     echo "  mongodb-keyfile exists: $_keyfile (skipping)"
     return 0
   fi
+  # Write via a temp file and move into place. `> "$_keyfile"` creates the file
+  # BEFORE openssl runs, so a failing `openssl rand` (no entropy, full disk)
+  # would leave a zero-byte keyfile that the skip-if-exists check above then
+  # honours forever — mongod refuses to start and a re-run never repairs it.
+  # The temp file is also chmod'd before the move, so the key is never briefly
+  # world-readable at the final path.
+  local _tmp
+  _tmp="$(mktemp "${_keyfile}.XXXXXX")" || { echo "ERROR: cannot create a temp file next to $_keyfile" >&2; return 1; }
   # 756 base64 bytes is MongoDB's documented keyfile length upper bound.
-  openssl rand -base64 756 > "$_keyfile"
-  chmod 600 "$_keyfile"
+  if ! openssl rand -base64 756 > "$_tmp"; then
+    rm -f "$_tmp"
+    echo "ERROR: openssl rand failed — no mongodb-keyfile written" >&2
+    return 1
+  fi
+  chmod 600 "$_tmp"
+  mv "$_tmp" "$_keyfile"
   echo "  generated mongodb-keyfile: $_keyfile"
 }
 

@@ -16,7 +16,7 @@
 # documented here ONCE so they aren't re-learned (and re-broken) per script:
 #   • Expand a possibly-EMPTY array under `set -u` with the `+` form, never bare:
 #       docker build "${args[@]+"${args[@]}"}" ...   # bare "${args[@]}" → "unbound variable"
-#   • No `mapfile`/`readarray` (bash 4+) — use `read_lines <arr>` below (or `while read`).
+#   • No `mapfile`/`readarray` (bash 4+) — read line-by-line with `while IFS= read -r`.
 #   • No associative arrays (`declare -A`) and no case-mod (`${v^^}` / `${v,,}`).
 # A function can't safely expand an array (command substitution drops quoting), so the
 # `"${arr[@]+...}"` idiom must stay inline — this block is its single source of truth.
@@ -338,7 +338,16 @@ ensure_kubectl() {
         || ! fetch_verified "$_base" "${_sum%% *}" "$_dir/kubectl"; then
       rm -f "$_dir/kubectl"
       echo "  WARNING: could not download a verified kubectl ${_want} (${_os}-${_arch})." >&2
-      echo "  WARNING: continuing with ${_have:-no} client — bring-up may fail on version skew." >&2
+      # With a skewed-but-present client there is something to fall back to, so
+      # warn and let the caller proceed. With NO kubectl at all there is nothing
+      # to degrade to — every later `kubectl` would fail one by one — so fail
+      # here, where the cause is still on screen.
+      if [ -z "$_have" ]; then
+        echo "ERROR: no kubectl on PATH and none could be installed — install it and re-run:" >&2
+        echo "       https://kubernetes.io/docs/tasks/tools/" >&2
+        return 1
+      fi
+      echo "  WARNING: continuing with ${_have} client — bring-up may fail on version skew." >&2
       echo "  WARNING: install it manually: https://kubernetes.io/docs/tasks/tools/" >&2
       return 0
     fi
@@ -571,11 +580,26 @@ prompt_toggle() {
 #     a fallback ONLY on the `local` target, again to keep the trivial
 #     dev-default out of any real environment.
 # ---------------------------------------------------------------------------
+# THE local-dev admin password, in ONE place. init-platform.sh both defaults to
+# it and refuses it off-local, and prompt_credentials accepts it as the
+# hit-enter fallback — three uses that must never drift apart, which is exactly
+# what three copies of a string literal invite.
+PB_DEV_PASSWORD='Pipeline-Builder-Dev-2026!'
+
 prompt_credentials() {
-  local _is_local
-  # docker AND minikube are local dev targets (deploy/local/*) — accept the dev
-  # default; ec2/eks are remote and must set a real password.
-  case "${DEPLOY_TARGET:-docker}" in docker|minikube) _is_local=true ;; *) _is_local=false ;; esac
+  local _is_local=false _host
+  # Two conditions, because DEPLOY_TARGET alone is not enough: the scripts that
+  # actually call this (load-plugins.sh / load-templates.sh / load-compliance.sh
+  # via require_auth) never set DEPLOY_TARGET, so it falls back to common.sh's
+  # `docker` default and the "remote targets must type a password" rule below
+  # could never fire — including when the operator points one of them straight
+  # at a live ec2/eks URL. So the deploy target must say local (docker|minikube)
+  # AND the platform URL must actually be a loopback address.
+  _host="${PLATFORM_BASE_URL:-}"; _host="${_host#*://}"; _host="${_host%%/*}"; _host="${_host%%:*}"
+  case "${DEPLOY_TARGET:-docker}" in
+    docker|minikube)
+      case "$_host" in localhost|127.0.0.1|'[::1]') _is_local=true ;; esac ;;
+  esac
 
   if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
     if [ "$_is_local" = true ]; then
@@ -585,7 +609,7 @@ prompt_credentials() {
     else
       printf "Identifier: "
       read -r PLATFORM_IDENTIFIER
-      [ -z "$PLATFORM_IDENTIFIER" ] && { echo "ERROR: identifier required on target=${DEPLOY_TARGET}" >&2; return 1; }
+      [ -z "$PLATFORM_IDENTIFIER" ] && { echo "ERROR: identifier required for ${PLATFORM_BASE_URL} (target=${DEPLOY_TARGET})" >&2; return 1; }
     fi
   fi
 
@@ -617,9 +641,10 @@ prompt_credentials() {
         # Local-only convenience fallback so `init-platform.sh docker` can
         # still be hit-enter through. Never shown in the prompt, never
         # accepted on non-local targets.
-        PLATFORM_PASSWORD="Pipeline-Builder-Dev-2026!"
+        PLATFORM_PASSWORD="$PB_DEV_PASSWORD"
       else
-        echo "ERROR: password required on target=${DEPLOY_TARGET}" >&2
+        echo "ERROR: password required for ${PLATFORM_BASE_URL} (target=${DEPLOY_TARGET}) — the local-dev default is" >&2
+        echo "       only accepted for a docker/minikube target on a loopback URL." >&2
         return 1
       fi
     fi
@@ -837,7 +862,12 @@ _issue_service_account_key() {
       '{name: $name, description: $desc, roleIds: [$role]}')") || true
   _status=$(printf '%s' "$_resp" | tail -n1)
   _body=$(printf '%s' "$_resp" | sed '$d')
-  _SA_ID=$(printf '%s' "$_body" | jq -r '.data.serviceAccount.id // empty')
+  # `|| true` on EVERY jq-from-HTTP-body substitution in this file: a gateway
+  # 502/504 answers with an HTML page, jq exits non-zero on it, and under the
+  # caller's `set -e` a bare `X=$(… | jq …)` kills the whole init at the
+  # ASSIGNMENT — before the explicit, actionable error below ever prints. The
+  # empty value falls through to those checks instead.
+  _SA_ID=$(printf '%s' "$_body" | jq -r '.data.serviceAccount.id // empty' 2>/dev/null) || true
 
   case "$_status" in
     20*) echo "  Created the '${_name}' service account." ;;
@@ -845,7 +875,7 @@ _issue_service_account_key() {
       # Already there from a previous run — reuse it (idempotent).
       _SA_ID=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
         -H "Authorization: Bearer ${JWT_TOKEN}" \
-        | jq -r --arg name "$_name" '[.data.serviceAccounts[]? | select(.name == $name)][0].id // empty')
+        | jq -r --arg name "$_name" '[.data.serviceAccounts[]? | select(.name == $name)][0].id // empty' 2>/dev/null) || true
       echo "  Reusing the existing '${_name}' service account."
       ;;
     *)
@@ -878,7 +908,7 @@ _issue_service_account_key() {
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "X-Step-Up-Token: ${_step_up}" \
     -d "$(jq -n --arg name "$_key_name" --argjson ttl "$_ttl" '{name: $name, expiresIn: $ttl}')") || true
-  _SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty')
+  _SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty' 2>/dev/null) || true
   if [ -z "$_SA_KEY" ]; then
     echo "ERROR: could not issue a key for the ${_name} service account$(_api_error "$_resp")" >&2
     return 1
@@ -920,9 +950,9 @@ setup_service_account_key() {
   # may grant it, which the bootstrap admin is.
   _roles=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
     -H "Authorization: Bearer ${JWT_TOKEN}") || true
-  _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "superadmin")][0].id // empty')
+  _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "superadmin")][0].id // empty' 2>/dev/null) || true
   if [ -z "$_role_id" ]; then
-    _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "admin")][0].id // empty')
+    _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "admin")][0].id // empty' 2>/dev/null) || true
   fi
   if [ -z "$_role_id" ]; then
     echo "ERROR: the system organization has no admin role to give the setup service account" >&2
@@ -945,14 +975,20 @@ setup_service_account_key() {
 # gate-green patch/minor updates — only because they come from this account,
 # never from a person. Anything riskier waits for two Ecosystem Managers.
 #
-#   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD
+#   uses: PLATFORM_BASE_URL, PLATFORM_PASSWORD,
+#         JWT_TOKEN   (admin) — the org/role READS and, inside
+#                     _issue_service_account_key, the step-up-gated
+#                     service-account writes;
+#         SETUP_SA_KEY — the one WRITE that the admin session cannot make:
+#                     creating the custom role (see below). Call
+#                     setup_service_account_key first.
 #   sets: LOADER_SA_KEY, LOADER_SA_ID
 # ---------------------------------------------------------------------------
 OFFICIAL_LOADER_ACCOUNT="official-catalog-loader"
 OFFICIAL_LOADER_ROLE="Official Catalog Loader"
 
 official_loader_service_account_key() {
-  local _org_id _roles _role_id _resp _status _body _step_up
+  local _org_id _roles _role_id _resp _status _body
   _org_id=$(_admin_org_id) || true
   if [ -z "$_org_id" ]; then
     echo "ERROR: could not resolve the system organization for the ${OFFICIAL_LOADER_ACCOUNT} account" >&2
@@ -961,19 +997,40 @@ official_loader_service_account_key() {
 
   _roles=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
     -H "Authorization: Bearer ${JWT_TOKEN}") || true
-  _role_id=$(printf '%s' "$_roles" | jq -r --arg name "$OFFICIAL_LOADER_ROLE" '[.data.roles[]? | select(.name == $name)][0].id // empty')
+  _role_id=$(printf '%s' "$_roles" | jq -r --arg name "$OFFICIAL_LOADER_ROLE" '[.data.roles[]? | select(.name == $name)][0].id // empty' 2>/dev/null) || true
   if [ -z "$_role_id" ]; then
-    _step_up=$(step_up_token) || return 1
+    # CREATE THE ROLE AS THE `setup` SERVICE ACCOUNT, not as the admin.
+    #
+    # On a fresh install the admin's session is the bootstrap-MFA one
+    # (`mfaEnrollmentPending`), and platform's BOOTSTRAP_SESSION_ALLOWLIST
+    # (platform/src/helpers/bootstrap-admin.ts) admits only `GET .../roles` —
+    # so the read above passes and this POST comes back
+    # `403 MFA_ENROLLMENT_REQUIRED`, failing every fresh init.
+    #
+    # The setup account is the right principal for it, not a workaround:
+    # `POST /organization/:id/roles` is requireAuth + requirePermission(
+    # 'roles:manage') + requireOrgAdminAssurance({ machines: 'allow' }) with NO
+    # step-up, the setup account holds the system org's superadmin-granting role
+    # (which carries every permission), and a machine principal never carries
+    # the enrolment flag. Hence no X-Step-Up-Token here either — a service
+    # account cannot earn one, and this route does not ask for one.
+    #
+    # NEVER fall back to JWT_TOKEN: that just reproduces the 403 further on.
+    if [ -z "${SETUP_SA_KEY:-}" ]; then
+      echo "ERROR: SETUP_SA_KEY is empty — call setup_service_account_key before ${OFFICIAL_LOADER_ACCOUNT}." >&2
+      echo "  The '${OFFICIAL_LOADER_ROLE}' role must be created by the setup service account: a fresh" >&2
+      echo "  install's admin session is MFA-enrolment-limited and cannot POST /organization/:id/roles." >&2
+      return 1
+    fi
     _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
       -k -s -w '\n%{http_code}' \
       -H 'Content-Type: application/json' \
-      -H "Authorization: Bearer ${JWT_TOKEN}" \
-      -H "X-Step-Up-Token: ${_step_up}" \
+      -H "Authorization: Bearer ${SETUP_SA_KEY}" \
       -d "$(jq -n --arg name "$OFFICIAL_LOADER_ROLE" \
         '{name: $name, description: "Uploads the Official plugin catalog as publish requests (load-plugins.sh)", permissions: ["plugins:read", "plugins:write", "plugins:publish"]}')") || true
     _status=$(printf '%s' "$_resp" | tail -n1)
     _body=$(printf '%s' "$_resp" | sed '$d')
-    _role_id=$(printf '%s' "$_body" | jq -r '.data.role.id // .data.id // empty')
+    _role_id=$(printf '%s' "$_body" | jq -r '.data.role.id // .data.id // empty' 2>/dev/null) || true
     if [ -z "$_role_id" ]; then
       echo "ERROR: could not create the '${OFFICIAL_LOADER_ROLE}' role (HTTP $_status$(_api_error "$_body"))" >&2
       return 1

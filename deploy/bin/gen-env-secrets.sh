@@ -375,4 +375,23 @@ pb_gen_env_secrets() {
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2
     return 1
   fi
+
+  # CATCH-ALL. The named guard above only protects keys someone remembered to
+  # list there; a NEW secret added to .env.example as `FOO_SECRET=CHANGE_ME`
+  # with no sed rule here matches neither the substitutions nor that list, so it
+  # would ship a literal `CHANGE_ME` credential and still exit 0 — the precise
+  # hole the named guard was written to close, one key later. So fail on ANY
+  # remaining placeholder that is not operator-supplied.
+  #
+  # SLACK_* is the one legitimate exception: no generator can invent an
+  # incoming-webhook URL. pb_check_alert_delivery is its gate (and pb_sync_env_keys
+  # excludes it the same way), so leaving it as CHANGE_ME here is expected.
+  local _left
+  _left=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=CHANGE_ME' "$env_file" | grep -v '^SLACK_' | cut -d= -f1 | tr '\n' ' ') || true
+  if [ -n "$_left" ]; then
+    echo "ERROR: these secrets are still CHANGE_ME in $env_file: ${_left}" >&2
+    echo "  — they are new in .env.example and have no generator in pb_gen_env_secrets." >&2
+    echo "  Add a sed substitution (and the key to the guard list) in deploy/bin/gen-env-secrets.sh." >&2
+    return 1
+  fi
 }

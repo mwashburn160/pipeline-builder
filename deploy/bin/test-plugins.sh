@@ -121,21 +121,25 @@ test_plugin() {
     return
   fi
 
+  # `|| true` on every get_spec_field: it is `grep | head | sed`, so an ABSENT
+  # field returns non-zero and, under `set -euo pipefail`, aborted the ENTIRE
+  # run at the first spec missing one — with no FAIL line for that plugin and no
+  # summary. A missing field must be this plugin's failure, not the framework's.
   local plugin_type
-  plugin_type=$(get_spec_field pluginType "$specfile")
+  plugin_type=$(get_spec_field pluginType "$specfile" || true)
   if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "$dockerfile" ]; then
     log_fail "Missing Dockerfile" "$fqn"
     return
   fi
 
   local spec_name spec_category
-  spec_name=$(get_spec_field name "$specfile")
+  spec_name=$(get_spec_field name "$specfile" || true)
   if [ "$spec_name" != "$plugin_name" ]; then
     log_fail "Name mismatch: spec='${spec_name}' dir='${plugin_name}'" "$fqn"
   else
     log_pass "Name matches directory"
   fi
-  spec_category=$(get_spec_field category "$specfile")
+  spec_category=$(get_spec_field category "$specfile" || true)
   if [ "$spec_category" != "$category" ]; then
     log_fail "Category mismatch: spec='${spec_category}' directory='${category}'" "$fqn"
   else
@@ -231,4 +235,14 @@ fi
 # ---- Summary ----
 
 print_results
+
+# Testing nothing is not a pass. An empty/mis-pointed PLUGINS_DIR makes the walk
+# above match no plugin, and print_errors_and_exit would then print
+# "All tests passed!" and exit 0 on an empty ERRORS[] — a green catalog gate
+# that validated zero plugins.
+if [ "$((PASSED + FAILED + SKIPPED))" -eq 0 ]; then
+  echo -e "${RED}ERROR: no plugins were tested (is ${PLUGINS_DIR} populated?) — refusing to report success.${NC}" >&2
+  exit 1
+fi
+
 print_errors_and_exit "All tests passed!"

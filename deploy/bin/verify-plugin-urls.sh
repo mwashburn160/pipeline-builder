@@ -28,9 +28,15 @@ SKIPPED=0
 # shellcheck disable=SC2034
 ERRORS=()
 
+# Dockerfiles actually opened. A plugin with no downloads at all (e.g. one that
+# only inherits a family base) legitimately contributes 0 URLs, so "URLs checked"
+# alone can't tell "nothing to check" from "the walk found nothing".
+DOCKERFILES_SEEN=0
+
 verify_dockerfile() {
   local dockerfile="$1"
   local rel_path="${dockerfile#"$PLUGINS_DIR"/}"
+  DOCKERFILES_SEEN=$((DOCKERFILES_SEEN + 1))
 
   log_info "$rel_path"
 
@@ -127,4 +133,22 @@ else
 fi
 
 print_results
+
+# Checking nothing is not a pass. With a missing/empty plugins tree the walk
+# above opens no Dockerfile at all, and print_errors_and_exit would then print
+# "All URLs verified!" and exit 0 on an empty ERRORS[] — a green CI run
+# (.github/workflows/plugin-urls.yml) that verified zero URLs.
+if [ "$DOCKERFILES_SEEN" -eq 0 ]; then
+  echo -e "${RED}ERROR: no plugin Dockerfiles were found under $PLUGINS_DIR — refusing to report success.${NC}" >&2
+  exit 1
+fi
+# Whole-catalog run: the catalog definitely contains downloads, so extracting
+# zero URLs from all of it means the URL parsing broke, not that there is
+# nothing to check. (A single-plugin run can legitimately yield zero — plenty of
+# plugins only inherit a family base.)
+if [ -z "$SPECIFIC_PLUGIN" ] && [ "$((PASSED + FAILED + SKIPPED))" -eq 0 ]; then
+  echo -e "${RED}ERROR: walked ${DOCKERFILES_SEEN} Dockerfile(s) but extracted no download URLs — the URL parsing is broken.${NC}" >&2
+  exit 1
+fi
+
 print_errors_and_exit "All URLs verified!"

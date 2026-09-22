@@ -16,7 +16,12 @@
 # extendedKeyUsage=serverAuth + basicConstraints let it be trusted once imported.
 #
 # Idempotent: skips when both files already exist AND the cert names `nginx`
-# (the in-network hostname the frontend server calls). Writes (chmod 644 key —
+# (the in-network hostname the frontend server calls) AND it is still valid for
+# at least another week — the self-signed fallback lasts 365 days, and without
+# the expiry test a re-run kept an EXPIRED cert and the gateway just started
+# failing TLS with nothing in the setup output saying why. Nothing depends on
+# the leaf's identity (no sessions, no signatures), so regenerating is safe.
+# Writes (chmod 644 key —
 # deploy convention): <cert_dir>/nginx-tls.crt, <cert_dir>/nginx-tls.key, and
 # <cert_dir>/dev-ca.crt — the CA that issued the leaf (mkcert's root, or the
 # self-signed leaf itself). The release images trust NO dev CA; the local
@@ -32,10 +37,17 @@ CA="$CERT_DIR/dev-ca.crt"
 
 # The SANs the gateway cert must carry: browsers use localhost/127.0.0.1, the
 # frontend server reaches the gateway as `nginx` inside the network.
+# `-checkend 604800` (7 days) is part of the condition, not a separate warning:
+# an expired or about-to-expire cert must be REPLACED by this run, otherwise the
+# gateway keeps serving it until someone works out why TLS broke.
 if [ -f "$CRT" ] && [ -f "$KEY" ] && [ -f "$CA" ] \
-   && openssl x509 -in "$CRT" -noout -text 2>/dev/null | grep -q 'DNS:nginx'; then
+   && openssl x509 -in "$CRT" -noout -text 2>/dev/null | grep -q 'DNS:nginx' \
+   && openssl x509 -in "$CRT" -noout -checkend 604800 >/dev/null 2>&1; then
   echo "  nginx TLS certificate already present in $CERT_DIR"
   exit 0
+fi
+if [ -f "$CRT" ] && ! openssl x509 -in "$CRT" -noout -checkend 604800 >/dev/null 2>&1; then
+  echo "  nginx TLS certificate in $CERT_DIR has expired (or expires within 7 days) — regenerating"
 fi
 
 mkdir -p "$CERT_DIR"

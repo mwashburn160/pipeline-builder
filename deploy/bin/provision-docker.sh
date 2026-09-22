@@ -22,6 +22,11 @@ set -euo pipefail
 
 CLI_PKG="@pipeline-builder/pipeline-manager@latest"
 IMAGE="node:24-slim"
+# The kubectl MINOR to install for --target eks. It is deliberately the version
+# of the cluster this run is about to create, not upstream's newest: keep it in
+# step with EKS_VERSION in deploy/aws/eks/bin/setup.sh. See the eks case below
+# for why the patch level is resolved at download time instead of pinned.
+EKS_VERSION="${EKS_VERSION:-1.36}"
 
 # Discover --target/-t among the forwarded args (to pick minimal installs + mounts).
 TARGET=""
@@ -54,9 +59,27 @@ case "$TARGET" in
     # (apply manifests), openssl (registry token keypair) and envsubst/gettext-base
     # (cluster.yaml + manifest token expansion). Mount ~/.aws + ~/.kube.
     # eksctl: pinned VERSION + SHA-256 (keep in step with EKSCTL_VERSION in
-    # deploy/bin/common.sh). kubectl: the current stable release, checked against
-    # the .sha256 dl.k8s.io publishes beside it.
-    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && a=$(dpkg --print-architecture) && case $a in amd64) s=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;; arm64) s=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;; *) echo "no pinned eksctl for $a" >&2; exit 1 ;; esac && curl -fsSL -o /tmp/eksctl.tgz "https://github.com/eksctl-io/eksctl/releases/download/v0.230.0/eksctl_Linux_${a}.tar.gz" && echo "$s  /tmp/eksctl.tgz" | sha256sum -c - && tar -xzf /tmp/eksctl.tgz -C /usr/local/bin eksctl && rm -f /tmp/eksctl.tgz && k=$(curl -fsSL https://dl.k8s.io/release/stable.txt) && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl" && echo "$(curl -fsSL "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl'
+    # deploy/bin/common.sh).
+    #
+    # kubectl: resolved from the MINOR-scoped channel (dl.k8s.io/release/
+    # stable-<EKS_VERSION>.txt), not `stable.txt`, and verified against the
+    # .sha256 dl.k8s.io publishes beside the binary. This is deliberately not a
+    # constant SHA like eksctl's, and it is no longer upstream's newest either:
+    #   - a hard-pinned kubectl goes stale against a cluster whose version this
+    #     script does not control, and the .sha256 already gives integrity, so
+    #     a static hash would buy reproducibility at the cost of correctness;
+    #   - `stable.txt` is upstream's latest (v1.37 today) while the cluster we
+    #     are about to create is EKS_VERSION (1.36). That happens to be inside
+    #     kubectl's +/-1 minor skew window right now and silently leaves it the
+    #     moment upstream ships 1.38 — a floating version that breaks on a date
+    #     nobody chose.
+    # `stable-<minor>.txt` keeps the MINOR reproducible (it is pinned, here and
+    # in eks/bin/setup.sh) while still picking up patch/CVE fixes, and it can
+    # never skew from the cluster. `--eks-version latest` has no fixed minor, so
+    # it falls back to `stable`.
+    _kchan="stable-${EKS_VERSION}"
+    [ "$EKS_VERSION" = latest ] && _kchan="stable"
+    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && a=$(dpkg --print-architecture) && case $a in amd64) s=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;; arm64) s=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;; *) echo "no pinned eksctl for $a" >&2; exit 1 ;; esac && curl -fsSL -o /tmp/eksctl.tgz "https://github.com/eksctl-io/eksctl/releases/download/v0.230.0/eksctl_Linux_${a}.tar.gz" && echo "$s  /tmp/eksctl.tgz" | sha256sum -c - && tar -xzf /tmp/eksctl.tgz -C /usr/local/bin eksctl && rm -f /tmp/eksctl.tgz && k=$(curl -fsSL "https://dl.k8s.io/release/'"$_kchan"'.txt") && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl" && echo "$(curl -fsSL "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl'
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
     [ -d "$HOME/.kube" ] && mounts+=( -v "$HOME/.kube:/root/.kube:ro" )
     ;;
@@ -83,11 +106,23 @@ case "$TARGET" in
   "")
     echo "Pass --target <docker|ec2|eks> so the right minimal tools are installed." >&2
     exit 1 ;;
+  *)
+    # Without this the unknown target fell through with no tools and no credential
+    # mounts, and only failed much later inside the container.
+    echo "Unknown --target '$TARGET' (expected docker|ec2|eks; minikube runs on the host)." >&2
+    exit 1 ;;
 esac
+
+# `-t` only when stdin is a terminal: `docker run -it` fails outright with "the
+# input device is not a TTY" under CI/cron, which is exactly how the documented
+# non-interactive form (`--execute --yes`) is run. `-i` stays either way so the
+# CLI can still read stdin.
+tty_flags=( -i )
+[ -t 0 ] && tty_flags+=( -t )
 
 # Install the minimal toolset in the throwaway container, then exec the published
 # CLI. Args are passed positionally (after the `_`) so quoting is preserved.
-exec docker run --rm -it "${mounts[@]}" \
+exec docker run --rm "${tty_flags[@]}" "${mounts[@]}" \
   -e CLI_PKG="$CLI_PKG" -e APT="$apt" -e EXTRA="$extra" \
   "$IMAGE" bash -c '
     set -e

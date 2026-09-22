@@ -18,6 +18,10 @@ set -uo pipefail
 #                 in the VPC subnets would otherwise block VPC deletion).
 #   4. Cluster  → eksctl delete cluster (nodes, VPC, Pod Identity, CFN stacks).
 #   5. ACM      → deletes the cert (only possible once the ALB releasing it is gone).
+#   6. SES/IAM  → the SES identity/config-set/SNS topic and the three customer-managed
+#                 IAM policies setup.sh creates (they belong to no stack, so nothing
+#                 else would ever remove them).
+#   7. EBS      → reports (or, with --delete-volumes, deletes) the Retain'd pb-ebs volumes.
 #
 #   ./bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 \
 #       --domain pipeline-builder.com [--hosted-zone-id Z...] [--delete-volumes] [--yes]
@@ -183,21 +187,37 @@ else
   echo "  --domain not given — skipping"
 fi
 
-# ---- Phase 6: SES email resources ------------------------------------------
+# ---- Phase 6: SES email + the customer-managed IAM policies -----------------
 # Mirrors what the ec2 delete-stack removes. The cluster delete (Phase 4) already
-# removed the Pod Identity association + its role, so the scoped policy detaches.
-log "Phase 6: SES email resources"
+# removed the Pod Identity associations + their roles, so these policies detach.
+#
+# The policies are created by bin/setup.sh with `aws iam create-policy` — they
+# belong to no CloudFormation stack, so NOTHING else deletes them. All three must
+# be named here: <cluster>-eks-ses (Phase 5, EMAIL_ENABLED), -eks-pipeline-exec
+# (Phase 5, ALWAYS created) and -eks-plugin-signing (Phase 5, kms mode). Deleting
+# only the SES one left the other two orphaned in the account after a teardown
+# that claims to leak nothing.
+log "Phase 6: SES email + IAM policies"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+
+# delete_managed_policy <policy-name> — drop the non-default versions (a policy
+# with versions cannot be deleted) then the policy. Absent = nothing to do;
+# still-attached = report, since the role goes away with the cluster stacks.
+delete_managed_policy() {
+  local _name="$1" _arn="arn:aws:iam::${ACCOUNT_ID}:policy/$1" _v
+  aws iam get-policy --policy-arn "$_arn" >/dev/null 2>&1 || return 0
+  for _v in $(aws iam list-policy-versions --policy-arn "$_arn" --query 'Versions[?!IsDefaultVersion].VersionId' --output text 2>/dev/null); do
+    aws iam delete-policy-version --policy-arn "$_arn" --version-id "$_v" 2>/dev/null || true
+  done
+  aws iam delete-policy --policy-arn "$_arn" 2>/dev/null \
+    && echo "  deleted IAM policy ${_name}" \
+    || echo "  (IAM policy ${_name} still attached — delete once the cluster is fully gone)" >&2
+}
+
 if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
-  SES_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${CLUSTER_NAME}-eks-ses"
-  if aws iam get-policy --policy-arn "$SES_POLICY_ARN" >/dev/null 2>&1; then
-    for v in $(aws iam list-policy-versions --policy-arn "$SES_POLICY_ARN" --query 'Versions[?!IsDefaultVersion].VersionId' --output text 2>/dev/null); do
-      aws iam delete-policy-version --policy-arn "$SES_POLICY_ARN" --version-id "$v" 2>/dev/null || true
-    done
-    aws iam delete-policy --policy-arn "$SES_POLICY_ARN" 2>/dev/null \
-      && echo "  deleted IAM policy ${CLUSTER_NAME}-eks-ses" \
-      || echo "  (IAM policy ${CLUSTER_NAME}-eks-ses still attached — delete once the cluster is fully gone)" >&2
-  fi
+  delete_managed_policy "${CLUSTER_NAME}-eks-ses"
+  delete_managed_policy "${CLUSTER_NAME}-eks-pipeline-exec"
+  delete_managed_policy "${CLUSTER_NAME}-eks-plugin-signing"
   aws sns delete-topic --topic-arn "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${CLUSTER_NAME}-email-events" --region "$REGION" 2>/dev/null \
     && echo "  deleted SNS topic ${CLUSTER_NAME}-email-events" || true
 fi

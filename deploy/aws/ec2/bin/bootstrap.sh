@@ -160,20 +160,36 @@ echo "========================================"
 echo "Phase 4: Install minikube & kubectl"
 echo "========================================"
 
-# kubectl
+# kubectl. The VERSION floats (whatever dl.k8s.io's stable.txt names today), so
+# there is no static hash to pin — verify against the .sha256 dl.k8s.io publishes
+# beside each binary, exactly as common.sh's ensure_kubectl does. `curl -LO` alone was neither: with no -f it wrote a 404/error BODY to a
+# file named `kubectl` and exited 0, so the next line installed an HTML page as
+# /usr/local/bin/kubectl — a failure that only surfaced much later, as a broken
+# cluster. fetch_verified fails closed on both a bad response and a bad digest.
 echo "  Installing kubectl..."
-KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-rm -f kubectl
-echo "  kubectl ${KUBECTL_VERSION} installed"
+KUBECTL_VERSION=$(curl -fsSL --retry 3 https://dl.k8s.io/release/stable.txt)
+case "$KUBECTL_VERSION" in
+  v[0-9]*) ;;
+  *) echo "ERROR: dl.k8s.io/release/stable.txt returned '${KUBECTL_VERSION}', not a version" >&2; exit 1 ;;
+esac
+KUBECTL_URL="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+KUBECTL_SHA256=$(curl -fsSL --retry 3 "${KUBECTL_URL}.sha256")
+KUBECTL_TMP=$(mktemp)
+fetch_verified "$KUBECTL_URL" "${KUBECTL_SHA256%% *}" "$KUBECTL_TMP"
+install -o root -g root -m 0755 "$KUBECTL_TMP" /usr/local/bin/kubectl
+rm -f "$KUBECTL_TMP"
+echo "  kubectl ${KUBECTL_VERSION} installed (sha256 verified)"
 
-# minikube
+# minikube — same treatment: `latest` floats, so verify against the .sha256
+# published next to the release asset rather than installing whatever came back.
 echo "  Installing minikube..."
-curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-install minikube-linux-amd64 /usr/local/bin/minikube
-rm -f minikube-linux-amd64
-echo "  minikube installed"
+MINIKUBE_URL="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+MINIKUBE_SHA256=$(curl -fsSL --retry 3 "${MINIKUBE_URL}.sha256")
+MINIKUBE_TMP=$(mktemp)
+fetch_verified "$MINIKUBE_URL" "${MINIKUBE_SHA256%% *}" "$MINIKUBE_TMP"
+install -o root -g root -m 0755 "$MINIKUBE_TMP" /usr/local/bin/minikube
+rm -f "$MINIKUBE_TMP"
+echo "  minikube installed (sha256 verified)"
 
 # NOTE: istioctl is NOT installed here — startup.sh (Phase 9) calls the shared
 # ensure_istioctl, which auto-installs $ISTIO_VERSION to /usr/local/bin (as root
@@ -288,6 +304,14 @@ if [ ! -f .env ]; then
   # Generated secrets common to every target (shared helper); then the ec2-specific keys.
   pb_gen_env_secrets .env "$GHCR_USER"
 fi
+
+# Bring an EXISTING .env up to date with keys added to .env.example since it was
+# seeded (ADDITIVE ONLY — an existing value is never touched, so DB passwords
+# stay matched to the data on the EBS volume). Without this an upgrade-in-place
+# (git pull + re-run bootstrap) never gets a newly added key, and the bring-up
+# dies deep in startup.sh with a bare `unbound variable` under `set -u`, or —
+# worse — materialises an empty secret. Same call the docker/minikube targets make.
+pb_sync_env_keys .env .env.example
 
 # Replace domain placeholder. A domain is always set now (the ALB needs an
 # ACM cert for it), so there's no IP fallback.

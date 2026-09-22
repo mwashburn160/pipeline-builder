@@ -111,6 +111,14 @@ else
     _nocache+=(--no-cache)
   fi
 
+  # PUBLISH_PLATFORM defaults to linux/amd64 (the CodeBuild runtime) while the
+  # operator's host is often arm64, so register QEMU/binfmt first — exactly what
+  # build-plugin-images.sh does before its own cross-arch builds. Without it the
+  # build dies mid-RUN with `exec format error`. Idempotent, and best-effort by
+  # contract (it always exits 0; a missing emulator surfaces as the build failure
+  # below, not as a silent skip).
+  bash "$SCRIPT_DIR/ensure-binfmt.sh" "$PUBLISH_PLATFORM"
+
   # "${arr[@]+"${arr[@]}"}" expands to nothing for an EMPTY array — plain
   # "${arr[@]}" throws "unbound variable" under `set -u` on bash 3.2 (macOS).
   docker build --platform "$PUBLISH_PLATFORM" \

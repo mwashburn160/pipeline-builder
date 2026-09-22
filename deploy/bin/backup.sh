@@ -91,6 +91,16 @@ MINIO_BUCKETS="${MINIO_BUCKETS:-$PB_MINIO_BUCKETS}"
 WANT_MINIO=0
 [ -n "${MINIO_ENDPOINT:-}" ] && WANT_MINIO=1
 
+# Validate the MinIO half of the configuration HERE, not at step [4/5]. Checked
+# there, a missing MINIO_BACKUP_TARGET_* or an absent `mc` only surfaced after a
+# full postgres + mongo dump and upload had already run — a slow, expensive way
+# to learn the run was never going to complete.
+if [ "$WANT_MINIO" = "1" ]; then
+  require_env MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
+             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
+  command -v mc >/dev/null 2>&1 || { echo "ERROR: MINIO_ENDPOINT set but 'mc' (MinIO client) not found" >&2; exit 2; }
+fi
+
 # One EXIT trap for BOTH the temp workdir and any port-forwards.
 WORKDIR=""
 cleanup() {
@@ -155,6 +165,15 @@ fi
 
 # --- Upload to S3 ----------------------------------------------------------
 
+# Verify both archives before they leave the host. `gzip -t` decompresses each
+# member and checks its CRC, so a dump truncated at close (out of space on the
+# temp filesystem) is caught HERE — not months later by the restore that was
+# supposed to use it. restore.sh runs the same check before it drops anything.
+if [ "$DRY_RUN" != "1" ]; then
+  gzip -t "${PG_FILE}" || { echo "ERROR: the postgres dump failed its gzip integrity check — not uploading" >&2; exit 2; }
+  gzip -t "${MONGO_FILE}" || { echo "ERROR: the mongo dump failed its gzip integrity check — not uploading" >&2; exit 2; }
+fi
+
 echo "[3/5] Uploading to ${S3_PREFIX}"
 run aws s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp postgres failed" >&2; exit 2; }
@@ -169,10 +188,7 @@ run aws s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
 # and so is a missing `mc` once MINIO_ENDPOINT asks for it.
 if [ "$WANT_MINIO" = "1" ]; then
   echo "[4/5] Mirroring MinIO buckets → ${MINIO_BACKUP_TARGET_URL:-<unset>}"
-  require_env MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
-             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
-  command -v mc >/dev/null 2>&1 || { echo "ERROR: MINIO_ENDPOINT set but 'mc' (MinIO client) not found" >&2; exit 2; }
-
+  # (env + `mc` were validated up front, before the dumps)
   MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
   # Isolate mc config to this run (don't touch the invoker's ~/.mc).
   MC_CONFIG_DIR="${WORKDIR}/.mc"

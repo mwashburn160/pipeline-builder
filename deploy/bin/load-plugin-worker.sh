@@ -60,7 +60,12 @@ dockerfile="$plugin_dir/Dockerfile"
 image_tar="$plugin_dir/image.tar"
 
 build_type="build_image"
-[ -f "$config" ] && build_type=$(get_spec_field buildType "$config")
+# `|| true`: get_spec_field is `grep | head | sed`, so an ABSENT `buildType:`
+# returns non-zero. As the tail of this `&&` list that trips `set -e` and kills
+# the worker BEFORE any counter is written — the plugin is then tallied in
+# neither succeeded/skipped/failed and the parent's exit gate reads green while
+# the plugin never uploaded. The empty case is already handled on the next line.
+[ -f "$config" ] && build_type=$(get_spec_field buildType "$config" || true)
 [ -z "$build_type" ] && build_type="build_image"
 
 # Auto-detect metadata_only: no Dockerfile and no image.tar

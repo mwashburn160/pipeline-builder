@@ -32,16 +32,20 @@ pass() { echo "ok:   $*"; }
 
 # Resolve an image reference (repo@sha256:...) from the docker-compose pin, so
 # this script can never validate against a different version than we deploy.
+# Returns non-zero (it does NOT exit) when the pin is missing: this runs inside
+# a command substitution, where `exit` only kills the subshell — the script has
+# no `set -e`, so it used to sail on with an EMPTY image ref and "validate"
+# against nothing. The callers below turn the non-zero into a real exit.
 pinned_image() {
   local repo="$1" ref
   ref="$(grep -oE "${repo}@sha256:[0-9a-f]{64}" "$COMPOSE" | head -1)"
-  [[ -n "$ref" ]] || { echo "cannot find pinned ${repo} image in ${COMPOSE}" >&2; exit 1; }
+  [[ -n "$ref" ]] || { echo "cannot find pinned ${repo} image in ${COMPOSE}" >&2; return 1; }
   echo "$ref"
 }
 
-LOKI_IMAGE="$(pinned_image grafana/loki)"
-PROM_IMAGE="$(pinned_image prom/prometheus)"
-AM_IMAGE="$(pinned_image prom/alertmanager)"
+LOKI_IMAGE="$(pinned_image grafana/loki)" || exit 1
+PROM_IMAGE="$(pinned_image prom/prometheus)" || exit 1
+AM_IMAGE="$(pinned_image prom/alertmanager)" || exit 1
 
 # Every k8s manifest must pin the same digest as compose — otherwise the
 # validation above isn't testing what the cluster runs.

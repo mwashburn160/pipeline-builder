@@ -41,7 +41,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 DEPLOY_TARGET="${DEPLOY_TARGET:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
-CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
+# crane is handed a live deploy-bootstrap JWT and push access to the in-cluster
+# registry, so it is pinned BY DIGEST like every other third-party image in this
+# repo (deploy/README.md) — a floating `:debug` tag would change underneath a
+# re-provision. The digest is the multi-arch INDEX, so it still resolves per
+# architecture. Bump: `docker buildx imagetools inspect gcr.io/go-containerregistry/crane:debug`.
+# `:debug` (not `:latest`) is required: the push/check paths run `sh -c` in it.
+CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane@sha256:e78770b31258a3846f878036d9c1f63fbe4c871f9f56990bf77fd95c013e3c1b}"  # gcr.io/go-containerregistry/crane:debug
 
 # Minikube installs by default use a kubeconfig context named after the
 # minikube profile (`pipeline-builder` per startup.sh). The minikube user
@@ -417,9 +423,15 @@ _already_exists() {
 # -----------------------------------------------------------------------
 echo "=== Pushing base images to ${REGISTRY_HOST}/library/ ($DEPLOY_TARGET) ==="
 for _tag in "${BASE_TAGS[@]}"; do
+  # A tag we were asked to push but cannot find is a hard failure, not a skip.
+  # This used to warn-and-continue and still exit 0 — which silently published
+  # nothing on the PUSH_TAGS path (build-codebuild-bootstrap.sh), leaving
+  # CODEBUILD_DEFAULT_IMAGE absent and every CodeBuild run dying later with
+  # BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE.
   if ! docker image inspect "$_tag" >/dev/null 2>&1; then
-    echo "  ⚠ $_tag not in local image cache — skipping (run build-plugin-images.sh first)"
-    continue
+    echo "ERROR: $_tag is not in the local image cache — cannot push it." >&2
+    echo "  Build it first (deploy/bin/build-plugin-images.sh), or correct PUSH_TAGS." >&2
+    exit 1
   fi
   _remote="${REGISTRY_HOST}/library/${_tag}"
 

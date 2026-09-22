@@ -7,9 +7,13 @@
 # holder; every other service verifies against the public half it publishes at
 # /.well-known/jwks.json, so this key is never distributed anywhere else.
 #
-# This is the LOCAL signer (TOKEN_SIGNING_MODE=local): docker and minikube. The
-# AWS targets set TOKEN_SIGNING_MODE=kms and keep the private key inside KMS
-# instead — see docs/runbooks/secret-rotation.md.
+# This is the LOCAL signer (TOKEN_SIGNING_MODE=local) — which is what EVERY
+# target ships: docker, minikube, ec2 and eks all set TOKEN_SIGNING_MODE=local
+# in their .env.example, so all four run this generator by default.
+# TOKEN_SIGNING_MODE=kms is OPT-IN, available on the AWS targets: set it (plus
+# TOKEN_SIGNING_KMS_KEY_ID) and the private key stays inside KMS, this script's
+# output is unused and no token-signing Secret is created
+# (deploy/bin/k8s-resources.sh:176). See docs/runbooks/secret-rotation.md.
 #
 #   token-signing-keys.sh [cert_dir] [--rotate]
 #

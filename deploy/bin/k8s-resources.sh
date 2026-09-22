@@ -38,8 +38,12 @@ KEDA_VERSION="${KEDA_VERSION:-2.20.2}"
 # Render-then-apply a `create …` so re-runs update rather than fail.
 pb_kube_apply() { $PB_KUBECTL "$@" --dry-run=client -o yaml | $PB_KUBECTL apply -f - ; }
 
-pb_secret()    { local _n="$1"; shift; pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE"; echo "  secret $_n"; }
-pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@" -n "$PB_NAMESPACE"; echo "  configmap $_n"; }
+# `|| return 1` before the echo, because a function's status is its LAST
+# command's: without it these ALWAYS returned 0 (the echo), so a caller that
+# tests them — or that calls them from inside an `&&` list, where errexit is
+# suppressed — was told a failed `kubectl apply` had succeeded.
+pb_secret()    { local _n="$1"; shift; pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  secret $_n"; }
+pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  configmap $_n"; }
 
 # pb_split_app_env <clean_env> <config_out> <secret_out>
 #
@@ -103,14 +107,24 @@ pb_split_app_env() {
 
 # app-env ConfigMap + app-secrets Secret from a cleaned .env file (see pb_split_app_env).
 pb_app_env_resources() {
-  local _cfg _sec
-  _cfg=$(mktemp); _sec=$(mktemp)
-  pb_split_app_env "$1" "$_cfg" "$_sec"
-  # Same ownership as the source: ec2 runs kubectl as the minikube user.
-  if [ -n "${PB_ENV_FILE_OWNER:-}" ]; then chown "$PB_ENV_FILE_OWNER" "$_cfg" "$_sec"; chmod 600 "$_cfg" "$_sec"; fi
-  pb_configmap app-env --from-env-file="$_cfg"
-  pb_secret app-secrets --from-env-file="$_sec"
+  local _cfg _sec _rc=0
+  _cfg=$(mktemp) || return 1
+  _sec=$(mktemp) || { rm -f "$_cfg"; return 1; }
+  # mktemp already creates 0600, but say it unconditionally: $_sec holds EVERY
+  # application credential in the clear for the life of this function, and on
+  # ec2 the chown below hands it to another user.
+  chmod 600 "$_cfg" "$_sec"
+  # One `&&` chain, then an UNCONDITIONAL rm. A failing kubectl used to abort
+  # the function through the caller's `set -e` with the rm still ahead of it,
+  # leaving the whole app-secrets set sitting in /tmp on a failed provision.
+  # (Commands in an && list are exempt from errexit, so the chain runs to its
+  # first failure and $_rc carries it out of the function.)
+  pb_split_app_env "$1" "$_cfg" "$_sec" \
+    && { [ -z "${PB_ENV_FILE_OWNER:-}" ] || chown "$PB_ENV_FILE_OWNER" "$_cfg" "$_sec"; } \
+    && pb_configmap app-env --from-env-file="$_cfg" \
+    && pb_secret app-secrets --from-env-file="$_sec" || _rc=$?
   rm -f "$_cfg" "$_sec"
+  return "$_rc"
 }
 
 # Application secrets — names/keys must match the k8s manifests. Reads the sourced .env.
@@ -451,9 +465,11 @@ pb_lean_filter() {
 #      still coming up) can stay un-enrolled, and a STRICT-mTLS peer (postgres,
 #      redis, …) silently drops its traffic: an app-level connection TIMEOUT,
 #      not a refusal. A `while read` loop, not xargs, so PB_KUBECTL's `mk`
-#      shell function stays callable.
+#      shell function stays callable — and it reads from a here-string, not a
+#      pipe, so the loop runs in THIS shell and a failed restart can actually
+#      fail the function instead of being swallowed in a subshell.
 pb_apply_manifests() {
-  local _dir="$1" _sed="$2" _lean="${3:-0}" _extra="${4:-}"
+  local _dir="$1" _sed="$2" _lean="${3:-0}" _extra="${4:-}" _wl _wls _failed=""
   if ! $PB_KUBECTL wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
     echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
     echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
@@ -463,9 +479,23 @@ pb_apply_manifests() {
   [ "$_lean" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali${_extra:+/$_extra})"
   $PB_KUBECTL kustomize "$_dir" | sed "$_sed" | pb_lean_filter "$_lean" "$_extra" | $PB_KUBECTL apply -f - || return 1
   echo ""; echo "=== Restarting workloads to (re)enroll in the ambient mesh ==="
-  $PB_KUBECTL get deploy,statefulset -n "$PB_NAMESPACE" -o name | while IFS= read -r _wl; do
-    $PB_KUBECTL rollout restart -n "$PB_NAMESPACE" "$_wl"
-  done
+  _wls=$($PB_KUBECTL get deploy,statefulset -n "$PB_NAMESPACE" -o name) || return 1
+  while IFS= read -r _wl; do
+    [ -n "$_wl" ] || continue
+    # Keep going so every workload is attempted, but remember the misses: a
+    # workload that never restarts stays un-enrolled in the mesh and its
+    # STRICT-mTLS peers silently time it out — the exact failure this step
+    # exists to prevent, so it must not be reported as a clean apply.
+    $PB_KUBECTL rollout restart -n "$PB_NAMESPACE" "$_wl" || _failed="${_failed} ${_wl}"
+  done <<EOF
+$_wls
+EOF
+  if [ -n "$_failed" ]; then
+    echo "ERROR: rollout restart failed for:${_failed}" >&2
+    echo "       Those workloads keep their pre-mesh pods and will be dropped by their" >&2
+    echo "       STRICT-mTLS peers. Restart them by hand, then re-check." >&2
+    return 1
+  fi
 }
 
 # pb_registry_hosts_fixup <minikube_profile> — map the in-cluster `registry`
@@ -473,14 +503,23 @@ pb_apply_manifests() {
 # so the node's container runtime can pull the plugin images pushed there
 # (kubelet resolves image hosts with the NODE's resolver, not cluster DNS).
 # Rewrites an existing entry rather than appending a second one.
+#
+# Fails (non-zero) rather than reporting "registry -> unknown" and carrying on:
+# without this entry kubelet cannot resolve the image host, so EVERY plugin
+# image pull fails later with an obscure DNS error — a `registry -> unknown`
+# line scrolling past during bring-up is not where that gets noticed.
 pb_registry_hosts_fixup() {
   local _profile="$1" _ip
   _ip=$($PB_KUBECTL get svc registry -n "$PB_NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-  if [ -n "$_ip" ]; then
-    pb_as_owner minikube ssh --profile="$_profile" -- \
-      "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$_ip registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$_ip registry' | sudo tee -a /etc/hosts >/dev/null"
+  if [ -z "$_ip" ]; then
+    echo "ERROR: the 'registry' Service has no ClusterIP in namespace $PB_NAMESPACE —" >&2
+    echo "       the node's /etc/hosts cannot be pointed at it, so plugin image pulls will fail." >&2
+    return 1
   fi
-  echo "  registry -> ${_ip:-unknown}"
+  pb_as_owner minikube ssh --profile="$_profile" -- \
+    "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$_ip registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$_ip registry' | sudo tee -a /etc/hosts >/dev/null" \
+    || { echo "ERROR: could not write the 'registry' entry into the minikube node's /etc/hosts" >&2; return 1; }
+  echo "  registry -> ${_ip}"
 }
 
 # pb_port_forward <label> <service> <host:container> — background a

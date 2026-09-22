@@ -269,6 +269,19 @@ if [ ! -f "$ENV_FILE" ]; then
 else
   echo "  reusing existing .env"
 fi
+# Bring an EXISTING .env up to date with keys added to .env.example since it was
+# generated (ADDITIVE ONLY — an existing value is never touched, so the DB
+# passwords stay matched to the data on the Retain'd pb-ebs volumes). Without
+# this a re-deploy onto an older .env never sees a newly added key and dies with
+# a bare `unbound variable` under `set -u` — or materialises an empty secret.
+# Same call the docker/minikube targets make.
+pb_sync_env_keys "$ENV_FILE" "$DEPLOY_DIR/.env.example"
+# A key the sync just appended still carries the example's domain placeholder
+# (the substitutions above run only on the fresh-seed path). Re-apply it here —
+# a no-op on an already-generated .env, since YOUR_DOMAIN_HERE is never a
+# legitimate value. (ec2's bootstrap.sh runs its domain sed unguarded for the
+# same reason.)
+sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"; rm -f "$ENV_FILE.bak"
 # Source so secret values match exactly what ec2 startup.sh consumes.
 set -a
 # shellcheck disable=SC1090

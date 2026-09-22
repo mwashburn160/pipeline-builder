@@ -358,16 +358,38 @@ build_base_images() {
   # error (registry returns the same response for missing-repo and
   # actual-scope-denied). Better to abort here so the operator sees the
   # real cause (network, auth, realm misconfig).
-  if [ -x "$SCRIPT_DIR/push-base-images.sh" ]; then
-    # --force ⇒ re-push even when the tag already exists remotely, so a forced
-    # rebuild actually replaces the registry copy. push-base-images.sh otherwise
-    # skips any tag already present (its idempotency short-circuit), which made
-    # `--force` rebuild-then-skip the push. An explicit FORCE_PUSH env still wins.
-    FORCE_PUSH="${FORCE_PUSH:-$([ "$FORCE" = true ] && echo true || echo false)}" \
-      "$SCRIPT_DIR/push-base-images.sh"
+  # The push is MANDATORY, not best-effort: a missing/non-executable pusher used
+  # to make this an `if [ -x … ]` no-op, so the bases were built and never
+  # published and every later plugin build failed with the misleading
+  # `insufficient_scope`. Invoke via `bash` so a lost exec bit (tarball copy,
+  # restrictive umask) can't silently disable the step.
+  if [ ! -f "$SCRIPT_DIR/push-base-images.sh" ]; then
+    echo "ERROR: $SCRIPT_DIR/push-base-images.sh is missing — built bases cannot be published to ${REGISTRY_HOST}." >&2
+    return 1
   fi
+  # --force ⇒ re-push even when the tag already exists remotely, so a forced
+  # rebuild actually replaces the registry copy. push-base-images.sh otherwise
+  # skips any tag already present (its idempotency short-circuit), which made
+  # `--force` rebuild-then-skip the push. An explicit FORCE_PUSH env still wins.
+  FORCE_PUSH="${FORCE_PUSH:-$([ "$FORCE" = true ] && echo true || echo false)}" \
+    bash "$SCRIPT_DIR/push-base-images.sh"
   echo ""
 }
+
+# Cumulative cleanup, installed BEFORE the first thing that creates a temp:
+# _BK_AUTH_DIR holds a config.json with the in-cluster registry's `_token`
+# credential (a live deploy-bootstrap JWT) and is created inside
+# build_base_images, while PLUGIN_LIST_FILE is created further down. Installing
+# the trap only at the plugin-loop (as it used to be) left the credential dir on
+# disk for every exit that happens first — `--bases-only` (which exits right
+# after the base build) and any base-build failure.
+_cleanup() {
+  [ -n "${PLUGIN_LIST_FILE:-}" ] && rm -f "$PLUGIN_LIST_FILE"
+  [ -n "${_BK_AUTH_DIR:-}" ] && rm -rf "$_BK_AUTH_DIR"
+  return 0
+}
+trap _cleanup EXIT INT TERM
+
 build_base_images
 
 # Under --bases-only the caller (e.g. init-platform.sh under the
@@ -382,10 +404,15 @@ fi
 # Skip directories whose name starts with `_` — these are infrastructure
 # (currently `_base`), not plugins. Excluded from build, upload, and load.
 
+# Both branches must yield a SPACE-separated list: the build loop matches with
+# `case " $CATEGORIES " in *" $category "*`, which needs a space on each side.
+# list_categories prints one per line, so the unfiltered (default) run matched
+# NOTHING — every category hit the `continue` and the whole run built 0 images
+# while reporting "Built: 0 / Failed: 0". `tr` collapses that to spaces.
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
-  CATEGORIES=$(list_categories "$PLUGINS_DIR")
+  CATEGORIES=$(list_categories "$PLUGINS_DIR" | tr '\n' ' ')
 fi
 
 # ---- Parse buildArgs from plugin-spec.yaml (delegates to yq) ----
@@ -408,7 +435,11 @@ if [ "$RESET" = true ]; then
       config="$plugin_dir/config.yaml"
       [ -f "$config" ] || continue
 
-      _bt=$(get_spec_field buildType "$config")
+      # `|| true`: get_spec_field is `grep | head | sed`, so an ABSENT field
+      # returns non-zero under `set -euo pipefail` and would abort the run.
+      # Its contract is "value, or empty when not found" and every caller here
+      # branches on empty — a missing field is a normal outcome, not a failure.
+      _bt=$(get_spec_field buildType "$config" || true)
       [ "$_bt" = "prebuilt" ] || continue
 
       # Revert config.yaml in one yq write, so field order is deterministic
@@ -441,13 +472,10 @@ echo ""
 
 BUILT=0; SKIPPED=0; FAILED=0
 
-# Build list of eligible plugin directories into a temp file (avoids subshell)
+# Build list of eligible plugin directories into a temp file (avoids subshell).
+# The EXIT trap that removes it (and the buildkit auth dir) is already installed
+# above build_base_images.
 PLUGIN_LIST_FILE=$(mktemp)
-# Single cumulative cleanup: the plugin-list temp AND the buildkit auth dir
-# (_BK_AUTH_DIR holds config.json with the registry _token credential — must not
-# leak). _BK_AUTH_DIR may be empty if the buildkit path never ran; guard the rm.
-_cleanup() { rm -f "$PLUGIN_LIST_FILE"; [ -n "${_BK_AUTH_DIR:-}" ] && rm -rf "$_BK_AUTH_DIR"; }
-trap _cleanup EXIT
 for category_dir in "$PLUGINS_DIR"/*/; do
   category=$(basename "$category_dir")
   case " $CATEGORIES " in *" $category "*) ;; *) continue ;; esac
@@ -457,13 +485,37 @@ for category_dir in "$PLUGINS_DIR"/*/; do
 done
 TOTAL=$(wc -l < "$PLUGIN_LIST_FILE" | tr -d ' ')
 
+# An empty list is NOT a successful build of nothing — it means the plugins tree
+# is missing or `--category` named something that does not exist. Falling through
+# printed "Built: 0" and exited 0, which reads as a green build to init-platform.sh
+# and CI while no image was produced.
+if [ "$TOTAL" -eq 0 ]; then
+  echo "ERROR: no buildable plugins found under $PLUGINS_DIR for categories: ${CATEGORY_FILTER:-all}" >&2
+  echo "  A buildable plugin needs both plugin-spec.yaml and Dockerfile." >&2
+  echo "  Known categories: $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
+  exit 1
+fi
+
 CURRENT=0
-while IFS= read -r plugin_dir; do
+# Feed the loop from fd 3, NOT stdin. Two things depended on stdin staying the
+# terminal and both were broken while the list was piped in on fd 0:
+#   - the "source changed, rebuild?" prompt below is guarded by `[ -t 0 ]`, which
+#     is false when fd 0 is the list file — so the documented interactive mode
+#     never actually prompted;
+#   - any child that reads stdin (a `docker run -i`-wrapped yq, for instance)
+#     swallowed the remaining plugin paths, ending the loop after one plugin
+#     while the summary still reported the full TOTAL.
+while IFS= read -r plugin_dir <&3; do
     [ -n "$plugin_dir" ] || continue
     category=$(basename "$(dirname "$plugin_dir")")
 
     CURRENT=$((CURRENT + 1))
-    name=$(get_spec_field name "$plugin_dir/plugin-spec.yaml")
+    name=$(get_spec_field name "$plugin_dir/plugin-spec.yaml" || true)
+    if [ -z "$name" ]; then
+      echo "  [${CURRENT}/${TOTAL}] FAIL ${category}/$(basename "$plugin_dir") (plugin-spec.yaml has no name:)"
+      FAILED=$((FAILED + 1))
+      continue
+    fi
     label="${category}/${name}"
     tag=$(compute_image_tag "$plugin_dir")
 
@@ -487,7 +539,12 @@ while IFS= read -r plugin_dir; do
     #   3. `image.tar` exists but `imageTag` is missing or mismatched →
     #      can't verify freshness, treat as stale and prompt/rebuild.
     if [ "$FORCE" != true ]; then
-      existing_tag=$(get_spec_field imageTag "$plugin_dir/config.yaml")
+      # `|| true` — an ABSENT `imageTag:` is the NORMAL case (a plugin that has
+      # never been built, or one just reverted by --reset). Without it,
+      # get_spec_field's grep returns 1, `set -euo pipefail` kills the script
+      # here, and the whole build exited 1 having printed nothing about this or
+      # any later plugin — a silent abort of the main (non---force) build path.
+      existing_tag=$(get_spec_field imageTag "$plugin_dir/config.yaml" || true)
       hash_matches=$([ "$existing_tag" = "$tag" ] && echo true || echo false)
       tar_present=$([ -f "$plugin_dir/image.tar" ] && echo true || echo false)
 
@@ -614,7 +671,7 @@ while IFS= read -r plugin_dir; do
 
     echo "    OK (${tar_size_mb}MB)"
     BUILT=$((BUILT + 1))
-done < "$PLUGIN_LIST_FILE"
+done 3< "$PLUGIN_LIST_FILE"
 
 echo ""
 echo "=== Summary ==="

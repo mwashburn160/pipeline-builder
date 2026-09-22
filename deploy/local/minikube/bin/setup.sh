@@ -520,10 +520,21 @@ sleep 1
 # survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS redirect
 # on 8080 isn't needed for the API/UI (use the NodePort if you want it).
 pb_port_forward "Nginx"          nginx            "8443:8443"
-# mongo-express / pgAdmin are omitted under LEAN=1 (no service to forward to).
-if [ "$LEAN" != "1" ]; then
-  pb_port_forward "Mongo Express"  mongo-express    "8081:8081"
-  pb_port_forward "pgAdmin"        pgadmin          "5480:80"
+# The admin/observability consoles. Forwarded only when the service is actually
+# deployed (LEAN=1 drops all four), gated on `get svc` rather than on $LEAN so
+# this is the SAME block startup.sh runs — a provision and a resume must not
+# leave the operator with a different set of consoles on localhost.
+if kubectl get svc mongo-express -n "$NAMESPACE" >/dev/null 2>&1; then
+  pb_port_forward "Mongo Express" mongo-express "8081:8081"
+fi
+if kubectl get svc pgadmin -n "$NAMESPACE" >/dev/null 2>&1; then
+  pb_port_forward "pgAdmin" pgadmin "5480:80"
+fi
+if kubectl get svc grafana -n "$NAMESPACE" >/dev/null 2>&1; then
+  pb_port_forward "Grafana" grafana "3001:3000"
+fi
+if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
+  pb_port_forward "Kiali" kiali "20001:20001"
 fi
 # Registry UI is served via the platform frontend at /dashboard/registry
 # (sysadmin only) — no separate joxit/registry-express port-forward.
@@ -552,6 +563,8 @@ echo ""
 echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
 echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
 echo "    pgAdmin         : http://localhost:5480         http://$MK_IP:30480"
+echo "    Grafana         : http://localhost:3001         http://$MK_IP:30300"
+echo "    Kiali           : http://localhost:20001        http://$MK_IP:30201"
 echo "    Registry browser: https://localhost:8443/dashboard/registry  (sysadmin)"
 echo ""
 echo "  Databases (postgres / mongodb / redis) run in-cluster — reach them via the"
